@@ -56,6 +56,7 @@ const N = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|
 let MODAL_STASH = null;
 // The last "roll a d20" read, so the table lines under it can fill it in
 let LAST_ROLL = null;
+/** @type {Array<[RegExp, (m: RegExpMatchArray) => any]>} */
 const PATTERNS = [
   [/\bmodalx\b/, () => { const e = MODAL_STASH; MODAL_STASH = null; return e; }],
   // Jeska's Will: one {R} per card in the opponent's hand (the target with the most cards)
@@ -938,7 +939,7 @@ export function analyzeCard(card) {
     onCast: null, costReduce: null, modes: null, etbModes: null, saga: null,
     landfall: [], onOppCast: null, attackTax: 0, handOnly: false, flashback: null, evoke: null, altFree: null,
     convoke: false, delve: false, handMana: null, onOppDraw: null, combatDamage: [], clone: null,
-    manaAnthem: false, manaBoost: false, untapOthers: false, necro: false, searchHate: false, uncounterable: false, protectsSpells: false, pingCounters: false,
+    manaAnthem: /** @type {any} */ (false), manaBoost: false, untapOthers: false, necro: false, searchHate: false, uncounterable: false, protectsSpells: false, pingCounters: false,
     kwN: {}, watch: [], condBuff: null,
   };
   for (const k of card.keywords || []) if (KEYWORDS.includes(k.toLowerCase()) || MORE_KEYWORDS.includes(k.toLowerCase())) fx.kw.add(k.toLowerCase());
