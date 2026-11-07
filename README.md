@@ -100,6 +100,7 @@ The game folder contains no personal information: no names, accounts, email addr
 | EDHTop16, cEDH Decklist Database | cEDH meta data |
 | Commander Spellbook | combos and its bracket estimate |
 | CubeCobra | only the cube lists you add |
+| MTGJSON | booster contents for Draft / Sealed |
 | Wizards of the Coast | the Comprehensive Rules |
 | Cloudflare | only when you click **Play over the internet** |
 | The update address you enter | only when you click **Download and check** |
@@ -407,7 +408,11 @@ Every game is generated from a random seed, and any decisions you made are recor
 
 ## Draft and sealed
 
-**Draft / Sealed…** opens packs from a real set (any set code; the Commander Legends sets work best for pods) or from a cube. A set pack has a rare or mythic, a legendary card, three uncommons and nine commons.
+**Draft / Sealed…** opens packs from a real set (any set code; the Commander Legends sets work best for pods) or from a cube. Set packs match the real boosters, using MTGJSON's booster contents: the set's play or draft booster slots (commons, uncommons, rare or mythic, wildcard, foil and so on) and how often each card turns up. For example, Commander Legends packs have 20 cards with two legends.
+- Foils are normal copies of their card. Basic lands, and guest cards from other sets, are left out.
+- In a Commander pod, a pack without a legendary creature gets one in place of a common, so every pool has commanders.
+- A set's booster contents are saved after the first load, so drafts work offline. They're refreshed after 30 days.
+- Sets MTGJSON has no booster contents for use a fixed pack: a rare or mythic, a legendary card, three uncommons and nine commons.
 - **Sealed:** six packs each for you and three AI players.
 - **Draft:** four players, three packs passed left, right, left; click the card you want, and the AI drafters take the rest, staying in their colors.
 - **Play** the decks one of two ways:

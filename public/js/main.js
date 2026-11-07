@@ -7,6 +7,7 @@ import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.
 import { startTour } from './tour.js';
 import { buildReplayHtml } from './replayexport.js';
 import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames } from './limited.js';
+import { boosterData, boosterPacker } from './boosters.js';
 import { combosIn, fetchSpellbook, fetchSpellbookBracket } from './combos.js';
 import { coverage } from './effects.js';
 import { TableView, installPreview, Sound } from './ui.js';
@@ -1829,7 +1830,11 @@ $('btnLimitedGo').addEventListener('click', async () => {
     } else {
       const code = ($('limCode').value.trim() || $('limSet').value).toLowerCase();
       pool = await setPool(code, say);
-      packFn = makePack;
+      // Real pack contents from MTGJSON's booster sheets when it has them (Commander pods still get a
+      // legendary creature in every pack); otherwise the fixed layout
+      const sheets = await boosterData(code, say);
+      packFn = sheets ? await boosterPacker(sheets, pool, { legend: !LIM.duel }) : makePack;
+      note = sheets ? ` (packs as in real ${sheets.name.replace(/\s*boosters?\b.*$/i, '').replace(/ (Play|Draft|Set)$/, m => m.toLowerCase())} boosters, from MTGJSON)` : ' (MTGJSON has no booster contents for this set, so packs are 1 rare, 1 legend, 3 uncommons and 9 commons)';
       LIM.set = code; LIM.label = code.toUpperCase();
     }
     const seed = Math.floor(Math.random() * 2 ** 32);

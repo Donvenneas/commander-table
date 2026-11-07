@@ -235,10 +235,19 @@ Rules for this round, on top of the ones above:
   commit each finished item separately; a release is a VERSION bump plus a `v<version>` tag (.github/workflows/release.yml).
 
 ### Limited
-- [ ] 79. Real booster contents from MTGJSON: read the set's booster sheets (`booster` in MTGJSON's set file) so packs
+- [x] 79. Real booster contents from MTGJSON: read the set's booster sheets (`booster` in MTGJSON's set file) so packs
   match the set (slots, rarity rates, foils as normal cards, special guests and bonus sheets), instead of the fixed
   1 rare/mythic + 1 legendary + 3 uncommons + 9 commons. Keep the fixed layout as the fallback for sets without
   sheets and for cubes. Cache set files in `data\mtgjson\`.
+  - Done: public/js/boosters.js. MTGJSON allows browser requests (CORS), so the page fetches the set file itself
+    (no server change) and keeps only names, weights and colors in the browser profile (ct.boosters.<SET>, 30 days,
+    used offline), not the raw file in data\mtgjson. Play booster, then draft, then default (never collector);
+    weighted layouts and sheets, no repeats within a sheet, color balance for balanceColors sheets; foils as normal
+    cards; basics and other sets' cards (Special Guests) left out; CON_ handled. Sheet names Scryfall's booster list
+    lacks are fetched by name. Commander pods swap a common for a legend when a pack has none. Used by Draft / Sealed
+    and random Limited seats (the Expedition keeps its own packs). Tested: 200 packs each of BLB (13 cards),
+    CMR (20, two legends) and CON (14); a 4-seat BLB draft into two 40-card decks, 6 games, 0 errors; a CMR pod
+    sealed in the window (120 cards, 12 commanders); random sealed; self-test 15/15.
 - [ ] 80. Smarter AI drafters from 17Lands ratings: per-set card ratings (GIH WR / ALSA) where 17Lands has the set,
   blended with today's heuristics (color commitment, curve); fall back to today's picks elsewhere. Show "AI pick
   ratings: 17Lands" in the draft window. Check and respect 17Lands' data usage guidelines first; skip the item if

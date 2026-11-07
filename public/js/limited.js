@@ -2,6 +2,7 @@
 // into small Commander decks (a legendary creature from the pool as commander, 39 more cards, basics added).
 import { sf, normalize, fetchCollection } from './scryfall.js';
 import { makeRng } from './util.js';
+import { boosterData, boosterPacker } from './boosters.js';
 
 const RARITY = { common: 1, uncommon: 2.5, rare: 4, mythic: 5, special: 3, bonus: 3 };
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
@@ -220,7 +221,8 @@ export async function deckObject(chosen, colors, name, pool = chosen, size = DEC
 export async function randomSealed(onStatus) {
   const [code, setName] = SUGGESTED_SETS[2 + Math.floor(Math.random() * (SUGGESTED_SETS.length - 2))];
   const pool = await setPool(code, onStatus);
-  const mine = sealedPools(pool, 1, Math.floor(Math.random() * 2 ** 32))[0];
+  const sheets = await boosterData(code, onStatus);
+  const mine = sealedPools(pool, 1, Math.floor(Math.random() * 2 ** 32), sheets ? await boosterPacker(sheets, pool) : makePack)[0];
   const d = buildLimited(mine);
   return deckObject(d.cards, d.colors, `${setName} sealed (${d.colors.join('')})`, mine);
 }
