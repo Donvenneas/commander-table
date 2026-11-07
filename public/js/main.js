@@ -6,7 +6,7 @@ import { listDecks, saveDeck, deleteDeck } from './library.js';
 import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.js';
 import { startTour } from './tour.js';
 import { buildReplayHtml } from './replayexport.js';
-import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames } from './limited.js';
+import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames, loadRatings } from './limited.js';
 import { boosterData, boosterPacker } from './boosters.js';
 import { combosIn, fetchSpellbook, fetchSpellbookBracket } from './combos.js';
 import { coverage } from './effects.js';
@@ -1824,6 +1824,7 @@ $('btnLimitedGo').addEventListener('click', async () => {
       // Every card at most once per draft: packs are dealt from the shuffled cube
       let deal = null;
       packFn = (p, rand) => (deal ||= cubePacker(p, rand))();
+      await loadRatings('cube');   // (no ratings for cubes: clears the last set's)
       const need = 4 * (mode === 'sealed' ? 6 : 3) * 15;
       if (pool.length < need) note += ` · the cube has ${pool.length} cards, fewer than the ${need} this needs, so the last packs are short`;
       LIM.set = 'cube'; LIM.label = cube.name;
@@ -1834,7 +1835,9 @@ $('btnLimitedGo').addEventListener('click', async () => {
       // legendary creature in every pack); otherwise the fixed layout
       const sheets = await boosterData(code, say);
       packFn = sheets ? await boosterPacker(sheets, pool, { legend: !LIM.duel }) : makePack;
-      note = sheets ? ` (packs as in real ${sheets.name.replace(/\s*boosters?\b.*$/i, '').replace(/ (Play|Draft|Set)$/, m => m.toLowerCase())} boosters, from MTGJSON)` : ' (MTGJSON has no booster contents for this set, so packs are 1 rare, 1 legend, 3 uncommons and 9 commons)';
+      const ratings = await loadRatings(code);
+      note = (sheets ? ` (packs as in real ${sheets.name.replace(/\s*boosters?\b.*$/i, '').replace(/ (Play|Draft|Set)$/, m => m.toLowerCase())} boosters, from MTGJSON)` : ' (MTGJSON has no booster contents for this set, so packs are 1 rare, 1 legend, 3 uncommons and 9 commons)')
+        + (ratings ? ` · AI picks use card win rates from 17Lands public data (${ratings.games.toLocaleString()} games, CC BY 4.0)` : '');
       LIM.set = code; LIM.label = code.toUpperCase();
     }
     const seed = Math.floor(Math.random() * 2 ** 32);

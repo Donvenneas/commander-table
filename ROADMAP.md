@@ -248,10 +248,18 @@ Rules for this round, on top of the ones above:
     and random Limited seats (the Expedition keeps its own packs). Tested: 200 packs each of BLB (13 cards),
     CMR (20, two legends) and CON (14); a 4-seat BLB draft into two 40-card decks, 6 games, 0 errors; a CMR pod
     sealed in the window (120 cards, 12 commanders); random sealed; self-test 15/15.
-- [ ] 80. Smarter AI drafters from 17Lands ratings: per-set card ratings (GIH WR / ALSA) where 17Lands has the set,
+- [x] 80. Smarter AI drafters from 17Lands ratings: per-set card ratings (GIH WR / ALSA) where 17Lands has the set,
   blended with today's heuristics (color commitment, curve); fall back to today's picks elsewhere. Show "AI pick
   ratings: 17Lands" in the draft window. Check and respect 17Lands' data usage guidelines first; skip the item if
   they don't allow it.
+  - Done: 17Lands' terms of service forbid reusing site/API content (their card_ratings pages), but the public
+    datasets are CC BY 4.0. tools/ratings_17lands.py streams a set's public game data (PremierDraft, first 150,000
+    games, stops downloading there) and writes public/data/ratings/<SET>.json (GIH WR and games per card, average,
+    source and license). Built for BLB, DSK, FDN, MKM, WOE, DMU, MOM (~14 KB each). limited.js loadRatings and
+    pickScore: s = 0.6 × heuristics + 0.4 × (2.5 + (GIH WR − set average) × 50), only for cards with no unread text
+    (RATING_OPTS). Tuning, rated vs plain seat-0 decks over 96 BLB+FDN games: every rated card at weight 0.7
+    lost 12–36 (people win with cards the engine doesn't read yet); readOnly 0.7 56–40; readOnly 0.4 59–37.
+    No ALSA (would need the 200–350 MB draft files). Credit in README and in the draft window.
 
 ### Card coverage
 - [ ] 81. Scryfall bulk data ("Oracle Cards" file, once a day when asked) for random decks, the builder and the card

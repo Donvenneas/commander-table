@@ -413,6 +413,8 @@ Every game is generated from a random seed, and any decisions you made are recor
 - In a Commander pod, a pack without a legendary creature gets one in place of a common, so every pool has commanders.
 - A set's booster contents are saved after the first load, so drafts work offline. They're refreshed after 30 days.
 - Sets MTGJSON has no booster contents for use a fixed pack: a rare or mythic, a legendary card, three uncommons and nine commons.
+- **AI drafters** in Bloomburrow, Duskmourn, Foundations, Murders at Karlov Manor, Wilds of Eldraine, Dominaria United and March of the Machine also weigh each card's real win rate (when drawn, from 150,000 Arena games). They only trust it for cards the simulator fully understands, so they don't take a card the AI can't actually play. In tests, decks drafted this way beat the old drafters' decks 59–37.
+  - The ratings come from **17Lands Public Data** (https://www.17lands.com/public_datasets), licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Commander Table computes its own per-card summary from the first 150,000 games of each set's game data and ships it in `public/data/ratings`. They're built once by the developer tool `tools/ratings_17lands.py`; nothing is fetched from 17Lands while you play.
 - **Sealed:** six packs each for you and three AI players.
 - **Draft:** four players, three packs passed left, right, left; click the card you want, and the AI drafters take the rest, staying in their colors.
 - **Play** the decks one of two ways:

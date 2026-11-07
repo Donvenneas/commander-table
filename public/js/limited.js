@@ -45,12 +45,34 @@ export function makePack(pool, rand) {
 }
 
 const identity = c => c.colorIdentity || [];
+
+// Card ratings for the set being drafted: each card's win rate when drawn, computed from 17Lands' public game
+// data (CC BY 4.0; tools/ratings_17lands.py builds public/data/ratings/<SET>.json). null: no ratings for this set.
+let RATINGS = null;
+export async function loadRatings(code) {
+  RATINGS = null;
+  try {
+    const r = await fetch(`/data/ratings/${code.toUpperCase()}.json`);
+    if (r.ok) RATINGS = await r.json();
+  } catch { /* no ratings: the heuristics alone pick */ }
+  return RATINGS;
+}
+// weight: how much the rating leads over the heuristics; readOnly: trust ratings only for cards the simulator
+// reads fully (a card that wins for people can do nothing here if part of its text isn't simulated)
+// (tuned 2026-11-07, BLB + FDN drafts, 96 games per setting, rated vs plain seat-0 decks: weight 0.7 with every
+// rated card 12-36; readOnly 0.7 56-40; readOnly 0.4 59-37; readOnly 0.2 59-37)
+export const RATING_OPTS = { weight: 0.4, readOnly: true };
+const ratingOf = c => RATINGS && !(RATING_OPTS.readOnly && c.fx.unread?.length) && (RATINGS.cards[c.name] || RATINGS.cards[c.frontName]);
+
 // How much a drafter wants a card, given what it already picked
 export function pickScore(c, picks) {
   let s = RARITY[c.rarity] || 1;
   if (c.fx.type.land && !c.fx.mana) s -= 1;
   if (c.fx.type.creature) s += 0.4;
   if (c.fx.spell.some(e => ['remove', 'wipe', 'counter', 'damage'].includes(e.k))) s += 1;
+  // With ratings, the card's real win rate counts too (5 points of win rate over the set's average ≈ +2.5)
+  const r = ratingOf(c);
+  if (r) s = (1 - RATING_OPTS.weight) * s + RATING_OPTS.weight * (2.5 + (r.gihwr - RATINGS.average) * 50);
   if (isLegendaryCreature(c)) s += picks.some(isLegendaryCreature) ? 0.3 : 2;
   // Stay in the colors already taken (strongly, once there are a few picks)
   const counts = {};
@@ -222,6 +244,7 @@ export async function randomSealed(onStatus) {
   const [code, setName] = SUGGESTED_SETS[2 + Math.floor(Math.random() * (SUGGESTED_SETS.length - 2))];
   const pool = await setPool(code, onStatus);
   const sheets = await boosterData(code, onStatus);
+  await loadRatings(code);
   const mine = sealedPools(pool, 1, Math.floor(Math.random() * 2 ** 32), sheets ? await boosterPacker(sheets, pool) : makePack)[0];
   const d = buildLimited(mine);
   return deckObject(d.cards, d.colors, `${setName} sealed (${d.colors.join('')})`, mine);
