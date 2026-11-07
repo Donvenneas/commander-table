@@ -12,6 +12,18 @@ permissions:
   contents: read
 
 jobs:
+  typecheck:
+    # TypeScript's checker over public/js (no build); fails only on errors not in tests/typecheck-baseline.txt
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Type check (ratchet)
+        run: node tests/typecheck.mjs
+
   selftest:
     runs-on: ubuntu-latest
     timeout-minutes: 20

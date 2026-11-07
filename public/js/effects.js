@@ -1736,7 +1736,7 @@ const FLAG_TEXT = {
   teamRiot: () => 'your nontoken creatures have riot', permAnthem: v => `${v.other ? 'other ' : ''}permanents you control have ${v.kw.join(', ')}`, smallEvasion: v => `your creatures with power ${v.n} or less can't be blocked`,
   counterEvasion: () => "your creatures with +1/+1 counters can't be blocked", noAttack: () => "your creatures can't attack", bullyEvasion: () => "smaller creatures can't block yours",
   landsUntapped: () => 'your lands enter untapped', extraLandsAll: () => 'each player may play an extra land', noUntap: () => "doesn't untap in your untap step", teamCounter: () => 'your other creatures enter with an extra +1/+1 counter',
-  attackCap: () => 'only one creature can attack each combat', attackMeCap: () => 'only one creature can attack you each combat', needsBlessing: () => "can't attack or block without the city's blessing",
+  attackCap: () => 'only one creature can attack each combat', needsBlessing: () => "can't attack or block without the city's blessing",
   protectAttackers: () => 'damage to your attacking creatures is prevented', attachSet: v => `enchanted creature becomes a ${v.p}/${v.t} with no abilities`, stationN: v => `a creature at ${v}+ charge counters`,
   station: () => 'station (tap another creature: charge counters equal to its power)', dredge: v => `dredge ${v}`, hideaway: v => `hideaway ${v} (the hidden card goes to your hand)`, overload: v => `overload ${v}`, umbra: () => 'umbra armor',
   gift: v => `gift a ${v} (not promised)`, speed: () => 'start your engines (speed rises when opponents lose life on your turn)',

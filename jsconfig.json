@@ -1,0 +1,15 @@
+{
+  "//": "Type check for the game's JavaScript (no build step: players run the files as they are). Run: npx -y -p typescript@5.6.3 tsc -p jsconfig.json",
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "strict": false,
+    "skipLibCheck": true
+  },
+  "include": ["public/js/*.js"]
+}

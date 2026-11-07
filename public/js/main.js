@@ -36,6 +36,7 @@ import { tableText, dealRoles } from './kingdoms.js';
 import { setsState, checkSets, dailySetCheck, draftableSets } from './sets.js';
 import { revealedCards, aiSideboard, swapText } from './match.js';
 
+/** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 // (nine seats: the AI formats use up to four, the manual tabletop and Kingdoms up to nine)
 const SEAT_COLORS = ['#f2a93b', '#3bb6f2', '#b07cff', '#4cd18a', '#ef6b6b', '#e8d44d', '#5fd3c6', '#ff8fd8', '#9aa7ff'];

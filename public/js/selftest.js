@@ -8,6 +8,7 @@ import { watchGame } from './invariants.js';
 import { esc, store, makeRng } from './util.js';
 import { dealRoles } from './kingdoms.js';
 
+/** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 const prefs = store('ct.prefs') || {};
 document.documentElement.dataset.theme = prefs.theme || 'dark';
