@@ -1,5 +1,5 @@
 # Private: browser profile, saved settings, deck library, image cache, internet-play tool
-data/
+/data/
 
 # Kingdoms role card art from your own copy of the PDF (Wizards of the Coast's art; never shared)
 public/roles/
