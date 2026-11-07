@@ -281,8 +281,17 @@ Rules for this round, on top of the ones above:
   decision so fast games stay fast; tuned head to head against today's pilots with the matchup grid.
 
 ### Developer tooling
-- [ ] 84. Type-check the big modules with `// @ts-check` and JSDoc (engine.js, effects.js, ai.js first) using the
+- [x] 84. Type-check the big modules with `// @ts-check` and JSDoc (engine.js, effects.js, ai.js first) using the
   TypeScript compiler in CI only (no build step for players); fix what it finds.
+  - Done, as a ratchet instead of per-file `// @ts-check`: jsconfig.json checks all of public/js (checkJs, not
+    strict); tests/typecheck.mjs runs TypeScript 5.6.3 through npx and fails only on findings missing from
+    tests/typecheck-baseline.txt (file + code + message, no line numbers; a multiset, so a second copy of a known
+    error still fails). CI job "typecheck" in selftest.yml. First run: 320 findings; typing the `$` id helpers as
+    `any` removed 187; one real slip fixed (effects.js described `attackMeCap` twice in one object, the first entry
+    was dead). The other 132 are kept as the baseline: nearly all are properties added to objects and classes after
+    they're made (setup.humans, Game.trigSig, HumanUI.onRecord…) and HumanAgent's async overrides of Agent's
+    methods; none looked like a bug. Checked: a planted typo (`(1).lenght`) fails the check. Shrink the baseline
+    as code is touched (declare the properties in constructors, JSDoc the overrides).
 
 ## Notes from sessions
 

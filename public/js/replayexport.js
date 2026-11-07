@@ -120,6 +120,7 @@ footer { color: var(--muted); font-size: 11.5px; padding: 6px 16px 16px; }
 <script id="data" type="application/json">${json}</script>
 <script>
 const D = JSON.parse(document.getElementById('data').textContent);
+/** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 const e = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 let i = 0, timer = null;
