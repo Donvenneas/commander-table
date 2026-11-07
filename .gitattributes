@@ -1,0 +1,3 @@
+# Keep every file byte-for-byte as it is (LF line endings): start.sh and the macOS .command
+# break with Windows line endings, and the shareable zip is built from these same files.
+* -text

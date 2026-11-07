@@ -1,0 +1,2693 @@
+import { Game, Abort } from './engine.js';
+import { Agent, STYLES, guessStyle } from './ai.js';
+import { loadDeck, parseText } from './decks.js';
+import { sf, fetchCollection } from './scryfall.js';
+import { listDecks, saveDeck, deleteDeck } from './library.js';
+import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.js';
+import { startTour } from './tour.js';
+import { buildReplayHtml } from './replayexport.js';
+import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames } from './limited.js';
+import { combosIn, fetchSpellbook, fetchSpellbookBracket } from './combos.js';
+import { coverage } from './effects.js';
+import { TableView, installPreview, Sound } from './ui.js';
+import { HumanAgent, HumanUI, SeatUI } from './human.js';
+import { Room, RemoteUI, snapshot, TURN_CLOCKS } from './net.js';
+// (a friend's time bank counts down on their board while they decide)
+setInterval(() => { if (view && game && !game.over && [...remoteUIs.values()].some(u => u.waiting && u.clockMode !== 'off')) view.render(); }, 1000);
+import { qrSvg } from './qr.js';
+import { recordGame, learnedSummary, learnedStyle, forgetDeck, learnAs, mastery, deckKey } from './learn.js';
+import { ladder, recordRanked, newSeason, rankOf, aiRating, PLACEMENT, challenges, recordChallenges, checkBadges, badges, BADGE_LIST } from './progress.js';
+import { CEDH_PRESETS } from './presets.js';
+import { BRACKETS, BRACKET_NOISE, estimateBracket } from './brackets.js';
+import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta } from './cedhdata.js';
+import { Rules } from './rules.js';
+import { esc, sleep, store, symbolize, makeRng } from './util.js';
+import { FORMATS, formatOf, checkDeck } from './formats.js';
+import { AVATARS, BACKS, avatarById, backById, unlocked, pickerHtml } from './cosmetics.js';
+import { LANGS, startI18n } from './i18n.js';
+import { LESSONS, lessonsDone, markLesson, lessonPuzzle, coachHtml } from './tutorial.js';
+import { CHAPTERS, storyDone, markChapter, chapterOpen, chapterPuzzle } from './story.js';
+import { DIFFICULTY, NODE, runState, stats, startRun, abandonRun, yourDeck, rivalDeck, fightLife, currentChoices, rewardChoices, fightOver, takeReward, eventFor, resolveEvent, actName } from './campaign.js';
+import { encodeChallenge, decodeChallenge, challengeLink } from './challenge.js';
+import { openBuilder } from './builder.js';
+import { Tabletop, renderTabletop } from './manual.js';
+import { tableText, dealRoles } from './kingdoms.js';
+import { setsState, checkSets, dailySetCheck, draftableSets } from './sets.js';
+import { revealedCards, aiSideboard, swapText } from './match.js';
+
+const $ = id => document.getElementById(id);
+// (nine seats: the AI formats use up to four, the manual tabletop and Kingdoms up to nine)
+const SEAT_COLORS = ['#f2a93b', '#3bb6f2', '#b07cff', '#4cd18a', '#ef6b6b', '#e8d44d', '#5fd3c6', '#ff8fd8', '#9aa7ff'];
+const SPEEDS = [1900, 1050, 560, 260, 70];
+
+const humanUI = new HumanUI();
+const els = {
+  table: $('table'), log: $('log'), spotlight: $('spotlight'), turnLabel: $('turnLabel'), phaseTrack: $('phaseTrack'),
+  zoneModal: $('zoneModal'), zoneTitle: $('zoneTitle'), zoneCards: $('zoneCards'),
+};
+
+// ---------- real-time clock: speed, pause, single-step and fast-forward (for replays and skipping)
+class Clock {
+  constructor() {
+    this.speed = +$('speed').value; this.paused = false; this.credits = 0; this.aborted = false; this.waiters = [];
+    this.skip = 0; this.untilTurn = false; this.untilEnd = false; this.fast = 0;
+  }
+  get ff() { return this.skip > 0 || this.untilTurn || this.untilEnd || this.untilLive; }
+  async beat(w = 1) {
+    if (this.aborted) throw new Abort();
+    while (this.paused && this.credits <= 0 && !this.ff) {
+      await new Promise(r => this.waiters.push(r));
+      if (this.aborted) throw new Abort();
+    }
+    if (this.ff) {
+      if (this.skip > 0) this.skip--;
+      // Yield now and then so the page stays responsive while fast-forwarding
+      if (++this.fast % 150 === 0) await sleep(0);
+      if (this.aborted) throw new Abort();
+      return;
+    }
+    const stepping = this.paused;
+    if (stepping) this.credits--;
+    await sleep(stepping ? 120 : SPEEDS[this.speed] * w);
+    if (this.aborted) throw new Abort();
+  }
+  wake() { const w = this.waiters; this.waiters = []; w.forEach(f => f()); }
+  setPaused(v) { this.paused = v; this.wake(); }
+  step() { this.credits++; this.wake(); }
+  abort() { this.aborted = true; this.wake(); }
+}
+
+// ---------- seats
+const saved = store('ct.seats') || [];
+// Each format keeps its own deck sources (a Standard list and a Commander list don't mix)
+const savedSources = store('ct.sources') || {};
+const allSeats = SEAT_COLORS.map((color, i) => ({
+  color,
+  name: saved[i]?.name || ['Amber', 'Azure', 'Violet', 'Jade', 'Crimson', 'Gold', 'Teal', 'Rose', 'Lilac'][i],
+  source: saved[i]?.source || '',
+  style: saved[i]?.style || 'auto',
+  bracket: saved[i]?.bracket ?? null,
+  deck: null,
+}));
+// The table's format (formats.js): seats in play are the first `seats` of the four
+let formatKey = FORMATS[(store('ct.prefs') || {}).format] ? (store('ct.prefs') || {}).format : 'commander';
+const fmt = () => formatOf(formatKey);
+// How many seats the table has: the format's, or for the manual formats the number chosen (2–9, Kingdoms 5–9)
+function seatCount() {
+  const f = fmt();
+  if (!f.manual) return f.seats;
+  const n = +(store('ct.prefs') || {}).tablePlayers || f.seats;
+  return Math.max(f.minSeats || 2, Math.min(f.maxSeats || 9, n));
+}
+let seats = allSeats.slice(0, seatCount());
+// The manual tabletop (no rules engine): the tabletop format, or Kingdoms with its Table set to manual
+function tableManual() { const f = fmt(); return !!f.manual && !(f.roles && (prefs.kingdomsMode || 'engine') === 'engine'); }
+
+function setFormat(key, { quiet = false } = {}) {
+  if (!FORMATS[key] || key === formatKey) { syncFormatUI(); return; }
+  // Keep this format's deck sources, bring back the new format's
+  savedSources[formatKey] = allSeats.map(s => s.source);
+  formatKey = key;
+  const back = savedSources[key] || [];
+  allSeats.forEach((s, i) => { s.source = back[i] || ''; s.deck = null; });
+  store('ct.sources', savedSources);
+  seats = allSeats.slice(0, seatCount());
+  prefs.format = key;
+  store('ct.prefs', prefs);
+  match = null;
+  persist();
+  syncFormatUI();
+  renderSeats();
+  if (!quiet) $('setupStatus').textContent = `${fmt().name}: ${fmt().about}.`;
+}
+// Show the controls that fit the format (brackets, cEDH and Commander-only modes for Commander)
+function syncFormatUI() {
+  const f = fmt();
+  $('formatSel').value = formatKey;
+  $('bestOfWrap').hidden = !f.bo3;
+  // Manual tables (the tabletop and Kingdoms): how many players, and the starting life
+  $('tablePlayersWrap').hidden = !f.manual;
+  $('tableLifeWrap').hidden = !f.manual || !!f.roles;
+  $('kingdomsModeWrap').hidden = !f.roles;
+  $('kingdomsMode').value = prefs.kingdomsMode || 'engine';
+  $('rankedWrap').hidden = !!f.manual;
+  if (f.manual) {
+    const lo = f.minSeats || 2, hi = f.maxSeats || 9;
+    $('tablePlayers').innerHTML = Array.from({ length: hi - lo + 1 }, (_, k) => lo + k).map(n => `<option value="${n}" ${n === seatCount() ? 'selected' : ''}>${n}${f.roles ? ` (${tableText(n)})` : ''}</option>`).join('');
+    $('tableLife').value = String(prefs.tableLife || 40);
+  }
+  $('bestOfSel').value = String(prefs.bestOf || 1);
+  $('formatAbout').textContent = f.about;
+  $('setupTitle').textContent = f.manual ? `${f.roles ? 'Kingdoms' : 'Manual tabletop'}: seat ${seatCount()} decks` : f.seats === 2 ? `Seat two ${f.name} decks` : 'Seat four decks';
+  $('setupIntro').textContent = f.commander
+    ? "Paste a deck link from Archidekt, Moxfield, MTGGoldfish or TappedOut. You can also paste a plain decklist, or leave a seat empty to get a random deck built from Scryfall's EDHREC rankings."
+    : `Paste a deck link from Archidekt, Moxfield, MTGGoldfish or TappedOut, or a decklist (MTG Arena and MTGO exports keep their sideboard). Leave a seat empty for a random ${f.name} deck.`;
+  // Brackets, cEDH data, budget random decks and puzzles are Commander's own; Draft / Sealed works from
+  // any format (it switches the table to Commander or Limited)
+  const edh = formatKey === 'commander';
+  for (const id of ['btnCedh', 'btnMeta', 'btnBracketTable', 'btnPuzzles']) if ($(id)) $(id).hidden = !edh;
+  for (const id of ['tableBracket', 'budgetMode']) if ($(id)) $(id).closest('label').hidden = !edh;
+}
+
+function renderSeats() {
+  $('seats').innerHTML = seats.map((s, i) => `
+    <div class="seat" style="--pc:${s.color}" data-i="${i}">
+      <div class="seat-top">
+        <span class="grip" draggable="true" title="Drag onto another seat to swap them">⠿</span>
+        <span class="dot"></span>
+        <input class="input sname" value="${esc(s.name)}" maxlength="24" aria-label="Player name">
+        <select class="sstyle" aria-label="AI play style" title="${tableManual() ? 'Who plays this seat (no AI at a manual table)' : 'Who plays this seat: an AI style, you, or a friend online'}">
+          ${tableManual() ? '' : `<option value="auto">Auto style</option>
+          ${Object.entries(STYLES).map(([k, v]) => `<option value="${k}" ${s.style === k ? 'selected' : ''}>${v}</option>`).join('')}`}
+          <option value="human" ${s.style === 'human' || (tableManual() && s.style !== 'remote') ? 'selected' : ''}>${tableManual() ? 'Played on this PC' : 'You play this seat'}</option>
+          <option value="remote" ${s.style === 'remote' ? 'selected' : ''}>A friend plays this seat (online)</option>
+        </select>
+        ${(formatKey === 'commander') ? `<select class="sbracket" aria-label="Commander bracket" title="Commander bracket: shapes random decks and how sharply the AI plays">${bracketOptions(s.bracket)}</select>` : ''}
+        <button class="btn small srandom" title="${(formatKey === 'commander') ? 'Random deck (within the bracket, if one is chosen)' : `Random ${esc(fmt().name)} deck`}">Random</button>
+      </div>
+      <textarea class="input ssource" spellcheck="false" placeholder="${fmt().commander ? `https://archidekt.com/decks/…   ·   https://moxfield.com/decks/…   ·   or paste a list:
+1 Atraxa, Praetors' Voice *CMDR*
+1 Sol Ring
+…` : `https://archidekt.com/decks/…   ·   https://www.mtggoldfish.com/deck/…   ·   or paste a list:
+Deck
+4 Lightning Bolt
+…
+Sideboard
+2 Pyroblast`}">${esc(s.source)}</textarea>
+      <div class="seat-status">${s.deck ? deckSummary(s.deck, i) : '<span>Empty seat — a random deck will be generated.</span>'}</div>
+    </div>`).join('');
+  $('seats').querySelectorAll('.seat').forEach(el => {
+    const s = seats[+el.dataset.i];
+    // Drag a seat's grip onto another seat to swap the two (colors stay with the position)
+    el.querySelector('.grip').addEventListener('dragstart', e => { e.dataTransfer.setData('text/seat', el.dataset.i); e.dataTransfer.effectAllowed = 'move'; });
+    el.addEventListener('dragover', e => { if (e.dataTransfer.types.includes('text/seat')) { e.preventDefault(); el.classList.add('dragover'); } });
+    el.addEventListener('dragleave', () => el.classList.remove('dragover'));
+    el.addEventListener('drop', e => {
+      el.classList.remove('dragover');
+      const from = +e.dataTransfer.getData('text/seat'), to = +el.dataset.i;
+      if (Number.isNaN(from) || from === to) return;
+      e.preventDefault();
+      const keys = ['name', 'source', 'style', 'deck', 'bracket'];
+      const a = Object.fromEntries(keys.map(k => [k, seats[from][k]]));
+      keys.forEach(k => { seats[from][k] = seats[to][k]; seats[to][k] = a[k]; });
+      persist();
+      renderSeats();
+    });
+    el.querySelector('.sname').addEventListener('input', e => { s.name = e.target.value; persist(); });
+    el.querySelector('.sstyle').addEventListener('change', e => {
+      // Several seats played here make a hotseat game (the device is passed between decisions)
+      s.style = e.target.value;
+      persist();
+      const humans = seats.filter(o => o.style === 'human').length;
+      $('setupStatus').textContent = humans > 1 ? `Hotseat: ${humans} people share this PC. Before each person's decision, the hands are hidden until they click "I'm ready".` : '';
+    });
+    el.querySelector('.ssource').addEventListener('input', e => { s.source = e.target.value; s.deck = null; persist(); });
+    el.querySelector('.sbracket')?.addEventListener('change', e => { s.bracket = e.target.value ? +e.target.value : null; if (/^(random)?$/i.test(s.source.trim())) s.deck = null; persist(); renderSeats(); });
+    el.querySelector('.srandom').addEventListener('click', () => { s.source = 'random'; s.deck = null; el.querySelector('.ssource').value = 'random'; persist(); });
+  });
+}
+
+function deckSummary(d, i) {
+  const n = d.commanders.length + d.cards.reduce((a, c) => a + c.qty, 0);
+  const combos = combosIn([...d.commanders, ...d.cards.map(c => c.card)]);
+  const cov = coverage(d);
+  const cmdFormat = (formatKey === 'commander');
+  const est = estimateBracket(d);
+  const want = cmdFormat ? seats[i]?.bracket : null;
+  const over = want && est.bracket > want;
+  const side = (d.sideboard || []).reduce((a, c) => a + c.qty, 0);
+  const m = mastery(learnAs(d));
+  const lv = `<span class="mastery-chip" title="Deck mastery: ${m.games} games, ${m.wins} wins${m.next ? ` · ${m.span - m.into} points to level ${m.level + 1}` : ' · top level'}">Lv ${m.level}</span>`;
+  return `<span class="thumb" style="background-image:url('${deckArt(d)}')">${lv}</span>
+    <span><b>${esc(d.deckName)}</b> · ${n} cards${side ? ` + ${side} sideboard` : ''} · plays ${esc(STYLES[guessStyle(d)])} · <span class="${cov.pct < 70 ? 'warn' : ''}" title="Share of non-basic cards the simulator understands at least part of">${cov.pct}% understood</span>
+    ${cmdFormat ? `· <span class="bracket-chip b${est.bracket}" title="${esc(est.reasons.join(' · ') || 'No Game Changers, two-card combos, extra turns or mass land destruction')}">Bracket ${est.bracket}: ${BRACKETS[est.bracket].name}</span>` : ''}${cmdFormat && d.sbBracket ? `
+    <span class="bracket-chip sb ${d.sbBracket.about ? `b${d.sbBracket.about}` : 'b5'}" title="Commander Spellbook's estimate: ${esc(d.sbBracket.name)}${d.sbBracket.about ? `, roughly bracket ${d.sbBracket.about}` : ''} (${d.sbBracket.gameChangers} Game Changers, ${d.sbBracket.twoCard} two-card combos by its count)">Spellbook: ${esc(d.sbBracket.name)}</span>${d.sbBracket.banned?.length ? ` <span class="warn">Banned in Commander: ${d.sbBracket.banned.map(esc).join(', ')}</span>` : ''}` : ''}
+    <button class="btn small sview" data-i="${i}">View deck</button> <button class="btn small sedit" data-i="${i}">Edit</button> <button class="btn small sbuild" data-i="${i}" title="Open this deck in the full-screen deck builder">Builder</button>${over ? `<br><span class="warn">This deck plays at bracket ${est.bracket}, above the seat's bracket ${want}: ${esc(est.reasons[0] || '')}</span>` : ''}${combos.length ? `<br><span class="combos">${combos.length} combo${combos.length === 1 ? '' : 's'}: ${combos.slice(0, 5).map(c => esc(c.label)).join(', ')}${combos.length > 5 ? `, and ${combos.length - 5} more` : ''}</span>` : ''}${d.warnings.length ? `<br><span class="warn">${d.warnings.slice(0, 3).map(esc).join('<br>')}</span>` : ''}</span>`;
+}
+
+// A deck's picture: its commander, else its most-played nonland card
+function deckArt(d) {
+  if (d.commanders[0]) return d.commanders[0].art;
+  const pick = [...d.cards].filter(c => !/\bland\b/i.test(c.card.typeLine)).sort((a, b) => b.qty - a.qty || (b.card.cmc || 0) - (a.card.cmc || 0))[0] || d.cards[0];
+  return pick?.card.art || '';
+}
+
+function persist() { store('ct.seats', allSeats.map(({ name, source, style, bracket }) => ({ name, source, style, bracket }))); }
+function bracketOptions(sel) {
+  return '<option value="">Any bracket</option>' + Object.entries(BRACKETS).map(([n, b]) => `<option value="${n}" ${+sel === +n ? 'selected' : ''}>Bracket ${n}: ${b.name}</option>`).join('');
+}
+
+function seatStatus(i, html, cls = '') {
+  const el = $('seats').querySelector(`.seat[data-i="${i}"] .seat-status`);
+  if (el) { el.className = `seat-status ${cls}`; el.innerHTML = html; }
+}
+
+// Load a seat's deck, then ask Commander Spellbook for every combo in it
+async function loadSeatDeck(s, status) {
+  s.deck = await loadDeck(s.source, status, { bracket: s.bracket, budget: prefs.budget || 'any', format: formatKey });
+  s.deck.format = formatKey;
+  status('Checking Commander Spellbook for combos…');
+  try { s.deck.spellbook = await fetchSpellbook(s.deck); } catch (e) {
+    s.deck.warnings.push(`Couldn't reach Commander Spellbook (${e.message}), so only the built-in combo list is used.`);
+  }
+  // Its bracket estimate is shown next to ours (just for comparison; it doesn't change play)
+  if ((formatKey === 'commander')) try { s.deck.sbBracket = await fetchSpellbookBracket(s.deck); } catch { s.deck.sbBracket = null; }
+  return s.deck;
+}
+
+async function loadAll() {
+  const btn = $('btnLoad');
+  btn.disabled = true;
+  $('setupStatus').textContent = 'Loading decks…';
+  let failed = false;
+  // Load sequentially so Scryfall's rate limit is respected
+  for (let i = 0; i < seats.length; i++) {
+    const s = seats[i];
+    if (s.deck && (s.deck.format || 'commander') !== formatKey) s.deck = null;
+    if (s.deck) { seatStatus(i, deckSummary(s.deck, i), 'ok'); continue; }
+    try {
+      await loadSeatDeck(s, msg => seatStatus(i, esc(msg)));
+      seatStatus(i, deckSummary(s.deck, i), 'ok');
+    } catch (e) {
+      failed = true;
+      seatStatus(i, esc(e.message), 'err');
+    }
+  }
+  btn.disabled = false;
+  if (failed) { $('setupStatus').textContent = 'Fix the highlighted seats and try again.'; return; }
+  $('setupStatus').textContent = '';
+  // A manual format plays at the tabletop (no rules engine, no AI)
+  if (tableManual()) return startTabletop();
+  if (fmt().roles && (seats.length < 5 || seats.length > 9)) { $('setupStatus').textContent = 'Kingdoms needs 5 to 9 players: choose the number of players above.'; return; }
+  $('setup').hidden = true;
+  // Best of three: a new match with these decks
+  match = fmt().bo3 && +prefs.bestOf === 3 ? newMatch() : null;
+  newGame();
+}
+
+// ---------- best-of-three matches
+// decks: each seat's current deck and sideboard (sideboarding between games changes them);
+// games: who won each game; the winner of the match is the first to two wins
+let match = null;
+function newMatch() {
+  return { format: formatKey, decks: seats.map(s => s.deck), originals: seats.map(s => s.deck), games: [], wins: seats.map(() => 0), firstPlayer: null, swaps: seats.map(() => []) };
+}
+// (a drawn game counts for nobody; after three games the match ends either way)
+const matchOver = m => m && (m.wins.some(w => w >= 2) || m.games.length >= 3);
+function matchScore(m) { return m.wins.join('–'); }
+
+// ---------- game lifecycle
+let game = null, clock = null, view = null;
+// What's needed to rebuild the current game exactly: its seed and seats, plus where each turn starts
+let setup = null;
+
+function newGame(opts = {}) {
+  lobbyOpen = false;
+  // (a game started from anywhere, the start menu included, takes the screen)
+  $('startMenu').hidden = true;
+  clock?.abort();
+  clock = new Clock();
+  if (!opts.replay || !setup) {
+    setup = {
+      seed: opts.seed ?? Math.floor(Math.random() * 2 ** 32),
+      // A puzzle brings its own seats: you in seat 1, AI opponents in the rest
+      puzzle: opts.puzzle || null,
+      // Expedition fights bring their own seats ({ name, deck, style, bracket })
+      seats: opts.customSeats ? opts.customSeats.map((s, i) => ({ name: s.name, color: allSeats[i].color, style: s.style, deck: s.deck, bracket: s.bracket ?? null }))
+        : opts.puzzle ? opts.puzzleDecks.map((deck, i) => ({ name: opts.puzzle.players[i].name || `Player ${i + 1}`, color: allSeats[i].color, style: i === 0 ? 'human' : 'balanced', deck, bracket: null })) : seats.map((s, i) => {
+        // In a match, the deck as sideboarded for this game
+        const deck = match?.decks[i] || s.deck;
+        // The seat's bracket (or the deck's estimated one) sets how sharply its AI plays; bracket 5 plays cEDH.
+        // Outside Commander there are no brackets: the AI plays at full strength
+        const bracket = (formatKey === 'commander') ? s.bracket || estimateBracket(deck).bracket : 4;
+        // Auto: cEDH for bracket 5, else the style this deck has won most with (learn.js), else a guess from the list
+        const style = s.style === 'auto' ? (bracket === 5 ? 'cedh' : learnedStyle(learnAs(deck)) || guessStyle(deck)) : s.style;
+        return { name: s.name || 'Player', color: s.color, style, deck, bracket };
+      }),
+      // The format's rules, and (in a match) who goes first this game
+      format: opts.format || (opts.puzzle ? 'commander' : formatKey),
+      firstPlayer: opts.firstPlayer ?? null,
+      // Kingdoms: the secret roles, dealt from the game's seed (so replays deal the same)
+      roles: opts.roles || null,
+      // Which game of a best-of-three match this is (1–3), if any
+      matchGame: !opts.puzzle && !opts.customSeats && match && !opts.loadedReplay ? match.games.length + 1 : null,
+      // Extra starting life per seat, a coach panel (lessons), and what happens after the game
+      // (lessons, story and expedition: { html, buttons } for the results screen)
+      lifeBonus: opts.lifeBonus || null, coach: opts.coach || null, after: opts.after || null,
+      turnStarts: [], total: 0,
+      // Your answers, in order, when a seat is yours (so the game can be rebuilt for replays and undo)
+      decisions: opts.decisions || [],
+      // Online friends' answers, by seat (a loaded replay plays them back with no friend connected)
+      remoteDecisions: opts.remoteDecisions || {},
+      replayOnly: !!opts.remoteDecisions,
+      // Each deck's learned card bonuses as they were when the game started (replays use the same)
+      learned: opts.learned || null,
+      noLearning: !!opts.noLearning,
+      loadedReplay: !!opts.loadedReplay,
+    };
+    // Every seat played on this PC (more than one is hotseat: they pass the device between decisions)
+    if (!setup.roles && formatOf(setup.format).roles) setup.roles = dealRoles(setup.seats.length, makeRng((setup.seed ^ 0x6b696e67) >>> 0));
+    setup.humans = setup.seats.map((s, i) => (s.style === 'human' ? i : -1)).filter(i => i >= 0);
+    setup.human = setup.humans[0] ?? -1;
+    setup.remote = setup.seats.map((s, i) => (s.style === 'remote' ? i : -1)).filter(i => i >= 0);
+    // Ranked (progress.js ladder): exactly one seat played by you, no friends, not a puzzle or a loaded replay
+    setup.ranked = !!prefs.ranked && !setup.roles && setup.humans.length === 1 && !setup.remote.length && !setup.puzzle && !setup.loadedReplay && !opts.customSeats;
+    // (a seat keeps its rival tag only while it still holds that rival's deck)
+    setup.rivalKeys = opts.puzzle || opts.customSeats ? [] : seats.map(s => (s.rivalKey && s.source === s.rivalSource ? s.rivalKey : null));
+    // The stops a game started with (a loaded replay brings its own; older replays had none)
+    setup.stopOpts = opts.stopOpts || (opts.loadedReplay ? { stops: {}, full: false, orderTriggers: false } : stopOpts());
+  }
+  const hotseat = setup.humans.length > 1;
+  humanUI.seat = null;
+  remoteUIs.forEach(u => u.cancel());
+  humanUI.onRecord = noteAnswer;
+  remoteUIs = new Map(setup.remote.map(i => {
+    const u = new RemoteUI(room, i, prefs.decisionTime || 120, setup.replayOnly ? 'off' : prefs.turnClock || 'off');
+    u.setRecord(setup.remoteDecisions[i] ||= [], setup.replayOnly);
+    u.onRecord = noteAnswer;
+    return [i, u];
+  }));
+  const gameSeats = setup.seats.map((s, i) => ({
+    playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards,
+    agent: setup.humans.includes(i) ? new HumanAgent(guessStyle(s.deck), hotseat ? new SeatUI(humanUI, i, setup.seats.map(x => x.name)) : humanUI, setup.stopOpts)
+      : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
+      : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0 }),
+  }));
+  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles });
+  setup.learned ||= game.players.map(p => p.learned);
+  // The coach panel (lessons) shows beside the table while the game runs
+  $('coach').innerHTML = setup.coach || '';
+  $('coach').hidden = !setup.coach;
+  game.chat = chatLog;
+  game.players.forEach((p, i) => { p.art = deckArt(setup.seats[i].deck); if (setup.humans.includes(i) && avatarUrl()) p.avatar = avatarUrl(); });
+  view = new TableView(game, els);
+  fillLogSeats();
+  // Ranked: no peeking at hands, no AI explanations (they reveal hands), no undo
+  const locked = setup.ranked && !setup.progressed;
+  for (const id of ['revealHands', 'explainMode']) { if (locked) $(id).checked = false; $(id).disabled = !!locked; }
+  view.revealHands = $('revealHands').checked;
+  game.explain = $('explainMode').checked;
+  view.humanIdx = setup.human;
+  humanUI.attach(game, view, setup.decisions);
+  remoteUIs.forEach(u => u.attach(game));
+  if (opts.untilLive) clock.untilLive = true;
+  $('tlUndo').hidden = !(setup.human >= 0) || !!locked;
+  if (opts.skip) clock.skip = opts.skip;
+  if (opts.paused) clock.paused = true;
+  game.on('turn', p => {
+    // Turn clock: a friend's bank fills up at the start of each of their turns
+    remoteUIs.get(p?.idx)?.refill();
+    if (!setup.turnStarts.includes(game.steps)) setup.turnStarts.push(game.steps);
+    setup.turnStarts.sort((a, b) => a - b);
+    if (clock.untilTurn) { clock.untilTurn = false; clock.setPaused(true); syncPlay(); }
+  });
+  game.on('over', () => {
+    setup.total = game.steps;
+    // Each game teaches the decks once (not again when it's replayed or rewound)
+    if (!setup.recorded && !setup.loadedReplay) { setup.recorded = true; recordGame(game); addHistory(game); }
+    // A match game counts once (rewinding and replaying it doesn't add another result)
+    if (setup.matchGame && match && match.games.length === setup.matchGame - 1) {
+      const w = game.winner ? game.winner.idx : null;
+      match.games.push({ winner: w, seed: setup.seed, firstPlayer: setup.firstPlayer, revealed: game.players.map((p, i) => revealedCards(game, i).cards) });
+      if (w != null) match.wins[w]++;
+    }
+    // Your progress (ladder, challenges, badges, rival records): once per game, when you played a seat
+    if (!setup.progressed && !setup.loadedReplay && !setup.puzzle && setup.humans.length === 1 && !setup.remote.length) {
+      setup.progressed = true;
+      setup.progressNote = recordProgress(game);
+    }
+    clock.untilEnd = false;
+    setTimeout(showResults, clock.ff ? 0 : 1200);
+  });
+  $('btnPlay').disabled = false;
+  $('btnStep').disabled = false;
+  syncPlay();
+  $('timeline').hidden = false;
+  $('tlInvite').textContent = setup.remote.length && !setup.replayOnly ? 'Invite' : 'Spectators';
+  const live = setup.remote.length && !setup.replayOnly;
+  // Keep friends' and spectators' view of the table up to date while a room is open
+  const g = game;
+  let timer = null;
+  const push = () => { timer = null; if (game === g && room.code) for (const i of room.seats) room.state(i, snapshot(g, i)); };
+  g.on('update', () => { if (room.code && !timer) timer = setTimeout(push, clock.ff ? 1500 : 350); });
+  pushView = push;
+  if (!live) {
+    // No friends' seats: keep a spectators-only room open, otherwise close it
+    if (room.code && room.seats.join(',') !== '-1') room.close();
+    if (room.code) push();
+    game.run();
+    return;
+  }
+  // Friends' seats: open the room (once), then start
+  openRoom().then(ok => {
+    if (game !== g) return;
+    if (!ok) { $('tlLabel').textContent = `Online seats need Commander Table.exe (${room.error})`; return; }
+    push();
+    g.run();
+  });
+}
+
+// ---------- online seats: friends on your network join from their own browser
+// Seat -1 is the spectators' view: every room has one, and a room can be opened just for spectators
+const room = new Room();
+let remoteUIs = new Map();
+let pushView = () => {};
+async function openRoom(seatList = [...setup.remote, -1]) {
+  const want = seatList.join(',');
+  if (room.code && room.seats.join(',') === want) return true;
+  const ok = await room.open(seatList);
+  if (ok) showInvite();
+  return ok;
+}
+function showInvite() {
+  const link = (u, label) => `<div class="invite-link"><span class="invite-kind">${label}</span><input class="input" readonly value="${esc(u)}"><button class="btn small" data-copy="${esc(u)}">Copy</button></div>`;
+  $('inviteBody').innerHTML = `
+    <div class="internet-box">
+      ${room.tunnelUrl
+        ? `<b>Internet play is on.</b> <span class="muted">Friends anywhere can use the internet links below. The address changes each time Commander Table starts.</span>`
+        : `<button class="btn primary" id="btnInternet">Play over the internet</button>
+           <span class="muted" id="internetStatus">Home-network links work on the same Wi-Fi. For friends anywhere, this starts a free Cloudflare tunnel (no account needed). The first time, Commander Table downloads Cloudflare's official tunnel tool (about 60 MB).</span>`}
+    </div>
+    <label class="decision-time">Time for each decision
+      <select id="decisionTime" class="input">${[30, 60, 120, 300, 600].map(s => `<option value="${s}" ${(prefs.decisionTime || 120) === s ? 'selected' : ''}>${s < 120 ? `${s} seconds` : `${s / 60} minutes`}</option>`).join('')}</select>
+      <span class="muted">After this, the AI decides for them.</span></label>
+    <label class="decision-time">Turn clock
+      <select id="turnClock" class="input">${Object.entries(TURN_CLOCKS).map(([k, c]) => `<option value="${k}" ${(prefs.turnClock || 'off') === k ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+      <span class="muted">A time bank per friend instead of a time per decision; it runs down while they decide. When it's empty the AI plays for them until their next turn. You can nudge a friend who's thinking. Applies from the next game.</span></label>` + room.links().map(({ seat, urls, internet }) => seat < 0 ? `
+    <div class="invite spectators">
+      <div class="invite-head"><span class="dot"></span><b>Spectators</b> <span class="muted">Anyone with this link can watch. They see the table and every player's card counts, but no hands.</span></div>
+      <div class="invite-quick">
+        <div class="invite-qr" title="Scan with a phone camera">${qrSvg(internet || urls[0] || '', 2)}</div>
+        <div><div class="muted">Watch code</div><div class="join-code">${room.code}-0</div></div>
+      </div>
+      ${internet ? link(internet, 'Internet') : ''}
+      ${urls.map(u => link(u, 'Home network')).join('')}
+    </div>` : `
+    <div class="invite" style="--pc:${(lobbyOpen || tabletopInvite ? seats : setup.seats)[seat].color}">
+      <div class="invite-head"><span class="dot"></span><b>${esc((lobbyOpen || tabletopInvite ? seats : setup.seats)[seat].name)}</b> <span class="muted">${esc(lobbyOpen ? (seats[seat].lobbyChoice || 'choosing a deck…') : tabletopInvite ? seats[seat].deck?.deckName || '' : setup.seats[seat].deck.deckName)}</span>
+        <span class="invite-status" data-seat="${seat}">Waiting for them to join…</span></div>
+      <div class="invite-quick">
+        <div class="invite-qr" title="Scan with a phone camera">${qrSvg(internet || urls[0] || '', 3)}</div>
+        <div><div class="muted">Join code</div><div class="join-code">${room.code}-${seat + 1}</div>
+          <div class="muted small">Friends can open <b>${esc((internet || urls[0] || '').replace(/\/play\.html.*/, ''))}</b> and type this code, or scan the QR code.</div></div>
+      </div>
+      ${internet ? link(internet, 'Internet') : ''}
+      ${urls.map(u => link(u, 'Home network')).join('') || (internet ? '' : '<p class="warn">No network address found. Is this PC connected to a network?</p>')}
+    </div>`).join('');
+  $('btnInternet')?.addEventListener('click', async e => {
+    e.target.disabled = true;
+    const say = t => { $('internetStatus').textContent = t; };
+    try {
+      await room.tunnel(st => say({ downloading: 'Downloading Cloudflare\'s tunnel tool (one time only)…', starting: 'Starting the tunnel…' }[st] || 'Working…'));
+      showInvite();
+    } catch (err) {
+      e.target.disabled = false;
+      say(`Couldn't start internet play: ${err.message}`);
+    }
+  });
+  $('inviteModal').hidden = false;
+}
+$('inviteBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-copy]');
+  if (!b) return;
+  navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }).catch(() => b.previousElementSibling.select());
+});
+$('inviteBody').addEventListener('change', e => {
+  if (e.target.id === 'turnClock') { prefs.turnClock = e.target.value; store('ct.prefs', prefs); return; }
+  if (e.target.id !== 'decisionTime') return;
+  prefs.decisionTime = +e.target.value;
+  store('ct.prefs', prefs);
+  remoteUIs.forEach(u => { u.timeout = prefs.decisionTime; });
+});
+$('btnInviteClose').addEventListener('click', () => { $('inviteModal').hidden = true; });
+$('tlInvite').addEventListener('click', async () => {
+  if (room.code) return showInvite();
+  if (!game) return;
+  // A game without friends' seats: open a room just for spectators
+  if (await openRoom([-1])) pushView();
+  else $('tlLabel').textContent = `Spectator links need Commander Table.exe (${room.error})`;
+});
+// ---------- chat and emotes between everyone at an online table (friends, spectators and you)
+const chatLog = [];
+function say(seat, name, text) {
+  const id = (chatLog[chatLog.length - 1]?.id || 0) + 1;
+  chatLog.push({ id, seat, name, text });
+  if (chatLog.length > 30) chatLog.shift();
+  if (game) {
+    game.chat = chatLog;
+    game.log(`💬 <b>${esc(name)}</b>: ${esc(text)}`, { kind: 'chat', p: seat >= 0 ? seat : null });
+    game.emit('update');
+  }
+  if (seat >= 0) showBubble(document.querySelector(`#table .board[data-player="${seat}"]`), text);
+}
+function showBubble(board, text) {
+  if (!board) return;
+  const r = board.getBoundingClientRect();
+  const b = document.createElement('div');
+  b.className = 'say-bubble';
+  b.textContent = text;
+  Object.assign(b.style, { left: `${r.left + r.width / 2}px`, top: `${r.top + 8}px` });
+  document.body.append(b);
+  setTimeout(() => b.remove(), 3700);
+}
+function hostSay(text) {
+  text = text.trim().slice(0, 200);
+  if (!text) return;
+  const me = setup?.human >= 0 ? setup.human : -1;
+  say(me, me >= 0 ? setup.seats[me].name : 'Host', text);
+}
+$('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') { hostSay(e.target.value); e.target.value = ''; } });
+// Table talk: offer a deal from the chat. It's put to the other player at the start of the next turn.
+const DEAL_KINDS = ['truce', 'gangUp', 'noCounter', 'tribute'];
+function queueDeal(from, to, kind, rounds = 2) {
+  if (!game || !DEAL_KINDS.includes(kind) || from === to || !game.players[from] || !game.players[to]) return;
+  rounds = Math.max(0, Math.min(5, Number.isFinite(+rounds) ? +rounds : 2));
+  game.pendingDeals.push({ from, to, kind, rounds });
+  game.log(`${game.pn(game.players[from])} will offer ${game.pn(game.players[to])} a ${rounds === 0 ? 'rest-of-round' : `${rounds}-round`} deal at the start of the next turn`, { kind: 'politics', p: from });
+}
+$('btnDealOpen').addEventListener('click', () => {
+  const me = setup?.human ?? -1;
+  if (!game || me < 0) { hostSay('(Deals need a seat you play)'); return; }
+  $('dealTo').innerHTML = game.players.filter(p => p.idx !== me && !p.lost).map(p => `<option value="${p.idx}">${esc(p.name)}</option>`).join('');
+  $('dealForm').hidden = !$('dealForm').hidden;
+});
+$('btnDealSend').addEventListener('click', () => {
+  queueDeal(setup.human, +$('dealTo').value, $('dealKind').value, +$('dealRounds').value);
+  $('dealForm').hidden = true;
+});
+$('chatBox').addEventListener('click', e => { const b = e.target.closest('[data-say]'); if (b) hostSay(b.dataset.say); });
+
+// ---------- lobby: friends join before the game starts and send their own decks
+let lobbyOpen = false;
+async function lobbyState() {
+  const library = await listDecks().then(l => l.map(d => d.name)).catch(() => []);
+  for (const i of room.seats) if (i >= 0) room.state(i, { lobby: true, seat: i, name: seats[i].name, color: seats[i].color, library, chosen: seats[i].lobbyChoice || null, host: setup?.seats?.find(s => s.style === 'human')?.name || '' });
+}
+$('btnLobby').addEventListener('click', async () => {
+  const friends = seats.map((s, i) => (s.style === 'remote' ? i : -1)).filter(i => i >= 0);
+  if (!friends.length) { $('setupStatus').textContent = 'Set at least one seat to "A friend plays this seat (online)" first.'; return; }
+  lobbyOpen = true;
+  if (!(await openRoom([...friends, -1]))) { lobbyOpen = false; $('setupStatus').textContent = `Online seats need the local server (${room.error})`; return; }
+  await lobbyState();
+  $('setupStatus').textContent = 'The lobby is open: friends can join now and choose their decks. Click "Load decks & shuffle up" when everyone is ready.';
+});
+async function lobbyDeck(seat) {
+  const text = await (await fetch(`/api/room/deck?seat=${seat}`)).text();
+  if (!text) return;
+  let source = text, label = 'their own list';
+  const m = text.match(/^library:(.+)$/);
+  if (m) {
+    const d = (await listDecks().catch(() => [])).find(x => x.name === m[1]);
+    if (!d) return;
+    source = d.text; label = `${d.name} (your library)`;
+  }
+  Object.assign(seats[seat], { source, deck: null, lobbyChoice: label });
+  persist();
+  if (!$('setup').hidden) renderSeats();
+  $('setupStatus').textContent = `${seats[seat].name} chose ${label}.`;
+  await lobbyState();
+  if (!$('inviteModal').hidden) showInvite();
+}
+
+// Show who has joined, and who has left (the AI plays a disconnected seat until the friend reopens their link)
+setInterval(async () => {
+  // (also shown when you play a seat yourself, for offering deals)
+  $('chatBox').hidden = !(room.code || (game && setup?.human >= 0));
+  if (!room.code) return;
+  for (const m of await room.chat()) {
+    // A friend's deal offer arrives as "/deal <seat> <kind>"
+    const deal = m.seat >= 0 && m.text.match(/^\/deal (\d) (\w+)(?: (\d))?$/);
+    if (deal) { queueDeal(m.seat, +deal[1], deal[2], deal[3] ?? 2); continue; }
+    say(m.seat, m.seat >= 0 ? (game?.players[m.seat]?.name || m.name) : `${m.name || 'Spectator'} (watching)`, m.text);
+  }
+  const st = room.presence = await room.status();
+  remoteUIs.forEach(u => u.presence());
+  // Lobby: a friend sent a deck
+  if (lobbyOpen) for (const [seat, s] of Object.entries(st)) if (s.deck) await lobbyDeck(+seat);
+  // A friend asked to undo their last decision
+  for (const [seat, s] of Object.entries(st)) {
+    if (!(s.undo >= 0) || $('undoAsk').dataset.seat === seat) continue;
+    $('undoAsk').dataset.seat = seat;
+    $('undoAskText').textContent = `${setup?.seats[seat]?.name || `Seat ${+seat + 1}`} asks to take back their last decision.`;
+    $('undoAsk').hidden = false;
+  }
+  if ($('inviteModal').hidden) return;
+  for (const [seat, s] of Object.entries(st)) {
+    const el = document.querySelector(`.invite-status[data-seat="${seat}"]`);
+    if (!el) continue;
+    el.textContent = s.seen < 0 ? 'Waiting for them to join…' : s.seen < 10 ? `Connected${s.name ? ` as ${s.name}` : ''}` : `Left ${s.seen}s ago. They can rejoin with the same link`;
+    el.classList.toggle('ok', s.seen >= 0 && s.seen < 10);
+  }
+}, 1500);
+
+// Redraw when the window changes size (combat arrows follow the cards)
+addEventListener('resize', () => view?.schedule());
+
+function syncPlay() { $('btnPlay').textContent = clock?.paused ? 'Resume' : 'Pause'; }
+function togglePlay() {
+  if (!game) return;
+  clock.setPaused(!clock.paused);
+  syncPlay();
+}
+
+// ---------- timeline: replays are the same game re-simulated from its seed
+// (with your answers and online friends' answers played back)
+function canRewind() {
+  // A ranked game can't be rewound until it's over (then it's only watched again)
+  return !!setup && !(setup.ranked && !setup.progressed && game && !game.over);
+}
+function jumpTo(step) {
+  if (!canRewind()) return;
+  $('results').hidden = true;
+  // Forward in the running game: skip ahead (the beat it's waiting on counts as one), stopping where a rebuilt game would
+  if (game && step > game.steps && !game.over) { clock.skip = step - game.steps + 1; clock.setPaused(true); syncPlay(); return; }
+  newGame({ replay: true, skip: Math.max(0, step), paused: true });
+}
+$('tlStart').addEventListener('click', () => jumpTo(0));
+$('tlPrev').addEventListener('click', () => {
+  const prev = [...setup.turnStarts].reverse().find(s => s < game.steps - 2);
+  jumpTo(prev ?? 0);
+});
+$('tlNext').addEventListener('click', () => {
+  if (!game || game.over) return;
+  const next = setup.turnStarts.find(s => s > game.steps);
+  if (next != null) jumpTo(next);
+  else { clock.untilTurn = true; clock.wake(); }
+});
+$('tlEnd').addEventListener('click', () => {
+  if (!game || game.over) return;
+  clock.untilEnd = true;
+  clock.setPaused(false);
+  syncPlay();
+});
+let dragging = false;
+$('tlRange').addEventListener('input', () => { dragging = true; $('tlLabel').textContent = `Jump to step ${$('tlRange').value}`; });
+$('tlRange').addEventListener('change', () => { dragging = false; jumpTo(+$('tlRange').value); });
+setInterval(() => {
+  if (!game || dragging) return;
+  const r = $('tlRange');
+  r.max = setup.total || Math.max(game.steps, +r.max || 0);
+  r.value = game.steps;
+  $('tlLabel').textContent = `Turn ${game.turn} · step ${game.steps}${setup.total ? ` of ${setup.total}` : ''}${clock.ff ? ' · fast-forwarding…' : ''}`;
+}, 250);
+
+// ---------- saving and sharing
+function download(name, text, type = 'application/json') {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type }));
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+function deckText(deck) {
+  const line = c => `${c.qty ?? 1} ${c.card?.name ?? c.name}${(c.card ?? c).set ? ` (${(c.card ?? c).set.toUpperCase()}) ${(c.card ?? c).cn}` : ''}`;
+  const side = deck.sideboard?.length ? ['', 'Sideboard', ...deck.sideboard.map(line)] : [];
+  if (!deck.commanders.length) return ['Deck', ...deck.cards.map(line), ...side].join('\n');
+  return ['Commander', ...deck.commanders.map(c => line({ card: c })), '', 'Deck', ...deck.cards.map(line), ...side].join('\n');
+}
+$('btnSaveReplay').addEventListener('click', () => {
+  if (!setup) return;
+  download(`commander-replay-${stamp()}.json`, JSON.stringify({
+    app: 'commander-table', version: 2, seed: setup.seed, decisions: setup.decisions,
+    ...(setup.remote.length ? { remoteDecisions: setup.remoteDecisions } : {}),
+    learned: setup.learned,
+    // (version 3: the format, and who went first in a best-of-three game)
+    format: setup.format || 'commander', ...(setup.firstPlayer != null ? { firstPlayer: setup.firstPlayer } : {}),
+    ...(setup.roles ? { roles: setup.roles } : {}),
+    // (version 4: the stops your seats played with, so your recorded answers line up again)
+    stopOpts: setup.stopOpts,
+    seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck) })),
+  }, null, 1));
+});
+$('btnExportLog').addEventListener('click', () => {
+  if (!game) return;
+  const tmp = document.createElement('div');
+  const lines = game.logEntries.map(e => { tmp.innerHTML = e.html; return `${e.kind === 'turn' ? '\n' : '  '}${tmp.textContent}${e.rule ? ` [${e.rule}]` : ''}`; });
+  download(`commander-log-${stamp()}.txt`, lines.join('\n').trim(), 'text/plain');
+});
+$('btnLoadReplay').addEventListener('click', () => $('replayFile').click());
+$('replayFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const rf = data.format && FORMATS[data.format] ? data.format : 'commander';
+    if (data.app !== 'commander-table' || !Array.isArray(data.seats) || data.seats.length !== formatOf(rf).seats) throw new Error("That isn't a Commander Table replay file");
+    // The replay's format decides the table (Commander replays from earlier versions have none)
+    setFormat(rf, { quiet: true });
+    match = null;
+    data.seats.forEach((r, i) => Object.assign(seats[i], { name: r.name, style: r.style === 'human' && !data.decisions ? 'auto' : r.style, source: r.deck, deck: null }));
+    persist();
+    renderSeats();
+    $('setupStatus').textContent = 'Loading the replay\'s decks…';
+    for (const [i, s] of seats.entries()) await loadSeatDeck(s, msg => seatStatus(i, esc(msg)));
+    $('setupStatus').textContent = '';
+    $('setup').hidden = true;
+    newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
+      // (replays saved before decks learned have no table, and are played without it)
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+  } catch (err) {
+    $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`;
+  }
+});
+
+function showResults() {
+  const ranked = [...game.players].sort((a, b) => (a.place || 9) - (b.place || 9));
+  $('resultsBody').innerHTML = `<h2>${game.winners?.length > 1 ? `🏆 ${esc(game.winners.map(w => w.name).join(', '))} win!` : game.winner ? `${esc(game.winner.name)} wins!` : 'Draw'}</h2>` + ranked.map(p => `
+    <div class="standing" style="--pc:${p.color}">
+      <div class="place">${p.place || '–'}</div>
+      <div class="avatar" style="background-image:url('${p.art || ''}')"></div>
+      <div class="meta"><b>${esc(p.name)}</b> — ${esc(p.deckName)}<br>
+        ${p.lost ? esc(p.lossReason) : `${p.life} life remaining`} · ${p.stats.spells} spells cast · ${p.stats.damage} damage dealt${p.stats.combos ? ` · ${p.stats.combos} combo${p.stats.combos === 1 ? '' : 's'}` : ''}</div>
+    </div>`).join('') + `<p class="muted">${game.turn} turns over ${game.round} rounds.</p>` + matchSummary()
+    + (setup.progressNote?.lines.length ? `<div class="match-box">${setup.progressNote.lines.join('<br>')}</div>` : '');
+  // In an unfinished match the next step is the next game, not a rematch
+  const more = setup.matchGame && match && !matchOver(match) && match.games.length === setup.matchGame;
+  $('btnNextGame').hidden = !more;
+  $('btnRematch').hidden = !!more;
+  $('btnRematch').textContent = setup.matchGame && match ? 'New match' : setup.puzzle ? 'Try again' : 'Rematch';
+  // Lessons, story chapters and expedition fights add their own next step
+  $('resultsAfter').innerHTML = '';
+  if (setup.after && !setup.afterDone) {
+    setup.afterDone = true;
+    setup.afterResult = setup.after(game);
+  }
+  const ar = setup.afterResult;
+  if (ar) {
+    $('resultsAfter').innerHTML = `${ar.html ? `<div class="match-box">${ar.html}</div>` : ''}<div class="after-btns">${(ar.buttons || []).map((b, i) => `<button class="btn ${b.primary ? 'primary' : ''}" data-after="${i}">${esc(b.label)}</button>`).join('')}</div>`;
+    $('resultsAfter').querySelectorAll('[data-after]').forEach(b => b.addEventListener('click', () => { $('results').hidden = true; ar.buttons[+b.dataset.after].fn(); }));
+    // (an expedition fight can't be replayed for another result)
+    if (ar.noRematch) $('btnRematch').hidden = true;
+  }
+  $('results').hidden = false;
+}
+// Between games of a match: the loser of the last game chooses who goes first (a drawn game: the same
+// player chooses again), then every seat may sideboard. AI seats sideboard against what their opponent
+// showed; seats played here get the sideboard window; online friends keep their deck as it is.
+async function nextMatchGame() {
+  $('results').hidden = true;
+  const last = match.games.at(-1);
+  const n = setup.seats.length;
+  const chooser = last.winner != null ? (last.winner + 1) % n : match.chooser ?? (last.firstPlayer ?? 0);
+  match.chooser = chooser;
+  let firstPlayer = chooser;
+  const shown = i => {
+    const seen = new Map();
+    for (const gm of match.games) for (let j = 0; j < n; j++) if (j !== i) for (const c of gm.revealed[j] || []) seen.set(c.name, c);
+    return [...seen.values()];
+  };
+  match.swaps = setup.seats.map(() => []);
+  for (let i = 0; i < n; i++) {
+    const deck = match.decks[i];
+    if (setup.humans.includes(i)) {
+      const r = await sideboardScreen(i, deck, i === chooser);
+      match.decks[i] = r.deck;
+      match.swaps[i] = r.swaps;
+      if (i === chooser) firstPlayer = r.goFirst ? i : (i + 1) % n;
+    } else if (!setup.remote.includes(i) && deck.sideboard?.length) {
+      const r = aiSideboard(deck, shown(i));
+      match.decks[i] = { ...deck, cards: r.cards, sideboard: r.sideboard };
+      match.swaps[i] = r.swaps;
+    }
+  }
+  newGame({ firstPlayer, format: match.format });
+}
+
+// The sideboard window for a seat played on this PC: click a card to move one copy across
+function sideboardScreen(i, deck, choose) {
+  const f = formatOf(match.format);
+  const name = setup.seats[i].name;
+  const start = { cards: deck.cards.map(x => ({ ...x })), sideboard: (deck.sideboard || []).map(x => ({ ...x })) };
+  let cur = { cards: start.cards.map(x => ({ ...x })), sideboard: start.sideboard.map(x => ({ ...x })) };
+  let goFirst = true;
+  const count = list => list.reduce((a, x) => a + x.qty, 0);
+  // Moves relative to the start of this window, one copy per entry
+  const diff = () => {
+    const before = new Map(start.cards.map(x => [x.card.name, x.qty]));
+    const after = new Map(cur.cards.map(x => [x.card.name, x.qty]));
+    const swaps = [];
+    const ins = [], outs = [];
+    for (const [nm, q] of after) for (let k = (before.get(nm) || 0); k < q; k++) ins.push(nm);
+    for (const [nm, q] of before) for (let k = (after.get(nm) || 0); k < q; k++) outs.push(nm);
+    for (let k = 0; k < Math.max(ins.length, outs.length); k++) swaps.push({ in: ins[k] || '—', out: outs[k] || '—' });
+    return swaps;
+  };
+  const move = (from, to, nm) => {
+    const a = cur[from].find(x => x.card.name === nm);
+    if (!a || a.qty <= 0) return;
+    a.qty--;
+    const b = cur[to].find(x => x.card.name === nm);
+    if (b) b.qty++; else cur[to].push({ card: a.card, qty: 1 });
+    cur[from] = cur[from].filter(x => x.qty > 0);
+  };
+  const sortKey = (a, b) => (/\bland\b/i.test(a.card.typeLine) - /\bland\b/i.test(b.card.typeLine)) || (a.card.cmc || 0) - (b.card.cmc || 0) || a.card.name.localeCompare(b.card.name);
+  const col = (key, title) => `<div class="side-col"><h3>${title} <span class="muted">(${count(cur[key])})</span></h3>
+    ${[...cur[key]].sort(sortKey).map(x => `<button class="side-card" data-from="${key}" data-name="${esc(x.card.name)}" title="${esc(x.card.typeLine)}"><span class="side-qty">${x.qty}</span> ${esc(x.card.name)} <span class="muted">${symbolize(esc(x.card.manaCost || ''))}</span></button>`).join('') || '<p class="muted">Empty</p>'}</div>`;
+  return new Promise(resolve => {
+    const render = () => {
+      const opp = match.games.at(-1);
+      $('sideTitle').textContent = `${name}: sideboard for game ${match.games.length + 1}`;
+      $('sideIntro').innerHTML = `${opp.winner === i ? 'You won the last game.' : opp.winner == null ? 'The last game was a draw.' : 'You lost the last game.'} Click a card to move one copy between your deck and sideboard.`
+        + (choose ? `<br><label class="side-choice"><input type="radio" name="sideFirst" value="1" ${goFirst ? 'checked' : ''}> Go first</label> <label class="side-choice"><input type="radio" name="sideFirst" value="0" ${goFirst ? '' : 'checked'}> Draw first (the other player goes first)</label>` : '');
+      $('sideBody').innerHTML = col('cards', 'Deck') + col('sideboard', 'Sideboard');
+      const main = count(cur.cards);
+      const short = main < f.deck;
+      $('sideCount').innerHTML = short ? `<span class="warn">Your deck needs at least ${f.deck} cards (it has ${main}).</span>` : `${main} cards in the deck, ${count(cur.sideboard)} in the sideboard${diff().length ? ` · ${esc(swapText(diff()))}` : ''}`;
+      $('btnSideDone').disabled = short;
+    };
+    const onClick = e => {
+      const b = e.target.closest('.side-card');
+      if (!b) return;
+      move(b.dataset.from, b.dataset.from === 'cards' ? 'sideboard' : 'cards', b.dataset.name);
+      render();
+    };
+    const onFirst = e => { if (e.target.name === 'sideFirst') goFirst = e.target.value === '1'; };
+    const close = () => {
+      $('sideBody').removeEventListener('click', onClick);
+      $('sideIntro').removeEventListener('change', onFirst);
+      $('btnSideReset').onclick = $('btnSideAi').onclick = $('btnSideDone').onclick = null;
+      $('sideModal').hidden = true;
+      resolve({ deck: { ...deck, cards: cur.cards, sideboard: cur.sideboard }, swaps: diff(), goFirst });
+    };
+    $('sideBody').addEventListener('click', onClick);
+    $('sideIntro').addEventListener('change', onFirst);
+    $('btnSideReset').onclick = () => { cur = { cards: start.cards.map(x => ({ ...x })), sideboard: start.sideboard.map(x => ({ ...x })) }; render(); };
+    $('btnSideAi').onclick = () => {
+      const seen = new Map();
+      for (const gm of match.games) gm.revealed.forEach((list, j) => { if (j !== i) for (const c of list) seen.set(c.name, c); });
+      const r = aiSideboard({ cards: start.cards, sideboard: start.sideboard }, [...seen.values()]);
+      cur = { cards: r.cards, sideboard: r.sideboard };
+      render();
+    };
+    $('btnSideDone').onclick = close;
+    render();
+    $('sideModal').hidden = false;
+  });
+}
+
+function matchSummary() {
+  if (!setup.matchGame || !match) return '';
+  const names = setup.seats.map(s => s.name);
+  const done = matchOver(match);
+  const lead = match.wins.indexOf(Math.max(...match.wins));
+  const head = done
+    ? (match.wins[0] === match.wins[1] ? `<b>Match drawn ${matchScore(match)}</b>` : `<b>${esc(names[lead])} wins the match ${Math.max(...match.wins)}–${Math.min(...match.wins)}</b>`)
+    : `<b>Game ${match.games.length} of best of three</b> · match score ${names.map((n, i) => `${esc(n)} ${match.wins[i]}`).join(', ')}`;
+  const games = match.games.map((gm, k) => `Game ${k + 1}: ${gm.winner != null ? esc(names[gm.winner]) : 'draw'}${gm.firstPlayer != null ? ` (${esc(names[gm.firstPlayer])} went first)` : ''}`).join(' · ');
+  const swaps = match.swaps.map((list, i) => (list.length ? `${esc(names[i])} sideboarded ${esc(swapText(list))}` : '')).filter(Boolean).join('<br>');
+  return `<div class="match-box">${head}<br><span class="muted">${games}</span>${swaps ? `<br><span class="muted">${swaps}</span>` : ''}</div>`;
+}
+
+// ---------- wiring
+$('btnPlay').addEventListener('click', togglePlay);
+$('btnStep').addEventListener('click', () => {
+  if (!game) return;
+  if (!clock.paused) togglePlay();
+  clock.step();
+});
+$('speed').addEventListener('input', e => { if (clock) clock.speed = +e.target.value; });
+const prefs = store('ct.prefs') || {};
+
+// ---------- Display: board background, color-blind-friendly seat colors, larger text, fewer animations
+// (Okabe–Ito colors: they stay distinct with the common kinds of color blindness)
+const CB_COLORS = ['#E69F00', '#56B4E9', '#F0E442', '#CC79A7', '#009E73', '#D55E00', '#0072B2', '#999999', '#FFFFFF'];
+function applyDisplay(initial = false) {
+  document.body.dataset.bg = prefs.bg || 'art';
+  document.body.classList.toggle('cb', !!prefs.cb);
+  document.body.classList.toggle('big', !!prefs.big);
+  document.body.classList.toggle('calm', !!prefs.calm);
+  const colors = prefs.cb ? CB_COLORS : SEAT_COLORS;
+  allSeats.forEach((s, i) => { s.color = colors[i]; });
+  // A game in progress switches colors too (boards, log and arrows read the player's color)
+  if (game) {
+    game.players.forEach((p, i) => { p.color = colors[i]; view?.boards[i]?.el.style.setProperty('--pc', colors[i]); });
+    if (setup) setup.seats.forEach((s, i) => { s.color = colors[i]; });
+    view?.render();
+  }
+  // Card back for every face-down card (cosmetics.js); a locked choice falls back to the first one
+  const ctx = cosmeticCtx();
+  const back = backById(prefs.back);
+  document.body.style.setProperty('--card-back', unlocked(back, ctx) ? back.css : BACKS[0].css);
+  if (!initial && !$('setup').hidden) renderSeats();
+}
+// What has been unlocked: badges, games you played, your best deck mastery level
+function cosmeticCtx() {
+  const lv = Object.keys(store('ct.learn') || {}).reduce((m, k) => Math.max(m, mastery(k.split(' + ').map(name => ({ name }))).level), 1);
+  // ('ct.history' spelled out: this runs at startup, before HISTORY is declared)
+  return { badges: badges(), games: (store('ct.history') || []).filter(h => h.seats.some(s => s.you)).length, maxMastery: lv };
+}
+// Your avatar, on every seat you play (otherwise its commander's art)
+function avatarUrl() {
+  const a = avatarById(prefs.avatar);
+  return a.url && unlocked(a, cosmeticCtx()) ? a.url : null;
+}
+function renderCosmetics() {
+  const ctx = cosmeticCtx();
+  $('dispAvatars').innerHTML = pickerHtml('avatar', prefs.avatar || 'none', ctx, BADGE_LIST);
+  $('dispBacks').innerHTML = pickerHtml('back', prefs.back || 'classic', ctx, BADGE_LIST);
+}
+$('displayModal').addEventListener('click', e => {
+  const b = e.target.closest('.cosm');
+  if (!b || b.disabled) return;
+  prefs[b.dataset.kind] = b.dataset.id;
+  store('ct.prefs', prefs);
+  renderCosmetics();
+  applyDisplay();
+  // (a game in progress shows the new avatar on your boards)
+  if (game && view && setup) for (const i of setup.humans) { const av = view.boards[i]?.el.querySelector('.avatar'); if (av) av.style.backgroundImage = `url("${avatarUrl() || deckArt(setup.seats[i].deck)}")`; }
+});
+$('btnDisplay').addEventListener('click', () => {
+  $('dispBg').value = prefs.bg || 'art';
+  $('dispCb').checked = !!prefs.cb;
+  $('dispBig').checked = !!prefs.big;
+  $('dispCalm').checked = !!prefs.calm;
+  renderCosmetics();
+  $('displayModal').hidden = false;
+});
+$('displayModal').addEventListener('change', () => {
+  Object.assign(prefs, { bg: $('dispBg').value, cb: $('dispCb').checked, big: $('dispBig').checked, calm: $('dispCalm').checked });
+  store('ct.prefs', prefs);
+  applyDisplay();
+});
+$('btnDisplayClose').addEventListener('click', () => { $('displayModal').hidden = true; });
+// Language (i18n.js): the page reloads in the new language (a game in progress is lost, so it asks)
+$('dispLang').innerHTML = Object.entries(LANGS).map(([k, n]) => `<option value="${k}" ${(prefs.lang || 'en') === k ? 'selected' : ''}>${n}</option>`).join('');
+$('dispLang').addEventListener('change', e => {
+  if (game && !game.over && !confirm('Changing the language reloads the page and ends the game in progress. Continue?')) { e.target.value = prefs.lang || 'en'; return; }
+  prefs.lang = e.target.value;
+  store('ct.prefs', prefs);
+  location.reload();
+});
+startI18n(prefs.lang || 'en');
+applyDisplay(true);
+// Budget style for random decks (empty seats and "random")
+$('budgetMode').value = prefs.budget || 'any';
+$('budgetMode').addEventListener('change', e => {
+  prefs.budget = e.target.value;
+  store('ct.prefs', prefs);
+  seats.forEach(s => { if (/^(random)?$/i.test(s.source.trim())) s.deck = null; });
+  if (!$('setup').hidden) renderSeats();
+});
+
+// ---------- updates: only when you ask, from an address you choose (see /api/update)
+const UPD = { 'X-Commander-Table': 'update' };
+$('btnUpdates').addEventListener('click', async () => {
+  $('updateModal').hidden = false;
+  $('btnUpdApply').hidden = true;
+  $('updStatus').textContent = '';
+  try {
+    const r = await fetch('/api/update');
+    if (!r.ok) throw new Error(r.status === 404 ? 'Restart Commander Table to use updates.' : `HTTP ${r.status}`);
+    const j = await r.json();
+    $('updVersion').textContent = j.version;
+    if (j.url && !$('updUrl').value) $('updUrl').value = j.url;
+  } catch (err) { $('updStatus').textContent = err.message; }
+});
+$('btnUpdClose').addEventListener('click', () => { $('updateModal').hidden = true; });
+$('btnUpdCheck').addEventListener('click', async () => {
+  const url = $('updUrl').value.trim();
+  if (!/^https:\/\//i.test(url)) { $('updStatus').textContent = 'The address must start with https://'; return; }
+  $('btnUpdCheck').disabled = true;
+  $('btnUpdApply').hidden = true;
+  $('updStatus').textContent = 'Downloading…';
+  try {
+    const r = await fetch('/api/update?step=check', { method: 'POST', headers: UPD, body: url });
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    const same = j.version === j.current;
+    $('updStatus').textContent = `Found version ${j.version} (${j.files} files, ${(j.size / 1048576).toFixed(1)} MB). You have ${j.current}.${same ? ' It is the same version; installing only replaces files that differ.' : ''}`;
+    $('btnUpdApply').hidden = false;
+  } catch (err) { $('updStatus').textContent = `Couldn't use that address: ${err.message}`; }
+  $('btnUpdCheck').disabled = false;
+});
+$('btnUpdApply').addEventListener('click', async () => {
+  if (!confirm('Replace the game files with the downloaded version? Your data folder stays as it is.')) return;
+  $('btnUpdApply').hidden = true;
+  $('updStatus').textContent = 'Installing…';
+  try {
+    const r = await fetch('/api/update?step=apply', { method: 'POST', headers: UPD, body: '' });
+    if (!r.ok) throw new Error(await r.text());
+    const j = await r.json();
+    $('updVersion').textContent = j.version;
+    $('updStatus').textContent = j.changed
+      ? `Installed: ${j.changed} file${j.changed === 1 ? '' : 's'} updated (the old ones are in ${j.backup}). Close Commander Table and start it again to finish.`
+      : 'Every file was already up to date.';
+  } catch (err) { $('updStatus').textContent = `The update didn't install: ${err.message}`; }
+});
+
+// ---------- Stops (human.js): steps to stop at, Full control, trigger order, for seats played on this PC
+function stopOpts() { return { stops: { ...(prefs.stops || {}) }, full: !!prefs.stopFull, orderTriggers: prefs.stopOrder !== false }; }
+$('btnStops').addEventListener('click', () => {
+  $('stopFull').checked = !!prefs.stopFull;
+  $('stopOrder').checked = prefs.stopOrder !== false;
+  document.querySelectorAll('[data-stop]').forEach(c => { c.checked = !!prefs.stops?.[c.dataset.stop]; });
+  $('stopsModal').hidden = false;
+});
+$('stopsModal').addEventListener('change', () => {
+  prefs.stopFull = $('stopFull').checked;
+  prefs.stopOrder = $('stopOrder').checked;
+  prefs.stops = Object.fromEntries([...document.querySelectorAll('[data-stop]')].map(c => [c.dataset.stop, c.checked]));
+  store('ct.prefs', prefs);
+  // (from the next game: a game keeps the stops it started with, so undo, rewinds and replays stay exact)
+});
+$('btnStopsClose').addEventListener('click', () => { $('stopsModal').hidden = true; });
+
+// ---------- progress (progress.js): the ladder, challenges, badges and your record against each rival
+const RIVALS = 'ct.rivals';
+const rivalKeyOf = (i, s) => setup.rivalKeys?.[i] || deckKey(learnAs(s.deck));
+const deckColors = d => [...new Set(d.commanders.length ? d.commanders.flatMap(c => c.colorIdentity || []) : d.cards.filter(c => !/\bland\b/i.test(c.card.typeLine)).flatMap(c => c.card.colors || []))];
+function recordProgress(g) {
+  const h = setup.humans[0];
+  const me = g.players[h];
+  const n = g.players.length;
+  const places = g.players.map(p => (g.winner === p ? 1 : p.place || n));
+  const won = g.winner === me || !!g.winners?.includes(me);
+  const note = { lines: [] };
+  // Ranked: your rating on this format's ladder
+  if (setup.ranked) {
+    const r = recordRanked({ format: setup.format, you: h, places, oppRatings: setup.seats.map(s => (setup.format === 'commander' ? aiRating(s.bracket) : 1500)) });
+    note.lines.push(`<b>Ranked ${esc(formatOf(setup.format).name)}:</b> ${r.delta >= 0 ? '+' : ''}${r.delta} → ${r.rating} · ${esc(r.after.label)}${r.after.label !== r.before.rank.label && r.games > PLACEMENT ? ` (was ${esc(r.before.rank.label)})` : r.games === PLACEMENT ? ' (placement done)' : ''}`);
+  }
+  // Challenges
+  const matchWon = !!(setup.matchGame && match && matchOver(match) && match.wins[h] >= 2);
+  const c = recordChallenges({
+    won, format: setup.format, seats: n, rounds: g.round, spells: me.stats.spells, damage: me.stats.damage,
+    colors: deckColors(setup.seats[h].deck), matchWon, oneVsOne: n === 2,
+  });
+  for (const t of c.done) note.lines.push(`✔ Challenge complete: ${esc(t)}`);
+  // Badges, including deck mastery (the deck you played)
+  const fresh = [...c.badges, ...checkBadges(undefined, mastery(learnAs(setup.seats[h].deck)).level)];
+  for (const b of fresh) note.lines.push(`🏅 New badge: <b>${esc(b)}</b>`);
+  // Your record against each opponent's deck (the Rivals tab)
+  const rec = store(RIVALS) || {};
+  setup.seats.forEach((s, i) => {
+    if (i === h) return;
+    const k = rivalKeyOf(i, s);
+    const r = rec[k] ||= { name: s.deck.deckName, w: 0, l: 0 };
+    if (places[h] < places[i]) r.w++; else r.l++;
+    r.at = Date.now();
+  });
+  store(RIVALS, rec);
+  return note;
+}
+
+// ---------- history: every finished game (not batch runs), newest first, kept in the browser profile
+const HISTORY = 'ct.history';
+function addHistory(g) {
+  const list = store(HISTORY) || [];
+  list.unshift({
+    at: Date.now(), rounds: g.round, reason: g.winReason || '', winner: g.winner?.idx ?? null,
+    online: setup.remote.length > 0,
+    seats: g.players.map((p, i) => ({ name: p.name, deck: p.deckName, style: setup.seats[i].style, place: p.place || (g.winner === p ? 1 : null), you: setup.humans.includes(i), friend: setup.remote.includes(i), bracket: setup.seats[i].bracket })),
+  });
+  store(HISTORY, list.slice(0, 500));
+}
+function renderHistory() {
+  const list = store(HISTORY) || [];
+  if (!list.length) { $('historyBody').innerHTML = '<p class="muted">No finished games yet.</p>'; return; }
+  const mine = list.filter(h => h.seats.some(s => s.you));
+  const myWins = mine.filter(h => h.seats[h.winner]?.you).length;
+  // Wins by deck across every game
+  const decks = new Map();
+  for (const h of list) for (const [i, s] of h.seats.entries()) {
+    const d = decks.get(s.deck) || { games: 0, wins: 0 };
+    d.games++;
+    if (h.winner === i) d.wins++;
+    decks.set(s.deck, d);
+  }
+  const top = [...decks.entries()].filter(([, d]) => d.games >= 2).sort((a, b) => b[1].wins / b[1].games - a[1].wins / a[1].games).slice(0, 8);
+  const avg = list.reduce((a, h) => a + h.rounds, 0) / list.length;
+  $('historyBody').innerHTML = (Object.keys(ladder().formats).length ? `<h3>Ranked ladder</h3>${ladderHtml(false).replace(/^<h3>/, '<p>').replace('</h3>', '</p>')}` : '') + `
+    <ul><li><b>${list.length}</b> games, average ${avg.toFixed(1)} rounds</li>
+      ${mine.length ? `<li>You played <b>${mine.length}</b> and won <b>${myWins}</b> (${Math.round((myWins / mine.length) * 100)}%)</li>` : '<li class="muted">You haven\'t played a seat yourself yet.</li>'}
+      ${list.some(h => h.online) ? `<li>${list.filter(h => h.online).length} with friends online</li>` : ''}</ul>
+    ${top.length ? `<h3>Decks that win most</h3><table><thead><tr><th>Deck</th><th class="num">Games</th><th class="num">Wins</th></tr></thead><tbody>
+      ${top.map(([n, d]) => `<tr><td>${esc(n)}</td><td class="num">${d.games}</td><td class="num">${d.wins} (${Math.round((d.wins / d.games) * 100)}%)</td></tr>`).join('')}</tbody></table>` : ''}
+    <h3>Games</h3><table><thead><tr><th>When</th><th>Winner</th><th>Table</th><th class="num">Rounds</th></tr></thead><tbody>
+      ${list.slice(0, 200).map(h => `<tr><td>${esc(new Date(h.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td>
+        <td>${h.winner != null ? `<b>${esc(h.seats[h.winner].name)}</b> <span class="muted">${esc(h.seats[h.winner].deck)}</span>${h.reason ? `<br><small class="muted">${esc(h.reason)}</small>` : ''}` : 'Draw'}</td>
+        <td>${h.seats.map((s, i) => `<span class="${i === h.winner ? 'hist-win' : ''}">${esc(s.name)}${s.you ? ' (you)' : s.friend ? ' (friend)' : ''}</span>`).join(', ')}</td>
+        <td class="num">${h.rounds}</td></tr>`).join('')}</tbody></table>`;
+}
+$('btnHistory').addEventListener('click', () => { renderHistory(); $('historyModal').hidden = false; });
+$('btnHistoryClose').addEventListener('click', () => { $('historyModal').hidden = true; });
+$('btnHistoryClear').addEventListener('click', () => { if (confirm('Clear the history of every game?')) { store(HISTORY, []); renderHistory(); } });
+
+// ---------- Progress window: ladder, challenges, rivals, badges
+let progressTab = 'ladder';
+$('btnProgress').addEventListener('click', () => { renderProgress(); $('progressModal').hidden = false; });
+$('btnProgressClose').addEventListener('click', () => { $('progressModal').hidden = true; });
+document.querySelectorAll('.prog-tab').forEach(b => b.addEventListener('click', () => { progressTab = b.dataset.tab; renderProgress(); }));
+function ladderHtml(withButton = true) {
+  const l = ladder();
+  const rows = Object.entries(l.formats).sort((a, b) => b[1].games - a[1].games);
+  return `<h3>Season ${l.season} <span class="muted">since ${esc(new Date(l.startedAt).toLocaleDateString())}</span></h3>
+    ${rows.length ? `<table><thead><tr><th>Format</th><th>Rank</th><th class="num">Rating</th><th class="num">Games</th><th class="num">Wins</th><th class="num">Peak</th><th>Last games</th></tr></thead><tbody>
+      ${rows.map(([k, f]) => { const r = rankOf(f.rating, f.games); return `<tr><td>${esc(formatOf(k).name)}</td><td><span class="rank-chip rank-${r.tier.toLowerCase()}">${esc(r.label)}</span></td><td class="num">${f.games >= PLACEMENT ? f.rating : '–'}</td><td class="num">${f.games}</td><td class="num">${f.wins}</td><td class="num">${f.games >= PLACEMENT ? f.peak : '–'}</td>
+        <td>${f.history.slice(0, 10).map(x => `<span class="${x.won ? 'good' : 'bad'}" title="${esc(new Date(x.at).toLocaleString())}">${x.delta >= 0 ? '+' : ''}${x.delta}</span>`).join(' ')}</td></tr>`; }).join('')}</tbody></table>`
+      : '<p class="muted">No ranked games yet. Tick <b>Ranked</b> on the setup screen, choose "You play this seat" for one seat, and play.</p>'}
+    <p class="muted">Ranked games are scored against the AI pilots (Elo, a rating per format, starting at 1500). In Commander, a pilot's rating follows its seat's bracket (bracket 1 = 1200 up to 5 = 1800); in other formats it's 1500. The first ${PLACEMENT} games place you; then Bronze, Silver, Gold, Platinum and Diamond have divisions III, II and I, and Mythic is 1900 and up. In ranked games undo, rewinding, Reveal hands and Explain are off.</p>
+    ${l.past.length ? `<h3>Past seasons</h3><ul>${l.past.map(s => `<li>Season ${s.season}: ${Object.entries(s.formats).map(([k, f]) => `${esc(formatOf(k).name)} ${esc(f.rank)} (peak ${f.peak})`).join(' · ') || 'no games'}</li>`).join('')}</ul>` : ''}
+    ${withButton ? '<p><button class="btn small" id="btnNewSeason" title="Ratings move halfway back to 1500 and placement starts over; this season is kept in Past seasons">Start a new season</button></p>' : ''}`;
+}
+function renderProgress() {
+  document.querySelectorAll('.prog-tab').forEach(b => b.classList.toggle('primary', b.dataset.tab === progressTab));
+  const body = $('progressBody');
+  if (progressTab === 'ladder') {
+    body.innerHTML = ladderHtml();
+    $('btnNewSeason')?.addEventListener('click', () => { if (confirm('Start a new season? Ratings move halfway back to 1500 and placement starts over.')) { newSeason(); renderProgress(); } });
+  } else if (progressTab === 'challenges') {
+    const c = challenges();
+    const row = x => `<li class="${x.done ? 'ch-done' : ''}">${x.done ? '✔' : '○'} ${esc(x.text)} <span class="muted">${x.done ? 'done' : `${x.n}/${x.need}`}</span></li>`;
+    body.innerHTML = `<p><b>Streak:</b> ${c.streak.count} day${c.streak.count === 1 ? '' : 's'} in a row (best ${c.streak.best}) · ${c.completed} challenge${c.completed === 1 ? '' : 's'} completed in all</p>
+      <h3>Today</h3><ul class="ch-list">${c.daily.map(row).join('')}</ul>
+      <h3>This week <span class="muted">(from Monday ${esc(c.week)})</span></h3><ul class="ch-list">${c.weekly.map(row).join('')}</ul>
+      <p class="muted">Challenges count games where you play one seat yourself (not puzzles, loaded replays or games with friends online). New daily challenges come each day and weekly ones each Monday. Doing at least one daily challenge a day keeps your streak going. They're just for fun: the only rewards are badges.</p>`;
+  } else if (progressTab === 'badges') {
+    const got = badges();
+    body.innerHTML = `<div class="badge-grid">${BADGE_LIST.map(b => `<div class="badge ${got[b.id] ? 'got' : ''}"><div class="badge-medal">${got[b.id] ? '🏅' : '🔒'}</div><b>${esc(b.name)}</b><span class="muted">${esc(b.text)}</span>${got[b.id] ? `<small class="muted">${esc(new Date(got[b.id]).toLocaleDateString())}</small>` : ''}</div>`).join('')}</div>
+      <p class="muted">${Object.keys(got).length} of ${BADGE_LIST.length} earned. Badges are only for show.</p>`;
+  } else renderRivals();
+}
+
+// Rivals: named AI decks to play against, each with a strength tier and your record against it
+async function rivalList() {
+  const out = CEDH_PRESETS.map(p => ({ name: p.name, source: p.list, format: 'commander', kind: 'cEDH preset', key: deckKey(parseText(p.list).entries.filter(e => e.commander).map(e => ({ name: e.name }))) }));
+  try {
+    for (const d of await listDecks()) {
+      const cmd = parseText(d.text).entries.filter(e => e.commander);
+      out.push({ name: d.name, source: d.text, format: cmd.length ? 'commander' : null, kind: 'Your library', key: cmd.length ? deckKey(cmd.map(e => ({ name: e.name }))) : `library: ${d.name}` });
+    }
+  } catch { /* the library needs the local server */ }
+  try {
+    for (const c of (await topCommanders({ count: 8 })).slice(0, 8)) out.push({ name: c.name, source: `edhtop16:${c.name}`, format: 'commander', kind: 'Tournament meta', key: deckKey(c.name.split(' / ').map(name => ({ name }))), art: c.art });
+  } catch { /* offline with nothing saved */ }
+  return out;
+}
+// Strength from how the deck has done in every game it played (deck mastery records), relative to
+// an even share of wins at its table size
+function rivalTier(key, format) {
+  // (the key is learn.js's deckKey: commander names joined by " + ")
+  const m = mastery(key.split(' + ').map(name => ({ name })));
+  if (m.games < 5) return { tier: '?', text: `Not rated yet (${m.games} of 5 games)` };
+  // (decks without a commander are remembered as "format: name #id", which names their format)
+  const named = key.match(/^(\w+): /)?.[1];
+  const seatsN = formatOf(format || (FORMATS[named] ? named : 'commander')).seats;
+  const r = (m.wins / m.games) * seatsN;
+  const tier = r >= 1.6 ? 'S' : r >= 1.2 ? 'A' : r >= 0.8 ? 'B' : 'C';
+  return { tier, text: `Tier ${tier}: wins ${Math.round((m.wins / m.games) * 100)}% of ${m.games} games` };
+}
+async function renderRivals() {
+  const body = $('progressBody');
+  body.innerHTML = '<p class="muted">Gathering rivals…</p>';
+  const list = await rivalList();
+  if (progressTab !== 'rivals') return;
+  const rec = store(RIVALS) || {};
+  body.innerHTML = `<p class="muted">AI decks to take on: the built-in cEDH decks, your deck library and the current tournament meta. <b>Play</b> puts one in an AI seat (switching the format if it needs to). The tier comes from how the deck has done in all its games; your record counts the games you played against it.</p>
+    <table><thead><tr><th>Rival</th><th>From</th><th>Tier</th><th class="num">You vs it</th><th></th></tr></thead><tbody>
+    ${list.map((r, i) => { const t = rivalTier(r.key, r.format); const y = rec[r.key]; return `<tr><td><b>${esc(r.name)}</b>${r.format ? ` <span class="muted">${esc(formatOf(r.format).name)}</span>` : ''}</td><td class="muted">${esc(r.kind)}</td>
+      <td><span class="tier-chip tier-${t.tier === '?' ? 'x' : t.tier.toLowerCase()}" title="${esc(t.text)}">${t.tier === '?' ? '–' : t.tier}</span></td>
+      <td class="num">${y ? `${y.w}–${y.l}` : '–'}</td><td><button class="btn small rival-play" data-i="${i}">Play</button></td></tr>`; }).join('')}
+    ${Object.entries(rec).filter(([k]) => !list.some(r => r.key === k)).sort((a, b) => (b[1].at || 0) - (a[1].at || 0)).slice(0, 30).map(([k, y]) => { const t = rivalTier(k, null); return `<tr><td><b>${esc(y.name)}</b></td><td class="muted">Faced before</td>
+      <td><span class="tier-chip tier-${t.tier === '?' ? 'x' : t.tier.toLowerCase()}" title="${esc(t.text)}">${t.tier === '?' ? '–' : t.tier}</span></td><td class="num">${y.w}–${y.l}</td><td></td></tr>`; }).join('')}</tbody></table>`;
+  body.querySelectorAll('.rival-play').forEach(b => b.addEventListener('click', () => {
+    const r = list[+b.dataset.i];
+    // Commander decks need the Commander table; a library deck without a commander keeps a duel format
+    if (r.format && formatKey !== r.format) setFormat(r.format, { quiet: true });
+    else if (!r.format && formatOf(formatKey).commander) setFormat('standard', { quiet: true });
+    const i = seats.findIndex((s, k) => k > 0 && !['human', 'remote'].includes(s.style));
+    const at = i >= 0 ? i : seats.length - 1;
+    Object.assign(seats[at], { source: r.source, deck: null, rivalKey: r.key, rivalSource: r.source, ...(r.kind === 'cEDH preset' ? { style: 'cedh' } : {}) });
+    persist();
+    renderSeats();
+    $('progressModal').hidden = true;
+    $('setup').hidden = false;
+    $('setupStatus').textContent = `${r.name} is in ${seats[at].name}'s seat. Choose "You play this seat" for your own seat, then click "Load decks & shuffle up".`;
+  }));
+}
+
+// The Ranked switch on the setup screen
+$('rankedSel').checked = !!prefs.ranked;
+$('rankedSel').addEventListener('change', e => {
+  prefs.ranked = e.target.checked; store('ct.prefs', prefs);
+  const humans = seats.filter(s => s.style === 'human').length;
+  $('setupStatus').textContent = prefs.ranked ? (humans === 1 ? `Ranked ${fmt().name}: this game counts on your ladder.` : 'Ranked counts games where exactly one seat is "You play this seat".') : '';
+});
+
+// ---------- log filters: one kind of event, or one player
+$('logFilter').addEventListener('change', e => { $('log').dataset.f = e.target.value; $('log').scrollTop = $('log').scrollHeight; });
+$('logSeat').addEventListener('change', e => { $('log').dataset.seat = e.target.value; $('log').scrollTop = $('log').scrollHeight; });
+function fillLogSeats() {
+  const opts = '<option value="">All players</option>' + (game?.players || []).map(p => `<option value="${p.idx}">${esc(p.name)}</option>`).join('');
+  if ($('logSeat').dataset.v !== opts) { $('logSeat').innerHTML = opts; $('logSeat').dataset.v = opts; $('log').dataset.seat = ''; }
+}
+// Light or dark theme (dark by default, or whatever the system prefers on first visit)
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  $('btnTheme').textContent = t === 'dark' ? '☀' : '☾';
+  $('btnTheme').title = t === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme';
+}
+applyTheme(prefs.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+$('btnTheme').addEventListener('click', () => { prefs.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; store('ct.prefs', prefs); applyTheme(prefs.theme); });
+$('followMode').checked = !!prefs.follow;
+$('soundOn').checked = !!prefs.sound;
+Sound.enabled = !!prefs.sound;
+// Browsers only start audio after a click or key press, so the music starts on the first one
+if (prefs.sound) document.addEventListener('pointerdown', () => Sound.setEnabled(prefs.sound), { once: true });
+document.body.classList.toggle('follow', !!prefs.follow);
+$('followMode').addEventListener('change', e => { prefs.follow = e.target.checked; store('ct.prefs', prefs); document.body.classList.toggle('follow', prefs.follow); view?.render(); });
+$('soundOn').addEventListener('change', e => { prefs.sound = e.target.checked; store('ct.prefs', prefs); Sound.setEnabled(prefs.sound); if (prefs.sound) Sound.play('land'); });
+
+// Moxfield bookmarklet: runs on moxfield.com in your own browser and copies the decklist
+const moxScript = `(async()=>{try{const id=location.pathname.split('/').filter(Boolean)[1];if(!/moxfield\\.com$/.test(location.hostname)||!id){alert('Open a Moxfield deck page first, then click this bookmark.');return}
+const d=await(await fetch('https://api2.moxfield.com/v3/decks/all/'+id)).json();const b=d.boards||{};
+const rows=s=>Object.values((b[s]||{}).cards||{}).map(c=>c.quantity+' '+c.card.name);
+const t=['Commander',...rows('commanders'),'','Deck',...rows('mainboard')].join('\\n');
+try{await navigator.clipboard.writeText(t);alert('Copied '+(d.name||'the deck')+'. Paste it into a Commander Table seat.')}
+catch(e){const a=document.createElement('textarea');a.value=t;a.style.cssText='position:fixed;inset:10%;z-index:99999;width:80%;height:80%';document.body.append(a);a.select();alert('Press Ctrl+C to copy the selected decklist.')}}
+catch(e){alert('Could not read this deck: '+e.message)}})()`;
+$('moxBookmarklet').href = `javascript:${encodeURIComponent(moxScript.replace(/\n/g, ''))}`;
+$('moxBookmarklet').addEventListener('click', e => { e.preventDefault(); $('setupStatus').textContent = "Drag this button to your bookmarks bar, then click it on a Moxfield deck page. Clicking it here does nothing."; });
+$('revealHands').addEventListener('change', e => { if (view) { view.revealHands = e.target.checked; view.render(); } });
+$('explainMode').addEventListener('change', e => { if (game) game.explain = e.target.checked; });
+$('btnDecks').addEventListener('click', () => {
+  if (game && !clock.paused) togglePlay();
+  renderSeats();
+  $('btnCloseSetup').hidden = !game;
+  $('setup').hidden = false;
+});
+$('btnCloseSetup').addEventListener('click', () => { $('setup').hidden = true; });
+$('btnLoad').addEventListener('click', loadAll);
+// ---------- brackets for the whole table
+$('tableBracket').innerHTML = bracketOptions(null).replace('Any bracket', 'Choose…');
+$('tableBracket').addEventListener('change', e => {
+  const b = e.target.value ? +e.target.value : null;
+  seats.forEach(s => { s.bracket = b; if (/^(random)?$/i.test(s.source.trim())) s.deck = null; });
+  persist();
+  renderSeats();
+  $('setupStatus').textContent = b ? `Every seat set to bracket ${b} (${BRACKETS[b].name}). Empty seats get a deck built for it${b === 5 ? ' from EDHTop16 tournament results' : ''}.` : '';
+});
+
+// ---------- cEDH meta browser (EDHTop16 + cEDH Decklist Database)
+let metaTab = 'top';
+const seatButtons = src => seats.map((s, i) => `<button class="btn small seatpick" style="--pc:${s.color}" data-src="${esc(src)}" data-seat="${i}" title="Load into ${esc(s.name)}'s seat">${i + 1}</button>`).join('');
+async function renderMeta() {
+  const q = $('metaSearch').value.trim().toLowerCase();
+  const body = $('metaBody');
+  $('btnMetaTop4').hidden = metaTab !== 'top';
+  $('metaStatus').textContent = 'Loading…';
+  try {
+    if (metaTab === 'top') {
+      const f = metaFilter();
+      const top = await topCommanders({ count: 60, ...f });
+      const rows = top.filter(c => !q || c.name.toLowerCase().includes(q) || c.colorId.toLowerCase().includes(q));
+      body.innerHTML = `<table><thead><tr><th class="num">#</th><th>Commander</th><th>Colors</th><th class="num">Meta share</th><th class="num">Win rate</th><th class="num">Top-cut rate</th><th class="num">Entries</th><th>Load into seat</th></tr></thead><tbody>
+        ${rows.map(c => `<tr><td class="num">${top.indexOf(c) + 1}</td><td>${esc(c.name)}</td><td>${symbolize([...c.colorId].map(x => `{${x}}`).join('') || '{C}')}</td>
+          <td class="num">${(c.metaShare * 100).toFixed(1)}%</td><td class="num">${(c.winRate * 100).toFixed(1)}%</td><td class="num">${(c.conversionRate * 100).toFixed(1)}%</td><td class="num">${c.count}</td>
+          <td class="seatpicks">${seatButtons(`edhtop16:${c.name}`)}</td></tr>`).join('')}</tbody></table>`;
+      $('metaStatus').textContent = `${top.length} commanders from EDHTop16, ${$('metaPeriod').selectedOptions[0].text.toLowerCase()}, events of ${f.minSize}+ players${f.colorId ? `, color identity ${f.colorId}` : ''}${offlineNote(`top:60:${f.timePeriod}:${f.minSize}:${f.colorId}`)}`;
+    } else {
+      const decks = await ddbDecks();
+      const rows = decks.filter(d => !q || `${d.title} ${d.commanders.join(' ')} ${d.section} ${d.colors.join('')}`.toLowerCase().includes(q));
+      const sections = [...new Set(rows.map(d => d.section))];
+      body.innerHTML = sections.map(sec => `<h3>${esc(sec || 'Other')}</h3>` + rows.filter(d => d.section === sec).map(d => `
+        <div class="ddb-row">
+          <div class="ddb-main"><b>${esc(d.title)}</b> <span class="muted">${esc(d.commanders.join(' + '))}</span> ${symbolize(d.colors.map(x => `{${x}}`).join(''))}
+            <details><summary class="muted">About this deck · updated ${esc(d.updated)}</summary><p>${esc(d.description)}</p>
+              <p>${d.lists.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name)}</a>`).join(' · ')}${d.discord ? ` · <a href="${esc(d.discord)}" target="_blank" rel="noopener">Discord</a>` : ''}</p>
+              <p class="muted">The Moxfield lists can be imported with the Moxfield bookmarklet on the setup screen. The seat buttons load the newest EDHTop16 tournament list for these commanders.</p></details></div>
+          <div class="seatpicks">${seatButtons(`edhtop16:${edhtop16Name(d.commanders)}`)}</div>
+        </div>`).join('')).join('') || '<p class="muted">No decks match.</p>';
+      $('metaStatus').textContent = `${decks.length} archetypes from the cEDH Decklist Database${offlineNote('ddb')}`;
+    }
+  } catch (e) {
+    $('metaStatus').textContent = `Couldn't load: ${e.message}`;
+  }
+}
+// The meta browser's EDHTop16 filters (time period, event size, exact color identity)
+function metaFilter() {
+  const colors = [...document.querySelectorAll('#metaFilters .color-pick input:checked')].map(x => x.value).join('');
+  return { timePeriod: $('metaPeriod').value, minSize: +$('metaSize').value, colorId: colors };
+}
+const offlineNote = key => (offlineSince.has(key) ? ` · offline: saved copy from ${new Date(offlineSince.get(key)).toLocaleDateString()}` : '');
+$('metaFilters').addEventListener('change', () => renderMeta());
+function seatMeta(i, src) {
+  Object.assign(seats[i], { source: src, deck: null, bracket: 5, style: ['human', 'remote'].includes(seats[i].style) ? seats[i].style : 'auto' });
+  persist();
+  renderSeats();
+  $('metaStatus').textContent = `${src.replace(/^edhtop16:/, '')} goes into ${seats[i].name}'s seat. Close this and click "Load decks".`;
+}
+$('btnMeta').addEventListener('click', () => { $('metaModal').hidden = false; renderMeta(); });
+$('btnMetaClose').addEventListener('click', () => { $('metaModal').hidden = true; });
+document.querySelectorAll('.meta-tabs button').forEach(b => b.addEventListener('click', () => {
+  metaTab = b.dataset.mt;
+  document.querySelectorAll('.meta-tabs button').forEach(x => x.classList.toggle('active', x === b));
+  renderMeta();
+}));
+let metaTimer;
+$('metaSearch').addEventListener('input', () => { clearTimeout(metaTimer); metaTimer = setTimeout(renderMeta, 200); });
+$('metaBody').addEventListener('click', e => { const b = e.target.closest('.seatpick'); if (b) seatMeta(+b.dataset.seat, b.dataset.src); });
+$('btnMetaTop4').addEventListener('click', async () => {
+  const top = await topCommanders({ count: 60, ...metaFilter() });
+  top.slice(0, 4).forEach((c, i) => Object.assign(seats[i], { source: `edhtop16:${c.name}`, deck: null, bracket: 5, style: ['human', 'remote'].includes(seats[i].style) ? seats[i].style : 'auto' }));
+  persist();
+  renderSeats();
+  $('metaStatus').textContent = 'The four most-played cEDH commanders are seated. Close this and click "Load decks".';
+});
+
+// Four competitive (cEDH-style) decks; their pilots play the cEDH style automatically
+$('btnCedh').addEventListener('click', () => {
+  CEDH_PRESETS.forEach((d, i) => Object.assign(seats[i], { source: d.list, deck: null, style: seats[i].style === 'human' || seats[i].style === 'remote' ? seats[i].style : 'cedh' }));
+  persist();
+  renderSeats();
+  $('setupStatus').textContent = 'cEDH decks seated with cEDH-style pilots. Click "Load decks & shuffle up".';
+});
+// One click: four random decks of the same bracket, then load them all
+$('btnBracketTable').addEventListener('click', () => {
+  const b = +$('tableBracket').value || 3;
+  $('tableBracket').value = String(b);
+  seats.forEach(s => Object.assign(s, { source: 'random', deck: null, bracket: b }));
+  persist();
+  renderSeats();
+  $('setupStatus').textContent = `Dealing four bracket ${b} decks (${BRACKETS[b].name})…`;
+  $('btnLoad').click();
+});
+$('btnAllRandom').addEventListener('click', () => {
+  seats.forEach(s => { if (!s.source.trim()) { s.source = 'random'; s.deck = null; } });
+  persist();
+  renderSeats();
+});
+$('btnCloseZone').addEventListener('click', () => { els.zoneModal.hidden = true; });
+els.zoneModal.addEventListener('click', e => { if (e.target === els.zoneModal) els.zoneModal.hidden = true; });
+// (after a match: a new match with the decks as they were before sideboarding)
+$('btnRematch').addEventListener('click', () => {
+  $('results').hidden = true;
+  // A puzzle, lesson or story chapter: the same board again (a new shuffle)
+  if (setup?.puzzle) { newGame({ puzzle: setup.puzzle, puzzleDecks: setup.seats.map(s => s.deck), noLearning: true, format: setup.format, coach: setup.coach, after: setup.after }); return; }
+  if (match) match = newMatch();
+  newGame();
+});
+$('btnNextGame').addEventListener('click', () => { if (match && !matchOver(match)) nextMatchGame(); });
+// Format and match length on the setup screen
+$('formatSel').innerHTML = Object.entries(FORMATS).map(([k, f]) => `<option value="${k}">${esc(f.name)}${f.seats === 2 ? ' (1 v 1)' : ''}</option>`).join('');
+$('formatSel').addEventListener('change', e => setFormat(e.target.value));
+$('tablePlayers').addEventListener('change', e => {
+  prefs.tablePlayers = +e.target.value; store('ct.prefs', prefs);
+  seats = allSeats.slice(0, seatCount());
+  persist(); syncFormatUI(); renderSeats();
+});
+$('kingdomsMode').addEventListener('change', e => { prefs.kingdomsMode = e.target.value; store('ct.prefs', prefs); syncFormatUI(); renderSeats(); });
+$('tableLife').addEventListener('change', e => { prefs.tableLife = +e.target.value; store('ct.prefs', prefs); });
+$('bestOfSel').addEventListener('change', e => { prefs.bestOf = +e.target.value; store('ct.prefs', prefs); match = null; });
+syncFormatUI();
+renderSeats();
+$('btnWatchReplay').addEventListener('click', () => { $('results').hidden = true; jumpTo(0); if (canRewind()) togglePlay(); });
+$('btnChangeDecks').addEventListener('click', () => { $('results').hidden = true; $('btnDecks').click(); });
+
+// ---------- batch mode: many games at full speed, then a win-rate report per deck
+let batchStop = false;
+$('btnBatch').addEventListener('click', () => {
+  if (game && !clock.paused) togglePlay();
+  $('batchModal').hidden = false;
+});
+$('btnBatchClose').addEventListener('click', () => { batchStop = true; $('batchModal').hidden = true; });
+$('btnBatchStop').addEventListener('click', () => { batchStop = true; });
+$('btnBatchRun').addEventListener('click', () => runBatch(false));
+$('btnBatchTune').addEventListener('click', () => runBatch(true));
+
+const seatStyle = s => (['auto', 'human', 'remote'].includes(s.style) ? learnedStyle(learnAs(s.deck)) || guessStyle(s.deck) : s.style);
+
+// One game at full speed (AI pilots in every seat); null if the run was stopped
+async function quickGame(styles) {
+  const fast = { beat: async () => { if (batchStop) throw new Abort(); } };
+  const g = new Game(seats.map((s, i) => ({ playerName: s.name || 'Player', deckName: s.deck.deckName, color: s.color, agent: new Agent(styles[i]), commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards })), fast, { format: formatKey });
+  await g.run();
+  if (g.over) recordGame(g);
+  return g.over ? g : null;
+}
+
+async function runBatch(tune) {
+  const n = +$('batchCount').value;
+  const status = t => { $('batchStatus').textContent = t; };
+  $('btnBatchRun').disabled = $('btnBatchTune').disabled = true;
+  $('btnBatchStop').hidden = false;
+  $('batchBar').style.width = '0';
+  batchStop = false;
+  try {
+    // Decks that haven't been loaded yet are fetched first (empty seats get random decks)
+    for (const [i, s] of seats.entries()) {
+      if (s.deck) continue;
+      status(`Loading deck ${i + 1}…`);
+      await loadSeatDeck(s, msg => status(`Seat ${i + 1}: ${msg}`));
+    }
+    if (tune) await tuneStyles(n, status);
+    else await plainBatch(n, status);
+  } catch (e) {
+    status(`Batch failed: ${e.message}`);
+  } finally {
+    $('btnBatchRun').disabled = $('btnBatchTune').disabled = false;
+    $('btnBatchStop').hidden = true;
+  }
+}
+
+// Every seat tries every play style while the others keep theirs; the best one is suggested
+async function tuneStyles(n, status) {
+  const per = Math.max(5, Math.round(n / 4));
+  const styles = Object.keys(STYLES);
+  const wins = seats.map(() => Object.fromEntries(styles.map(s => [s, 0])));
+  const total = seats.length * styles.length * per;
+  let done = 0;
+  for (const [i] of seats.entries()) {
+    for (const st of styles) {
+      for (let k = 0; k < per; k++) {
+        const g = await quickGame(seats.map((s, j) => (j === i ? st : seatStyle(s))));
+        if (!g) { status(`Stopped after ${done} games`); return renderTune(wins, per, styles, done < total); }
+        if (g.winner?.idx === i) wins[i][st]++;
+        done++;
+        $('batchBar').style.width = `${(done / total) * 100}%`;
+        status(`Tuning ${seats[i].name}: ${STYLES[st]} (${done} / ${total} games)`);
+        if (done % 4 === 0) { renderTune(wins, per, styles, true); await sleep(0); }
+      }
+    }
+  }
+  renderTune(wins, per, styles, false);
+  status(`Done: ${total} games`);
+}
+
+function renderTune(wins, per, styles, partial) {
+  // No recommendation when every style did equally well (or equally badly)
+  const best = wins.map(w => (new Set(styles.map(s => w[s])).size === 1 ? null : styles.reduce((a, b) => (w[b] > w[a] ? b : a), styles[0])));
+  const rows = seats.map((s, i) => `<tr style="--pc:${s.color}"><td><span class="dot"></span>${esc(s.name)}</td>
+    ${styles.map(st => `<td class="num ${best[i] === st ? 'best' : ''}">${Math.round((wins[i][st] / per) * 100)}%</td>`).join('')}
+    <td>${best[i] ? esc(STYLES[best[i]]) : 'No difference'}</td></tr>`).join('');
+  $('batchResults').innerHTML = `
+    <p class="muted">Each seat played ${per} games with each style while the other seats kept theirs. Win rate per style:</p>
+    <table><thead><tr><th>Seat</th>${styles.map(st => `<th class="num">${esc(STYLES[st])}</th>`).join('')}<th>Best</th></tr></thead><tbody>${rows}</tbody></table>
+    ${partial ? '' : '<p><button class="btn primary" id="btnApplyStyles">Use the best styles</button> <span class="muted">Small samples are noisy; run more games for a firmer answer.</span></p>'}`;
+  $('btnApplyStyles')?.addEventListener('click', () => {
+    seats.forEach((s, i) => { if (best[i]) s.style = best[i]; });
+    persist();
+    renderSeats();
+    $('batchStatus').textContent = 'Styles saved. They apply from the next new game.';
+  });
+}
+
+async function plainBatch(n, status) {
+  const stats = seats.map(s => ({ seat: s, wins: 0, place: 0, comboWins: 0, combos: 0, damage: 0, styles: {}, cards: new Map() }));
+  const reasons = {}, losses = {};
+  // cEDH-style statistics: when games end, how much interaction gets cast, which combos land
+  const meta = { winRounds: [], interaction: 0, combos: {} };
+  let rounds = 0, played = 0, errors = 0;
+  for (let k = 0; k < n && !batchStop; k++) {
+    const g = await quickGame(seats.map(seatStyle));
+    if (!g) break;
+    played++;
+    rounds += g.round;
+    if (g.logEntries.some(e => e.html.startsWith('Simulator error'))) errors++;
+    const why = g.winReason || 'draw';
+    reasons[why] = (reasons[why] || 0) + 1;
+    if (g.winner) meta.winRounds.push(g.round);
+    for (const c of g.comboLog) {
+      const m = meta.combos[c.label] ||= { tried: 0, landed: 0, won: 0 };
+      m.tried++;
+      if (c.landed) { m.landed++; if (g.winner?.idx === c.p) m.won++; }
+    }
+    g.players.forEach((p, i) => {
+      const st = stats[i];
+      meta.interaction += p.stats.interaction || 0;
+      st.interaction = (st.interaction || 0) + (p.stats.interaction || 0);
+      st.place += p.place || 4;
+      st.combos += p.stats.combos;
+      st.damage += p.stats.damage;
+      st.styles[p.style] = 1;
+      if (g.winner === p) { st.wins++; if (p.stats.combos) st.comboWins++; }
+      // Which cards show up in this deck's wins
+      for (const name of p.castNames) {
+        const c = st.cards.get(name) || { games: 0, wins: 0 };
+        c.games++;
+        if (g.winner === p) c.wins++;
+        st.cards.set(name, c);
+      }
+      if (p.lost) {
+        // Group "21 combat damage from Atraxa" and "X won with A + B" into general reasons
+        const r = p.lossReason.replace(/ from .*$/, '').replace(/^.* won with .*$/, "an opponent's combo");
+        losses[r] = (losses[r] || 0) + 1;
+      }
+    });
+    $('batchBar').style.width = `${(played / n) * 100}%`;
+    status(`${played} / ${n} games`);
+    if (played % 2 === 0 || played === n) renderBatch(stats, reasons, losses, played, rounds, errors, meta);
+    await sleep(0);
+  }
+  renderBatch(stats, reasons, losses, played, rounds, errors, meta);
+  status(batchStop ? `Stopped after ${played} games` : `Done: ${played} games`);
+  if (played) for (const st of stats) lastCardStats.set(st.seat.deck.deckName, { base: st.wins / played, played, cards: st.cards });
+}
+
+// Cards whose games this deck wins much more (or less) often than its overall win rate
+function cardReport(st, played) {
+  const base = st.wins / played;
+  const min = Math.max(3, Math.round(played * 0.1));
+  const rows = [...st.cards.entries()].filter(([, c]) => c.games >= min)
+    .map(([name, c]) => ({ name, games: c.games, rate: c.wins / c.games, lift: c.wins / c.games - base }));
+  if (rows.length < 4) return '<p class="muted">Not enough games yet to rank cards.</p>';
+  const li = r => `<li><span class="cn">${esc(r.name)}</span>: won ${Math.round(r.rate * 100)}% of ${r.games} games where it was cast (${r.lift >= 0 ? '+' : ''}${Math.round(r.lift * 100)} points)</li>`;
+  const sorted = rows.sort((a, b) => b.lift - a.lift);
+  return `<div class="cardrep"><div><h4>Shows up in wins</h4><ul>${sorted.slice(0, 5).map(li).join('')}</ul></div>
+    <div><h4>Wins least often</h4><ul>${sorted.slice(-5).reverse().map(li).join('')}</ul></div></div>`;
+}
+
+function metaStats(meta, played) {
+  if (!meta) return '';
+  const w = [...meta.winRounds].sort((a, b) => a - b);
+  const avg = w.length ? w.reduce((a, b) => a + b, 0) / w.length : 0;
+  const median = w.length ? w[Math.floor(w.length / 2)] : 0;
+  const fast = w.filter(r => r <= 4).length;
+  const combos = Object.entries(meta.combos).sort((a, b) => b[1].tried - a[1].tried).slice(0, 10);
+  return `<h3>Game speed and interaction</h3>
+    <ul><li>Average win on round <b>${avg.toFixed(1)}</b> (median ${median})${w.length ? `; ${Math.round((fast / w.length) * 100)}% of wins by round 4` : ''}</li>
+      <li><b>${(meta.interaction / played).toFixed(1)}</b> interaction spells per game (counters, removal, bounce, wipes, Silence effects): ${(meta.interaction / played / 4).toFixed(1)} per player</li>
+      <li>${w.length < played ? `${played - w.length} game${played - w.length === 1 ? '' : 's'} ended without a winner` : 'Every game had a winner'}</li></ul>
+    ${combos.length ? `<h3>Combos</h3><table><thead><tr><th>Combo</th><th class="num">Attempts</th><th class="num">Landed</th><th class="num">Won the game</th></tr></thead><tbody>
+      ${combos.map(([label, m]) => `<tr><td>${esc(label)}</td><td class="num">${m.tried}</td><td class="num">${m.landed} (${Math.round((m.landed / m.tried) * 100)}%)</td><td class="num">${m.won}</td></tr>`).join('')}</tbody></table>
+      <p class="muted">An attempt that didn't land was countered, had a piece removed, or ran out of mana.</p>` : ''}`;
+}
+
+function renderBatch(stats, reasons, losses, played, rounds, errors, meta) {
+  if (!played) { $('batchResults').innerHTML = ''; return; }
+  const rows = [...stats].sort((a, b) => b.wins - a.wins).map(st => {
+    const pct = (st.wins / played) * 100;
+    return `<tr style="--pc:${st.seat.color}">
+      <td><span class="dot"></span>${esc(st.seat.name)}</td>
+      <td title="${esc(st.seat.deck.deckName)}">${esc(st.seat.deck.deckName.slice(0, 34))}</td>
+      <td>${Object.keys(st.styles).map(k => STYLES[k] || k).join(', ')}</td>
+      <td class="num">${st.wins}</td>
+      <td><span class="bar" style="width:${Math.max(2, pct * 1.2)}px"></span>${pct.toFixed(0)}%</td>
+      <td class="num">${(st.place / played).toFixed(2)}</td>
+      <td class="num">${st.comboWins}</td>
+      <td class="num">${Math.round(st.damage / played)}</td>
+    </tr>`;
+  }).join('');
+  const list = obj => Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `<li>${esc(k)}: <b>${v}</b></li>`).join('');
+  $('batchResults').innerHTML = `
+    <table>
+      <thead><tr><th>Seat</th><th>Deck</th><th>Style</th><th class="num">Wins</th><th>Win rate</th><th class="num">Avg place</th><th class="num">Combo wins</th><th class="num">Dmg / game</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+    <p class="muted">${played} games · average length ${(rounds / played).toFixed(1)} rounds${errors ? ` · ${errors} hit a simulator error` : ''}</p>
+    ${metaStats(meta, played)}
+    <h3>How games were won</h3><ul>${list(reasons)}</ul>
+    <h3>How players were eliminated</h3><ul>${list(losses)}</ul>
+    <h3>Card performance</h3>
+    <p class="muted">Compared with each deck's overall win rate. Cards cast in fewer than ${Math.max(3, Math.round(played * 0.1))} games aren't ranked. This shows correlation, not cause.</p>
+    ${stats.map(st => `<details style="--pc:${st.seat.color}"><summary><span class="dot"></span>${esc(st.seat.name)}: ${esc(st.seat.deck.deckName)}</summary>${cardReport(st, played)}</details>`).join('')}`;
+}
+
+// ---------- deck viewer: curve, colors, types, what the simulator understands, batch suggestions
+const lastCardStats = new Map(); // deck name → { base, played, cards } from the latest batch run
+$('seats').addEventListener('click', e => {
+  const b = e.target.closest('.sview, .sedit');
+  if (b) (b.classList.contains('sedit') ? openEditor : i => showDeck(seats[i]))(+b.dataset.i);
+});
+$('btnDeckClose').addEventListener('click', () => { $('deckModal').hidden = true; });
+
+// ---------- deck editor: change a seat's list and re-test straight away
+let editSeat = null;
+function openEditor(i) {
+  const s = seats[i];
+  editSeat = i;
+  $('editTitle').textContent = `Edit deck: ${s.deck?.deckName || s.name}`;
+  $('editText').value = s.deck ? deckText(s.deck) : s.source;
+  $('editName').value = s.deck?.deckName || '';
+  $('editStatus').textContent = '';
+  editCount();
+  $('editModal').hidden = false;
+}
+function editCount() {
+  const n = parseText($('editText').value, { commander: fmt().commander }).entries.filter(e => !e.side).reduce((a, e) => a + e.qty, 0);
+  const f = fmt();
+  const off = f.exact ? n !== f.deck : n < f.deck;
+  $('editCount').textContent = `${n} cards${off ? ` (${f.name} decks have ${f.exact ? 'exactly' : 'at least'} ${f.deck})` : ''}${f.sideboard ? '. Put sideboard cards under a "Sideboard" heading' : ''}.`;
+}
+$('editText').addEventListener('input', editCount);
+$('btnEditClose').addEventListener('click', () => { $('editModal').hidden = true; });
+// Card names as you type, from Scryfall's free autocomplete
+let suggestTimer;
+$('editSearch').addEventListener('input', e => {
+  clearTimeout(suggestTimer);
+  const q = e.target.value.trim();
+  if (q.length < 3) return;
+  suggestTimer = setTimeout(async () => {
+    try { $('editSuggest').innerHTML = (await sf(`/cards/autocomplete?q=${encodeURIComponent(q)}`)).data.slice(0, 15).map(n => `<option value="${esc(n)}">`).join(''); } catch { /* offline: type the full name */ }
+  }, 250);
+});
+function addCard() {
+  const name = $('editSearch').value.trim();
+  if (!name) return;
+  const lines = $('editText').value.split('\n');
+  // Add under the "Deck" heading if there is one, otherwise at the end
+  const at = lines.findIndex(l => /^\s*(deck|main ?deck|mainboard)\s*$/i.test(l));
+  if (at >= 0) lines.splice(at + 1, 0, `1 ${name}`); else lines.push(`1 ${name}`);
+  $('editText').value = lines.join('\n');
+  $('editSearch').value = '';
+  editCount();
+  $('editStatus').textContent = `Added ${name}.`;
+}
+$('btnEditAdd').addEventListener('click', addCard);
+$('editSearch').addEventListener('keydown', e => { if (e.key === 'Enter') addCard(); });
+async function applyEdit() {
+  if (editSeat == null) return false;
+  const s = seats[editSeat];
+  s.source = $('editText').value;
+  s.deck = null;
+  persist();
+  try {
+    await loadSeatDeck(s, msg => { $('editStatus').textContent = msg; });
+    $('editStatus').textContent = `Applied: ${s.deck.deckName}${s.deck.warnings.length ? ` (${s.deck.warnings[0]})` : ''}`;
+    renderSeats();
+    return true;
+  } catch (err) {
+    $('editStatus').textContent = `Couldn't load the list: ${err.message}`;
+    return false;
+  }
+}
+$('btnEditApply').addEventListener('click', applyEdit);
+$('btnEditTest').addEventListener('click', async () => {
+  if (!(await applyEdit())) return;
+  $('editModal').hidden = true;
+  // Every seat needs a deck before a batch can run
+  if (game && !clock.paused) togglePlay();
+  $('batchCount').value = '10';
+  $('batchModal').hidden = false;
+  runBatch(false);
+});
+$('btnEditSave').addEventListener('click', async () => {
+  const name = $('editName').value.trim() || seats[editSeat]?.deck?.deckName || 'My deck';
+  try { $('editStatus').textContent = `Saved to your library as "${await saveDeck(name, $('editText').value)}".`; } catch (err) { $('editStatus').textContent = `Couldn't save: ${err.message}`; }
+});
+
+// ---------- puzzles: a set board and one turn to win
+function renderPuzzles() {
+  $('puzzleList').innerHTML = BUILT_IN.map((pz, i) => `<div class="standing" style="--pc:${SEAT_COLORS[i % 4]}"><div class="meta"><b>${esc(pz.name)}</b><br>${esc(pz.hint || pz.goal)}</div><button class="btn small primary" data-pz="${i}">Play</button></div>`).join('');
+}
+// extra: newGame options (a lesson's coach and after step, a chapter's); say: where to show progress
+async function startPuzzle(pz, extra = {}, say = t => { $('puzzleStatus').textContent = t; }) {
+  if (!validPuzzle(pz)) throw new Error("That isn't a Commander Table puzzle");
+  const format = FORMATS[pz.format] ? pz.format : 'commander';
+  const decks = [];
+  for (const [i, spec] of pz.players.entries()) {
+    say(`Loading ${spec.name || `player ${i + 1}`}'s cards…`);
+    decks.push(await loadDeck(puzzleDeckText(spec), () => {}, { format }));
+  }
+  say('');
+  for (const id of ['puzzleModal', 'setup', 'learnModal', 'storyModal']) if ($(id)) $(id).hidden = true;
+  match = null;
+  newGame({ puzzle: pz, puzzleDecks: decks, noLearning: true, format, ...extra });
+}
+$('btnPuzzles').addEventListener('click', () => { renderPuzzles(); $('puzzleModal').hidden = false; });
+$('btnPuzzleClose').addEventListener('click', () => { $('puzzleModal').hidden = true; });
+$('puzzleList').addEventListener('click', e => {
+  const b = e.target.closest('[data-pz]');
+  if (b) startPuzzle(BUILT_IN[+b.dataset.pz]).catch(err => { $('puzzleStatus').textContent = `Couldn't start it: ${err.message}`; });
+});
+$('btnPuzzleLoad').addEventListener('click', () => $('puzzleFile').click());
+$('puzzleFile').addEventListener('change', async e => {
+  const file = e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  try { await startPuzzle(JSON.parse(await file.text())); } catch (err) { $('puzzleStatus').textContent = `Couldn't load it: ${err.message}`; }
+});
+// The whole game as one web page that plays it back anywhere (re-simulated from its seed and answers)
+$('btnShareReplay').addEventListener('click', async () => {
+  if (!setup) return;
+  const b = $('btnShareReplay');
+  b.disabled = true;
+  try {
+    const html = await buildReplayHtml(setup, t => { $('tlLabel').textContent = t; });
+    download(`commander-replay-${stamp()}.html`, html, 'text/html');
+    $('tlLabel').textContent = 'Replay page saved: open it in any browser, or send it to someone';
+  } catch (err) {
+    $('tlLabel').textContent = `Couldn't build the replay page: ${err.message}`;
+  }
+  b.disabled = false;
+});
+$('btnSavePuzzle').addEventListener('click', () => {
+  if (!game) return;
+  const name = prompt('Name this puzzle', `Board from turn ${game.turn}`);
+  if (name == null) return;
+  download(`commander-puzzle-${stamp()}.json`, JSON.stringify(boardToPuzzle(game, name), null, 1));
+});
+
+// ---------- draft and sealed pods
+// duel: one on one, best of three (Limited format: 40 cards, 20 life, the rest of the pool as sideboard);
+// otherwise a four-player Commander pod. Packs come from a set (Scryfall) or from a saved cube.
+const LIM = { pool: [], pools: [], chosen: new Set(), commander: null, colors: null, set: '', label: '', duel: true };
+$('limSet').innerHTML = SUGGESTED_SETS.map(([c, n]) => `<option value="${c}">${esc(n)} (${c.toUpperCase()})</option>`).join('');
+$('btnLimited').addEventListener('click', () => { renderCubes(); $('limitedModal').hidden = false; });
+$('btnLimitedClose').addEventListener('click', () => { $('limitedModal').hidden = true; });
+const limCard = (c, cls = '') => `<div class="lim-card ${cls}" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal || c.imgSmall ? `<img src="${esc(c.imgNormal || c.imgSmall)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`;
+
+// Saved cubes (kept in the game folder's browser profile): { name, cards: [names], source }
+const cubes = () => store('ct.cubes') || [];
+function renderCubes(sel) {
+  const list = cubes();
+  $('limCube').innerHTML = list.map((c, i) => `<option value="${i}" ${c.name === sel ? 'selected' : ''}>${esc(c.name)} (${c.cards.length} cards)</option>`).join('') || '<option value="">(no saved cubes yet)</option>';
+}
+document.querySelectorAll('input[name="limSource"]').forEach(r => r.addEventListener('change', () => {
+  const cube = document.querySelector('input[name="limSource"]:checked').value === 'cube';
+  $('limSetWrap').hidden = cube; $('limCubeWrap').hidden = !cube; $('limCubeAdd').hidden = !cube;
+  renderCubes();
+}));
+$('btnCubeSave').addEventListener('click', async () => {
+  const say = t => { $('limStatus').textContent = t; };
+  const link = $('cubeLink').value.trim();
+  let text = $('cubeText').value;
+  let name = $('cubeName').value.trim();
+  try {
+    if (link) {
+      // CubeCobra's public plain-text list, through the local server (CubeCobra doesn't allow browser requests)
+      const id = (link.match(/cubecobra\.com\/cube\/(?:list|overview|playtest|about|api\/cubelist)\/([^/?#\s]+)/i) || [, link.match(/^[\w-]+$/) ? link : null])[1];
+      if (!id) throw new Error('That isn\'t a CubeCobra link or cube ID.');
+      say(`Downloading cube ${id} from CubeCobra…`);
+      const r = await fetch('/api/fetch?url=' + encodeURIComponent(`https://cubecobra.com/cube/api/cubelist/${encodeURIComponent(id)}`));
+      if (!r.ok) throw new Error(r.status === 404 ? 'CubeCobra doesn\'t know that cube.' : `CubeCobra answered ${r.status}.`);
+      text = await r.text();
+      if (/<html/i.test(text)) throw new Error('CubeCobra sent a web page instead of a card list.');
+      name ||= id;
+    }
+    const names = [...new Set(cubeNames(text))];
+    if (names.length < 45) throw new Error(`A cube needs at least 45 different cards (this one has ${names.length}).`);
+    name ||= `Cube of ${names.length}`;
+    const list = cubes().filter(c => c.name !== name);
+    list.push({ name, cards: names, source: link || 'pasted' });
+    store('ct.cubes', list);
+    renderCubes(name);
+    $('cubeLink').value = ''; $('cubeText').value = ''; $('cubeName').value = '';
+    say(`Saved "${name}" (${names.length} cards).`);
+  } catch (err) { say(`Couldn't save the cube: ${err.message}`); }
+});
+$('btnCubeDelete').addEventListener('click', () => {
+  const list = cubes();
+  const i = +$('limCube').value;
+  if (!list[i]) return;
+  const [gone] = list.splice(i, 1);
+  store('ct.cubes', list);
+  renderCubes();
+  $('limStatus').textContent = `Removed "${gone.name}".`;
+});
+// A cube's cards from Scryfall (by name; cards it doesn't know are skipped and reported)
+async function cubePool(cube, say) {
+  say(`Loading ${cube.cards.length} cube cards from Scryfall…`);
+  const { cards, key } = await fetchCollection(cube.cards.map(name => ({ name })), (a, b) => say(`Loading cube cards ${a}/${b}…`));
+  const pool = cube.cards.map(name => cards.get(key({ name }))).filter(Boolean);
+  const missing = cube.cards.length - pool.length;
+  return { pool, note: missing ? ` (${missing} card name${missing === 1 ? '' : 's'} Scryfall didn't know were left out)` : '' };
+}
+
+$('btnLimitedGo').addEventListener('click', async () => {
+  const mode = document.querySelector('input[name="limMode"]:checked').value;
+  const fromCube = document.querySelector('input[name="limSource"]:checked').value === 'cube';
+  LIM.duel = document.querySelector('input[name="limPlay"]:checked').value === 'duel';
+  const say = t => { $('limStatus').textContent = t; };
+  $('btnLimitedGo').disabled = true;
+  $('limitedFoot').hidden = true;
+  $('limitedBody').innerHTML = '';
+  try {
+    let pool, packFn, note = '';
+    if (fromCube) {
+      const cube = cubes()[+$('limCube').value];
+      if (!cube) throw new Error('Save a cube first (a CubeCobra link or a pasted list).');
+      ({ pool, note } = await cubePool(cube, say));
+      // Every card at most once per draft: packs are dealt from the shuffled cube
+      let deal = null;
+      packFn = (p, rand) => (deal ||= cubePacker(p, rand))();
+      const need = 4 * (mode === 'sealed' ? 6 : 3) * 15;
+      if (pool.length < need) note += ` · the cube has ${pool.length} cards, fewer than the ${need} this needs, so the last packs are short`;
+      LIM.set = 'cube'; LIM.label = cube.name;
+    } else {
+      const code = ($('limCode').value.trim() || $('limSet').value).toLowerCase();
+      pool = await setPool(code, say);
+      packFn = makePack;
+      LIM.set = code; LIM.label = code.toUpperCase();
+    }
+    const seed = Math.floor(Math.random() * 2 ** 32);
+    if (mode === 'sealed') {
+      LIM.pools = sealedPools(pool, 4, seed, packFn);
+    } else {
+      // You pick by clicking a card in each pack; the AI drafters pick for the other three seats
+      LIM.pools = await runDraft(pool, 4, seed, 0, (seat, pack, picks) => new Promise(res => {
+        say(`Pick a card (${picks.length} picked so far)`);
+        $('limitedBody').innerHTML = `<p class="muted">Click the card you want. The rest of the pack goes to the next player.</p><div class="lim-grid">${pack.map(c => limCard(c)).join('')}</div>
+          ${picks.length ? `<p class="muted">Your picks: ${picks.map(c => esc(c.name)).join(', ')}</p>` : ''}`;
+        $('limitedBody').onclick = e => { const el = e.target.closest('.lim-card'); if (!el) return; $('limitedBody').onclick = null; res(pack.find(c => c.name === el.dataset.name)); };
+      }), say, packFn);
+    }
+    LIM.pool = LIM.pools[0];
+    if (LIM.duel) {
+      const auto = buildLimited(LIM.pool);
+      LIM.colors = auto.colors;
+      LIM.commander = null;
+      LIM.chosen = new Set(auto.cards.map(c => c.name));
+      say(`Your pool: ${LIM.pool.length} cards${note}. Click cards to add or remove them, choose your colors, or use Auto-build. The rest of the pool is your sideboard.`);
+    } else {
+      const auto = buildDeck(LIM.pool);
+      LIM.commander = auto?.commander || null;
+      LIM.chosen = new Set(auto ? auto.cards.map(c => c.name) : []);
+      say(`Your pool: ${LIM.pool.length} cards${note}. Click cards to add or remove them, pick your commander, or use Auto-build.${LIM.commander ? '' : ' Your pool has no legendary creature, so it can only be played one on one.'}`);
+    }
+    renderLimited();
+  } catch (err) {
+    say(`Couldn't open packs: ${err.message}`);
+  }
+  $('btnLimitedGo').disabled = false;
+});
+// Color choices for one-on-one decks: the five colors and the ten pairs
+const COLOR_CHOICES = (() => {
+  const C = ['W', 'U', 'B', 'R', 'G'];
+  const out = C.map(c => [c]);
+  for (let i = 0; i < 5; i++) for (let j = i + 1; j < 5; j++) out.push([C[i], C[j]]);
+  return out;
+})();
+function renderLimited() {
+  $('limCommanderWrap').hidden = LIM.duel;
+  $('limColorsWrap').hidden = !LIM.duel;
+  let legal;
+  if (LIM.duel) {
+    $('limColors').innerHTML = COLOR_CHOICES.map(cs => `<option value="${cs.join('')}" ${cs.join('') === (LIM.colors || []).join('') ? 'selected' : ''}>${cs.map(c => ({ W: 'White', U: 'Blue', B: 'Black', R: 'Red', G: 'Green' })[c]).join('-')}</option>`).join('');
+    // Any card can go in (splashes are your call); the colors only steer Auto-build and the basic lands
+    legal = () => true;
+  } else {
+    const legends = LIM.pool.filter(c => /legendary/i.test(c.typeLine) && /creature/i.test(c.typeLine));
+    $('limCommander').innerHTML = legends.map(c => `<option ${c === LIM.commander ? 'selected' : ''}>${esc(c.name)}</option>`).join('') || '<option>(no legendary creature)</option>';
+    const ci = LIM.commander?.colorIdentity || [];
+    legal = c => (c.colorIdentity || []).every(col => ci.includes(col));
+  }
+  const sorted = [...LIM.pool].sort((a, b) => Number(LIM.chosen.has(b.name)) - Number(LIM.chosen.has(a.name)) || (a.cmc || 0) - (b.cmc || 0));
+  $('limitedBody').innerHTML = `<div class="lim-grid">${sorted.map(c => limCard(c, c === LIM.commander ? 'cmdr' : LIM.chosen.has(c.name) ? 'on' : legal(c) ? '' : 'off')).join('')}</div>`;
+  $('limitedBody').onclick = e => {
+    const el = e.target.closest('.lim-card');
+    if (!el) return;
+    const c = LIM.pool.find(x => x.name === el.dataset.name);
+    if (!c || c === LIM.commander || !legal(c)) return;
+    if (LIM.chosen.has(c.name)) LIM.chosen.delete(c.name); else LIM.chosen.add(c.name);
+    renderLimited();
+  };
+  $('limCount').textContent = LIM.duel
+    ? `${LIM.chosen.size} cards chosen; ${Math.max(0, DECK_SIZE - LIM.chosen.size)} basic lands will be added; ${LIM.pool.length - LIM.chosen.size} in the sideboard`
+    : `${LIM.chosen.size} cards chosen + commander; ${Math.max(0, DECK_SIZE - 1 - LIM.chosen.size)} basic lands will be added`;
+  $('btnLimSeat').disabled = !LIM.duel && !LIM.commander;
+  $('limitedFoot').hidden = false;
+}
+$('limCommander').addEventListener('change', e => {
+  LIM.commander = LIM.pool.find(c => c.name === e.target.value) || LIM.commander;
+  const ci = LIM.commander.colorIdentity || [];
+  for (const n of [...LIM.chosen]) { const c = LIM.pool.find(x => x.name === n); if (!c || c === LIM.commander || !(c.colorIdentity || []).every(col => ci.includes(col))) LIM.chosen.delete(n); }
+  renderLimited();
+});
+$('limColors').addEventListener('change', e => {
+  LIM.colors = [...e.target.value];
+  LIM.chosen = new Set(buildLimited(LIM.pool, LIM.colors).cards.map(c => c.name));
+  renderLimited();
+});
+$('btnLimAuto').addEventListener('click', () => {
+  if (LIM.duel) LIM.chosen = new Set(buildLimited(LIM.pool, LIM.colors).cards.map(c => c.name));
+  else { const d = buildDeck(LIM.pool, LIM.commander); if (d) LIM.chosen = new Set(d.cards.map(c => c.name)); }
+  renderLimited();
+});
+$('btnLimSeat').addEventListener('click', () => {
+  const label = LIM.label;
+  if (LIM.duel) {
+    // One on one in the Limited format: your deck in seat 1, the strongest AI drafter's deck in seat 2
+    const cards = LIM.pool.filter(c => LIM.chosen.has(c.name));
+    const colors = LIM.colors?.length ? LIM.colors : buildLimited(LIM.pool).colors;
+    setFormat('limited', { quiet: true });
+    prefs.bestOf = 3; store('ct.prefs', prefs); syncFormatUI();
+    seats[0].source = limitedText({ cards, colors }, LIM.pool, `${label} ${colors.join('')}`);
+    seats[0].deck = null;
+    const rivals = LIM.pools.slice(1).map(p => ({ p, d: buildLimited(p) })).map(x => ({ ...x, v: x.d.cards.reduce((a, c) => a + (c.fx.type.land ? 0 : 1), 0) }));
+    const rival = rivals.sort((a, b) => b.v - a.v)[0];
+    Object.assign(seats[1], { source: limitedText(rival.d, rival.p, `${label} ${rival.d.colors.join('')} (AI)`), deck: null, style: ['human', 'remote'].includes(seats[1].style) ? seats[1].style : 'auto' });
+    persist();
+    renderSeats();
+    $('limitedModal').hidden = true;
+    $('setupStatus').textContent = `Your ${label} deck is in seat 1 and an AI drafter's deck from the same packs in seat 2, best of three with your pools as sideboards. Set seat 1 to "You play this seat" to play it, then click "Load decks & shuffle up".`;
+    return;
+  }
+  if (!LIM.commander) return;
+  const mine = { commander: LIM.commander, cards: LIM.pool.filter(c => LIM.chosen.has(c.name) && c !== LIM.commander).slice(0, DECK_SIZE - 1) };
+  setFormat('commander', { quiet: true });
+  seats[0].source = limitedDeckText(mine, `${label} pod: ${LIM.commander.name}`);
+  seats[0].deck = null;
+  for (let i = 1; i < 4; i++) {
+    const d = buildDeck(LIM.pools[i]);
+    if (!d) continue;
+    Object.assign(seats[i], { source: limitedDeckText(d, `${label} pod: ${d.commander.name}`), deck: null, style: ['human', 'remote'].includes(seats[i].style) ? seats[i].style : 'auto' });
+  }
+  persist();
+  renderSeats();
+  $('limitedModal').hidden = true;
+  $('setupStatus').textContent = `Your ${label} deck is in seat 1 and three AI decks from the same packs in the others. Set seat 1 to "You play this seat" if you want to play it, then click "Load decks & shuffle up".`;
+});
+
+// ---------- deck library (data\decks)
+let libraryDecks = [];
+async function renderLibrary() {
+  const body = $('libraryBody');
+  try { libraryDecks = await listDecks(); } catch (err) { $('libraryStatus').textContent = err.message; return; }
+  const q = $('librarySearch').value.trim().toLowerCase();
+  const rows = libraryDecks.filter(d => !q || `${d.name} ${d.text}`.toLowerCase().includes(q));
+  $('libraryStatus').textContent = `${libraryDecks.length} saved deck${libraryDecks.length === 1 ? '' : 's'}`;
+  body.innerHTML = rows.length ? `<table><thead><tr><th>Deck</th><th class="num">Cards</th><th>Saved</th><th>Load into seat</th><th></th></tr></thead><tbody>
+    ${rows.map(d => `<tr><td>${esc(d.name)}</td><td class="num">${parseText(d.text).entries.filter(e => !e.side).reduce((a, e) => a + e.qty, 0)}</td><td>${esc(new Date(d.modified).toLocaleDateString())}</td>
+      <td class="seatpicks">${seats.map((s, i) => `<button class="btn small libseat" data-name="${esc(d.name)}" data-seat="${i}" style="--pc:${s.color}">${i + 1}</button>`).join('')}</td>
+      <td><button class="btn small ghost libdel" data-name="${esc(d.name)}">Delete</button></td></tr>`).join('')}</tbody></table>`
+    : `<p class="muted">${libraryDecks.length ? 'No decks match.' : 'No saved decks yet. Use "Edit" on a loaded seat, then "Save to library".'}</p>`;
+}
+// Matchup grid: the decks shown play each other head to head at full speed; each cell is the row deck's win rate
+let gridStop = false;
+$('btnGrid').addEventListener('click', async () => {
+  if ($('btnGrid').dataset.running) { gridStop = true; return; }
+  const q = $('librarySearch').value.trim().toLowerCase();
+  const chosen = libraryDecks.filter(d => !q || `${d.name} ${d.text}`.toLowerCase().includes(q)).slice(0, 8);
+  if (chosen.length < 2) { $('libraryStatus').textContent = 'The grid needs at least two decks (filter the list to choose which).'; return; }
+  const per = +$('gridGames').value;
+  gridStop = false;
+  $('btnGrid').dataset.running = '1';
+  $('btnGrid').textContent = 'Stop';
+  try {
+    const decks = [];
+    for (const d of chosen) { $('libraryStatus').textContent = `Loading ${d.name}…`; decks.push(await loadDeck(d.text, () => {}, { format: formatKey })); }
+    const n = decks.length;
+    const wins = Array.from({ length: n }, () => Array(n).fill(0)), games = Array.from({ length: n }, () => Array(n).fill(0));
+    const total = (n * (n - 1)) / 2 * per;
+    let done = 0;
+    const draw = () => {
+      $('libraryBody').innerHTML = `<table class="grid"><thead><tr><th>Row deck wins vs…</th>${chosen.map((d, j) => `<th title="${esc(d.name)}">${j + 1}</th>`).join('')}<th class="num">Overall</th></tr></thead><tbody>
+        ${chosen.map((d, i) => {
+          const w = wins[i].reduce((a, b) => a + b, 0), g = games[i].reduce((a, b) => a + b, 0);
+          return `<tr><td>${i + 1}. ${esc(d.name)}</td>${chosen.map((_, j) => (i === j ? '<td class="num muted">–</td>' : games[i][j]
+            ? `<td class="num" style="background:color-mix(in srgb, ${wins[i][j] / games[i][j] >= 0.5 ? 'var(--good)' : 'var(--bad)'} ${Math.round(Math.abs(wins[i][j] / games[i][j] - 0.5) * 80)}%, transparent)">${Math.round((wins[i][j] / games[i][j]) * 100)}%</td>` : '<td></td>')).join('')}
+            <td class="num"><b>${g ? Math.round((w / g) * 100) : 0}%</b></td></tr>`;
+        }).join('')}</tbody></table>
+        <p class="muted">${done} of ${total} games. Head-to-head ${esc(fmt().name)} games (two players, ${fmt().life} life each), AI pilots in their Auto style. Small samples are noisy.</p>`;
+    };
+    for (let i = 0; i < n && !gridStop; i++) for (let j = i + 1; j < n && !gridStop; j++) {
+      for (let k = 0; k < per && !gridStop; k++) {
+        // Alternate who sits first
+        const [a, b] = k % 2 ? [j, i] : [i, j];
+        const g = new Game([a, b].map((x, s) => ({ playerName: `${x + 1}`, deckName: decks[x].deckName, color: SEAT_COLORS[s], agent: new Agent(learnedStyle(learnAs(decks[x])) || guessStyle(decks[x])), commanders: decks[x].commanders, learnAs: learnAs(decks[x]), cards: decks[x].cards })), { beat: async () => {} }, { format: formatKey });
+        await g.run();
+        if (g.over) recordGame(g);
+        games[i][j]++; games[j][i]++;
+        if (g.winner) { const w = g.winner.idx === 0 ? a : b, l = w === a ? b : a; wins[w][l]++; }
+        done++;
+        $('libraryStatus').textContent = `Playing… ${done} / ${total}`;
+        if (done % 2 === 0) { draw(); await sleep(0); }
+      }
+    }
+    draw();
+    $('libraryStatus').textContent = gridStop ? `Stopped after ${done} games` : `Done: ${done} games`;
+  } catch (err) {
+    $('libraryStatus').textContent = `The grid stopped: ${err.message}`;
+  }
+  delete $('btnGrid').dataset.running;
+  $('btnGrid').textContent = 'Matchup grid';
+});
+$('btnLibrary').addEventListener('click', () => { $('libraryModal').hidden = false; renderLibrary(); });
+$('btnLibraryClose').addEventListener('click', () => { $('libraryModal').hidden = true; });
+$('librarySearch').addEventListener('input', renderLibrary);
+$('libraryBody').addEventListener('click', async e => {
+  const seat = e.target.closest('.libseat'), del = e.target.closest('.libdel');
+  if (seat) {
+    const d = libraryDecks.find(x => x.name === seat.dataset.name);
+    Object.assign(seats[+seat.dataset.seat], { source: d.text, deck: null });
+    persist();
+    renderSeats();
+    $('libraryStatus').textContent = `${d.name} goes into seat ${+seat.dataset.seat + 1}. Close this and click "Load decks".`;
+  } else if (del && confirm(`Delete "${del.dataset.name}" from your library?`)) {
+    await deleteDeck(del.dataset.name).catch(err => { $('libraryStatus').textContent = err.message; });
+    renderLibrary();
+  }
+});
+
+function showDeck(s) {
+  const d = s.deck;
+  if (!d) return;
+  const all = [...d.commanders.map(c => ({ card: c, qty: 1 })), ...d.cards];
+  const spells = all.filter(x => !x.card.fx.type.land);
+  const curve = Array(8).fill(0);
+  for (const { card, qty } of spells) curve[Math.min(7, Math.floor(card.cmc || 0))] += qty;
+  const top = Math.max(1, ...curve);
+  const pips = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+  for (const { card, qty } of spells) for (const [, c] of (card.manaCost || '').matchAll(/\{([WUBRG])(?:\/[WUBRGP])?\}/g)) pips[c] += qty;
+  const types = {};
+  for (const { card, qty } of all) {
+    const t = card.fx.type;
+    const k = t.land ? 'Lands' : t.creature ? 'Creatures' : t.planeswalker ? 'Planeswalkers' : t.instant ? 'Instants' : t.sorcery ? 'Sorceries' : t.artifact ? 'Artifacts' : t.enchantment ? 'Enchantments' : 'Other';
+    types[k] = (types[k] || 0) + qty;
+  }
+  const cov = coverage(d);
+  const avg = spells.reduce((a, x) => a + (x.card.cmc || 0) * x.qty, 0) / Math.max(1, spells.reduce((a, x) => a + x.qty, 0));
+  const combos = combosIn(all.map(x => x.card));
+  // Suggestions from the latest batch run, if this deck was in it
+  const st = lastCardStats.get(d.deckName);
+  let tips = '';
+  if (st) {
+    const min = Math.max(3, Math.round(st.played * 0.1));
+    const rows = [...st.cards.entries()].filter(([, c]) => c.games >= min).map(([name, c]) => ({ name, games: c.games, lift: c.wins / c.games - st.base }));
+    const cut = rows.filter(r => r.lift <= -0.1).sort((a, b) => a.lift - b.lift).slice(0, 6);
+    const keep = rows.filter(r => r.lift >= 0.15).sort((a, b) => b.lift - a.lift).slice(0, 6);
+    tips = `<h3>From your last batch run (${st.played} games)</h3>
+      ${keep.length ? `<p><b>Key cards:</b> ${keep.map(r => `${esc(r.name)} (+${Math.round(r.lift * 100)})`).join(', ')}</p>` : ''}
+      ${cut.length ? `<p><b>Worth a look to cut:</b> ${cut.map(r => `${esc(r.name)} (${Math.round(r.lift * 100)})`).join(', ')}</p>` : '<p class="muted">No card stands out as a clear underperformer.</p>'}
+      <p class="muted">Numbers are win-rate points compared with the deck's average when the card was cast. Small samples are noisy.</p>`;
+  }
+  $('deckTitle').textContent = d.deckName;
+  $('deckBody').innerHTML = `
+    <div class="deck-stats">
+      <div><h3>Mana curve</h3><div class="curve">${curve.map((n, i) => `<div class="col"><span class="n">${n || ''}</span><div class="bar" style="height:${(n / top) * 90}px"></div><span class="l">${i === 7 ? '7+' : i}</span></div>`).join('')}</div>
+        <p class="muted">Average mana value ${avg.toFixed(2)}</p></div>
+      <div><h3>Color pips</h3>${Object.entries(pips).filter(([, n]) => n).map(([c, n]) => `<div class="pipbar"><span>${symbolize(`{${c}}`)}</span><div style="width:${Math.min(100, n * 2)}%"></div><b>${n}</b></div>`).join('') || '<p class="muted">Colorless</p>'}</div>
+      <div><h3>Card types</h3><ul class="typelist">${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<li><span>${k}</span><b>${n}</b></li>`).join('')}</ul></div>
+    </div>
+    <h3>What the simulator understands: ${cov.pct}%</h3>
+    ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
+    ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
+    ${tips || '<p class="muted">Run a batch with this deck seated to get card suggestions.</p>'}
+    ${masteryHtml(d)}
+    ${learnedHtml(d)}
+    <h3>Compared with tournament lists</h3>
+    <div id="metaCompare"><p><button class="btn small" id="btnCompareMeta">Compare with recent EDHTop16 lists for this commander</button></p></div>`;
+  $('btnCompareMeta')?.addEventListener('click', async () => {
+    const box = $('metaCompare');
+    box.innerHTML = '<p class="muted">Loading…</p>';
+    try {
+      const r = await compareWithMeta(d, t => { box.innerHTML = `<p class="muted">${esc(t)}</p>`; });
+      box.innerHTML = `<p class="muted">${r.lists} recent top-16 lists for ${esc(r.commander)}.</p>
+        ${r.missing.length ? `<p><b>Most of them play, and you don't:</b> ${r.missing.slice(0, 25).map(m => `${esc(m.name)} (${Math.round(m.share * 100)}%)`).join(', ')}</p>` : '<p>You play everything that at least half of them play.</p>'}
+        ${r.unique.length ? `<p><b>Yours alone</b> (none of them play): ${r.unique.slice(0, 30).map(esc).join(', ')}</p>` : '<p>Every card you play shows up in at least one of their lists.</p>'}`;
+    } catch (err) { box.innerHTML = `<p class="muted">Couldn't compare: ${esc(err.message)}</p>`; }
+  });
+  $('btnForgetDeck')?.addEventListener('click', () => { forgetDeck(learnAs(d)); showDeck(s); });
+  $('deckModal').hidden = false;
+}
+function masteryHtml(d) {
+  const m = mastery(learnAs(d));
+  const pct = Math.round((m.into / m.span) * 100);
+  return `<h3>Deck mastery: level ${m.level}</h3>
+    <div class="mastery-bar" title="${m.xp} points"><span style="width:${m.next ? pct : 100}%"></span></div>
+    <p class="muted">${m.games} games, ${m.wins} wins${m.games ? ` (${Math.round((m.wins / m.games) * 100)}%)` : ''} · ${m.next ? `${m.span - m.into} points to level ${m.level + 1} (10 a game, 15 more for a win)` : 'top level (20)'}</p>
+    ${m.top.length ? `<p><b>Best cards</b> (cast most in its wins): ${m.top.map(c => `${esc(c.name)} <span class="muted">${c.wins}/${c.casts}</span>`).join(', ')}</p>` : ''}`;
+}
+function learnedHtml(d) {
+  const L = learnedSummary(learnAs(d));
+  if (!L) return '<h3>What its AI has learned</h3><p class="muted">Nothing yet. Every finished game (batch runs especially) teaches this deck\'s AI which of its cards show up in wins.</p>';
+  const list = rows => rows.map(([n, b]) => `${esc(n)} (${b > 0 ? '+' : ''}${b.toFixed(1)})`).join(', ');
+  return `<h3>What its AI has learned (${L.games} games, ${L.wins} wins)</h3>
+    ${L.best.length || L.worst.length ? `${L.best.length ? `<p><b>Plays more eagerly:</b> ${list(L.best)}</p>` : ''}${L.worst.length ? `<p><b>Plays less eagerly:</b> ${list(L.worst)}</p>` : ''}`
+      : `<p class="muted">${L.games < 5 ? 'It needs at least 5 games before it changes how it plays.' : 'No card stands out yet.'}</p>`}
+    ${L.styles.length ? `<p><b>By play style:</b> ${L.styles.map(s => `${esc(STYLES[s.style] || s.style)} ${s.wins}/${s.games}`).join(', ')}${L.style ? `. <b>Auto now plays it ${esc(STYLES[L.style] || L.style)}.</b>` : '. Auto picks a style from the list until one clearly wins more (12+ games).'}</p>` : ''}
+    <p><button class="btn small" id="btnForgetDeck">Forget what it learned</button></p>`;
+}
+
+// ---------- tournament: more than four decks, shuffled into pods every round
+let tourneyStop = false;
+$('btnTourney').addEventListener('click', () => { if (game && !clock.paused) togglePlay(); $('tourneyModal').hidden = false; });
+$('btnTourneyClose').addEventListener('click', () => { tourneyStop = true; $('tourneyModal').hidden = true; });
+$('btnTourneyStop').addEventListener('click', () => { tourneyStop = true; });
+$('tourneyDecks').value = store('ct.tourney') || '';
+$('tourneyDecks').addEventListener('input', e => store('ct.tourney', e.target.value));
+$('btnTourneyRun').addEventListener('click', runTourney);
+
+function tourneyEntries(text) {
+  // Pasted lists are separated by "---"; otherwise every non-empty line is its own deck (link or "random")
+  if (/^\s*---\s*$/m.test(text)) return text.split(/^\s*---\s*$/m).map(s => s.trim()).filter(Boolean);
+  return text.split('\n').map(s => s.trim()).filter(Boolean);
+}
+
+async function runTourney() {
+  const status = t => { $('tourneyStatus').textContent = t; };
+  const entries = tourneyEntries($('tourneyDecks').value);
+  // Pods are a table's worth of players: four in Commander, two in duel formats
+  const P = fmt().seats;
+  if (entries.length < P + 1) { status(`Enter at least ${P + 1} decks (${P} fit in a normal game).`); return; }
+  const rounds = +$('tourneyRounds').value, perPod = +$('tourneyGames').value;
+  $('btnTourneyRun').disabled = true;
+  $('btnTourneyStop').hidden = false;
+  $('tourneyBar').style.width = '0';
+  tourneyStop = false;
+  try {
+    const decks = [];
+    for (const [i, src] of entries.entries()) {
+      status(`Loading deck ${i + 1} of ${entries.length}…`);
+      const d = await loadDeck(src, msg => status(`Deck ${i + 1}: ${msg}`), { format: formatKey });
+      try { await fetchSpellbook(d); } catch { /* the built-in combo list still applies */ }
+      decks.push({ deck: d, games: 0, wins: 0, points: 0, place: 0, byes: 0 });
+    }
+    const podsPerRound = Math.floor(decks.length / P);
+    const total = rounds * podsPerRound * perPod;
+    let played = 0;
+    const fast = { beat: async () => { if (tourneyStop) throw new Abort(); } };
+    for (let r = 0; r < rounds && !tourneyStop; r++) {
+      // Byes go to the decks that have sat out least so far; everyone else is shuffled into pods
+      const shuffled = [...decks].sort(() => Math.random() - 0.5).sort((a, b) => a.byes - b.byes);
+      const sit = shuffled.slice(0, decks.length - podsPerRound * P);
+      sit.forEach(x => x.byes++);
+      const order = shuffled.filter(x => !sit.includes(x));
+      for (let k = 0; k < podsPerRound && !tourneyStop; k++) {
+        const pod = order.slice(k * P, k * P + P);
+        for (let gi = 0; gi < perPod && !tourneyStop; gi++) {
+          const g = new Game(pod.map((x, i) => ({ playerName: x.deck.commanders[0]?.name.split(',')[0] || x.deck.deckName || `Deck ${i + 1}`, deckName: x.deck.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(x.deck)), commanders: x.deck.commanders, learnAs: learnAs(x.deck), cards: x.deck.cards })), fast, { format: formatKey });
+          await g.run();
+          if (!g.over) break;
+          recordGame(g);
+          g.players.forEach((p, i) => {
+            const x = pod[i];
+            x.games++;
+            x.place += p.place || 4;
+            x.points += Math.max(0, 4 - (p.place || 4));
+            if (g.winner === p) x.wins++;
+          });
+          played++;
+          $('tourneyBar').style.width = `${(played / total) * 100}%`;
+          status(`Round ${r + 1} of ${rounds} · ${played} of ${total} games`);
+          renderTourney(decks);
+          await sleep(0);
+        }
+      }
+    }
+    renderTourney(decks);
+    status(tourneyStop ? `Stopped after ${played} games` : `Done: ${played} games`);
+  } catch (e) {
+    status(`Tournament failed: ${e.message}`);
+  } finally {
+    $('btnTourneyRun').disabled = false;
+    $('btnTourneyStop').hidden = true;
+  }
+}
+
+function renderTourney(decks) {
+  const rows = [...decks].filter(x => x.games).sort((a, b) => b.points / b.games - a.points / a.games || b.wins - a.wins);
+  $('tourneyResults').innerHTML = `<table>
+    <thead><tr><th class="num">#</th><th>Deck</th><th class="num">Games</th><th class="num">Wins</th><th>Win rate</th><th class="num">Avg place</th><th class="num">Points / game</th><th class="num">Byes</th></tr></thead>
+    <tbody>${rows.map((x, i) => {
+      const pct = (x.wins / x.games) * 100;
+      return `<tr style="--pc:${SEAT_COLORS[i % 4]}"><td class="num">${i + 1}</td><td title="${esc(x.deck.deckName)}">${esc(x.deck.deckName.slice(0, 40))}</td><td class="num">${x.games}</td><td class="num">${x.wins}</td>
+        <td><span class="bar" style="width:${Math.max(2, pct * 1.2)}px"></span>${pct.toFixed(0)}%</td><td class="num">${(x.place / x.games).toFixed(2)}</td><td class="num">${(x.points / x.games).toFixed(2)}</td><td class="num">${x.byes}</td></tr>`;
+    }).join('')}</tbody></table>
+    <p class="muted">Ranked by points per game. In a four-player game a random deck averages 1.5 points and wins 25% of the time.</p>`;
+}
+
+// Exit: stop the game and shut down the local PowerShell server
+$('btnExit').addEventListener('click', () => {
+  if (game && !clock.paused) togglePlay();
+  $('exitModal').hidden = false;
+});
+$('btnExitCancel').addEventListener('click', () => { $('exitModal').hidden = true; });
+$('btnExitConfirm').addEventListener('click', async () => {
+  clock?.abort();
+  $('exitModal').hidden = true;
+  let ok = false;
+  try { ok = (await fetch('/api/exit', { method: 'POST', headers: { 'X-Commander-Table': 'exit' } })).ok; } catch { /* server already gone */ }
+  if (!ok) $('goodbyeMsg').textContent = "Commander Table didn't answer, so it may already be stopped. If its window is still open, close it.";
+  $('goodbye').hidden = false;
+});
+
+// Undo your last decision: the game is rebuilt from its seed with every earlier answer replayed
+function undo() {
+  if (!(setup?.human >= 0) || !setup.decisions.length) return;
+  // (no take-backs in a ranked game)
+  if (setup.ranked && !setup.progressed) return;
+  undoFrom('h', setup.decisions.length - 1);
+}
+// Every live answer in order ({ who: 'h' or a friend's seat, i: index in that record }), so undoing one
+// answer also drops everything anyone answered after it (those questions may not come up again)
+function noteAnswer(who, i) { (setup.order ||= []).push({ who, i }); }
+function recordOf(who) { return who === 'h' ? setup.decisions : setup.remoteDecisions[who]; }
+function undoFrom(who, i) {
+  const order = setup.order || [];
+  const at = order.findIndex(x => x.who === who && x.i === i);
+  for (const x of at >= 0 ? order.slice(at) : [{ who, i }]) {
+    const rec = recordOf(x.who);
+    if (rec && rec.length > x.i) rec.length = x.i;
+  }
+  if (at >= 0) order.length = at;
+  $('results').hidden = true;
+  newGame({ replay: true, untilLive: true });
+}
+function answerUndo(allow) {
+  const seat = $('undoAsk').dataset.seat;
+  $('undoAsk').hidden = true;
+  $('undoAsk').dataset.seat = '';
+  room.undoAck(seat, allow);
+  if (allow) friendUndo(+seat);
+}
+$('btnUndoAllow').addEventListener('click', () => answerUndo(true));
+$('btnUndoDeny').addEventListener('click', () => answerUndo(false));
+// A friend asked to take back their last decision: the host allows it (or not)
+function friendUndo(seat) {
+  const rec = setup?.remoteDecisions?.[seat];
+  if (!rec?.length) return;
+  undoFrom(seat, rec.length - 1);
+  game?.log(`${esc(setup.seats[seat].name)}'s last decision is taken back`, { kind: 'minor' });
+}
+$('tlUndo').addEventListener('click', undo);
+
+document.addEventListener('keydown', e => {
+  if (e.target.matches?.('input, textarea, select')) return;
+  // When it's your decision, the keys answer the action bar first
+  if (humanUI.key(e)) return;
+  if (e.key === 'u' || ((e.ctrlKey || e.metaKey) && e.key === 'z')) { e.preventDefault(); undo(); return; }
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.key === 'n' || e.key === 'ArrowRight') $('btnStep').click();
+  // Your own zones: G graveyard, X exile, L library, Esc closes
+  const me = game?.players[setup?.human ?? -1];
+  const zone = { g: 'graveyard', x: 'exile', l: 'library' }[e.key.toLowerCase()];
+  if (zone && me && view && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); view.openZone(me, zone); }
+  if (e.key === 'Escape' && !$('zoneModal').hidden) $('zoneModal').hidden = true;
+});
+
+// Tabs + rules panel
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+function showTab(name) {
+  document.querySelectorAll('.tabs button').forEach(x => x.classList.toggle('active', x.dataset.tab === name));
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('active', x.id === `tab-${name}`));
+}
+document.addEventListener('click', e => {
+  const r = e.target.closest('[data-rule]');
+  if (!r) return;
+  showTab('rules');
+  $('rulesSearch').value = r.dataset.rule;
+  searchRules();
+});
+
+let rulesTimer;
+$('rulesSearch').addEventListener('input', () => { clearTimeout(rulesTimer); rulesTimer = setTimeout(searchRules, 150); });
+function highlight(text, q) {
+  let h = esc(text);
+  if (/^\d/.test(q)) return h;
+  for (const w of q.toLowerCase().split(/\s+/).filter(x => x.length > 1)) h = h.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>');
+  return h;
+}
+function searchRules() {
+  const q = $('rulesSearch').value;
+  const out = $('rulesResults');
+  if (!Rules.loaded) { out.innerHTML = ''; return; }
+  const { rules, glossary } = Rules.search(q);
+  out.innerHTML = glossary.map(g => `<div class="gl"><b>${esc(g.term)}</b>${highlight(g.def, q)}</div>`).join('')
+    + rules.map(r => `<div class="ri ${/^\d{3}(\.\d+)?$/.test(r.id) ? 'head' : ''}"><span class="rid" data-rule="${r.id}">${r.id}</span>${highlight(r.text, q)}</div>`).join('')
+    + (q && !rules.length && !glossary.length ? '<p class="muted">No matches.</p>' : '');
+}
+
+Rules.load().then(() => {
+  if (Rules.loaded) {
+    $('rulesMeta').innerHTML = `${Rules.entries.length.toLocaleString()} rules and ${Rules.glossary.length} glossary terms${Rules.effective ? `, effective ${esc(Rules.effective)}` : ''}. ${Rules.source ? `<a href="${esc(Rules.source)}" target="_blank" rel="noopener">Source</a>` : ''}`;
+    if (!$('rulesSearch').value) { $('rulesSearch').value = '903'; }
+    searchRules();
+  } else {
+    $('rulesMeta').textContent = `Couldn't load the Comprehensive Rules: ${Rules.error}. Open the game with Commander Table.exe (or start.bat) so it can download them.`;
+  }
+});
+
+installPreview(iid => game?.objects.get(iid));
+renderSeats();
+if (location.protocol === 'file:') $('setupStatus').textContent = 'Open this game with Commander Table.exe or start.bat. Deck import needs its local server.';
+// First visit: a short tour of the setup screen (remembered; the Tour button shows it again)
+// ---------- Learn to play (tutorial.js): lessons with a coach beside the table
+document.addEventListener('click', e => { if (e.target.id === 'btnCoachHide') $('coach').hidden = true; });
+function renderLearn() {
+  const done = lessonsDone();
+  $('learnList').innerHTML = LESSONS.map((l, i) => {
+    const next = !done[l.id] && LESSONS.slice(0, i).every(x => done[x.id]);
+    return `<div class="standing"><div class="place">${done[l.id] ? '✔' : i + 1}</div><div class="meta"><b>${esc(l.name)}</b><br><span class="muted">Goal: ${esc(l.goal)}</span></div><button class="btn small ${next ? 'primary' : ''}" data-lesson="${i}">${done[l.id] ? 'Again' : 'Start'}</button></div>`;
+  }).join('');
+}
+function startLesson(i) {
+  const l = LESSONS[i];
+  startPuzzle(lessonPuzzle(l), {
+    coach: coachHtml(l, i),
+    after: g => {
+      const ok = g.winner === g.players[0];
+      if (ok) markLesson(l.id);
+      const next = LESSONS[i + 1];
+      return {
+        html: ok ? `✔ <b>Lesson complete.</b> ${next ? `Next up: ${esc(next.name)}.` : 'That was the last lesson: you know enough to play a real game. Try "Seat a cEDH table", a random deck, or the Story.'}` : 'Not quite this time. The coach’s steps are still beside the table; try again.',
+        buttons: [...(ok && next ? [{ label: `Next lesson: ${next.name}`, primary: true, fn: () => startLesson(i + 1) }] : []), { label: 'Try again', primary: !ok, fn: () => startLesson(i) }, { label: 'All lessons', fn: () => { renderLearn(); $('learnModal').hidden = false; } }],
+      };
+    },
+  }, t => { $('learnStatus').textContent = t; }).catch(err => { $('learnStatus').textContent = `Couldn't start the lesson: ${err.message}`; });
+}
+$('btnLearn').addEventListener('click', () => { renderLearn(); $('learnModal').hidden = false; });
+$('btnLearnClose').addEventListener('click', () => { $('learnModal').hidden = true; });
+$('learnList').addEventListener('click', e => { const b = e.target.closest('[data-lesson]'); if (b) startLesson(+b.dataset.lesson); });
+
+// ---------- Story (story.js): chapters of The Lantern Road
+function renderStory() {
+  const done = storyDone();
+  $('storyList').innerHTML = CHAPTERS.map((c, i) => {
+    const open = chapterOpen(i, done);
+    return `<div class="story-ch ${open ? '' : 'locked'}"><h3>${esc(c.name)} ${done[c.id] ? '<span class="good">✔</span>' : ''}</h3>
+      ${open ? c.story.map(p => `<p>${esc(p)}</p>`).join('') : '<p class="muted">Win the chapter before to read on.</p>'}
+      ${open ? `<button class="btn small ${done[c.id] ? '' : 'primary'}" data-ch="${i}">${done[c.id] ? 'Play again' : 'Play this chapter'}</button> <span class="muted">Goal: ${esc(c.goal)}</span>` : ''}</div>`;
+  }).join('');
+}
+function startChapter(i) {
+  const c = CHAPTERS[i];
+  startPuzzle(chapterPuzzle(c), {
+    after: g => {
+      const ok = g.winner === g.players[0];
+      if (ok) markChapter(c.id);
+      const next = CHAPTERS[i + 1];
+      return {
+        html: ok ? `✔ <b>${esc(c.name)}: won.</b> ${next ? `The road goes on: ${esc(next.name)}.` : 'The last lantern is lit again. The end, for now.'}` : 'The road is not done with you yet. Try again.',
+        buttons: [...(ok && next ? [{ label: `Next: ${next.name}`, primary: true, fn: () => { renderStory(); $('storyModal').hidden = false; } }] : []), { label: 'Try again', primary: !ok, fn: () => startChapter(i) }, { label: 'All chapters', fn: () => { renderStory(); $('storyModal').hidden = false; } }],
+      };
+    },
+  }, t => { $('storyStatus').textContent = t; }).catch(err => { $('storyStatus').textContent = `Couldn't start the chapter: ${err.message}`; });
+}
+$('btnStory').addEventListener('click', () => { renderStory(); $('storyModal').hidden = false; });
+$('btnStoryClose').addEventListener('click', () => { $('storyModal').hidden = true; });
+$('storyList').addEventListener('click', e => { const b = e.target.closest('[data-ch]'); if (b) startChapter(+b.dataset.ch); });
+
+// ---------- Expedition (campaign.js): the roguelike
+const exSay = t => { $('expeditionStatus').textContent = t; };
+function openExpedition() { renderExpedition(); $('expeditionModal').hidden = false; }
+$('btnExpedition').addEventListener('click', openExpedition);
+$('btnExpeditionClose').addEventListener('click', () => { $('expeditionModal').hidden = true; });
+async function renderExpedition() {
+  const r = runState();
+  const body = $('expeditionBody');
+  const st = stats();
+  if (!r || r.over) {
+    body.innerHTML = `${r?.over ? `<div class="match-box"><b>${r.result === 'won' ? '♛ The expedition reached the summit!' : r.result === 'lost' ? 'The expedition is over.' : 'The expedition was abandoned.'}</b><br><span class="muted">${r.wins} of ${r.fights} fights won · ${esc(r.log.slice(-3).join(' '))}</span></div>` : ''}
+      <p class="muted">${st.runs} expedition${st.runs === 1 ? '' : 's'} so far, ${st.won} reached the summit.</p>
+      <div class="limited-start"><label>Set <select id="exSet" class="input">${SUGGESTED_SETS.map(([c, n]) => `<option value="${c}">${esc(n)}</option>`).join('')}</select></label>
+      ${Object.entries(DIFFICULTY).map(([k, d]) => `<label title="${esc(d.about)}"><input type="radio" name="exDiff" value="${k}" ${k === 'normal' ? 'checked' : ''}> ${d.name}</label>`).join('')}
+      <button class="btn primary" id="btnExStart">Set out</button></div>
+      <p class="muted">${Object.values(DIFFICULTY).map(d => `<b>${d.name}:</b> ${esc(d.about)}.`).join(' ')}</p>`;
+    $('btnExStart').onclick = async () => {
+      try {
+        const set = $('exSet').value;
+        await startRun({ set, setName: SUGGESTED_SETS.find(x => x[0] === set)?.[1] || set, difficulty: document.querySelector('input[name="exDiff"]:checked').value, onStatus: exSay });
+        exSay('');
+        renderExpedition();
+      } catch (err) { exSay(`Couldn't set out: ${err.message}`); }
+    };
+    return;
+  }
+  const D = DIFFICULTY[r.difficulty];
+  const head = `<div class="ex-head"><b>Act ${r.act + 1}: ${esc(actName(r.act))}</b> · step ${r.step + 1} of ${r.map[r.act].length} · ${esc(r.setName)} · ${D.name}
+    · deck: ${r.deck.length} cards + lands · ${r.wins} win${r.wins === 1 ? '' : 's'}${r.lifeNext ? ` · +${r.lifeNext} life next fight` : ''}${D.forgive ? ` · ${r.forgiven[r.act] ? 'this act’s forgiven loss is used' : 'one loss forgiven this act'}` : ''}</div>
+    <div class="ex-map">${r.map.map((act, a) => `<div class="ex-act ${a === r.act ? 'now' : a < r.act ? 'past' : ''}"><small>Act ${a + 1}</small>${act.map((step, s) => `<span class="ex-step ${a === r.act && s === r.step ? 'now' : a < r.act || (a === r.act && s < r.step) ? 'past' : ''}">${step.map(k => NODE[k].icon).join(' / ')}</span>`).join('→')}</div>`).join('')}</div>`;
+  // A reward waiting: one of three cards
+  if (r.pending?.reward) {
+    body.innerHTML = `${head}<h3>Choose a card for your deck</h3><div class="lim-grid" id="exReward"><p class="muted">Loading…</p></div><button class="btn small ghost" id="btnExSkip">Skip the reward</button>`;
+    const choices = await rewardChoices(r, r.pending.reward);
+    $('exReward').innerHTML = choices.map(c => `<div class="lim-card" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('');
+    $('exReward').onclick = e => { const el = e.target.closest('.lim-card'); if (el) { takeReward(r, el.dataset.name); renderExpedition(); } };
+    $('btnExSkip').onclick = () => { takeReward(r, null); renderExpedition(); };
+    return;
+  }
+  const choices = currentChoices(r);
+  body.innerHTML = `${head}<h3>Choose your road</h3><div class="ex-choices">${choices.map((k, i) => `<button class="ex-node" data-node="${i}"><span class="ex-icon">${NODE[k].icon}</span><b>${NODE[k].name}</b><small>${esc(NODE[k].text)}</small></button>`).join('')}</div>
+    <details><summary>Your deck (${r.deck.length} cards, lands are added for each fight)</summary><p class="muted">${r.deck.map(esc).join(', ')}</p></details>
+    <details><summary>The road so far</summary><p class="muted">${r.log.slice(-12).map(esc).join('<br>')}</p></details>
+    <p><button class="btn small ghost" id="btnExAbandon">Abandon the expedition</button></p>`;
+  $('btnExAbandon').onclick = () => { if (confirm('Abandon this expedition?')) { abandonRun(); renderExpedition(); } };
+  body.querySelectorAll('[data-node]').forEach(b => b.addEventListener('click', () => goNode(r, choices[+b.dataset.node])));
+}
+async function goNode(r, kind) {
+  const body = $('expeditionBody');
+  try {
+    if (kind === 'event' || kind === 'rest') return nodeChoice(r, kind);
+    exSay('Building the decks…');
+    const mine = await yourDeck(r, exSay);
+    const rival = await rivalDeck(r, kind, exSay);
+    exSay('');
+    $('expeditionModal').hidden = true;
+    $('setup').hidden = true;
+    match = null;
+    newGame({
+      customSeats: [{ name: 'You', deck: mine, style: 'human' }, { name: rival.name, deck: rival.deck, style: guessStyle(rival.deck), bracket: DIFFICULTY[r.difficulty].bracket }],
+      format: 'limited', lifeBonus: fightLife(r, kind),
+      after: g => {
+        const won = g.winner === g.players[0];
+        const cur = runState();
+        if (cur && cur.seed === r.seed) fightOver(cur, kind, won);
+        const after = runState();
+        return {
+          html: won ? `✔ <b>You won the ${NODE[kind].name.toLowerCase()}.</b>${after?.over && after.result === 'won' ? ' ♛ The expedition reached the summit!' : ' Choose a card for your deck.'}` : after?.over ? '<b>The expedition is over.</b>' : 'Lost, but Easy forgives one loss this act. The road goes on.',
+          buttons: [{ label: 'Back to the expedition', primary: true, fn: openExpedition }], noRematch: true,
+        };
+      },
+    });
+  } catch (err) { exSay(`Couldn't start the fight: ${err.message}`); body.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
+}
+// Events and rest stops: choices without a fight
+async function nodeChoice(r, kind) {
+  const body = $('expeditionBody');
+  const deckList = (n, label) => `<p class="muted">${label}</p><div class="ex-pick">${r.deck.map((c, i) => `<label><input type="checkbox" data-i="${i}"> ${esc(c)}</label>`).join('')}</div><button class="btn primary" id="btnExRemove" data-n="${n}">Leave them behind</button>`;
+  const removePicked = () => [...body.querySelectorAll('.ex-pick input:checked')].map(x => r.deck[+x.dataset.i]);
+  if (kind === 'rest') {
+    body.innerHTML = `<h3>☕ A rest stop</h3><p>A fire, a roof, and a quiet hour. Rest, or sort through your pack.</p>
+      <button class="btn primary" id="btnExRest">Rest: +3 life in the next fight</button>
+      ${deckList(1, 'Or leave one card behind:')}`;
+    $('btnExRest').onclick = () => { resolveEvent(r, 'life', 3); renderExpedition(); };
+  } else {
+    const ev = eventFor(r);
+    body.innerHTML = `<h3>✦ ${esc(ev.text)}</h3><div id="exEvent"></div>`;
+    const box = $('exEvent');
+    if (ev.choice === 'life4') { box.innerHTML = '<button class="btn primary" id="btnExOk">Thank the healer</button>'; $('btnExOk').onclick = () => { resolveEvent(r, 'life', 4); renderExpedition(); }; return; }
+    if (ev.choice === 'remove2') { box.innerHTML = deckList(2, 'Choose up to two cards:'); }
+    if (ev.choice === 'rare' || ev.choice === 'swap') {
+      const choices = await rewardChoices(r, ev.choice === 'rare' ? 'elite' : 'duel');
+      box.innerHTML = `${ev.choice === 'swap' ? `<p class="muted">First choose the card you give him:</p><select id="exGive" class="input">${r.deck.map((c, i) => `<option value="${i}">${esc(c)}</option>`).join('')}</select>` : ''}
+        <div class="lim-grid" id="exGain">${choices.map(c => `<div class="lim-card" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
+        <button class="btn small ghost" id="btnExPass">Walk on</button>`;
+      $('exGain').onclick = e => {
+        const el = e.target.closest('.lim-card');
+        if (!el) return;
+        if (ev.choice === 'swap') r.deck.splice(+$('exGive').value, 1);
+        resolveEvent(r, 'add', el.dataset.name);
+        renderExpedition();
+      };
+      $('btnExPass').onclick = () => { resolveEvent(r, 'life', 0); renderExpedition(); };
+      return;
+    }
+  }
+  const btn = $('btnExRemove');
+  if (btn) btn.onclick = () => {
+    const pick = removePicked();
+    if (pick.length > +btn.dataset.n) { exSay(`Choose at most ${btn.dataset.n}.`); return; }
+    if (r.deck.length - pick.length < 8) { exSay('Keep at least 8 cards besides your lands.'); return; }
+    resolveEvent(r, 'remove', pick);
+    renderExpedition();
+  };
+}
+
+// ---------- Challenge links (challenge.js)
+$('btnChallenge').addEventListener('click', () => { $('challengeStatus').textContent = ''; $('challengeModal').hidden = false; });
+$('btnChallengeClose').addEventListener('click', () => { $('challengeModal').hidden = true; });
+$('btnChallengeMake').addEventListener('click', async () => {
+  const table = { format: formatKey, bestOf: +(prefs.bestOf || 1), seats: seats.map(s => ({ name: s.name, style: s.style === 'remote' ? 'auto' : s.style, bracket: s.bracket, source: s.deck && !/^https?:\/\//.test(s.source.trim()) && s.source.trim() ? deckText(s.deck) : s.source })) };
+  const code = await encodeChallenge(table);
+  $('challengeCode').value = code;
+  $('challengeLink').value = challengeLink(code);
+  $('challengeStatus').textContent = `${code.length.toLocaleString()} characters. The link opens on any PC running Commander Table.`;
+});
+$('btnChallengeCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('challengeLink').value || ''); $('challengeStatus').textContent = 'Link copied.'; } catch { $('challengeStatus').textContent = 'Couldn\'t reach the clipboard; select the link and copy it.'; }
+});
+$('btnChallengeOpen').addEventListener('click', () => openChallenge($('challengeCode').value).catch(err => { $('challengeStatus').textContent = `Couldn't open it: ${err.message}`; }));
+const STYLE_OK = new Set(['auto', 'human', ...Object.keys(STYLES)]);
+async function openChallenge(code) {
+  const data = await decodeChallenge(code);
+  if (data.puzzle) { $('challengeModal').hidden = true; return startPuzzle(data.puzzle); }
+  const f = FORMATS[data.format] ? data.format : 'commander';
+  setFormat(f, { quiet: true });
+  if (data.bestOf) { prefs.bestOf = data.bestOf === 3 ? 3 : 1; store('ct.prefs', prefs); syncFormatUI(); }
+  (data.seats || []).slice(0, seats.length).forEach((s, i) => Object.assign(seats[i], {
+    name: String(s.name || seats[i].name).slice(0, 24), style: STYLE_OK.has(s.style) ? s.style : 'auto',
+    bracket: [1, 2, 3, 4, 5].includes(s.bracket) ? s.bracket : null, source: String(s.source || '').slice(0, 200000), deck: null,
+  }));
+  persist();
+  renderSeats();
+  $('challengeModal').hidden = true;
+  $('setup').hidden = false;
+  $('setupStatus').textContent = `Challenge loaded: ${formatOf(f).name}, ${seats.map(s => s.name).join(', ')}. Click "Load decks & shuffle up" to play it.`;
+}
+// A challenge link opened in the address bar (it skips the start menu)
+const openedChallenge = /^#challenge=/.test(location.hash);
+if (openedChallenge) {
+  const code = location.hash.slice(1);
+  history.replaceState(null, '', location.pathname);
+  openChallenge(code).catch(err => { $('setupStatus').textContent = `Couldn't open the challenge link: ${err.message}`; });
+}
+
+// ---------- Deck builder (builder.js)
+function builder(i = 0) {
+  openBuilder({
+    format: formatKey, deck: seats[i]?.deck || null, seats: seats.map(s => s.name), seatIndex: i,
+    onUse: (text, name, seat) => { Object.assign(seats[seat], { source: text, deck: null }); persist(); renderSeats(); $('setupStatus').textContent = `${name || 'The deck'} is in ${seats[seat].name}'s seat.`; },
+    onSave: async (text, name) => { try { const n = await saveDeck(name, text); $('setupStatus').textContent = `Saved "${n}" to the deck library.`; } catch (err) { $('setupStatus').textContent = `Couldn't save: ${err.message}`; } },
+  });
+}
+$('btnBuilder').addEventListener('click', () => builder(0));
+$('seats').addEventListener('click', e => { const b = e.target.closest('.sbuild'); if (b) builder(+b.dataset.i); });
+
+// ---------- Tabletop (manual.js): fully manual, 2–9 players (Kingdoms 5–9 with secret roles).
+// Friends online send their moves one at a time; seats played on this PC share it, and "Viewing as" picks
+// whose hand and role this screen shows (nobody's, to pass the device).
+let tabletop = null, ttTimer = null, tabletopInvite = false, ttViewer = -1;
+const localSeats = () => seats.map((s, i) => (s.style === 'remote' ? -1 : i)).filter(i => i >= 0);
+function drawTabletop() {
+  if (!tabletop) return;
+  const local = localSeats();
+  if (!local.includes(ttViewer)) ttViewer = local.length === 1 ? local[0] : -1;
+  const v = tabletop.view(ttViewer);
+  // This page moves the seats played here (a friend's cards are theirs to move)
+  const mineHere = a => {
+    if (a.id) { const f = tabletop.find(a.id); return !!f && local.includes(f.p.idx); }
+    if (a.k === 'pass' || a.k === 'phase') return local.includes(tabletop.active);
+    return local.includes(a.p);
+  };
+  const viewers = local.length > 1 ? [{ seat: -1, name: 'Nobody (pass the device)' }, ...local.map(i => ({ seat: i, name: seats[i].name }))] : null;
+  renderTabletop($('tabletopBody'), v, {
+    canAct: i => local.includes(i), viewers, onView: s => { ttViewer = s; drawTabletop(); },
+    act: a => { if (mineHere(a) && tabletop.apply(null, a)) { pushTabletop(); drawTabletop(); } },
+  });
+}
+function pushTabletop() { if (!tabletop || !room.code) return; for (const i of room.seats) room.state(i, tabletop.view(i)); }
+async function startTabletop() {
+  try {
+    // (the last game stops, and stops sending its table to friends: the room is the tabletop's now)
+    clock?.abort();
+    game = null;
+    $('results').hidden = true;
+    $('startMenu').hidden = true;
+    const f = fmt();
+    if (f.roles && (seats.length < 5 || seats.length > 9)) { $('setupStatus').textContent = 'Kingdoms needs 5 to 9 players: choose the number of players above.'; $('setup').hidden = false; return; }
+    $('setupStatus').textContent = 'Loading decks for the tabletop…';
+    for (const [i, s] of seats.entries()) if (!s.deck || (s.deck.format || 'commander') !== formatKey) await loadSeatDeck(s, msg => seatStatus(i, esc(msg)));
+    tabletop = new Tabletop(seats.map(s => ({ name: s.name, color: s.color, deck: s.deck, remote: s.style === 'remote' })), { life: f.manual ? +(prefs.tableLife || f.life) : f.life, kingdoms: !!f.roles });
+    ttViewer = -1;
+    $('setupStatus').textContent = '';
+    $('setup').hidden = true;
+    $('tabletop').hidden = false;
+    drawTabletop();
+    const friends = seats.map((s, i) => (s.style === 'remote' ? i : -1)).filter(i => i >= 0);
+    $('btnTabletopInvite').hidden = !friends.length;
+    if (friends.length) {
+      tabletopInvite = true;
+      if (!(await openRoom([...friends, -1]))) { $('tabletopNet').textContent = `Online seats need the local server (${room.error})`; return; }
+      pushTabletop();
+      // Friends' moves: each one numbered; the state tells them which was applied, then they send the next
+      ttTimer = setInterval(async () => {
+        if (!tabletop) return;
+        let changed = false;
+        for (const i of friends) {
+          const a = await room.answer(i);
+          // (a refused move is still acknowledged, so the friend's page sends the next one)
+          if (a?.manual && a.seq > (tabletop.acks[i] || 0)) { tabletop.acks[i] = a.seq; tabletop.apply(i, a.act); changed = true; }
+        }
+        if (changed) { drawTabletop(); pushTabletop(); }
+        $('tabletopNet').textContent = friends.map(i => `${seats[i].name}: ${room.seen(i) < 0 ? 'not joined' : room.seen(i) > 12 ? 'disconnected' : 'here'}`).join(' · ');
+      }, 400);
+    }
+  } catch (err) { $('setupStatus').textContent = `Couldn't open the tabletop: ${err.message}`; $('setup').hidden = false; }
+}
+$('btnTabletop').addEventListener('click', startTabletop);
+$('btnTabletopInvite').addEventListener('click', () => showInvite());
+$('btnTabletopClose').addEventListener('click', () => {
+  if (!confirm('Leave the tabletop? The table is not saved.')) return;
+  clearInterval(ttTimer); ttTimer = null; tabletop = null; tabletopInvite = false;
+  if (room.code) room.close();
+  $('tabletop').hidden = true;
+  $('setup').hidden = false;
+});
+const toured = () => { prefs.toured = true; store('ct.prefs', prefs); };
+$('btnTour').addEventListener('click', () => startTour(toured));
+
+// ---------- New card sets (sets.js): checked once a day at startup, and from Updates
+function setsHtml(r) {
+  const st = setsState();
+  const when = st.checkedAt ? new Date(st.checkedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
+  const line = s => `<b>${esc(s.name)}</b> (${esc(s.code.toUpperCase())}, ${esc(s.released)}, ${s.count} cards)`;
+  if (!r) return `Last checked: ${when}.${st.list.length ? ` Newest: ${line(st.list.find(s => s.released <= new Date().toISOString().slice(0, 10)) || st.list[0])}.` : ''}`;
+  return `${r.first ? 'First check: from now on, new sets are reported here.' : r.added.length ? `<b>New since the last check:</b> ${r.added.map(line).join(', ')}. Saved card data will be refreshed as decks need it.` : 'No new sets since the last check.'}
+    ${r.upcoming.length ? `<br>Coming soon: ${r.upcoming.slice(0, 4).map(line).join(', ')}.` : ''}<br><span class="muted">Checked ${when}.</span>`;
+}
+$('setsAuto').checked = prefs.autoSets !== false;
+$('setsAuto').addEventListener('change', e => { prefs.autoSets = e.target.checked; store('ct.prefs', prefs); });
+$('btnSetsCheck').addEventListener('click', async () => {
+  $('setsBody').textContent = 'Asking Scryfall…';
+  try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
+});
+$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); });
+// Draft / Sealed and the Expedition offer the newest draftable sets too
+function refreshSetLists() {
+  const extra = draftableSets(10).filter(([c]) => !SUGGESTED_SETS.some(x => x[0] === c));
+  if (!extra.length) return;
+  const opts = list => list.map(([c, n]) => `<option value="${c}">${esc(n)} (${c.toUpperCase()})</option>`).join('');
+  $('limSet').innerHTML = `<optgroup label="Newest sets">${opts(extra)}</optgroup><optgroup label="Commander pods">${opts(SUGGESTED_SETS)}</optgroup>`;
+  for (const s of extra) if (!SUGGESTED_SETS.some(x => x[0] === s[0])) SUGGESTED_SETS.push(s);
+}
+refreshSetLists();
+
+// ---------- Start menu: what you see when the game opens
+function showMenu() {
+  for (const id of ['setup', 'results', 'learnModal', 'storyModal', 'expeditionModal', 'puzzleModal', 'limitedModal']) if ($(id)) $(id).hidden = true;
+  if (game && !game.over && !clock.paused) togglePlay();
+  renderMenu();
+  $('startMenu').hidden = false;
+}
+let menuNews = null;
+function renderMenu(news = menuNews) {
+  menuNews = news;
+  const r = runState();
+  $('smExpedition').textContent = r && !r.over ? `Continue: act ${r.act + 1}, ${r.wins} win${r.wins === 1 ? '' : 's'}` : 'A solo roguelike';
+  const ch = challenges();
+  const open = [...ch.daily, ...ch.weekly].filter(c => !c.done).length;
+  $('smProgress').textContent = `${open} challenge${open === 1 ? '' : 's'} open${ch.streak.count ? ` · ${ch.streak.count}-day streak` : ''}`;
+  const items = [];
+  if (news?.added?.length) items.push(`🆕 New card set${news.added.length > 1 ? 's' : ''}: ${news.added.map(s => `<b>${esc(s.name)}</b>`).join(', ')}`);
+  if (news?.upcoming?.length) items.push(`Coming soon: ${news.upcoming.slice(0, 2).map(s => `${esc(s.name)} (${esc(s.released)})`).join(', ')}`);
+  const done = lessonsDone();
+  if (!Object.keys(done).length) items.push('New to Magic? Start with <b>Learn to play</b>.');
+  $('smNews').innerHTML = items.map(x => `<div>${x}</div>`).join('');
+  $('smUpdates').textContent = news?.added?.length ? `${news.added.length} new set${news.added.length > 1 ? 's' : ''}!` : 'New card sets, game updates';
+}
+$('startMenu').addEventListener('click', e => {
+  const b = e.target.closest('[data-go]');
+  if (!b) return;
+  const go = b.dataset.go;
+  const hide = () => { $('startMenu').hidden = true; };
+  const toSetup = () => { hide(); $('setup').hidden = false; };
+  switch (go) {
+    case 'play': toSetup(); if (!prefs.toured) setTimeout(() => startTour(toured), 400); break;
+    case 'learn': $('btnLearn').click(); break;
+    case 'story': $('btnStory').click(); break;
+    case 'expedition': $('btnExpedition').click(); break;
+    case 'draft': $('btnLimited').click(); break;
+    case 'puzzles': renderPuzzles(); $('puzzleModal').hidden = false; break;
+    case 'tabletop': toSetup(); setFormat('manual', { quiet: true }); $('setupStatus').textContent = 'Manual tabletop: choose how many players, seat the decks (any seat can be a friend online), then click "Load decks & shuffle up".'; break;
+    case 'kingdoms': toSetup(); setFormat('kingdoms', { quiet: true }); $('setupStatus').textContent = `Kingdoms: choose 5 to 9 players, then set each seat to you, a friend online or an AI bot (an AI style), seat Commander decks and click "Load decks & shuffle up". Roles are dealt at the table. (Table: Manual tabletop plays with no automation, people only.)`; break;
+    case 'builder': builder(0); break;
+    case 'library': $('btnLibrary').click(); break;
+    case 'progress': $('btnProgress').click(); break;
+    case 'display': $('btnDisplay').click(); break;
+    case 'updates': $('btnUpdates').click(); break;
+    case 'tour': toSetup(); startTour(toured); break;
+    case 'selftest': window.open('selftest.html', '_blank'); break;
+    case 'exit': $('btnExit').click(); break;
+  }
+});
+$('btnMenu').addEventListener('click', showMenu);
+$('btnSetupMenu').addEventListener('click', showMenu);
+fetch('/api/update').then(r => r.json()).then(j => { $('smVersion').textContent = `Version ${j.version}`; }).catch(() => {});
+// A challenge link goes straight to the setup screen; otherwise the menu greets you
+if (!$('setup').hidden || openedChallenge) $('startMenu').hidden = true;
+renderMenu();
+if (prefs.autoSets !== false) dailySetCheck().then(r => { if (r) { renderMenu(r); refreshSetLists(); } });

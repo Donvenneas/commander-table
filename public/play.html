@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Commander Table · Join</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="remote">
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" class="logo" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span>Commander Table</span>
+      <span class="tag">online seat</span>
+    </div>
+    <div class="turninfo"><span id="turnLabel" class="turn-label">Connecting…</span></div>
+    <div class="controls">
+      <span id="connLabel" class="muted"></span>
+      <button id="btnAskUndo" class="btn small ghost" title="Ask the host to take back your last decision">Undo my last decision</button>
+      <button id="btnTheme" class="btn ghost" title="Switch between dark and light">☀</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="table-wrap">
+      <div id="table" class="table"></div>
+      <div id="spotlight" class="spotlight"></div>
+    </section>
+    <aside class="sidebar">
+      <nav class="tabs"><button class="active">Game log</button></nav>
+      <div class="tab active"><div id="log" class="log"></div>
+        <div id="chatBox" class="chatbox">
+          <div class="emotes"><button data-say="👍">👍</button><button data-say="😮">😮</button><button data-say="😂">😂</button><button data-say="🤔">🤔</button><button data-say="Nice!">Nice!</button><button data-say="GG">GG</button><button id="btnDealOpen" title="Offer another player a deal">🤝 Deal</button></div>
+          <div class="deal-form" id="dealForm" hidden>
+            <select id="dealTo" class="input"></select>
+            <select id="dealKind" class="input"><option value="truce">Truce: neither attacks the other</option><option value="gangUp">Gang up on the archenemy</option><option value="noCounter">No attacks, no counterspells</option><option value="tribute">Tribute: they draw a card, you're left alone</option></select><select id="dealRounds" class="input" title="How long the deal lasts"><option value="0">Rest of this round</option><option value="1">1 more round</option><option value="2" selected>2 more rounds</option><option value="3">3 more rounds</option><option value="5">5 more rounds</option></select>
+            <button class="btn small primary" id="btnDealSend">Offer</button>
+          </div>
+          <input id="chatInput" class="input" maxlength="200" placeholder="Say something to the table…" autocomplete="off">
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="preview" class="preview" hidden></div>
+
+  <div id="actionBar" class="action-bar" hidden>
+    <div id="abText" class="ab-text"></div>
+    <div id="abButtons" class="ab-buttons"></div>
+  </div>
+
+  <div id="joinModal" class="modal">
+    <div class="modal-card results-card">
+      <h2>Join the game</h2>
+      <p class="muted" id="joinText">You're taking a seat at someone's Commander Table. The other seats are AI pilots or other friends.</p>
+      <input id="joinCode" class="input" maxlength="12" placeholder="Join code from the host, like K7Q2XF-2" autocomplete="off" autocapitalize="characters" hidden style="margin-bottom:8px">
+      <input id="joinName" class="input" maxlength="24" placeholder="Your name" autocomplete="nickname">
+      <div class="modal-foot"><button class="btn primary big" id="btnJoin">Take my seat</button></div>
+    </div>
+  </div>
+
+  <footer class="credit">Card images and data © Wizards of the Coast, provided by Scryfall. This fan-made tool isn't affiliated with or endorsed by Wizards of the Coast.</footer>
+  <script type="module" src="js/remote.js"></script>
+</body>
+</html>

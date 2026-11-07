@@ -1,0 +1,19 @@
+# Private: browser profile, saved settings, deck library, image cache, internet-play tool
+data/
+
+# Kingdoms role card art from your own copy of the PDF (Wizards of the Coast's art; never shared)
+public/roles/
+
+# Build outputs (rebuild with launcher\build.ps1 and make-shareable-zip.ps1)
+Commander Table.exe
+*.old
+*.zip
+
+# Temporary files
+running-url.txt
+*.download
+*.log
+*.tmp
+
+# Claude Code per-user settings (may contain local paths)
+.claude/settings.local.json

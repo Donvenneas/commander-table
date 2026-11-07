@@ -1,0 +1,567 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Commander Table</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 24 24" class="logo" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="currentColor" stroke-width="1.4"/></svg>
+      <span>Commander Table</span>
+      <span class="tag">AI playtester</span>
+    </div>
+    <div class="turninfo">
+      <span id="turnLabel" class="turn-label">Not started</span>
+      <div id="phaseTrack" class="phase-track"></div>
+    </div>
+    <div class="controls">
+      <button id="btnMenu" class="btn ghost" title="The start menu">Menu</button>
+      <button id="btnDecks" class="btn ghost">Decks</button>
+      <button id="btnBatch" class="btn ghost" title="Run many games at full speed and compare the decks">Batch</button>
+      <button id="btnTourney" class="btn ghost" title="Pit more than four decks against each other in pods">Tournament</button>
+      <button id="btnTheme" class="btn ghost" title="Switch between dark and light">☀</button>
+      <button id="btnDisplay" class="btn ghost" title="Board background, colors for color blindness, larger text">Display</button>
+      <button id="btnHistory" class="btn ghost" title="Results of every game you've played">History</button>
+      <button id="btnProgress" class="btn ghost" title="Ranked ladder, daily and weekly challenges, rival decks and badges">Progress</button>
+      <button id="btnPlay" class="btn primary" disabled>Start</button>
+      <button id="btnStep" class="btn" disabled title="Advance one action while paused">Step</button>
+      <label class="speed" title="Game speed">
+        <span>Speed</span>
+        <input id="speed" type="range" min="0" max="4" step="1" value="2">
+      </label>
+      <label class="switch" title="Show every player's hand">
+        <input type="checkbox" id="revealHands"><span>Reveal hands</span>
+      </label>
+      <label class="switch" title="The log explains why each AI made its plays (this can reveal cards in their hands and what they tutored for)">
+        <input type="checkbox" id="explainMode"><span>Explain</span>
+      </label>
+      <label class="switch" title="Enlarge the active player's board and keep it in view">
+        <input type="checkbox" id="followMode"><span>Follow</span>
+      </label>
+      <button id="btnStops" class="btn ghost small" title="Where the game stops for you when you play a seat: steps to stop at, Full control, trigger order">⏸ Stops</button>
+      <label class="switch" title="Sound effects and background music (the music swells into a battle theme during combat)">
+        <input type="checkbox" id="soundOn"><span>Sound</span>
+      </label>
+      <button id="btnExit" class="btn ghost danger" title="Stop the game and shut down the local server">Exit</button>
+    </div>
+  </header>
+
+  <div id="timeline" class="timeline" hidden>
+    <button id="tlStart" class="btn small" title="Back to the start of the game">⏮</button>
+    <button id="tlPrev" class="btn small" title="Previous turn">◀ Turn</button>
+    <input id="tlRange" type="range" min="0" max="0" value="0" aria-label="Game timeline">
+    <button id="tlNext" class="btn small" title="Skip to the next turn">Turn ▶</button>
+    <button id="tlEnd" class="btn small" title="Skip to the end of the game">⏭</button>
+    <span id="tlLabel" class="tl-label muted"></span>
+    <button id="tlUndo" class="btn small" title="Undo your last decision (U)" hidden>↶ Undo</button>
+    <button id="tlInvite" class="btn small primary" title="Links for friends to join or watch this game">Invite</button>
+    <button id="btnSaveReplay" class="btn small ghost" title="Download this game as a replay file">Save replay</button>
+    <span id="undoAsk" class="undo-ask" hidden><span id="undoAskText"></span> <button class="btn small primary" id="btnUndoAllow">Allow</button> <button class="btn small ghost" id="btnUndoDeny">No</button></span>
+    <button id="btnShareReplay" class="btn small ghost" title="Save this game as a single web page anyone can open and play back, with nothing to install">Share as web page</button>
+    <button id="btnSavePuzzle" class="btn small ghost" title="Save the board as it is now as a puzzle file (seat 1 to move)">Save board as puzzle</button>
+    <button id="btnExportLog" class="btn small ghost" title="Download the game log as text">Export log</button>
+  </div>
+
+  <main class="layout">
+    <section class="table-wrap">
+      <div id="table" class="table"></div>
+      <div id="spotlight" class="spotlight"></div>
+    </section>
+    <aside class="sidebar">
+      <nav class="tabs">
+        <button data-tab="log" class="active">Game log</button>
+        <button data-tab="rules">Rules</button>
+      </nav>
+      <div id="tab-log" class="tab active">
+        <div class="log-filter">
+          <select id="logFilter" class="sbracket" title="Show only some of the log">
+            <option value="">Everything</option><option value="spells">Spells and abilities</option><option value="combat">Combat and damage</option>
+            <option value="removal">Removal and deaths</option><option value="combo">Combos</option><option value="politics">Politics and chat</option><option value="why">AI explanations</option>
+          </select>
+          <select id="logSeat" class="sbracket" title="Show only lines about one player"><option value="">All players</option></select>
+        </div>
+        <div id="log" class="log"><div class="log-empty">Load four decks to begin.</div></div>
+        <div id="chatBox" class="chatbox" hidden>
+          <div class="emotes"><button data-say="👍">👍</button><button data-say="😮">😮</button><button data-say="😂">😂</button><button data-say="🤔">🤔</button><button data-say="Nice!">Nice!</button><button data-say="GG">GG</button><button id="btnDealOpen" title="Offer another player a deal">🤝 Deal</button></div>
+          <div class="deal-form" id="dealForm" hidden>
+            <select id="dealTo" class="sbracket"></select>
+            <select id="dealKind" class="sbracket"><option value="truce">Truce: neither attacks the other</option><option value="gangUp">Gang up on the archenemy</option><option value="noCounter">No attacks, no counterspells</option><option value="tribute">Tribute: they draw a card, you're left alone</option></select><select id="dealRounds" class="sbracket" title="How long the deal lasts"><option value="0">Rest of this round</option><option value="1">1 more round</option><option value="2" selected>2 more rounds</option><option value="3">3 more rounds</option><option value="5">5 more rounds</option></select>
+            <button class="btn small primary" id="btnDealSend">Offer</button>
+          </div>
+          <input id="chatInput" class="input" maxlength="200" placeholder="Say something to the table…" autocomplete="off">
+        </div>
+      </div>
+      <div id="tab-rules" class="tab">
+        <input id="rulesSearch" class="input" placeholder="Search the rules: 903.9, trample, commander damage…" autocomplete="off">
+        <div id="rulesMeta" class="rules-meta">Loading the Comprehensive Rules…</div>
+        <div id="rulesResults" class="rules-results"></div>
+      </div>
+    </aside>
+  </main>
+
+  <div id="preview" class="preview" hidden></div>
+
+  <div id="actionBar" class="action-bar" hidden>
+    <div id="abText" class="ab-text"></div>
+    <div id="abButtons" class="ab-buttons"></div>
+  </div>
+
+  <div id="startMenu" class="start-menu">
+    <div class="sm-inner">
+      <div class="sm-title">
+        <svg viewBox="0 0 24 24" class="sm-logo" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="currentColor" stroke-width="1.1"/></svg>
+        <h1>Commander Table</h1>
+        <p class="muted" id="smTagline">Play Magic against AI pilots, with friends, or on your own.</p>
+      </div>
+      <div class="sm-grid">
+        <button class="sm-btn sm-main" data-go="play"><b>Play</b><small>Seat decks and start a game</small></button>
+        <button class="sm-btn" data-go="learn"><b>Learn to play</b><small>Seven short lessons</small></button>
+        <button class="sm-btn" data-go="story"><b>Story</b><small>The Lantern Road</small></button>
+        <button class="sm-btn" data-go="expedition"><b>Expedition</b><small id="smExpedition">A solo roguelike</small></button>
+        <button class="sm-btn" data-go="draft"><b>Draft / Sealed</b><small>Sets and cubes</small></button>
+        <button class="sm-btn" data-go="puzzles"><b>Puzzles</b><small>Win this turn</small></button>
+        <button class="sm-btn" data-go="tabletop"><b>Manual tabletop</b><small>2–9 players, nothing automated</small></button>
+        <button class="sm-btn" data-go="kingdoms"><b>Kingdoms</b><small>5–9 players, secret roles</small></button>
+        <button class="sm-btn" data-go="builder"><b>Deck builder</b><small>Every card on Scryfall</small></button>
+        <button class="sm-btn" data-go="library"><b>Deck library</b><small>Your saved decks</small></button>
+        <button class="sm-btn" data-go="progress"><b>Progress</b><small id="smProgress">Ladder, challenges, badges</small></button>
+        <button class="sm-btn" data-go="display"><b>Settings</b><small>Display, language, avatars</small></button>
+        <button class="sm-btn" data-go="updates"><b>Updates</b><small id="smUpdates">New card sets, game updates</small></button>
+      </div>
+      <div class="sm-news" id="smNews"></div>
+      <div class="sm-foot"><span class="muted" id="smVersion"></span><button class="btn ghost small" data-go="tour">Tour</button><button class="btn ghost small" data-go="selftest">Self-test</button><button class="btn ghost small" data-go="exit">Exit</button></div>
+    </div>
+  </div>
+
+  <div id="setup" class="modal" hidden>
+    <div class="modal-card setup-card">
+      <div class="modal-head">
+        <div>
+          <h2 id="setupTitle">Seat four decks</h2>
+          <p class="muted" id="setupIntro">Paste a deck link from Archidekt, Moxfield, MTGGoldfish or TappedOut. You can also paste a plain decklist, or leave a seat empty to get a random deck built from Scryfall's EDHREC rankings.</p>
+          <div class="format-row">
+            <label class="table-bracket" title="The format's rules: starting life, deck size, copies, commander and seats">Format <select id="formatSel" class="sbracket"></select></label>
+            <label class="table-bracket" id="bestOfWrap" title="Best of three: the first to win two games takes the match, with sideboarding between games">Match <select id="bestOfSel" class="sbracket"><option value="1">One game</option><option value="3">Best of three</option></select></label>
+            <label class="table-bracket" id="tablePlayersWrap" hidden title="How many players sit at the manual table">Players <select id="tablePlayers" class="sbracket"></select></label>
+            <label class="table-bracket" id="kingdomsModeWrap" hidden title="Rules engine: AI bots can fill seats, and roles, teams and wins are tracked for you. Manual tabletop: no automation at all (people only).">Table <select id="kingdomsMode" class="sbracket"><option value="engine">Rules engine: you, friends and AI bots</option><option value="manual">Manual tabletop: people only, no automation</option></select></label>
+            <label class="table-bracket" id="tableLifeWrap" hidden title="Starting life at the manual table (Kingdoms: 40, the King +10)">Starting life <select id="tableLife" class="sbracket"><option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="40" selected>40</option></select></label>
+            <label class="table-bracket" id="rankedWrap" title="Ranked: games you play count toward your rating on this format's ladder (one seat played by you, no friends online; undo, Reveal hands and Explain are off)"><input type="checkbox" id="rankedSel"> Ranked</label>
+            <span class="muted" id="formatAbout"></span>
+          </div>
+        </div>
+        <div class="setup-actions">
+          <button class="btn ghost" id="btnAllRandom">Fill empty seats with random decks</button>
+          <button class="btn ghost" id="btnCedh" title="Kinnan, Kess, Thrasios + Tymna and Heliod: fast mana, tutors, free counterspells and compact combos">Seat a cEDH table</button>
+          <button class="btn ghost" id="btnMeta" title="Real tournament decks from EDHTop16 and archetypes from the cEDH Decklist Database">Browse the cEDH meta…</button>
+          <label class="table-bracket">Bracket for every seat <select id="tableBracket" class="sbracket"></select></label>
+          <label class="table-bracket" title="What random decks may use (by rarity and the Reserved List; no prices)">Random decks <select id="budgetMode" class="sbracket"><option value="any">Any cards</option><option value="noRL">No Reserved List</option><option value="pauper">Commons and uncommons</option></select></label>
+          <button class="btn ghost" id="btnBracketTable" title="Replace every seat's deck with a random deck of the chosen bracket (bracket 3 if none is chosen) and shuffle up">Deal a matched table</button>
+          <button class="btn ghost" id="btnLibrary" title="Decks you saved in this game folder">Deck library…</button>
+          <button class="btn ghost" id="btnLobby" title="Let friends join before the game and choose their own decks">Open lobby…</button>
+          <button class="btn ghost" id="btnPuzzles" title="Win-this-turn puzzles, and boards saved as puzzle files">Puzzles…</button>
+          <input type="file" id="puzzleFile" accept=".json,application/json" hidden>
+          <button class="btn ghost" id="btnLimited" title="Open packs from a real set, build a deck and play it against AI decks from the same packs">Draft / Sealed…</button>
+          <button class="btn ghost" id="btnLearn" title="Short guided lessons for people new to Magic">Learn to play</button>
+          <button class="btn ghost" id="btnStory" title="An original story in four chapters, each a game from a special board">Story</button>
+          <button class="btn ghost" id="btnExpedition" title="A solo roguelike: three acts of duels, events and bosses, building your deck as you go">Expedition</button>
+          <button class="btn ghost" id="btnTabletop" title="A manual table: nothing automated, for house rules (with friends online too)">Tabletop</button>
+          <button class="btn ghost" id="btnBuilder" title="Build a deck from every card on Scryfall, with search, filters and a live mana curve">Deck builder</button>
+          <button class="btn ghost" id="btnChallenge" title="Share this table setup as a link or code, or open one">Challenge link…</button>
+          <button class="btn ghost" id="btnTour" title="A short guided look at the main controls">Tour</button>
+          <a class="btn ghost" href="selftest.html" target="_blank" title="Check the server, the online services and 50 fast games">Self-test</a>
+          <button class="btn ghost" id="btnUpdates" title="Install a newer version of the game files from an address you choose">Updates…</button>
+          <button class="btn ghost" id="btnLoadReplay" title="Open a replay file saved from Commander Table">Load replay…</button>
+          <input type="file" id="replayFile" accept=".json,application/json" hidden>
+        </div>
+      </div>
+      <details class="bookmarklet">
+        <summary>Moxfield links don't import? Use this bookmarklet</summary>
+        <p class="muted">Moxfield blocks downloads from other programs, but a bookmarklet runs inside your own browser tab on moxfield.com. Drag this button to your bookmarks bar. Then open any Moxfield deck, click the bookmark, and paste into a seat here.</p>
+        <p><a id="moxBookmarklet" class="btn small" href="#">Copy Moxfield deck</a></p>
+      </details>
+      <div id="seats" class="seats"></div>
+      <div class="modal-foot">
+        <span id="setupStatus" class="muted"></span>
+        <button class="btn ghost" id="btnSetupMenu" title="Back to the start menu">Menu</button>
+        <button class="btn ghost" id="btnCloseSetup" hidden>Cancel</button>
+        <button class="btn primary big" id="btnLoad">Load decks &amp; shuffle up</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="zoneModal" class="modal" hidden>
+    <div class="modal-card zone-card">
+      <div class="modal-head"><h2 id="zoneTitle"></h2><button class="btn ghost" id="btnCloseZone">Close</button></div>
+      <div id="zoneCards" class="zone-grid"></div>
+    </div>
+  </div>
+
+  <div id="results" class="modal" hidden>
+    <div class="modal-card results-card">
+      <div id="resultsBody"></div>
+      <div id="resultsAfter"></div>
+      <div class="modal-foot">
+        <button class="btn ghost" id="btnChangeDecks">Change decks</button>
+        <button class="btn" id="btnWatchReplay" title="Watch this game again from the start">Watch replay</button>
+        <button class="btn primary big" id="btnNextGame" hidden>Next game</button>
+        <button class="btn primary big" id="btnRematch">Rematch</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="sideModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div><h2 id="sideTitle">Sideboard</h2><p class="muted" id="sideIntro">Click a card to move one copy between your deck and your sideboard.</p></div>
+      </div>
+      <div id="sideBody" class="side-body"></div>
+      <div class="modal-foot">
+        <span id="sideCount" class="muted"></span>
+        <button class="btn ghost" id="btnSideReset">Undo changes</button>
+        <button class="btn" id="btnSideAi" title="Let the AI choose which cards to swap">AI sideboard</button>
+        <button class="btn primary big" id="btnSideDone">Play</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="batchModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Batch test</h2>
+          <p class="muted">Plays many games at full speed with the four seated decks and reports how each deck does. The game on the table pauses while this runs.</p>
+        </div>
+        <button class="btn ghost" id="btnBatchClose">Close</button>
+      </div>
+      <div class="batch-controls">
+        <label>Games <select id="batchCount"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
+        <button class="btn primary" id="btnBatchRun">Run</button>
+        <button class="btn" id="btnBatchTune" title="Every seat tries every play style; the report suggests the best one">Tune styles</button>
+        <button class="btn ghost" id="btnBatchStop" hidden>Stop</button>
+        <div class="batch-progress"><div id="batchBar"></div></div>
+        <span id="batchStatus" class="muted"></span>
+      </div>
+      <div id="batchResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="metaModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>cEDH meta</h2>
+          <p class="muted">Live data from <a href="https://edhtop16.com/" target="_blank" rel="noopener">EDHTop16</a> (tournament results and decklists from the last three months) and the <a href="https://cedh-decklist-database.com/" target="_blank" rel="noopener">cEDH Decklist Database</a> (the community's curated archetypes). Choosing a seat loads the newest top-16 tournament list for that commander; the seat is set to bracket 5.</p>
+        </div>
+        <button class="btn ghost" id="btnMetaClose">Close</button>
+      </div>
+      <nav class="tabs meta-tabs"><button data-mt="top" class="active">EDHTop16: top commanders</button><button data-mt="ddb">cEDH Decklist Database</button></nav>
+      <div class="meta-tools">
+        <input id="metaSearch" class="input" placeholder="Filter by commander, archetype or colors…" autocomplete="off">
+        <span class="meta-filters" id="metaFilters">
+          <select id="metaPeriod" class="sbracket" title="Tournaments from this period"><option value="ONE_MONTH">Last month</option><option value="THREE_MONTHS" selected>Last 3 months</option><option value="SIX_MONTHS">Last 6 months</option><option value="ONE_YEAR">Last year</option><option value="POST_BAN">Since the last ban</option><option value="ALL_TIME">All time</option></select>
+          <select id="metaSize" class="sbracket" title="Only events with at least this many players"><option value="16">16+ players</option><option value="32" selected>32+ players</option><option value="64">64+ players</option><option value="128">128+ players</option></select>
+          <span class="color-pick" title="Exact color identity (none ticked: any colors)"><label><input type="checkbox" value="W">W</label><label><input type="checkbox" value="U">U</label><label><input type="checkbox" value="B">B</label><label><input type="checkbox" value="R">R</label><label><input type="checkbox" value="G">G</label></span>
+        </span>
+        <button id="btnMetaTop4" class="btn">Seat the top 4 meta decks</button>
+        <span id="metaStatus" class="muted"></span>
+      </div>
+      <div id="metaBody" class="batch-results meta-body"></div>
+    </div>
+  </div>
+
+  <div id="inviteModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Invite players</h2>
+          <p class="muted">Send each friend the link for their seat. They open it in any browser (computer, tablet or phone) on the same Wi-Fi or network as this PC; nothing to install. The game starts right away, and each seat's decisions wait for its player. If someone doesn't answer within two minutes, the AI decides for them. If the link doesn't load, allow Commander Table through Windows Firewall on private networks.</p>
+        </div>
+        <button class="btn ghost" id="btnInviteClose">Done</button>
+      </div>
+      <div id="inviteBody" class="invite-body"></div>
+    </div>
+  </div>
+
+  <div id="deckModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head"><h2 id="deckTitle">Deck</h2><button class="btn ghost" id="btnDeckClose">Close</button></div>
+      <div id="deckBody" class="deck-body"></div>
+    </div>
+  </div>
+
+  <div id="editModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div><h2 id="editTitle">Edit deck</h2><p class="muted">Change the list, then apply it to the seat. In Commander, keep the commander under the "Commander" heading. <span id="editCount"></span></p></div>
+        <button class="btn ghost" id="btnEditClose">Close</button>
+      </div>
+      <div class="edit-body">
+        <div class="edit-add">
+          <input id="editSearch" class="input" list="editSuggest" placeholder="Add a card: start typing its name…" autocomplete="off">
+          <datalist id="editSuggest"></datalist>
+          <button class="btn small" id="btnEditAdd">Add</button>
+          <span class="muted">To remove a card, delete its line.</span>
+        </div>
+        <textarea id="editText" class="input edit-text" spellcheck="false"></textarea>
+      </div>
+      <div class="modal-foot">
+        <span id="editStatus" class="muted"></span>
+        <input id="editName" class="input edit-name" maxlength="80" placeholder="Name in your library">
+        <button class="btn" id="btnEditSave">Save to library</button>
+        <button class="btn" id="btnEditApply">Apply to seat</button>
+        <button class="btn primary" id="btnEditTest">Apply and test 10 games</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="puzzleModal" class="modal" hidden>
+    <div class="modal-card results-card">
+      <h2>Puzzles</h2>
+      <p class="muted">You get one turn, starting in your first main phase. Win it. Puzzles are small files: save any game's board with <b>Save board as puzzle</b> on the timeline, and load boards that others share.</p>
+      <div id="puzzleList"></div>
+      <p id="puzzleStatus" class="muted"></p>
+      <div class="modal-foot"><button class="btn" id="btnPuzzleLoad">Load a puzzle file…</button><button class="btn ghost" id="btnPuzzleClose">Close</button></div>
+    </div>
+  </div>
+
+  <div id="limitedModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div><h2>Draft / Sealed</h2><p class="muted">Open packs from a real set (card lists from Scryfall) or from a cube, with three AI players. Decks are 40 cards. Play them as a <b>Commander pod</b> (a legendary creature from your pool as commander; set packs always have one) or <b>one on one</b>, best of three at 20 life, with the rest of your pool as your sideboard.</p></div>
+        <button class="btn ghost" id="btnLimitedClose">Close</button>
+      </div>
+      <div class="limited-start" id="limitedStart">
+        <label><input type="radio" name="limSource" value="set" checked> A set</label>
+        <label><input type="radio" name="limSource" value="cube"> A cube</label>
+        <span id="limSetWrap">
+          <label>Set <select id="limSet" class="input"></select></label>
+          <label>or set code <input id="limCode" class="input" maxlength="6" placeholder="e.g. cmr" style="width:90px"></label>
+        </span>
+        <span id="limCubeWrap" hidden>
+          <label>Cube <select id="limCube" class="input"></select></label>
+          <button class="btn small ghost" id="btnCubeDelete" title="Remove this cube from your saved cubes">Delete</button>
+        </span>
+      </div>
+      <div class="limited-start" id="limCubeAdd" hidden>
+        <label>Add a cube: CubeCobra link or ID <input id="cubeLink" class="input" placeholder="https://cubecobra.com/cube/list/…" style="width:260px"></label>
+        <span class="muted">or paste a list (one card per line):</span>
+        <textarea id="cubeText" class="input" rows="2" style="width:220px" spellcheck="false" placeholder="Lightning Bolt&#10;Counterspell&#10;…"></textarea>
+        <label>Name <input id="cubeName" class="input" maxlength="40" style="width:140px"></label>
+        <button class="btn" id="btnCubeSave">Save cube</button>
+      </div>
+      <div class="limited-start">
+        <label><input type="radio" name="limMode" value="sealed" checked> Sealed (6 packs each)</label>
+        <label><input type="radio" name="limMode" value="draft"> Draft (3 packs, 4 players)</label>
+        <span class="muted">·</span>
+        <label><input type="radio" name="limPlay" value="duel" checked> One on one, best of three</label>
+        <label><input type="radio" name="limPlay" value="pod"> Commander pod (4 players)</label>
+        <button class="btn primary" id="btnLimitedGo">Open packs</button>
+        <span id="limStatus" class="muted"></span>
+      </div>
+      <div id="limitedBody" class="limited-body"></div>
+      <div class="modal-foot" id="limitedFoot" hidden>
+        <span id="limCount" class="muted"></span>
+        <label id="limCommanderWrap">Commander <select id="limCommander" class="input"></select></label>
+        <label id="limColorsWrap" hidden>Colors <select id="limColors" class="input"></select></label>
+        <button class="btn" id="btnLimAuto">Auto-build</button>
+        <button class="btn primary" id="btnLimSeat">Seat these decks</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="passModal" class="modal pass-modal" hidden>
+    <div class="modal-card results-card">
+      <h2>Pass to <span id="passName"></span></h2>
+      <p class="muted">Every hand is hidden. Hand the device over, then click to see your hand and decide.</p>
+      <div class="modal-foot"><button class="btn primary big" id="btnPassReady">I'm ready</button></div>
+    </div>
+  </div>
+
+  <div id="displayModal" class="modal" hidden>
+    <div class="modal-card results-card display-card">
+      <h2>Display</h2>
+      <label class="disp-row">Language
+        <select id="dispLang" class="input no-i18n"></select>
+        <span class="muted">(the interface; card previews show the card's name and image in your language when Scryfall has them; the game log and rules text stay in English)</span></label>
+      <label class="disp-row">Board background
+        <select id="dispBg" class="input">
+          <option value="art">Commander art (faint)</option><option value="artbold">Commander art (bold)</option>
+          <option value="felt">Green felt</option><option value="wood">Wood</option><option value="stone">Stone</option><option value="plain">Plain</option>
+        </select></label>
+      <label class="disp-row"><input type="checkbox" id="dispCb"> Colors for color blindness <span class="muted">(seat colors that stay distinct with red-green or blue-yellow color blindness, and seat numbers on every board)</span></label>
+      <label class="disp-row"><input type="checkbox" id="dispBig"> Larger text and cards</label>
+      <label class="disp-row"><input type="checkbox" id="dispCalm"> Fewer animations</label>
+      <div class="disp-row disp-block"><b>Your avatar</b> <span class="muted">(on the seats you play; earn more by playing)</span><div id="dispAvatars" class="cosm-grid"></div></div>
+      <div class="disp-row disp-block"><b>Card backs</b> <span class="muted">(every face-down card on the table)</span><div id="dispBacks" class="cosm-grid"></div></div>
+      <div class="modal-foot"><button class="btn primary" id="btnDisplayClose">Done</button></div>
+    </div>
+  </div>
+
+  <div id="updateModal" class="modal" hidden>
+    <div class="modal-card results-card display-card">
+      <h2>Updates</h2>
+      <p>This version: <b id="updVersion">…</b></p>
+      <p class="muted">Paste the address of a .zip with a newer Commander Table (for example a GitHub release download link). Nothing is checked or installed automatically; only use an address you trust, because its files replace the game's code. Your data folder (decks, history, settings) is never touched, and every replaced file is backed up to data\update first.</p>
+      <input id="updUrl" class="input" placeholder="https://github.com/…/releases/latest/download/Commander-Table.zip" autocomplete="off" spellcheck="false">
+      <p id="updStatus" class="muted"></p>
+      <h3>Card sets</h3>
+      <p class="muted">Checks Scryfall for new and upcoming Magic sets (once a day when the game starts, and whenever you click). When a new set is out, saved card data is fetched again as decks need it (legalities and Standard rotation change), and the newest sets show up in Draft / Sealed and the Expedition.</p>
+      <div id="setsBody" class="muted"></div>
+      <p><button class="btn" id="btnSetsCheck">Check for new sets</button> <label class="muted"><input type="checkbox" id="setsAuto" checked> Check once a day at startup</label></p>
+      <div class="modal-foot">
+        <button class="btn" id="btnUpdCheck">Download and check</button>
+        <button class="btn primary" id="btnUpdApply" hidden>Install</button>
+        <button class="btn ghost" id="btnUpdClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="coach" class="coach" hidden></div>
+
+  <div id="learnModal" class="modal" hidden>
+    <div class="modal-card results-card">
+      <div class="modal-head"><div><h2>Learn to play</h2><p class="muted">Seven short lessons, one turn each, with a coach beside the table. Start at the top; each takes a minute or two.</p></div><button class="btn ghost" id="btnLearnClose">Close</button></div>
+      <div id="learnList"></div>
+      <p id="learnStatus" class="muted"></p>
+    </div>
+  </div>
+
+  <div id="storyModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head"><div><h2>The Lantern Road</h2><p class="muted">An original story in four chapters. Each chapter is a whole game, one on one, from a special starting board. Win to open the next.</p></div><button class="btn ghost" id="btnStoryClose">Close</button></div>
+      <div id="storyList"></div>
+      <p id="storyStatus" class="muted"></p>
+    </div>
+  </div>
+
+  <div id="expeditionModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head"><div><h2>Expedition</h2><p class="muted">A solo roguelike in three acts. Choose a road at each step: duels, elite rivals, events and rest stops, then a boss at the end of each act. Win a fight to take a card for your deck; lose and the expedition is over. Nothing to buy: rewards are cards for this run only.</p></div><button class="btn ghost" id="btnExpeditionClose">Close</button></div>
+      <div id="expeditionBody"></div>
+      <p id="expeditionStatus" class="muted"></p>
+    </div>
+  </div>
+
+  <div id="challengeModal" class="modal" hidden>
+    <div class="modal-card results-card display-card">
+      <h2>Challenge links</h2>
+      <p class="muted">A challenge is this table's setup (format, match length, each seat's name, style, bracket and deck) packed into a link or a code. Nothing is stored online: everything is in the text. Anyone running Commander Table can open the link on their PC, or paste the code here.</p>
+      <div class="disp-row disp-block"><button class="btn primary" id="btnChallengeMake">Make a challenge from this table</button></div>
+      <label class="disp-row disp-block">Link <input id="challengeLink" class="input" readonly style="width:100%"></label>
+      <label class="disp-row disp-block">Code <textarea id="challengeCode" class="input" rows="3" style="width:100%" spellcheck="false" placeholder="Paste a challenge code or link here, then click Open"></textarea></label>
+      <div class="modal-foot"><span id="challengeStatus" class="muted"></span><button class="btn" id="btnChallengeCopy">Copy link</button><button class="btn primary" id="btnChallengeOpen">Open</button><button class="btn ghost" id="btnChallengeClose">Close</button></div>
+    </div>
+  </div>
+
+  <div id="tabletop" class="tabletop" hidden>
+    <div class="mt-bar"><b>Tabletop</b> <span class="muted">Nothing is automated: click a card for its moves, use the buttons for life, draws and turns.</span>
+      <span id="tabletopNet" class="muted"></span>
+      <button class="btn small" id="btnTabletopInvite" hidden>Invite</button>
+      <button class="btn small ghost" id="btnTabletopClose">Leave the table</button></div>
+    <div id="tabletopBody"></div>
+  </div>
+
+  <div id="stopsModal" class="modal" hidden>
+    <div class="modal-card results-card display-card">
+      <h2>Stops</h2>
+      <p class="muted">When you play a seat, the game normally stops only when you can do something: your main phases, attacks and blocks, and responses when you have a card to cast. Choose more places to stop here, for every seat you play on this PC. Changes apply from the next game (a game keeps the stops it started with, so undo and replays stay exact).</p>
+      <label class="disp-row"><input type="checkbox" id="stopFull"> <b>Full control</b> <span class="muted">(stop at every priority point, even with nothing to play)</span></label>
+      <table class="stops-table"><thead><tr><th></th><th>Your turn</th><th>Opponents' turns</th></tr></thead><tbody>
+        <tr><td>Upkeep</td><td><input type="checkbox" data-stop="myUpkeep"></td><td><input type="checkbox" data-stop="oppUpkeep"></td></tr>
+        <tr><td>Draw step</td><td><input type="checkbox" data-stop="myDraw"></td><td><input type="checkbox" data-stop="oppDraw"></td></tr>
+        <tr><td>Beginning of combat</td><td><input type="checkbox" data-stop="myCombat"></td><td><input type="checkbox" data-stop="oppCombat"></td></tr>
+        <tr><td>End step</td><td><input type="checkbox" data-stop="myEnd"></td><td><input type="checkbox" data-stop="oppEnd"></td></tr>
+      </tbody></table>
+      <label class="disp-row"><input type="checkbox" id="stopOrder" checked> Ask me to order my triggers when several happen at once <span class="muted">(off: they resolve in the order they happened)</span></label>
+      <div class="modal-foot"><button class="btn primary" id="btnStopsClose">Done</button></div>
+    </div>
+  </div>
+
+  <div id="progressModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div><h2>Progress</h2><p class="muted">Your ladder ratings, challenges, rival decks and badges. All kept in this game folder, nothing to buy: badges are only for show.</p></div>
+        <button class="btn ghost" id="btnProgressClose">Close</button>
+      </div>
+      <div class="prog-tabs" role="tablist">
+        <button class="btn small prog-tab" data-tab="ladder">Ladder</button>
+        <button class="btn small prog-tab" data-tab="challenges">Challenges</button>
+        <button class="btn small prog-tab" data-tab="rivals">Rivals</button>
+        <button class="btn small prog-tab" data-tab="badges">Badges</button>
+      </div>
+      <div id="progressBody" class="batch-results meta-body"></div>
+    </div>
+  </div>
+
+  <div id="historyModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div><h2>Your games</h2><p class="muted">Every finished game you played or watched (batch runs and tournaments aren't included). Kept in this game folder's browser profile.</p></div>
+        <div><button class="btn ghost" id="btnHistoryClear">Clear history</button> <button class="btn ghost" id="btnHistoryClose">Close</button></div>
+      </div>
+      <div id="historyBody" class="batch-results meta-body"></div>
+    </div>
+  </div>
+
+  <div id="libraryModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div><h2>Deck library</h2><p class="muted">Decks saved in this game folder (data\decks), so they come along when the folder is copied to another PC.</p></div>
+        <button class="btn ghost" id="btnLibraryClose">Close</button>
+      </div>
+      <div class="meta-tools"><input id="librarySearch" class="input" placeholder="Filter…" autocomplete="off">
+        <label class="muted">Games per pairing <select id="gridGames" class="sbracket"><option>2</option><option selected>4</option><option>10</option></select></label>
+        <button class="btn" id="btnGrid" title="Every deck shown plays every other one head to head (up to 8 decks)">Matchup grid</button>
+        <span id="libraryStatus" class="muted"></span></div>
+      <div id="libraryBody" class="batch-results meta-body"></div>
+    </div>
+  </div>
+
+  <div id="tourneyModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Tournament</h2>
+          <p class="muted">Enter five or more decks. Put each link (or <code>random</code>) on its own line; separate pasted decklists with a line containing only <code>---</code>. Every round, the decks are shuffled into pods of four; any left over sit that round out. Each pod plays several games at full speed. Points per game: 3 for first, 2 for second, 1 for third.</p>
+        </div>
+        <button class="btn ghost" id="btnTourneyClose">Close</button>
+      </div>
+      <div class="tourney-form">
+        <textarea id="tourneyDecks" class="input" spellcheck="false" placeholder="https://archidekt.com/decks/…&#10;https://www.mtggoldfish.com/deck/…&#10;random&#10;random&#10;random"></textarea>
+        <div class="batch-controls">
+          <label>Rounds <select id="tourneyRounds"><option>3</option><option selected>5</option><option>10</option><option>20</option></select></label>
+          <label>Games per pod <select id="tourneyGames"><option>1</option><option selected>3</option><option>5</option></select></label>
+          <button class="btn primary" id="btnTourneyRun">Run</button>
+          <button class="btn ghost" id="btnTourneyStop" hidden>Stop</button>
+          <div class="batch-progress"><div id="tourneyBar"></div></div>
+          <span id="tourneyStatus" class="muted"></span>
+        </div>
+      </div>
+      <div id="tourneyResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="exitModal" class="modal" hidden>
+    <div class="modal-card results-card">
+      <h2>Exit Commander Table?</h2>
+      <p class="muted">This stops the current game and shuts down Commander Table. To play again later, open Commander Table (or run start.bat).</p>
+      <div class="modal-foot">
+        <button class="btn ghost" id="btnExitCancel">Keep playing</button>
+        <button class="btn primary big danger" id="btnExitConfirm">Exit</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="goodbye" class="goodbye" hidden>
+    <h1>Commander Table has shut down</h1>
+    <p class="muted" id="goodbyeMsg">To play again, open Commander Table (or run start.bat).</p>
+  </div>
+
+  <footer class="credit">Card images and data © Wizards of the Coast, provided by Scryfall. Comprehensive Rules © Wizards of the Coast. This fan-made tool isn't affiliated with or endorsed by Wizards of the Coast.</footer>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
