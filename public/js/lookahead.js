@@ -52,7 +52,9 @@ export function cloneGame(g, seed, budget = LOOKAHEAD.steps) {
     return r;
   };
   const SKIP = new Set(['clock', 'handlers', 'logEntries', 'rand', 'comboLog', 'chat', 'format', 'puzzle']);
-  for (const k of Object.keys(g)) if (!SKIP.has(k)) ng[k] = cp(g[k]);
+  // (functions put on the game object itself, like the self-test's rules watcher, act on the real game: the copy
+  // keeps the plain engine methods instead)
+  for (const k of Object.keys(g)) if (!SKIP.has(k) && typeof g[k] !== 'function') ng[k] = cp(g[k]);
   // (players' deck lists and combo definitions never change: copied by reference above via shared card defs)
   Object.assign(ng, {
     format: g.format, puzzle: g.puzzle, handlers: {}, logEntries: [], comboLog: [], explain: false, sim: true,

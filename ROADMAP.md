@@ -268,9 +268,26 @@ Rules for this round, on top of the ones above:
   most-played Commander cards, take the most common unread lines, and model them. Target: 81% → 88% fully read.
 
 ### AI
-- [ ] 83. Look-ahead for main-phase decisions: for the top 3 candidate plays, simulate the rest of the turn and the
+- [x] 83. Look-ahead for main-phase decisions: for the top 3 candidate plays, simulate the rest of the turn and the
   opponents' next combat on a cloned game (like combatai.js does for combat) and pick by the result. Time-boxed per
   decision so fast games stay fast; tuned head to head against today's pilots with the matchup grid.
+  - Done (1.17.0): public/js/lookahead.js. cloneGame deep-copies the game (card definitions shared; agents become plain
+    AI pilots without look-ahead; log and handlers dropped) and hides what the pilot can't know: every library is
+    shuffled and opponents' hands are redealt from their unseen cards, with a random stream forked from the game seed
+    (no Math.random). Candidates: the usual pick, the next two by score, and "stop here" (cast the rest after combat /
+    hold it). Each copy plays the candidate, the rest of the main phase, the rest of the turn (Game.endSteps split out of
+    restOfTurn) and each opponent's next combat; positionScore = own life (log), board (keyValue), lands and cards minus
+    the opponents' (0.6 average + 0.4 strongest). An alternative replaces the usual pick only if it scores 1.5 better
+    and doesn't just reorder the same plays. Budget: 3 decisions per turn, 400 engine beats per copy (steps, not ms,
+    so it's deterministic). Pilot option `new Agent(style, { lookahead })`; setup checkbox "AI look-ahead" (on),
+    saved per seat in the setup and replay files (older replays: off); casual pilots (noise > 0.05) and Kingdoms,
+    puzzles never look ahead; batch, grid and tournaments don't use it. Head to head, seats alternating, same seeds
+    (look-ahead wins–usual wins): 1v1 Standard, 6 random decks, Auto: with "stop here" 425–375, 424–376 (+ opponents'
+    whole turns), 426–374 (2 samples), 422–378 (margin 4), together 53%; without "stop here" 509–491, 408–392 (no
+    better than chance). Commander, 6 random bracket-3 decks, Auto (2 of 4 seats): 113–87 (56.5%). Four cEDH presets,
+    cEDH style: 60–60. Speed: Standard 60 → 211 ms a game, cEDH presets 0.42 → 1.46 s, random Commander 0.24 → 1.5 s
+    with every seat looking ahead (about 20–30 ms per decision). Self-test: new "AI look-ahead" row (6 games replayed
+    exactly, 2 untouched when nothing changes, rules watched).
 
 ### Developer tooling
 - [x] 84. Type-check the big modules with `// @ts-check` and JSDoc (engine.js, effects.js, ai.js first) using the
@@ -286,6 +303,12 @@ Rules for this round, on top of the ones above:
     as code is touched (declare the properties in constructors, JSDoc the overrides).
 
 ## Notes from sessions
+
+- 2026-11-07 (side session, item 83, version 1.17.0): main-phase look-ahead. The plain top-3 rollout was a coin flip
+  (about 0.6 changed decisions a game, mostly reorderings); the gain came from adding "stop here" as a candidate.
+  More samples, whole opponent turns and other margins changed nothing measurable, so the cheap settings were kept.
+  Testing tip: in a hidden browser pane, setTimeout is throttled; yield between batch games with a MessageChannel.
+  Python on Windows writes CRLF in text mode: write files in binary to keep the repo's LF endings.
 
 - 2026-11-07 (interactive session): project put in git and on GitHub; CLAUDE.md and the `test-commander-table` project
   skill added; CI self-test (Playwright, server.py) and tag-based release workflow added. Security review of the three

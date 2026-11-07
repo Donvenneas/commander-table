@@ -79,7 +79,10 @@ const needsOwnTarget = e => e.k === 'pump' || e.k === 'blink' || (e.k === 'prote
 export class Agent {
   // noise: how loosely this pilot plays (low brackets play more casually; see brackets.js)
   // lookahead: check the best main-phase plays by simulating the rest of the turn (lookahead.js)
-  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; }
+  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead;
+    // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
+    this.learned = null; this.laTurn = -1; this.laCount = 0;
+  }
   // Combo pilots fight like defensive players: they only need to survive until the combo
   get cstyle() { return this.style === 'combo' || this.style === 'cedh' ? 'defensive' : this.style; }
 
@@ -790,7 +793,7 @@ export class Agent {
       };
     }
     // (the look-ahead tries the other options too)
-    if (best) best.opts = opts;
+    if (best) /** @type {any} */ (best).opts = opts;
     return best;
   }
 

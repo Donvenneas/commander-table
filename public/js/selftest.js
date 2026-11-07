@@ -152,8 +152,7 @@ async function run() {
     // seed, and leave the real game untouched (with alternatives never chosen, the game is the same as without)
     const la = row('games', 'AI look-ahead: 6 games, replayed and checked');
     try {
-      const sig = g => g.logEntries.map(e => e.html).join('
-');
+      const sig = g => g.logEntries.map(e => e.html).join('|');
       const mk = (i, on) => new Game([0, 1, 2, 3].map(k => { const d = decks[(i + k) % 4]; return { playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent(styles[(i + k) % 5], { lookahead: on(k) }), commanders: d.commanders, cards: d.cards }; }), { beat: async () => {} }, { seed: 930000 + i, noLearning: true });
       const s0 = { ...laStats };
       const t1 = performance.now();
