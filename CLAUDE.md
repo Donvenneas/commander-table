@@ -31,6 +31,10 @@ Use the `test-commander-table` project skill (`.claude/skills/test-commander-tab
 `Commander Table.exe --no-window`, open http://localhost:8777/selftest.html?run in the browser pane, make sure every check
 passes with 0 simulator errors, and stop every `Commander Table` and `cloudflared` process you started.
 
+Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). It fails on any type error not in
+`tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
+the baseline with `node tests/typecheck.mjs --update`.
+
 ## After each finished change
 
 1. Tick the item in `ROADMAP.md` with a one-line "Done:" note; update `README.md` where users need to know.

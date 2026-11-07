@@ -9,6 +9,7 @@ import { esc, store, makeRng } from './util.js';
 import { dealRoles } from './kingdoms.js';
 import { LOOKAHEAD, laStats } from './lookahead.js';
 
+/** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 const prefs = store('ct.prefs') || {};
 document.documentElement.dataset.theme = prefs.theme || 'dark';

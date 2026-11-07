@@ -5,6 +5,7 @@ import { esc, symbolize, store } from './util.js';
 import { startI18n } from './i18n.js';
 import { renderTabletop } from './manual.js';
 
+/** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 // A link carries ?code=…&seat=…; a short join code ("K7Q2XF-2": room code, then seat number) can be typed instead

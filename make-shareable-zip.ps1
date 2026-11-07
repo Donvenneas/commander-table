@@ -15,7 +15,7 @@ $files = Get-ChildItem -LiteralPath $root -Recurse -File -Force | Where-Object {
   # (public\roles holds the Kingdoms role card pictures from your own copy of the role card PDF: that art
   # belongs to Wizards of the Coast and its artists, so it stays on this PC and isn't shared)
   # (.git holds commit history with author names and emails; .claude, .github and tests are developer tooling)
-  -not ($rel -like 'data\*' -or $rel -like '.git\*' -or $rel -like '.claude\*' -or $rel -like '.github\*' -or $rel -like 'tests\*' -or $rel -like 'tools\*' -or $rel -like '_*\*' -or $rel -like 'public\roles\*' -or $_.Name -eq 'running-url.txt' -or $_.Extension -in '.download', '.log', '.tmp', '.zip')
+  -not ($rel -like 'data\*' -or $rel -like '.git\*' -or $rel -like '.claude\*' -or $rel -like '.github\*' -or $rel -like 'tests\*' -or $rel -like 'tools\*' -or $rel -eq 'jsconfig.json' -or $rel -like '_*\*' -or $rel -like 'public\roles\*' -or $_.Name -eq 'running-url.txt' -or $_.Extension -in '.download', '.log', '.tmp', '.zip')
 }
 
 # Nothing that identifies this PC or its owner may be in the package
