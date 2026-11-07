@@ -1,0 +1,40 @@
+# Every push and pull request: start the Python server (server.py) and run the game's self-test page
+# (endpoint checks, 50 fast games, the 20-game rules check, 10 Kingdoms games) in headless Chromium.
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Playwright (Chromium)
+        run: |
+          pip install playwright==1.49.1
+          python -m playwright install --with-deps chromium
+
+      - name: Check server.py compiles
+        run: python -m py_compile server.py
+
+      - name: Start the game server
+        run: |
+          python server.py --no-browser --port 8777 > server.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf http://localhost:8777/ > /dev/null && exit 0; sleep 1; done
+          cat server.log; exit 1
+
+      - name: Run the self-test
+        run: python tests/selftest_ci.py --url http://localhost:8777

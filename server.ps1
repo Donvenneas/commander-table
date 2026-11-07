@@ -279,8 +279,17 @@ try {
     $ctx = $task.GetAwaiter().GetResult()
     $req = $ctx.Request
     $path = [Uri]::UnescapeDataString($req.Url.AbsolutePath)
+    # Other websites' pages can send simple requests to localhost; only the game's own page may use /api/
+    # (the browser marks cross-site requests with Origin and Sec-Fetch-Site; HttpListener already refuses
+    # Host headers other than localhost, which stops DNS rebinding)
+    $origin = "$($req.Headers['Origin'])".ToLower()
+    $site = "$($req.Headers['Sec-Fetch-Site'])".ToLower()
+    $foreign = ($origin -and $origin -ne "http://localhost:$Port" -and $origin -ne "http://127.0.0.1:$Port") -or $site -eq 'cross-site' -or $site -eq 'same-site'
     try {
-      if ($path.StartsWith('/api/room/')) {
+      if ($path.StartsWith('/api/') -and $foreign) {
+        Send-Text $ctx 403 'Only the Commander Table page on this computer can use this.'
+      }
+      elseif ($path.StartsWith('/api/room/')) {
         $seat = 0; [void][int]::TryParse($req.QueryString['seat'], [ref]$seat)
         $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
         $res = Room-Call $req.HttpMethod $path.Substring(10) $seat $req.QueryString['code'] $body $true

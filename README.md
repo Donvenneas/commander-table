@@ -71,6 +71,10 @@ After a deck has been loaded once, it loads without an internet connection:
 
 Only use an address you trust: an update replaces the game's code.
 
+For the official versions, use the project's GitHub releases address, which always points at the newest one: `https://github.com/<owner>/commander-table/releases/latest/download/commander-table.zip`.
+
+**Safety:** only the game's own page on this PC can use the local server's controls (deck library, updates, opening online seats, exit). Requests from other websites you have open are refused.
+
 **New card sets:** the game asks Scryfall for its list of Magic sets once a day when it starts (untick **Check once a day at startup** in Updates to stop it), and whenever you click **Check for new sets** in Updates.
 - New releases since the last check, and sets coming soon, show on the start menu and in Updates.
 - When a new set is out, saved card data from before it is fetched again the next time a deck needs it (legalities and Standard rotation change with new sets). Offline, the saved copies are still used.

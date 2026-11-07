@@ -307,6 +307,10 @@ static class CommanderTable
         var path = Uri.UnescapeDataString(req.Url.AbsolutePath);
         try
         {
+            // Other websites' pages can send simple requests to localhost; only the game's own page may use /api/
+            // (the browser marks cross-site requests with Origin and Sec-Fetch-Site; HttpListener already
+            // refuses Host headers other than localhost, which stops DNS rebinding)
+            if (path.StartsWith("/api/") && Foreign(req)) { SendText(ctx, 403, "Only the Commander Table page on this computer can use this."); return; }
             if (path.StartsWith("/api/room/"))
             {
                 var r = Room(req.HttpMethod, path, req.QueryString["seat"], req.QueryString["code"], ReadBody(req.InputStream, req.ContentLength64), true);
@@ -346,6 +350,15 @@ static class CommanderTable
         {
             try { SendText(ctx, 502, e.Message); } catch { }
         }
+    }
+
+    static bool Foreign(HttpListenerRequest req)
+    {
+        var port = req.Url.Port;
+        var origin = (req.Headers["Origin"] ?? "").ToLowerInvariant();
+        if (origin != "" && origin != "http://localhost:" + port && origin != "http://127.0.0.1:" + port) return true;
+        var site = (req.Headers["Sec-Fetch-Site"] ?? "").ToLowerInvariant();
+        return site == "cross-site" || site == "same-site";
     }
 
     static void ServeFile(HttpListenerContext ctx, string path)

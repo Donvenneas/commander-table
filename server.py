@@ -450,10 +450,27 @@ class Handler(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self.route()
 
+    def foreign(self, api):
+        """True when a request to this computer's own server didn't come from the game's own page:
+        a Host header other than localhost (DNS rebinding), or, for /api/ calls, another website's page
+        (cross-site requests; the browser marks them with Origin and Sec-Fetch-Site)."""
+        port = self.server.server_address[1]
+        ours = (f'localhost:{port}', f'127.0.0.1:{port}')
+        if (self.headers.get('Host') or '').lower() not in ours:
+            return True
+        if not api:
+            return False
+        origin = (self.headers.get('Origin') or '').lower()
+        if origin and origin not in ['http://' + o for o in ours]:
+            return True
+        return (self.headers.get('Sec-Fetch-Site') or '').lower() in ('cross-site', 'same-site')
+
     def route(self):
         url = urllib.parse.urlparse(self.path)
         path = urllib.parse.unquote(url.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if self.local and self.foreign(path.startswith('/api/')):
+            return self.text(403, 'Only the Commander Table page on this computer can use this.')
         try:
             if path.startswith('/api/room/'):
                 try:

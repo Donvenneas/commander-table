@@ -223,7 +223,53 @@ trigger ordering). Rules for this round, on top of the ones above:
 - [x] 78. Full-screen deck builder: search all cards (Scryfall syntax), filter by color, type, mana value and format legality, drag cards in and out, and see the mana curve update live. Replaces the line-by-line editor for new decks; the old editor stays for quick edits.
   - Done: public/js/builder.js: Scryfall search plus filters (colors, type, mana value, format legality and Pauper rarity), More results, click or drag to add, drag back or − to remove, ★ commander, SB sideboard, live count, curve and type counts, copy limits marked; Put in seat / Save to library / Copy as text. "Deck builder" on the setup screen and "Builder" on each loaded seat. Tested: a Standard search, adding cards, Put in seat.
 
+## Round 4 (asked for 2026-11-07: open data and ideas from open-source MTG projects)
+
+Rules for this round, on top of the ones above:
+- Data sources must be free and need no account: MTGJSON (free, open license), Scryfall bulk data, 17Lands public
+  datasets (only if their usage guidelines allow it; credit them in README). Download only when the user asks or at the
+  same daily check as new sets, cache in `data\`, and keep everything working offline from the cache.
+- Forge and XMage are GPL: read for ideas only, never copy scripts or code (as in items 38 and 56).
+- Every item keeps replays exact: data that changes picks or play is frozen into the game or draft setup.
+- Since 2026-11-07 the project is in git (GitHub) with a self-test on every push (.github/workflows/selftest.yml):
+  commit each finished item separately; a release is a VERSION bump plus a `v<version>` tag (.github/workflows/release.yml).
+
+### Limited
+- [ ] 79. Real booster contents from MTGJSON: read the set's booster sheets (`booster` in MTGJSON's set file) so packs
+  match the set (slots, rarity rates, foils as normal cards, special guests and bonus sheets), instead of the fixed
+  1 rare/mythic + 1 legendary + 3 uncommons + 9 commons. Keep the fixed layout as the fallback for sets without
+  sheets and for cubes. Cache set files in `data\mtgjson\`.
+- [ ] 80. Smarter AI drafters from 17Lands ratings: per-set card ratings (GIH WR / ALSA) where 17Lands has the set,
+  blended with today's heuristics (color commitment, curve); fall back to today's picks elsewhere. Show "AI pick
+  ratings: 17Lands" in the draft window. Check and respect 17Lands' data usage guidelines first; skip the item if
+  they don't allow it.
+
+### Card coverage
+- [ ] 81. Scryfall bulk data ("Oracle Cards" file, once a day when asked) for random decks, the builder and the card
+  scan, instead of many search calls; falls back to the API when there's no bulk file.
+- [ ] 82. Coverage pass using Forge's and XMage's card lists as a checklist (ideas only): rerun the scan of the 3,500
+  most-played Commander cards, take the most common unread lines, and model them. Target: 81% → 88% fully read.
+
+### AI
+- [ ] 83. Look-ahead for main-phase decisions: for the top 3 candidate plays, simulate the rest of the turn and the
+  opponents' next combat on a cloned game (like combatai.js does for combat) and pick by the result. Time-boxed per
+  decision so fast games stay fast; tuned head to head against today's pilots with the matchup grid.
+
+### Developer tooling
+- [ ] 84. Type-check the big modules with `// @ts-check` and JSDoc (engine.js, effects.js, ai.js first) using the
+  TypeScript compiler in CI only (no build step for players); fix what it finds.
+
 ## Notes from sessions
+
+- 2026-11-07 (interactive session): project put in git and on GitHub; CLAUDE.md and the `test-commander-table` project
+  skill added; CI self-test (Playwright, server.py) and tag-based release workflow added. Security review of the three
+  servers: server.py had no Host-header check, so a DNS-rebinding website could reach /api/update and replace the
+  game's code; and all three servers let any website trigger host-only room actions (open the network port, start the
+  tunnel, close the room, push questions to friends) with simple cross-site requests. Fixed: every /api/ call to the
+  local server must come from the game's own page (Origin and Sec-Fetch-Site checked; server.py also checks Host).
+  Tested with forged requests against the .exe, server.py and server.ps1 (all refused) and the self-test 15/15.
+  Not fixed (low risk, noted): a friend with the room code can view another seat's hand by changing ?seat= in the
+  link; room codes are 6 hex characters with no rate limit.
 
 - 2026-11-04 (interactive session, version 1.15.0, asked: "add the AI bots to fill the kingdom game should have host friends and ai bots as an option"):
   - New: kingdomsPlay.js handles roles in the rules engine.
