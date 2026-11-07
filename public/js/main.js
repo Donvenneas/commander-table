@@ -1,5 +1,5 @@
 import { Game, Abort } from './engine.js';
-import { Agent, STYLES, guessStyle } from './ai.js';
+import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
 import { sf, fetchCollection } from './scryfall.js';
 import { listDecks, saveDeck, deleteDeck } from './library.js';
@@ -348,6 +348,8 @@ function newGame(opts = {}) {
     };
     // Every seat played on this PC (more than one is hotseat: they pass the device between decisions)
     if (!setup.roles && formatOf(setup.format).roles) setup.roles = dealRoles(setup.seats.length, makeRng((setup.seed ^ 0x6b696e67) >>> 0));
+    // AI look-ahead (lookahead.js), per seat and kept with the game, so replays play the same (older replays: off)
+    setup.seats.forEach((s, i) => { s.lookahead = opts.lookahead ? !!opts.lookahead[i] : !opts.loadedReplay && !opts.puzzle && prefs.lookahead !== false && wantsLookahead(s.style, BRACKET_NOISE[s.bracket] || 0); });
     setup.humans = setup.seats.map((s, i) => (s.style === 'human' ? i : -1)).filter(i => i >= 0);
     setup.human = setup.humans[0] ?? -1;
     setup.remote = setup.seats.map((s, i) => (s.style === 'remote' ? i : -1)).filter(i => i >= 0);
@@ -372,7 +374,7 @@ function newGame(opts = {}) {
     playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards,
     agent: setup.humans.includes(i) ? new HumanAgent(guessStyle(s.deck), hotseat ? new SeatUI(humanUI, i, setup.seats.map(x => x.name)) : humanUI, setup.stopOpts)
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
-      : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0 }),
+      : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0, lookahead: s.lookahead }),
   }));
   game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles });
   setup.learned ||= game.players.map(p => p.learned);
@@ -718,7 +720,8 @@ $('btnSaveReplay').addEventListener('click', () => {
     ...(setup.roles ? { roles: setup.roles } : {}),
     // (version 4: the stops your seats played with, so your recorded answers line up again)
     stopOpts: setup.stopOpts,
-    seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck) })),
+    // (version 5: which AI seats looked ahead)
+    seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck), ...(s.lookahead ? { lookahead: true } : {}) })),
   }, null, 1));
 });
 $('btnExportLog').addEventListener('click', () => {
@@ -748,7 +751,7 @@ $('replayFile').addEventListener('change', async e => {
     $('setup').hidden = true;
     newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
       // (replays saved before decks learned have no table, and are played without it)
-      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   } catch (err) {
     $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`;
   }
@@ -1231,6 +1234,9 @@ async function renderRivals() {
 
 // The Ranked switch on the setup screen
 $('rankedSel').checked = !!prefs.ranked;
+// AI look-ahead (lookahead.js): on unless switched off; saved with each game so replays stay exact
+$('lookaheadSel').checked = prefs.lookahead !== false;
+$('lookaheadSel').addEventListener('change', e => { prefs.lookahead = e.target.checked; store('ct.prefs', prefs); });
 $('rankedSel').addEventListener('change', e => {
   prefs.ranked = e.target.checked; store('ct.prefs', prefs);
   const humans = seats.filter(s => s.style === 'human').length;

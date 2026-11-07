@@ -8,6 +8,7 @@ import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing } from './kingdomsPlay.js';
+import { lookAheadPlay } from './lookahead.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
 function kingdomsWeight(g, me, q) {
@@ -48,6 +49,11 @@ export const STYLES = {
   cedh: 'cEDH',
 };
 
+// Pilots that check their main-phase plays by look-ahead (lookahead.js) when the table has it switched on
+// (Setup: "AI look-ahead"). Casual pilots (brackets 1 and 2) don't: they aren't meant to find the best play.
+export const LOOKAHEAD_STYLES = new Set(['cedh', 'balanced', 'combo', 'aggressive', 'defensive']);
+export const wantsLookahead = (style, noise = 0) => LOOKAHEAD_STYLES.has(style) && noise <= 0.05;
+
 export function guessStyle(deck) {
   const all = deck.cards.flatMap(({ card, qty }) => Array(qty).fill(card));
   const combos = combosIn([...deck.commanders, ...all]);
@@ -72,7 +78,8 @@ const needsOwnTarget = e => e.k === 'pump' || e.k === 'blink' || (e.k === 'prote
 
 export class Agent {
   // noise: how loosely this pilot plays (low brackets play more casually; see brackets.js)
-  constructor(style = 'balanced', { noise = 0 } = {}) { this.style = style; this.baited = -1; this.noise = noise; }
+  // lookahead: check the best main-phase plays by simulating the rest of the turn (lookahead.js)
+  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; }
   // Combo pilots fight like defensive players: they only need to survive until the combo
   get cstyle() { return this.style === 'combo' || this.style === 'cedh' ? 'defensive' : this.style; }
 
@@ -571,7 +578,7 @@ export class Agent {
         const land = this.chooseLand(g, p);
         if (land) { await g.playLand(p, land); continue; }
       }
-      const best = this.bestPlay(g, p, phase);
+      const best = this.lookahead && !g.sim ? await lookAheadPlay(this, g, p, phase) : this.bestPlay(g, p, phase);
       if (!best) break;
       const ok = await best.run();
       if (!ok) break;
@@ -710,11 +717,11 @@ export class Agent {
         if (!best || holder === best || !g.planPayment(p, g.equipCost(p, eq), 0)) continue;
         if (holder && holder.zone === 'battlefield' && !holder.sick) continue;
         const b = eq.fx.attachBuff || { p: 1, t: 1 };
-        opts.push({ s: 2 + b.p + b.t * 0.5, run: () => g.equip(p, eq, best) });
+        opts.push({ s: 2 + b.p + b.t * 0.5, why: `equips ${eq.card.name} to ${best.card.name}`, run: () => g.equip(p, eq, best) });
       }
       for (const pw of p.battlefield.filter(o => o.fx.type.planeswalker && !o.usedPW)) {
         const ab = this.pickPW(g, p, pw);
-        if (ab) opts.push({ s: 6, run: () => g.activatePW(p, pw, ab).then(() => true) });
+        if (ab) opts.push({ s: 6, why: `activates ${pw.card.name}`, run: () => g.activatePW(p, pw, ab).then(() => true) });
       }
     }
     if (phase === 'main2') {
@@ -782,6 +789,8 @@ export class Agent {
         return run();
       };
     }
+    // (the look-ahead tries the other options too)
+    if (best) best.opts = opts;
     return best;
   }
 

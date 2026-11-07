@@ -7,6 +7,7 @@ import { CEDH_PRESETS } from './presets.js';
 import { watchGame } from './invariants.js';
 import { esc, store, makeRng } from './util.js';
 import { dealRoles } from './kingdoms.js';
+import { LOOKAHEAD, laStats } from './lookahead.js';
 
 const $ = id => document.getElementById(id);
 const prefs = store('ct.prefs') || {};
@@ -145,6 +146,39 @@ async function run() {
     }
     const list = [...found.values()];
     rules(!list.length, list.length ? list.slice(0, 3).map(x => `${x.text} (turn ${x.turn})`).join(' · ') + (list.length > 3 ? ` · and ${list.length - 3} more` : '') : 'no rule broken');
+
+    // AI look-ahead (lookahead.js): games with look-ahead seats must have no errors, replay exactly from the same
+    // seed, and leave the real game untouched (with alternatives never chosen, the game is the same as without)
+    const la = row('games', 'AI look-ahead: 6 games, replayed and checked');
+    try {
+      const sig = g => g.logEntries.map(e => e.html).join('
+');
+      const mk = (i, on) => new Game([0, 1, 2, 3].map(k => { const d = decks[(i + k) % 4]; return { playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent(styles[(i + k) % 5], { lookahead: on(k) }), commanders: d.commanders, cards: d.cards }; }), { beat: async () => {} }, { seed: 930000 + i, noLearning: true });
+      const s0 = { ...laStats };
+      const t1 = performance.now();
+      let errs = 0, same = 0, untouched = 0;
+      const seen = new Map();
+      for (let i = 0; i < 6; i++) {
+        const a = mk(i, k => k % 2 === i % 2);
+        for (const [k, v] of watchGame(a)) seen.set(k, v);
+        await a.run();
+        const b = mk(i, k => k % 2 === i % 2);
+        await b.run();
+        errs += [a, b].reduce((n, g) => n + g.logEntries.filter(e => /Simulator error/.test(e.html)).length, 0);
+        if (sig(a) === sig(b)) same++;
+        await new Promise(r => setTimeout(r, 0));
+      }
+      const ms = performance.now() - t1;
+      const margin = LOOKAHEAD.margin;
+      LOOKAHEAD.margin = Infinity;
+      try {
+        for (let i = 0; i < 2; i++) { const a = mk(i, () => true), b = mk(i, () => false); await a.run(); await b.run(); if (sig(a) === sig(b)) untouched++; }
+      } finally { LOOKAHEAD.margin = margin; }
+      const bad = [...seen.values()];
+      const d = laStats.decisions - s0.decisions, c = laStats.changed - s0.changed, e = laStats.errors - s0.errors;
+      la(!errs && !e && same === 6 && untouched === 2 && !bad.length && d > 0,
+        `${d} decisions looked ahead, ${c} changed; ${same}/6 replayed exactly, ${untouched}/2 untouched when nothing changes; ${errs} simulator errors, ${e} look-ahead errors${e ? ` (${laStats.lastError})` : ''}${bad.length ? `, rules: ${bad[0].text}` : ''}; ${(ms / 12000).toFixed(2)} s per game`);
+    } catch (e) { la(false, e.message); }
 
     // Kingdoms (kingdomsPlay.js): AI bots at 5 to 9 seats, secret roles; every game must end on a role's Victory condition
     const kd = row('games', 'Kingdoms: 10 AI games, 5 to 9 players');

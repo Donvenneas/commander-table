@@ -4159,6 +4159,11 @@ export class Game {
       await p.agent.mainPhase(this, p, 'main2');
     }
     if (this.over || p.lost) return;
+    return this.endSteps(p);
+  }
+
+  // The end step and cleanup (also run on its own by the AI's look-ahead, lookahead.js)
+  async endSteps(p) {
     this.setPhase('end');
     // Necropotence: pay life for cards (the pilot keeps a safe life total)
     if (p.battlefield.some(o => o.fx.necro)) {
