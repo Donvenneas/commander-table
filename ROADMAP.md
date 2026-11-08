@@ -652,8 +652,13 @@ on top of the ones above:
   - Done: Display window: High contrast (black panels, white borders and text, yellow main buttons and pickable
     cards), Text size (Normal / Large / Larger), and Fewer animations starts on when the system asks for reduced
     motion (until the player changes it). Tested: both settings switch on and off in the Display window.
-- [ ] 129. Finish translations: help paragraphs, the game log, the self-test page and the windows from rounds 3–4
+- [x] 129. Finish translations: help paragraphs, the game log, the self-test page and the windows from rounds 3–4
   (Expedition, builder, Draft, Updates) in es/fr/de/pt; add Italian and Japanese interfaces.
+  - Done, partly: Italian and Japanese interfaces (public/js/i18n_more.js: all 165 existing strings and the 9
+    patterns, card names and images from Scryfall in those languages), the Round 5 labels in all six languages, and the
+    Round 3 setup buttons that had stayed English (Learn to play, Story, Expedition, Tabletop, Deck builder, Players…).
+    Not done: the game log, longer help paragraphs, the self-test page, and the inside of the Round 3–4 windows
+    (Expedition, builder, Draft, Updates). Tested: the setup screen in Japanese and Italian.
 - [ ] 130. Puzzle editor: build a board by clicking (search cards, place them in any zone for any player, set life and
   counters), test it, save it as a file or a challenge link (item 77 has no button to make one from a board).
 - [ ] 131. Rematch with changes: swap decks between seats, rotate seats or change one pilot, on the same seed.

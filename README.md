@@ -228,7 +228,7 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
 
 **Avatars and card backs:** in **Display**, choose your avatar (shown on the seats you play, instead of the commander's art) and the card back for every face-down card on the table. All are drawn by the game itself. Five avatars and three backs are there from the start; the rest unlock with badges, games played and deck mastery (the locked ones say how).
 
-**Language:** **Display → Language** switches the interface to Spanish, French, German or Portuguese: buttons, labels, headings, tooltips and the most common prompts. Longer explanations, the game log and card rules text stay in English. Card previews show the card's name and picture in your language when Scryfall has a printing in it (looked up the first time you hover a card, then remembered). A friend's page follows the browser's language.
+**Language:** **Display → Language** switches the interface to Spanish, French, German, Portuguese, Italian or Japanese: buttons, labels, headings, tooltips and the most common prompts. Longer explanations, the game log and card rules text stay in English. Card previews show the card's name and picture in your language when Scryfall has a printing in it (looked up the first time you hover a card, then remembered). A friend's page follows the browser's language.
 
 **Deck mastery:** every deck levels up as it plays: 10 points a game and 15 more for a win, up to level 20. The level shows on the seat's picture. The deck viewer shows its progress and its best cards (the ones it cast most in its wins). Decks without a commander are now remembered too (by format, name and card list), so they also learn from their games.
 
