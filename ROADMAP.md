@@ -554,10 +554,9 @@ on top of the ones above:
 - [x] 113. Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and
   writes a report, so tuning stops being done by hand in the browser pane.
   - Done: tools/tune.mjs. Runs the game modules in Node (no browser, no npm packages): two pilots as JSON (--a, --b:
-    style plus any Agent field), seats alternating and decks rotating game by game, fixed seeds, --control for B vs
-    B, the rules watcher on every game. Decks: the cEDH presets or deck-list files; card data from Scryfall
-    /cards/collection once, cached in data/tune-cache.json. Tested: 8+8 cEDH games (control 4–4, 0 errors, 0 rule
-    problems). Its point is running long tuning grids from a terminal, where the hidden browser pane slows them.
+    style plus any Agent field), games in pairs with the same decks and seed and the sides swapped (each side holds a
+    copy of each deck), fixed seeds, --control for B vs B, the rules watcher on every game. Decks: the cEDH presets or deck-list files; card data from Scryfall
+    /cards/collection once, cached in data/tune-cache.json. Tested: control runs come out 50–50 (after the seating fix in item 111), 0 errors, 0 rule problems. Its point is running long tuning grids from a terminal, where the hidden browser pane slows them.
 - [ ] 114. Kingdoms roles still missing: Schemer, Sellsword, Field Marshal, Straw Man abilities, War Bear {Q}, Wizard
   retarget, Champion scry (listed in README and KINGDOMS_AUTO).
 - [ ] 115. Kingdoms balance with fast decks: Assassins win 9 of 10 with the cEDH presets. Tune the King's guard and the
