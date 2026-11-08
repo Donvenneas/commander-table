@@ -504,8 +504,13 @@ on top of the ones above:
   copied game and step budget as item 83.
 - [ ] 102. Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation;
   tuned with the matchup grid in Commander pods.
-- [ ] 103. Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in
+- [x] 103. Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in
   steps, not ms, so replays stay exact.
+  - Done, as a finding: lookahead.js budgetFor (per decision; agent.budget overrides it). Tried 600 steps and 5–6
+    decisions a turn in duels and late game, 300/2 at cEDH tables: 80-game Standard duels came out identical for
+    every variant (39–41 against 400/3, the same as 400/3 against itself) and 16 cEDH games differed in one game,
+    4% faster. Budget size makes no measurable difference, so the defaults stay. (An earlier 41–79 reading came from
+    the test seating better decks with one side, not from the budget; tools/tune.mjs rotates decks to avoid that.)
 - [ ] 104. X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards)
   rather than the most mana available.
   - Done: (rules 5) Game.cast asks the caster for X. AI chooseSpellX: permanents (Hydras, counters) take all the
@@ -536,8 +541,13 @@ on top of the ones above:
   learning together; shown on the seat; the ladder rates each strength separately.
 - [ ] 112. Bluffing: casual pilots sometimes keep mana open for nothing; strong pilots hold up mana when an opponent is
   likely to attack into them.
-- [ ] 113. Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and
+- [x] 113. Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and
   writes a report, so tuning stops being done by hand in the browser pane.
+  - Done: tools/tune.mjs. Runs the game modules in Node (no browser, no npm packages): two pilots as JSON (--a, --b:
+    style plus any Agent field), seats alternating and decks rotating game by game, fixed seeds, --control for B vs
+    B, the rules watcher on every game. Decks: the cEDH presets or deck-list files; card data from Scryfall
+    /cards/collection once, cached in data/tune-cache.json. Tested: 8+8 cEDH games (control 4–4, 0 errors, 0 rule
+    problems). Its point is running long tuning grids from a terminal, where the hidden browser pane slows them.
 - [ ] 114. Kingdoms roles still missing: Schemer, Sellsword, Field Marshal, Straw Man abilities, War Bear {Q}, Wizard
   retarget, Champion scry (listed in README and KINGDOMS_AUTO).
 - [ ] 115. Kingdoms balance with fast decks: Assassins win 9 of 10 with the cEDH presets. Tune the King's guard and the

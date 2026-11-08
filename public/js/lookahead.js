@@ -117,8 +117,16 @@ const keysOf = opts => {
   return opts.map(o => { const w = o.why || '?'; const k = seen.get(w) || 0; seen.set(w, k + 1); return `${w}#${k}`; });
 };
 
+// The look-ahead budget for a decision. Item 103 tried more in duels and late game (600 steps, 5–6 decisions a turn)
+// and less at cEDH tables (300, 2): 80-game duels came out identical (39–41 for every variant against 400/3) and 16
+// cEDH-preset games differed in one game, 4% faster. Since budget size made no measurable difference, every table
+// keeps the tuned defaults; agent.budget overrides them for tuning runs (tools/tune.mjs).
+export function budgetFor(agent, g) {
+  if (agent.budget) return agent.budget;
+  return { steps: LOOKAHEAD.steps, perTurn: LOOKAHEAD.perTurn };
+}
 async function simulate(agent, g, p, phase, key, seed, oppIdx) {
-  const ng = cloneGame(g, seed);
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps);
   determinize(ng, p.idx, ng.rand);
   const cp = ng.players[p.idx];
   const ca = cp.agent;
@@ -160,7 +168,7 @@ export async function lookAheadPlay(agent, g, p, phase) {
   const best = agent.bestPlay(g, p, phase);
   if (!best || !best.opts || g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05) return best;
   if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
-  if (agent.laCount >= LOOKAHEAD.perTurn) return best;
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return best;
   const ks = keysOf(best.opts);
   const order = best.opts.map((o, i) => ({ o, k: ks[i] })).filter(x => x.o !== best).sort((a, b) => b.o.s - a.o.s);
   const cands = [{ o: best, k: ks[best.opts.indexOf(best)] }, ...order].filter(x => x.o.why).slice(0, LOOKAHEAD.cands);
