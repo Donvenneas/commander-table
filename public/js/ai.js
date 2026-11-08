@@ -706,6 +706,8 @@ export class Agent {
       const faceMode = o.zone === 'hand' || o.zone === 'graveyard' ? g.faceCastMode(p, o) : null;
       const bestowOk = o.zone === 'hand' && g.canBestow(p, o), mutateOk = o.zone === 'hand' && g.canMutate(p, o);
       if (!mode && !faceMode && !bestowOk && !mutateOk) continue;
+      // (an X spell with no mana for X does nothing)
+      if (g.rules >= 5 && mode && !mode.alt && !o.fx.type.permanent && parseCost(o.card.manaCost).x && g.availableMana(p) - (o.card.cmc || 0) < 1) continue;
       // A combo spell that does nothing on its own (Tainted Pact without Oracle) waits for its partner
       if (!o.fx.type.permanent && !o.fx.spell.length && this.pieceWorth(g, p, o)) continue;
       let s = mode ? this.scoreCast(g, p, o, phase) : 0;
@@ -1365,6 +1367,21 @@ export class Agent {
     return [...hosts].sort((a, b) => (this.value(g, b) + (b.sick ? 0 : 2) - (b.isCommander ? 3 : 0)) - (this.value(g, a) + (a.sick ? 0 : 2) - (a.isCommander ? 3 : 0)))[0] || null;
   }
   chooseAbilityX(g, p, o, ab, max) { return this.bestAbilityX(g, p, o, ab, max).x; }
+  // X for a spell: permanents (Hydras, counters) take all the mana; other spells the X that does the most, less a
+  // little per mana (so a burn spell stops at the X that kills its target, and the rest of the mana stays free)
+  chooseSpellX(g, p, o, max) {
+    if (o.fx.type.permanent || o.fx.modes || !o.fx.spell.some(e => [e.n, e.p, e.t].includes('X'))) return max;
+    let best = { x: max, s: -Infinity };
+    const prev = this.xOverride;
+    try {
+      for (let x = 1; x <= Math.min(max, 30); x++) {
+        this.xOverride = x;
+        const s = o.fx.spell.reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0) - x * 0.15;
+        if (s > best.s + 0.05) best = { x, s };
+      }
+    } finally { this.xOverride = prev; }
+    return best.x;
+  }
   // What turning a face-down permanent up gains: the real card over a vanilla 2/2, plus its "turned face up" effect
   faceUpValue(g, p, o) {
     if (!o.faceDown) return 0;

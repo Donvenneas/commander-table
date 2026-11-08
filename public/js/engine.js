@@ -3260,7 +3260,13 @@ export class Game {
       if (!spreeEffects.length) return false;
     }
     let x = 0;
-    if (c.x) x = choice.x ?? Math.max(0, Math.floor((this.availableMana(p) + help.length - (c.generic + c.pips.length + extra)) / c.x));
+    if (c.x) {
+      const maxX = Math.max(0, Math.floor((this.availableMana(p) + help.length - (c.generic + c.pips.length + extra)) / c.x));
+      // (rules 5: the caster picks X; the AI by what it achieves, people from buttons. Before, always the most mana)
+      x = choice.x ?? (this.rules >= 5 && maxX > 0 ? Math.min(maxX, Math.max(0, await (p.agent.chooseSpellXAsync ? p.agent.chooseSpellXAsync(this, p, o, maxX) : p.agent.chooseSpellX ? p.agent.chooseSpellX(this, p, o, maxX) : maxX))) : maxX);
+      // (an AI pilot doesn't cast an X spell for X = 0: it would do nothing)
+      if (this.rules >= 5 && x === 0 && choice.x == null && !p.agent.human && !o.fx.type.permanent) return false;
+    }
     const plan = this.planPayment(p, c, extra + x * c.x, null, choice.avoid, help);
     if (!plan) return false;
     let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : o.fx.spell);

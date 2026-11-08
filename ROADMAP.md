@@ -508,6 +508,11 @@ on top of the ones above:
   steps, not ms, so replays stay exact.
 - [ ] 104. X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards)
   rather than the most mana available.
+  - Done: (rules 5) Game.cast asks the caster for X. AI chooseSpellX: permanents (Hydras, counters) take all the
+    mana; other spells try X = 1…30 valued with that X less 0.15 a mana, so burn stops at the X that kills its
+    target and the rest of the mana stays free. An AI pilot no longer casts an X spell with X = 0 (one cast Banefire
+    for 0 before). Human seats pick X from buttons. Head to head with the same deck, seats alternating, against
+    pilots that always use all the mana: 26–14 over 40 games, no X = 0 casts.
 - [ ] 105. Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when
   that's worth more than face damage.
 - [ ] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
