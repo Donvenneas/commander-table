@@ -598,8 +598,13 @@ on top of the ones above:
     question (numbers ignored, so "pay {1} or P3 draws" counts as the same) for the rest of the game. An "Auto answers:
     N ✕" button lists them (hover) and clears them. Each automatic answer is recorded like a click, so replays and undo
     are unchanged. Tested on the action bar: one ticked "Don't pay" answered the next two questions.
-- [ ] 119. Smart pass: "pass until something targets me or mine", "pass to my turn", "pass to end of turn", working
+- [x] 119. Smart pass: "pass until something targets me or mine", "pass to my turn", "pass to end of turn", working
   with the stops from item 67.
+  - Done: response windows and stops get "Pass to end of turn", "Pass to my turn" (on others' turns) and "Pass unless
+    targeted" (asked again only for spells and abilities that target you or your permanents, until your next turn).
+    While one is on, those windows pass without asking; blocks and your own main phases are still asked. The choice is a
+    recorded answer, so replays set the same mode. Tested with a scripted Full-control seat in 4 cEDH games each:
+    1,202 response prompts with plain Pass, 189 / 293 / 110 with the three modes, 0 errors, no rule broken.
 - [ ] 120. Payment preview: before a cast is confirmed, highlight the sources that will tap and let the player swap one.
 - [ ] 121. Big boards: identical tokens stack with a ×N count; rows shrink instead of overflowing at 50+ permanents.
 - [ ] 122. Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line,

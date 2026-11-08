@@ -688,8 +688,29 @@ export class HumanAgent extends Agent {
   instants(g, p, filter = () => true) {
     return p.hand.filter(o => !o.fx.type.land && instantSpeed(o) && g.canCast(p, o) && filter(o));
   }
+  // Smart pass (item 119): "Pass to end of turn", "Pass to my turn", "Pass unless targeted". While one is on, response
+  // windows and stops are passed without asking (blocks and your own main phases are still asked). The choice is a
+  // recorded answer, so a replay sets the same mode at the same moment.
+  passButtons(g, q) {
+    return [{ label: 'Pass to end of turn', value: 'pass:eot' }, ...(g.active !== q.idx ? [{ label: 'Pass to my turn', value: 'pass:mine' }] : []), { label: 'Pass unless targeted', value: 'pass:target' }];
+  }
+  setPass(g, q, v) {
+    this.passMode = v === 'pass:eot' ? { kind: 'eot', turn: g.turn } : v === 'pass:mine' ? { kind: 'mine' } : v === 'pass:target' ? { kind: 'target', turn: g.turn } : null;
+  }
+  skipping(g, q, item = null) {
+    const m = this.passMode;
+    if (!m) return false;
+    if (m.kind === 'eot' && g.turn !== m.turn) { this.passMode = null; return false; }
+    if ((m.kind === 'mine' || m.kind === 'target') && g.active === q.idx && g.turn !== m.turn) { this.passMode = null; return false; }
+    if (m.kind === 'target' && item) {
+      const hit = (item.targets || []).some(t => t && (t.player === q.idx || t.obj?.controller === q.idx));
+      if (hit) return false;
+    }
+    return true;
+  }
   async respond(g, q, item) {
     if (item.p === q) return null;
+    if (this.skipping(g, q, item)) return null;
     const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o));
     const what = item.ability ? `${esc(item.o.card.name)}'s ability` : esc(item.o.card.name);
     for (let k = 0; k < 30; k++) {
@@ -703,9 +724,10 @@ export class HumanAgent extends Agent {
       const mana = this.manaSources(g, q);
       const backs = this.takeBacks(g, q);
       const r = await this.ui.ask(`<b>${esc(item.p.name)}</b> ${item.ability ? 'uses' : 'casts'} <b>${what}</b>. ${options.length ? 'Respond?' : pingers.length ? `Ping with ${esc(pingers[0].card.name)} in response?` : 'You have nothing to respond with.'}${this.poolNote(g, q)}`, {
-        objs: [...options, ...pingers, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }, ...(g.kingdoms && q.role?.id === 'wizard' && !q.role.up && !item.ability ? [{ label: 'Announce: The Wizard (exile this spell)', value: 'wizard' }] : [])],
+        objs: [...options, ...pingers, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }, ...this.passButtons(g, q), ...(g.kingdoms && q.role?.id === 'wizard' && !q.role.up && !item.ability ? [{ label: 'Announce: The Wizard (exile this spell)', value: 'wizard' }] : [])],
       });
       if (r.button === 'wizard') return { announce: true };
+      if (typeof r.button === 'string' && r.button.startsWith('pass:')) { this.setPass(g, q, r.button); return null; }
       if (!r.obj) return null;
       if (backs.includes(r.obj)) { g.untapForMana(q, r.obj); continue; }
       if (pingers.includes(r.obj) && !options.includes(r.obj)) { await this.usePing(g, q, r.obj); continue; }
@@ -738,6 +760,7 @@ export class HumanAgent extends Agent {
   // always: ask even with nothing to cast (a stop you set, or Full control), for the first question
   async instantWindow(g, q, text, withAbilities = false, always = false) {
     let r = null;
+    if (this.skipping(g, q)) return null;
     for (let k = 0; k < 30 && !g.over; k++) {
       const options = this.instants(g, q, o => !o.fx.spell.some(e => e.k === 'counter' || e.k === 'counterAbility' || e.k === 'copySpell'));
       const abil = withAbilities ? this.instantAbilities(g, q).filter(o => !options.includes(o)) : [];
@@ -748,7 +771,8 @@ export class HumanAgent extends Agent {
       if (!options.length && !abil.length && !pingers.length && !faceUps.length && !(always && k === 0)) return null;
       const mana = this.manaSources(g, q).filter(o => !abil.includes(o));
       const backs = this.takeBacks(g, q);
-      r = await this.ui.ask(`${text}${abil.length ? ' (or use an ability)' : ''}${faceUps.length ? ' (or turn a face-down creature face up)' : ''}${pingers.length ? ` (or remove a counter from ${esc(pingers[0].card.name)} to ping)` : ''}${!options.length && !abil.length && !pingers.length && !faceUps.length ? ' (You have nothing to play right now.)' : ''}${this.poolNote(g, q)}`, { objs: [...options, ...abil, ...pingers, ...faceUps, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }] });
+      r = await this.ui.ask(`${text}${abil.length ? ' (or use an ability)' : ''}${faceUps.length ? ' (or turn a face-down creature face up)' : ''}${pingers.length ? ` (or remove a counter from ${esc(pingers[0].card.name)} to ping)` : ''}${!options.length && !abil.length && !pingers.length && !faceUps.length ? ' (You have nothing to play right now.)' : ''}${this.poolNote(g, q)}`, { objs: [...options, ...abil, ...pingers, ...faceUps, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }, ...this.passButtons(g, q)] });
+      if (typeof r.button === 'string' && r.button.startsWith('pass:')) { this.setPass(g, q, r.button); return null; }
       if (!r.obj) return null;
       if (faceUps.includes(r.obj)) { await g.turnFaceUp(q, r.obj); r = null; continue; }
       if (backs.includes(r.obj)) {
