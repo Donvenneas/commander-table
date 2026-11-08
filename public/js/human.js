@@ -29,7 +29,7 @@ export class HumanUI {
     // attackers. It's answered as the same two clicks (the creature, then "Attack <player>"), so replays don't change.
     let drag = null;
     document.addEventListener('pointerdown', e => {
-      const card = e.target.closest?.('[data-iid]');
+      const card = /** @type {HTMLElement | null} */ (/** @type {any} */ (e.target).closest?.('[data-iid]'));
       drag = this.pending && card && this.pending.objs.has(+card.dataset.iid) && /Declare attackers/.test(this.text.textContent) ? { iid: +card.dataset.iid, x: e.clientX, y: e.clientY } : null;
     }, true);
     document.addEventListener('pointerup', e => {
