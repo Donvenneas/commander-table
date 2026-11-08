@@ -242,7 +242,7 @@ export class Game {
     if (o.stripped?.turn === this.turn && o.stripped.kws.includes(kw)) return false;
     // Archetype of Imagination / Endurance / Aggression: opponents' creatures lose the keyword
     if ((kw === 'flying' || kw === 'hexproof' || kw === 'trample') && o.zone === 'battlefield' && o.fx.type.creature && this.opponents(this.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppLoseKw === kw))) return false;
-    if (o.tempKw?.has(kw) || o.permKw?.has(kw)) return true;
+    if (o.tempKw?.has(kw) || o.permKw?.has(kw) || (kw === 'menace' && o.suspected)) return true;
     // Oviya: creatures attacking one of its controller's opponents have trample
     if (kw === 'trample' && o.attacking != null && o.zone === 'battlefield' && this.alive().some(q => q.idx !== o.attacking && q.battlefield.some(s => s.fx.attackTrample) && this.opponents(q).some(x => x.idx === o.attacking))) return true;
     // Stinkweed Imp: creatures it deals combat damage to are destroyed (deathtouch does the same in combat)
@@ -337,7 +337,7 @@ export class Game {
   }
   canBlock(b, a) {
     if (b.zone !== 'battlefield' || b.tapped || !b.fx.type.creature || this.dormant(b)) return false;
-    if (this.has(b, 'cantblock') || this.has(b, 'decayed') || this.pacified(b) || this.has(a, 'unblockable')) return false;
+    if (b.suspected || this.has(b, 'cantblock') || this.has(b, 'decayed') || this.pacified(b) || this.has(a, 'unblockable')) return false;
     if (b.noBlockTurn === this.turn || (b.fx.blockFlyersOnly && !this.has(a, 'flying'))) return false;
     // Bothersome Quasit: goaded creatures can't block
     if (b.goaded && this.opponents(this.players[b.controller]).some(q => q.battlefield.some(s => s.fx.goadNoBlock))) return false;
@@ -1024,7 +1024,7 @@ export class Game {
     // A clone stops being a copy when it leaves (and a crewed vehicle stops being a creature)
     if (o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; }
     if (o.crewed) { o.fx = o.card.fx; o.crewed = false; }
-    Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
+    Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
     // Whatever this permanent was holding on to goes back to the player it was taken from (or its owner)
     for (const q of this.players) for (const s of [...q.battlefield]) {
       if (s.stolenBy !== o.iid) continue;
@@ -2522,6 +2522,15 @@ export class Game {
         break;
       }
       case 'manifest': this.manifest(p, e, ctx); break;
+      case 'tuck': {
+        // (its owner chooses top or bottom: the top, to draw it again)
+        const o = tgt?.obj;
+        if (!o || o.zone !== 'battlefield') break;
+        this.log(`${S} puts ${this.cn(o)} on top of its owner's library`, { kind: 'removal' });
+        this.move(o, 'library');
+        break;
+      }
+      case 'suspect': if (src.zone === 'battlefield') { src.suspected = true; this.log(`${S} is suspected (menace, can't block)`, { kind: 'minor', rule: '701.60a' }); } break;
       case 'scrollRack': {
         // (the weakest cards in hand, up to three, go on top; that many come off the top first)
         const worst = [...p.hand].map(o => ({ o, v: p.agent.value(this, o) + p.agent.pieceWorth(this, p, o) * 2 + (o.fx.type.land && p.battlefield.filter(x => x.fx.type.land).length < 5 ? 3 : 0) }))
@@ -3381,6 +3390,7 @@ export class Game {
     if (o.fx.type.permanent) {
       this.move(o, 'battlefield', { tapped: o.fx.entersTapped && !o.fx.type.creature });
       if (o.fx.entersCounters === 'X') o.counters = x;
+      if (o.kicked && o.fx.kickCounters) o.counters += this.moreCounters(o, o.fx.kickCounters);
       const imprint = choice.imprint || (o.fx.imprint && p.agent.chooseImprint(this, p, o));
       if (imprint && imprint.zone === 'hand') {
         this.move(imprint, 'exile');
@@ -4135,6 +4145,20 @@ export class Game {
     o.mutBase = null; o.merged = null; o.mergeCards = null;
     for (const u of under) { u.zone = 'merged-left'; this.move(u, to === 'battlefield' ? 'graveyard' : to); }
   }
+  // Enlist (702.154): as each enlisting creature attacks, tap a creature of yours that isn't attacking and has no
+  // summoning sickness; the attacker gets its power until end of turn
+  async enlist(p, decl) {
+    for (const d of decl) {
+      if (!d.o.fx.enlist) continue;
+      const pool = p.battlefield.filter(x => x !== d.o && x.fx.type.creature && !x.tapped && x.attacking == null && (!x.sick || this.has(x, 'haste')) && this.power(x) > 0);
+      if (!pool.length) continue;
+      const pick = await (p.agent.chooseEnlistAsync ? p.agent.chooseEnlistAsync(this, p, d.o, pool) : p.agent.chooseEnlist(this, p, d.o, pool));
+      if (!pick || !pool.includes(pick)) continue;
+      pick.tapped = true;
+      d.o.tempP += this.power(pick);
+      this.log(`${this.pn(p)} enlists ${this.cn(pick)}: ${this.cn(d.o)} gets +${this.power(pick)}/+0`, { kind: 'combat', rule: '702.154a' });
+    }
+  }
   // ---------- companions (702.139): {3}, put it from outside the game into your hand, once, at sorcery speed
   canCompanion(p) {
     const c = p.companion;
@@ -4560,6 +4584,7 @@ export class Game {
     await this.beat(1.4);
     p.attackedTurn = this.turn;
     this.attackKeywords(p, decl);
+    if (this.rules >= 5) await this.enlist(p, decl);
     for (const d of decl) {
       this.trigger(d.o, 'attack');
       this.fire('allyAttacks', { o: d.o, p: p.idx });
@@ -4984,7 +5009,7 @@ export class Game {
     for (const o of [...order]) {
       o.sick = false; o.usedPW = false;
       // Exerted creatures and "doesn't untap during your untap step" stay tapped
-      if (o.exerted || o.fx.noUntap) { o.exerted = false; continue; }
+      if (o.exerted || o.fx.noUntap || (this.rules >= 5 && this.attachments(o).some(a => a.fx.attachNoUntap))) { o.exerted = false; continue; }
       if (o.tapped && o.fx.type.creature && locks.some(l => l.what === 'creature' && (!l.minPower || this.power(o) >= l.minPower))) continue;
       if (o.tapped && landLock && o.fx.type.land && (!landLock.nonbasic || !o.fx.type.basic)) { if (landsLeft <= 0) continue; landsLeft--; }
       if (o.tapped) { o.tapped = false; if (o.fx.watch?.some(w => w.ev === 'untapped')) this.queue.push({ o, effects: o.fx.watch.find(w => w.ev === 'untapped').effects, label: 'untapped', p }); }

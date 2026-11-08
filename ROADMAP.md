@@ -469,6 +469,13 @@ on top of the ones above:
     permanents (Glen Elendra, Siren Stormtamer).
 - [ ] 98. Coverage for 60-card and Limited play: scan the cards the random constructed and Limited generators pick
   most, and the seven rated 17Lands sets. Target 90% fully read, so item 80's rated drafters can trust more cards.
+  - Progress (not ticked: the target isn't met): scan of every booster card in BLB, DSK, FDN, MKM, WOE, DMU and
+    MOM (1,840 cards): 74.6% fully read (FDN 90%, MKM and DSK about 67%). Added the families that cover several
+    cards: enlist (11 cards), read ahead (10), "kicker A and/or B", "if ~ was kicked, it enters with N counters",
+    freezing auras, +N/−N on itself, two keywords for a target creature, "owner puts it on top or bottom of their
+    library", suspect. Now 76.4% (1,405), none lost. Biggest families left: collect evidence (6), Season "pawprint"
+    modes (5), expend, royal role tokens, "when ~ dies, put its counters on…". Tested: 16 + 16 Limited games (tuck,
+    enlist, suspect fire; 0 errors, no rule broken).
 - [ ] 99. Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with
   a puzzle each; fix what they show.
 - [ ] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops

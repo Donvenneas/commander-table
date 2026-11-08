@@ -415,6 +415,7 @@ export class Agent {
         // ("nonartifact, nonblack creature")
         && !(e.not || []).some(w => o.fx.type[w] || (o.card.colors || []).includes({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[w])));
       case 'bounce': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land);
+      case 'tuck': return this.bestEnemy(g, p, o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent') && !o.fx.type.land);
       // (an untapped creature that could block, or attack)
       case 'noBlock': return this.bestEnemy(g, p, o => o.fx.type.creature && !o.tapped);
       case 'loseLife': { const q = this.weakestOpponent(g, p); return q ? { player: q.idx } : null; }
@@ -960,6 +961,8 @@ export class Agent {
       case 'token': return N(e.n) * (N(e.p) + N(e.t)) * 0.7 + e.kw.length * 0.5;
       case 'manifest': return N(e.n || 1) * (e.cloak ? 3.2 : 2.8);
       case 'scrollRack': return p.hand.length ? 1.5 : 0;
+      case 'tuck': return 4;
+      case 'suspect': return 0.5;
       // (a room's worth of value; the initiative also ventures every upkeep while it's held)
       case 'venture': return 2;
       case 'initiative': return g.initiative === p.idx ? 2 : 5;
@@ -1327,6 +1330,11 @@ export class Agent {
     const recast = g.gyOnceSource?.(p, o) || p.gyCast?.turn === g.turn;
     const reanimate = p.hand.some(x => [...x.fx.spell].some(e => e.k === 'reanimate') && g.canCast(p, x));
     return !(recast || reanimate) || (o.card.cmc || 0) <= 2;
+  }
+  // Enlist: tap a creature that wouldn't do more (not needed to block next turn: the weakest that adds 2+ power)
+  chooseEnlist(g, p, attacker, pool) {
+    const keep = g.opponents(p).some(q => q.battlefield.some(o => o.fx.type.creature && g.power(o) >= p.life / 3));
+    return [...pool].filter(x => g.power(x) >= 2 && !x.isCommander && !(keep && g.toughness(x) >= 3)).sort((a, b) => this.value(g, a) - this.value(g, b))[0] || null;
   }
   // Madness: cast the discarded card now when it's worth casting at all
   wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }

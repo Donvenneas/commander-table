@@ -71,6 +71,11 @@ const PATTERNS = [
   [/reveal the top card of your library and put that card into your hand\. you lose life equal to its mana value/, () => ({ k: 'adNauseam' })],
   // Orcish Bowmasters and friends
   [/amass (?:\w+ )?(\d+)/, m => ({ k: 'token', n: 1, p: +m[1], t: +m[1], desc: 'orc army', kw: [] })],
+  // Limited families (item 98): +N/-N on itself, two keywords for a target creature, tuck, suspect
+  [/(?:^|[.,] )~ gets \+(\d+)\/-(\d+) until end of turn/, m => ({ k: 'pumpSelf', p: +m[1], t: -m[2], kw: [] })],
+  [/^target creature (?:you control )?gains ((?:deathtouch|indestructible|lifelink|flying|trample|first strike|hexproof|vigilance|menace|haste)(?:(?:,|,? and) (?:deathtouch|indestructible|lifelink|flying|trample|first strike|hexproof|vigilance|menace|haste))+) until end of turn/, m => ({ k: 'pump', p: 0, t: 0, kw: kwList(m[1]) })],
+  [/target (creature|nonland permanent)'s owner puts it on (?:their choice of )?the top or bottom of their library/, m => ({ k: 'tuck', what: m[1] === 'creature' ? 'creature' : 'nonland permanent' })],
+  [/(?:^|\. )suspect it\b/, () => ({ k: 'suspect' })],
   // Scroll Rack: swap cards in hand for the top of the library (engine.js: the AI swaps its weakest cards)
   [/exile any number of cards from your hand face down\. put that many cards from the top of your library into your hand/, () => ({ k: 'scrollRack' })],
   // Dungeons and the initiative (dungeons.js, engine.js venture)
@@ -784,6 +789,12 @@ function keywordLine(line, fx) {
     if ((m = s.match(/^(morph|megamorph|disguise) ((?:\{[^}]+\})+)$/))) { fx.morph = { cost: m[2].toUpperCase(), mega: m[1] === 'megamorph', disguise: m[1] === 'disguise' }; continue; }
     // Bestow (cast as an Aura), mutate (merge onto a creature): engine.js (reconfigure is read with kicker and friends above)
     if ((m = s.match(/^bestow ((?:\{[^}]+\})+)$/))) { fx.bestow = m[1].toUpperCase(); continue; }
+    // Enlist (702.154): tap a non-attacking creature as it attacks to add its power (engine.js attackKeywords);
+    // read ahead (702.155): a Saga may start on a later chapter (it starts on chapter 1 here, which is allowed)
+    if (s === 'enlist') { fx.enlist = true; continue; }
+    if (s === 'read ahead') { fx.readAhead = true; continue; }
+    // "Kicker {1}{W} and/or {2}{B}": the first kicker is offered (fx.kicker2 kept for the cards that check it)
+    if ((m = s.match(/^kicker ((?:\{[^}]+\})+) and\/or ((?:\{[^}]+\})+)$/))) { fx.kicker = m[1].toUpperCase(); fx.kicker2 = m[2].toUpperCase(); fx.kw.add('kicker'); continue; }
     // Day and night (702.145): werewolves that transform as day turns to night and back (engine.js dayNight)
     if (s === 'daybound') { fx.daybound = true; continue; }
     if (s === 'nightbound') { fx.nightbound = true; continue; }
@@ -929,7 +940,7 @@ function parseFlat(t) {
 
 export function needsTarget(e) {
   if (e.k === 'copyToken' && e.of) return false;
-  if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock'].includes(e.k)) return true;
+  if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock', 'tuck'].includes(e.k)) return true;
   if (e.k === 'goad') return !e.all;
   if (e.k === 'evade' || e.k === 'kwCounter') return !e.self && !e.all;
   if (e.k === 'regen') return !e.self && !e.all;
@@ -1705,6 +1716,10 @@ export function analyzeCard(card) {
       const es = parseEffects(m[1]);
       if (es.length) { fx.turnedUp = es; continue; }
     }
+    // Shalai's Acolyte, Pixie Illusionist: "If ~ was kicked, it enters with two +1/+1 counters on it"
+    if ((m = line.match(/^if ~ was kicked, it enters with (\w+) \+1\/\+1 counters? on it\.?$/))) { fx.kickCounters = num(m[1]); continue; }
+    // Freezing auras: "Enchanted creature doesn't untap during its controller's untap step"
+    if (/^enchanted (?:creature|permanent) doesn't untap during its controller's untap step\.?$/.test(line)) { fx.attachNoUntap = true; continue; }
     // Hooded Hydra: "As ~ is turned face up, put five +1/+1 counters on it"
     if ((m = line.match(/^as ~ is turned face up, put (\w+) \+1\/\+1 counters on it\.?$/))) { fx.turnedUp = [{ k: 'counters', n: num(m[1]), on: '~' }]; continue; }
     // Gemrazer, Nethroi: "Whenever this creature mutates, …"
@@ -1752,6 +1767,8 @@ const EFFECT_TEXT = {
   addMana: e => `add ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`,
   silence: e => `${e.who} can't cast spells this turn`,
   venture: () => 'venture into the dungeon',
+  tuck: e => `put target ${e.what} on top of or under its owner's library`,
+  suspect: () => 'suspect it (menace, can\'t block)',
   initiative: () => 'take the initiative',
   manifest: e => (e.dread ? 'manifest dread' : `${e.cloak ? 'cloak' : 'manifest'} the top ${e.n > 1 ? e.n + ' cards' : 'card'} of your library`),
   adNauseam: () => 'reveal cards into your hand, paying life',
@@ -1893,6 +1910,10 @@ export function describeFx(fx) {
   if (fx.bestow) out.push(`bestow ${fx.bestow} (cast as an Aura)`);
   if (fx.daybound || fx.nightbound) out.push(fx.daybound ? 'daybound (transforms when it becomes night)' : 'nightbound (transforms back when it becomes day)');
   if (fx.madness) out.push(`madness ${fx.madness} (cast it when you discard it)`);
+  if (fx.enlist) out.push('enlist');
+  if (fx.readAhead) out.push('read ahead (starts on chapter 1)');
+  if (fx.kickCounters) out.push(`kicked: enters with ${fx.kickCounters} +1/+1 counters`);
+  if (fx.attachNoUntap) out.push("enchanted permanent doesn't untap");
   if (fx.cleave) out.push(`cleave ${fx.cleave}: ${fx.cleaveSpell?.length ? list(fx.cleaveSpell) : '(not modelled)'}`);
   if (fx.mutate) out.push(`mutate ${fx.mutate} (merge onto a non-Human creature you own)`);
   if (fx.onMutate) out.push(`whenever it mutates: ${list(fx.onMutate)}`);
