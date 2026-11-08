@@ -1359,6 +1359,23 @@ export class Agent {
       if (need > 0 || !pick.length) continue;
       for (const d of pick) d.obj = b;
     }
+    // Opponents' planeswalkers: send enough attackers already going at their controller to kill one that's worth
+    // more than the damage to the player, unless that player is close to dead anyway
+    const walkers = g.opponents(p).flatMap(q => q.battlefield.filter(o => o.fx.type.planeswalker && !o.fx.type.creature && g.attackable(p, o)))
+      .sort((a, b) => this.value(g, b) - this.value(g, a));
+    for (const w of walkers) {
+      const q = g.players[w.controller];
+      const mine = decl.filter(d => d.target === q.idx && !d.obj).sort((x, y) => g.power(x.o) - g.power(y.o));
+      const toFace = mine.reduce((s, d) => s + g.power(d.o), 0);
+      if (!mine.length || toFace >= q.life) continue;
+      const worth = this.value(g, w) + 2 * (w.loyalty || 0) / 3;
+      let need = w.loyalty || 0;
+      const pick = [];
+      for (const d of [...mine].reverse()) { if (need <= 0) break; pick.push(d); need -= g.power(d.o); }
+      const spent = pick.reduce((s, d) => s + g.power(d.o), 0);
+      if (need > 0 || worth < spent * 0.6) continue;
+      for (const d of pick) d.obj = w;
+    }
   }
   // Madness: cast the discarded card now when it's worth casting at all
   wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }

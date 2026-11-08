@@ -515,6 +515,12 @@ on top of the ones above:
     pilots that always use all the mana: 26–14 over 40 games, no X = 0 casts.
 - [ ] 105. Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when
   that's worth more than face damage.
+  - Done, partly: creatures can now attack planeswalkers (item 99's attack-a-permanent: decl.obj, combat damage
+    removes loyalty). The AI sends the smallest set of attackers already going at a walker's controller that kills
+    it, when the walker is worth more than the damage those attackers would have dealt (and the player isn't about to
+    die anyway). Choosing + or − was already done (pickPW). Not done: blocks that protect our own walkers (blocks
+    treat an attack on a walker like one on us), and human seats choosing a walker to attack. Head to head in a
+    walker-heavy pod, seats alternating, against the same pilots without it: 23–17 over 40 games, no rule broken.
 - [ ] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
   combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.
 - [ ] 107. Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs;
