@@ -190,6 +190,8 @@ export function snapshot(g, seat) {
     commander: o.isCommander, counters: o.counters, loyalty: o.fx.type.planeswalker ? o.loyalty : null,
     pt: o.fx.type.creature ? `${g.power(o)}/${g.toughness(o)}` : null, damage: o.damage,
     zone: o.fx.type.creature ? 'creatures' : o.fx.type.land ? 'lands' : 'others',
+    // (a face-down permanent's controller knows what it is; nobody else does)
+    ...(o.faceDown ? { faceDown: true, ...(o.controller === seat ? { peek: o.faceCard.name } : {}) } : {}),
   });
   return {
     seat, turn: g.turn, round: g.round, phase: g.phase, active: g.active, over: g.over, winner: g.winner?.idx ?? null, winners: (g.winners || []).map(w => w.idx), archenemy: g.archenemy,

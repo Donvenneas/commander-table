@@ -26,6 +26,8 @@ export class TableView {
     this.cards = new Map();
     this.boards = [];
     this.revealHands = false;
+    /** @type {number} the seat played on this PC (set by main.js), -1 for none */
+    this.humanIdx = -1;
     this.pending = false;
     this.lastTurnLogged = null;
     els.table.innerHTML = '';
@@ -217,12 +219,21 @@ export class TableView {
 
   cardEl(o, small = false) {
     let el = this.cards.get(o.iid);
+    // (a card turned face down or face up is drawn again)
+    if (el && el.dataset.cname !== o.card.name) { el.remove(); el = null; }
     if (!el) {
       el = document.createElement('div');
       el.className = 'card enter';
       el.dataset.iid = o.iid;
+      el.dataset.cname = o.card.name;
       const src = HIDPI ? o.card.imgNormal : o.card.imgSmall;
-      if (src) {
+      if (o.faceDown) {
+        // Face down: a card back; its controller (or "Reveal hands") sees what it is
+        const peek = this.humanIdx === o.controller || this.revealHands;
+        el.classList.add('noimg', 'facedown');
+        el.innerHTML = `<div class="tkn fd"><b>Face down${peek ? `<br><small>${esc(o.faceCard.name)}</small>` : ''}</b></div>`;
+        if (peek) el.title = `${o.faceCard.name} (face down: ${o.faceDown})`;
+      } else if (src) {
         const img = new Image();
         img.src = src; img.alt = o.card.name; img.draggable = false; img.decoding = 'async';
         el.append(img);

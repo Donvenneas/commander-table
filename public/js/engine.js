@@ -629,6 +629,9 @@ export class Game {
     try { return this.castModeRaw(p, o); } finally { this.payingFor = prev; }
   }
   castModeRaw(p, o) {
+    // Morph, megamorph, disguise (702.37, 702.168): cast face down as a 2/2 for {3} at sorcery speed
+    const faceDownOk = this.canCastFaceDown(p, o);
+    if (o.fx.type.land && faceDownOk) return { alt: 'morph' };
     if (o.fx.type.land || (!o.card.manaCost && !o.fx.altFree && !o.fx.suspend)) return null;
     // A signature spell needs its oathbreaker on the battlefield
     if (o.signature && o.zone === 'command' && !p.battlefield.some(x => x.oathbreaker)) return null;
@@ -692,6 +695,7 @@ export class Game {
     // Miracle: its first draw this turn can be cast for the miracle cost
     if (o.fx.miracle && o.zone === 'hand' && o.miracleTurn === this.turn && this.planPayment(p, parseCost(o.fx.miracle), 0)) return { alt: 'miracle' };
     if (o.card.manaCost && this.planPayment(p, c, extra, null, null, this.helpUnits(p, o))) return { alt: null };
+    if (faceDownOk) return { alt: 'morph' };
     // Suspend (702.62): exiled with time counters for its suspend cost, cast free later (only on its owner's own turn, at sorcery timing)
     if (o.fx.suspend && o.zone === 'hand' && this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length && this.planPayment(p, parseCost(o.fx.suspend.cost), 0)) return { alt: 'suspend' };
     // Cheaper ways in when the full cost is out of reach: dash and blitz (haste, back at end of turn), spectacle
@@ -781,7 +785,7 @@ export class Game {
   }
   // The cost of an alternative way to cast (or extra costs added on top)
   altCost(o, alt) {
-    const k = { foretold: o.fx.foretell, foretell: '{2}', plot: o.fx.plot, impending: o.fx.impending?.cost, flashback: o.tempFlashback === this.turn && !o.fx.flashback ? o.card.manaCost : o.fx.flashback, evoke: o.fx.evoke, miracle: o.fx.miracle, suspend: o.fx.suspend?.cost, overload: o.fx.overload, altMana: o.fx.altMana, escape: o.card.manaCost, escapeOwn: o.fx.escape?.cost, jumpstart: o.card.manaCost, dash: o.fx.dash, blitz: o.fx.blitz, spectacle: o.fx.spectacle }[alt];
+    const k = { morph: '{3}', foretold: o.fx.foretell, foretell: '{2}', plot: o.fx.plot, impending: o.fx.impending?.cost, flashback: o.tempFlashback === this.turn && !o.fx.flashback ? o.card.manaCost : o.fx.flashback, evoke: o.fx.evoke, miracle: o.fx.miracle, suspend: o.fx.suspend?.cost, overload: o.fx.overload, altMana: o.fx.altMana, escape: o.card.manaCost, escapeOwn: o.fx.escape?.cost, jumpstart: o.card.manaCost, dash: o.fx.dash, blitz: o.fx.blitz, spectacle: o.fx.spectacle }[alt];
     return k != null ? parseCost(k) : { generic: 0, pips: [], x: 0 };
   }
   addCost(a, b) { return { generic: a.generic + b.generic, pips: [...a.pips, ...b.pips], x: a.x + b.x }; }
@@ -878,6 +882,12 @@ export class Game {
     // Graveyard watchers: cards leaving your graveyard (Insidious Roots), cards arriving (The Gitrog Monster)
     if (from === 'graveyard' && to !== 'graveyard') this.fire('gyLeave', { o, p: o.owner });
     if (to === 'graveyard' && !o.token && from !== 'graveyard') this.fire('toGy', { o, p: o.owner, from });
+    // A face-down permanent or spell is turned face up as it goes anywhere else (708.9)
+    if (o.faceDown && to !== 'battlefield' && (from === 'battlefield' || from === 'stack')) {
+      const hidden = o.card.name;
+      this.restoreFace(o);
+      this.log(`${esc(hidden)} is revealed: ${this.cn(o)}`, { kind: 'minor', rule: '708.9' });
+    }
     if (o.token && to !== 'battlefield') { o.zone = 'gone'; return o; }
     o.mayPlay = null;
     if (o.isCommander && !opts.stay && ['graveyard', 'exile', 'hand', 'library'].includes(to) && !p.lost) {
@@ -2397,8 +2407,9 @@ export class Game {
         this.log(`${S} becomes a ${e.p}/${e.t} creature until end of turn`, { kind: 'minor' });
         break;
       }
+      case 'manifest': this.manifest(p, e, ctx); break;
       case 'attachSelf': {
-        const o = p.agent.bestOwn(this, p, x => x.fx.type.creature && x !== src);
+        const o = ctx.made?.zone === 'battlefield' ? ctx.made : p.agent.bestOwn(this, p, x => x.fx.type.creature && x !== src);
         if (o && src.zone === 'battlefield') { src.attachedTo = o; this.log(`${S} is attached to ${this.cn(o)}`, { kind: 'minor' }); }
         break;
       }
@@ -3005,6 +3016,7 @@ export class Game {
       help = [];
     }
     o.escaped = mode.alt === 'escapeOwn' || mode.alt === 'escape';
+    if (mode.alt === 'morph') { if (!this.canCastFaceDown(p, o)) return false; this.makeFaceDown(o, o.fx.morph.disguise ? 'disguise' : 'morph'); }
     o.impendingCast = mode.alt === 'impending';
     // Foretell and plot: pay, exile it face down, and cast it on a later turn (see castModeRaw)
     if (mode.alt === 'foretell' || mode.alt === 'plot') {
@@ -3820,6 +3832,78 @@ export class Game {
       else { const f = p.battlefield.find(x => x.card.name === 'Food'); if (f) this.sacrifice(p, f, ' (forage)'); }
     }
     if (c.energy) p.energy -= c.energy;
+  }
+  // ---------- face-down permanents (708): morph, megamorph, disguise, manifest, manifest dread, cloak
+  canCastFaceDown(p, o) {
+    const m = o.fx.morph;
+    if (!m || this.rules < 5 || o.zone !== 'hand' || o.faceDown) return false;
+    if (this.silenced[p.idx] === this.turn || this.spellCapped(p, o)) return false;
+    if (!(this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length)) return false;
+    return !!this.planPayment(p, { generic: 3, pips: [], x: 0 }, 0);
+  }
+  // A face-down object is a nameless, colorless 2/2 creature with no text (disguise and cloak: ward {2})
+  makeFaceDown(o, how) {
+    if (o.faceDown) return;
+    const ward = how === 'disguise' || how === 'cloak';
+    const card = { name: 'Face-down creature', typeLine: 'Creature', manaCost: '', cmc: 0, colors: [], colorIdentity: [], power: '2', toughness: '2', text: ward ? 'Ward {2}' : '', keywords: ward ? ['Ward'] : [], faceDownCard: true };
+    card.fx = analyzeCard(card);
+    o.faceCard = o.card; o.faceFx = o.fx; o.faceDown = how;
+    o.card = card; o.fx = card.fx;
+  }
+  restoreFace(o) {
+    if (!o.faceDown) return;
+    o.card = o.faceCard; o.fx = o.faceFx;
+    o.faceDown = null; o.faceCard = null; o.faceFx = null;
+  }
+  // Turning a face-down permanent face up is a special action (116.2b): its morph or disguise cost, or for a
+  // manifested or cloaked creature card its mana cost. Returns that cost, or null.
+  faceUpCost(p, o) {
+    if (!o.faceDown || o.zone !== 'battlefield' || o.controller !== p.idx) return null;
+    const real = o.faceFx;
+    if (real.morph) return real.morph.cost;
+    if ((o.faceDown === 'manifest' || o.faceDown === 'cloak') && real.type.creature && o.faceCard.manaCost) return o.faceCard.manaCost;
+    return null;
+  }
+  canTurnFaceUp(p, o) {
+    const c = this.faceUpCost(p, o);
+    return c != null && !!this.planPayment(p, parseCost(c), 0);
+  }
+  async turnFaceUp(p, o) {
+    if (!this.canTurnFaceUp(p, o)) return false;
+    const cost = this.faceUpCost(p, o);
+    this.commitPayment(p, this.planPayment(p, parseCost(cost), 0));
+    const mega = o.faceFx.morph?.mega;
+    this.restoreFace(o);
+    this.log(`${this.pn(p)} pays ${cost} and turns ${this.cn(o)} face up`, { kind: 'cast', p: p.idx, rule: '702.37e' });
+    if (mega) { o.counters += this.moreCounters(o, 1); this.log(`${this.cn(o)} gets a +1/+1 counter (megamorph)`, { kind: 'minor', rule: '702.37b' }); }
+    // "When ~ is turned face up" (it wasn't cast and didn't enter, so nothing else triggers)
+    if (o.fx.turnedUp?.length) this.queue.push({ o, effects: o.fx.turnedUp, label: 'turned face up', p });
+    this.emit('update');
+    await this.sba();
+    return true;
+  }
+  // Manifest (701.40), manifest dread (701.62), cloak (701.58): the top card of the library onto the battlefield face down
+  manifest(p, e, ctx) {
+    const made = [];
+    for (let k = 0; k < (e.n || 1); k++) {
+      let card;
+      if (e.dread) {
+        const top = p.library.slice(-2).reverse();
+        if (!top.length) break;
+        // (keep a creature card, which can be turned up later, else the better card; the other goes to the graveyard)
+        const worth = x => (x.fx.type.creature ? 5 : 0) + p.agent.value(this, x);
+        card = [...top].sort((a, b) => worth(b) - worth(a))[0];
+        for (const x of top) if (x !== card) this.move(x, 'graveyard');
+      } else card = p.library[p.library.length - 1];
+      if (!card) break;
+      this.makeFaceDown(card, e.cloak ? 'cloak' : 'manifest');
+      this.move(card, 'battlefield', { under: p.idx });
+      if (card.zone !== 'battlefield') { this.restoreFace(card); continue; }
+      made.push(card);
+    }
+    if (made.length) this.log(`${this.pn(p)} ${e.cloak ? 'cloaks' : 'manifests'} the top card${made.length > 1 ? 's' : ''} of their library${e.dread ? ' (manifest dread)' : ''}`, { kind: 'minor', rule: e.cloak ? '701.58a' : e.dread ? '701.62a' : '701.40a' });
+    if (ctx) ctx.made = made[made.length - 1] || null;
+    return made;
   }
   // The most X an ability with {X} in its cost can be paid with right now (107.3, 602.2b)
   maxAbilityX(p, o, ab) {

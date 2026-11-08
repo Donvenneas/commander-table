@@ -702,6 +702,8 @@ export class Agent {
       if (o.fx.type.creature && !o.fx.etb.length && !o.isCommander && !this.pieceWorth(g, p, o) && !g.has(o, 'haste') && this.overextended(g, p)) s *= 0.55;
       // An evoked creature is sacrificed at once, so only its enters-the-battlefield effect counts
       if (mode.alt === 'evoke') s = o.fx.etb.reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) * 0.9 - 1;
+      // Cast face down (morph, disguise): a 2/2 now, and the real card later
+      if (mode.alt === 'morph') s = 2 + Math.min(3, s * 0.3);
       // Pitching a card is a real cost; free spells are mostly for responses
       if (mode.alt === 'pitch') s -= 4;
       if (mode.alt === 'jumpstart') s -= 1.5;
@@ -723,6 +725,11 @@ export class Agent {
         if (holder && holder.zone === 'battlefield' && !holder.sick) continue;
         const b = eq.fx.attachBuff || { p: 1, t: 1 };
         opts.push({ s: 2 + b.p + b.t * 0.5, why: `equips ${eq.card.name} to ${best.card.name}`, run: () => g.equip(p, eq, best) });
+      }
+      // Turn face-down creatures face up when the real card is worth the mana (megamorph adds a counter)
+      for (const o of p.battlefield.filter(x => x.faceDown && g.canTurnFaceUp(p, x))) {
+        const s = this.faceUpValue(g, p, o);
+        if (s > 1) opts.push({ s, why: `turns ${o.faceCard.name} face up`, run: () => g.turnFaceUp(p, o) });
       }
       for (const pw of p.battlefield.filter(o => o.fx.type.planeswalker && !o.usedPW)) {
         const ab = this.pickPW(g, p, pw);
@@ -898,6 +905,7 @@ export class Agent {
         return net * 0.6;
       }
       case 'token': return N(e.n) * (N(e.p) + N(e.t)) * 0.7 + e.kw.length * 0.5;
+      case 'manifest': return N(e.n || 1) * (e.cloak ? 3.2 : 2.8);
       case 'treasure': return N(e.n) * 1.5;
       case 'rampLand': return g.round <= 7 ? 4 * N(e.n) + (e.bf ? 2 : 0) : 1.5;
       case 'tutor': {
@@ -1211,6 +1219,13 @@ export class Agent {
     return best;
   }
   chooseAbilityX(g, p, o, ab, max) { return this.bestAbilityX(g, p, o, ab, max).x; }
+  // What turning a face-down permanent up gains: the real card over a vanilla 2/2, plus its "turned face up" effect
+  faceUpValue(g, p, o) {
+    if (!o.faceDown) return 0;
+    const real = Object.assign(Object.create(Object.getPrototypeOf(o)), o, { card: o.faceCard, fx: o.faceFx, faceDown: null });
+    const gain = (o.faceFx.type.creature ? this.value(g, real) : 0) - this.value(g, o) + (o.faceFx.morph?.mega ? 1 : 0);
+    return gain + (o.faceFx.turnedUp || []).reduce((s, e) => s + this.effectValue(g, p, o, e, false), 0);
+  }
 
   // ---------- instant speed
   // Mana held up through an opponent's turn gets used before it would untap anyway

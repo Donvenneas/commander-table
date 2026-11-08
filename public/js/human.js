@@ -371,7 +371,9 @@ export class HumanAgent extends Agent {
       // (and sources you tapped by hand whose mana is unspent: click to take the tap back)
       const backs = this.takeBacks(g, p);
       const pingers = this.pingers(g, p);
-      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers])];
+      // Morph and disguise cards that can be cast face down, and face-down permanents that can be turned up
+      const faceDowns = [...p.hand.filter(o => g.canCastFaceDown(p, o)), ...p.battlefield.filter(o => g.canTurnFaceUp(p, o))];
+      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns])];
       const loop = this.loopBlock();
       const fromGy = spells.some(o => o.zone === 'graveyard') || graveAbs.length;
       // (how many plays are still open, so a pass is never by accident)
@@ -420,6 +422,13 @@ export class HumanAgent extends Agent {
         if (c === 'exile') g.exileForMana(p, o);
         else if (c === 'cast') await this.castWithChoices(g, p, o);
         continue;
+      }
+      if (faceDowns.includes(o)) {
+        if (o.zone === 'battlefield') { await g.turnFaceUp(p, o); this.acts = []; continue; }
+        const normal = (spells.includes(o) && g.castMode(p, o)?.alt !== 'morph') || lands.includes(o);
+        const c = normal ? (await this.ui.ask(`<b>${esc(o.card.name)}</b>: ${lands.includes(o) ? 'play it' : 'cast it'}, or cast it face down as a 2/2 for {3}?`, { buttons: [{ label: lands.includes(o) ? 'Play it' : 'Cast it', value: 'normal', primary: true }, { label: 'Face down ({3})', value: 'down' }, { label: 'Cancel', value: 'cancel' }] })).button : 'down';
+        if (c === 'down') { await g.cast(p, o, { mode: { alt: 'morph' } }); this.acts = []; continue; }
+        if (c !== 'normal') continue;
       }
       if (lands.includes(o)) await g.playLand(p, o);
       else if (cyclers.includes(o) && (!spells.includes(o) || (await this.ui.ask(`<b>${esc(o.card.name)}</b>: cast it, or ${o.fx.cycling ? 'cycle' : 'channel'} it?`, { buttons: [{ label: 'Cast', value: 'cast', primary: true }, { label: o.fx.cycling ? `Cycle (${o.fx.cycling.cost})` : `Channel (${o.fx.channel.cost})`, value: 'cycle' }] })).button === 'cycle')) await g.cycle(p, o);
@@ -569,11 +578,14 @@ export class HumanAgent extends Agent {
       const abil = withAbilities ? this.instantAbilities(g, q).filter(o => !options.includes(o)) : [];
       // (Walking Ballista can ping at instant speed in every window)
       const pingers = this.pingers(g, q).filter(o => !options.includes(o));
-      if (!options.length && !abil.length && !pingers.length && !(always && k === 0)) return null;
+      // (turning a face-down permanent up is a special action: any time you have priority)
+      const faceUps = q.battlefield.filter(o => g.canTurnFaceUp(q, o));
+      if (!options.length && !abil.length && !pingers.length && !faceUps.length && !(always && k === 0)) return null;
       const mana = this.manaSources(g, q).filter(o => !abil.includes(o));
       const backs = this.takeBacks(g, q);
-      r = await this.ui.ask(`${text}${abil.length ? ' (or use an ability)' : ''}${pingers.length ? ` (or remove a counter from ${esc(pingers[0].card.name)} to ping)` : ''}${!options.length && !abil.length && !pingers.length ? ' (You have nothing to play right now.)' : ''}${this.poolNote(g, q)}`, { objs: [...options, ...abil, ...pingers, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }] });
+      r = await this.ui.ask(`${text}${abil.length ? ' (or use an ability)' : ''}${faceUps.length ? ' (or turn a face-down creature face up)' : ''}${pingers.length ? ` (or remove a counter from ${esc(pingers[0].card.name)} to ping)` : ''}${!options.length && !abil.length && !pingers.length && !faceUps.length ? ' (You have nothing to play right now.)' : ''}${this.poolNote(g, q)}`, { objs: [...options, ...abil, ...pingers, ...faceUps, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }] });
       if (!r.obj) return null;
+      if (faceUps.includes(r.obj)) { await g.turnFaceUp(q, r.obj); r = null; continue; }
       if (backs.includes(r.obj)) {
         const both = abil.includes(r.obj);
         const c = both ? (await this.ui.ask(`<b>${esc(r.obj.card.name)}</b>: use its ability, or untap it and take its mana back?`, { buttons: [{ label: 'Use its ability', value: 'ab', primary: true }, { label: 'Take the mana back', value: 'back' }] })).button : 'back';

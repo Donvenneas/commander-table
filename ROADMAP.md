@@ -347,6 +347,17 @@ on top of the ones above:
 - [ ] 86. Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents,
   turning face up as a special action; hidden from opponents on the table, in friends' snapshots and in replays shared
   as web pages.
+  - Done: effects.js reads "morph/megamorph/disguise {cost}" (fx.morph), "when ~ is turned face up" (fx.turnedUp) and
+    manifest / manifest dread / cloak effects. engine.js: makeFaceDown swaps the object's card and fx for a nameless
+    colorless 2/2 (ward {2} for disguise and cloak) and keeps the real ones in o.faceCard/o.faceFx; cast face down
+    for {3} at sorcery speed (castMode alt 'morph', also for disguise lands); turnFaceUp as a special action
+    (morph cost, or a manifested/cloaked creature's mana cost; megamorph counter; turned-face-up trigger); revealed
+    when it leaves the battlefield or the stack (708.9); Cryptic Coat attaches to the card it cloaked. AI casts face
+    down when the real cost is out of reach and turns cards up by value; human seats get "Face down ({3})" and can
+    turn cards up in main phases and every response window. The table and the friend page show a card back (its
+    controller sees the name). Shared web-page replays only carry names, so they show "Face-down creature".
+    Tested: 12 + 8 games with a morph/manifest deck (17 face-down casts, 23 turned up, megamorph, triggers, cloak,
+    manifest dread, 0 errors, no rule broken) and 3 games with a scripted human seat (5 cast face down, 3 turned up).
 - [ ] 87. Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back
   face as a land (the AI counts those as lands for mulligans and land drops).
 - [ ] 88. Finish "aura or creature" cards: bestow end to end, mutate (merged stack with every ability), reconfigure.

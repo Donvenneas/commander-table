@@ -71,6 +71,9 @@ const PATTERNS = [
   [/reveal the top card of your library and put that card into your hand\. you lose life equal to its mana value/, () => ({ k: 'adNauseam' })],
   // Orcish Bowmasters and friends
   [/amass (?:\w+ )?(\d+)/, m => ({ k: 'token', n: 1, p: +m[1], t: +m[1], desc: 'orc army', kw: [] })],
+  // Whisperwood Elemental, Hauntwoods Shrieker, Cryptic Coat: face-down 2/2s from the top of the library (engine.js manifest)
+  [/\bmanifest dread\b/, () => ({ k: 'manifest', n: 1, dread: true })],
+  [/\b(manifest|cloak) the top (?:card|(\w+) cards) of your library/, m => ({ k: 'manifest', n: m[2] ? num(m[2]) : 1, cloak: m[1] === 'cloak' })],
   [/counter (?:up to one )?target (?:activated or triggered |activated |triggered )ability/, () => ({ k: 'counterAbility' })],
   // Dramatic Reversal, Turnabout-style untaps: tapped mana sources become mana again
   [/untap all (nonland permanents|artifacts|creatures|lands|permanents) you control/, m => ({ k: 'untapAll', what: m[1] })],
@@ -765,6 +768,8 @@ function keywordLine(line, fx) {
     if (s === 'for mirrodin!') { fx.etb.push({ k: 'germ', p: 2, t: 2, desc: 'red rebel' }); continue; }
     if (s === 'riot') { fx.entersCounters = (+fx.entersCounters || 0) + 1; fx.kw.add('riot'); continue; }
     if (s === 'ravenous') { fx.entersCounters = 'X'; continue; }
+    // Morph, megamorph, disguise: cast face down for {3}, turned face up for this cost (engine.js canCastFaceDown)
+    if ((m = s.match(/^(morph|megamorph|disguise) ((?:\{[^}]+\})+)$/))) { fx.morph = { cost: m[2].toUpperCase(), mega: m[1] === 'megamorph', disguise: m[1] === 'disguise' }; continue; }
     if (s === 'split second') { fx.splitSecond = true; continue; }
     if (s === 'cascade') { fx.cascade = true; continue; }
     if (['fear', 'shadow', 'exalted', 'battle cry', 'flanking', 'melee', 'dethrone', 'training', 'mentor', 'evolve', 'undying', 'persist',
@@ -1670,6 +1675,11 @@ export function analyzeCard(card) {
       fx.graveReturn = { cost: m[1].toUpperCase(), to: m[2] === 'your hand' ? 'hand' : 'battlefield', tapped: !!m[3] };
       continue;
     }
+    // Den Protector, Hidden Dragonslayer: "When ~ is turned face up, …" (engine.js turnFaceUp)
+    if ((m = line.match(/^when ~ is turned face up, (.+)/))) {
+      const es = parseEffects(m[1]);
+      if (es.length) { fx.turnedUp = es; continue; }
+    }
     // Hardened Scales, Branching Evolution: more +1/+1 counters
     if ((m = line.match(/^if one or more \+1\/\+1 counters would be put on (?:a creature|a permanent|an artifact or creature) you control, (that many plus one|twice that many)/))) { fx.counterBonus = m[1] === 'that many plus one' ? 'plus' : 'double'; continue; }
     // Activated abilities: "<costs>: <effect>", where every part of the cost is one the engine can pay
@@ -1709,6 +1719,7 @@ const EFFECT_TEXT = {
   discard: e => `${e.who} discards ${amount(e.n)}`,
   addMana: e => `add ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`,
   silence: e => `${e.who} can't cast spells this turn`,
+  manifest: e => (e.dread ? 'manifest dread' : `${e.cloak ? 'cloak' : 'manifest'} the top ${e.n > 1 ? e.n + ' cards' : 'card'} of your library`),
   adNauseam: () => 'reveal cards into your hand, paying life',
   copyToken: e => `token copy of target ${e.what}`,
   wipe: e => `${e.mode} all ${e.what}`,
@@ -1843,6 +1854,8 @@ export function describeFx(fx) {
   if (fx.breach) out.push('cards in your graveyard have escape (mana cost + exile three others)');
   if (fx.sacAtEnd) out.push('sacrificed at the end step');
   if (fx.storm) out.push('storm');
+  if (fx.morph) out.push(`${fx.morph.disguise ? 'disguise' : fx.morph.mega ? 'megamorph' : 'morph'} ${fx.morph.cost} (cast face down for {3})`);
+  if (fx.turnedUp) out.push(`when turned face up: ${list(fx.turnedUp)}`);
   if (fx.onOppSecondDraw) out.push(`when an opponent draws their second card each turn: ${list(fx.onOppSecondDraw)}`);
   if (fx.flashGrant) out.push(`${fx.flashGrant === 'noncreature' ? 'noncreature spells' : 'spells'} as though they had flash`);
   if (fx.lifeCost) out.push(`costs ${fx.lifeCost} life extra`);

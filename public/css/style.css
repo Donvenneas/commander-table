@@ -460,6 +460,8 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .tkn { flex: 1; border-radius: inherit; background: #2a2f3a center/cover; display: flex; align-items: flex-start; justify-content: center; padding: 3px; position: relative; overflow: hidden; }
 .tkn::after { content: "TOKEN"; position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 7px; letter-spacing: .2em; color: rgba(255,255,255,.65); }
 .tkn b { font-size: 9px; background: rgba(0,0,0,.72); padding: 1px 3px; border-radius: 3px; text-align: center; }
+.tkn.fd { background: var(--card-back, radial-gradient(ellipse at center, #a86a2c 0 22%, #5a3517 23% 40%, #3b2410 41%), #3b2410); align-items: center; }
+.tkn.fd small { font-weight: normal; opacity: .9; }
 
 /* ---------- spotlight (the stack) */
 .spotlight { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 10px; pointer-events: none; z-index: 20; }

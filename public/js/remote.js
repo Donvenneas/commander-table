@@ -74,7 +74,7 @@ function cardHtml(c, extra = '') {
   if (c.pt) badges += `<span class="bdg pt">${c.pt}</span>`;
   if (c.counters) badges += `<span class="bdg ctr">+${c.counters}</span>`;
   if (c.loyalty != null) badges += `<span class="bdg loy">${c.loyalty}</span>`;
-  const face = c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
+  const face = c.faceDown ? `<div class="tkn fd"><b>Face down${c.peek ? `<br><small>${esc(c.peek)}</small>` : ''}</b></div>` : c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
   return `<div class="${cls}${c.img ? '' : ' noimg'}" data-iid="${c.iid}">${face}<div class="badges">${badges}</div></div>`;
 }
 function rowHtml(cards, stack) {
