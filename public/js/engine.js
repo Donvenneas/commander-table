@@ -2045,15 +2045,40 @@ export class Game {
   // Hardened Scales (one more) and Doubling Season-style (twice as many) +1/+1 counter replacements
   moreCounters(o, n) {
     if (n <= 0 || (!o.fx.type.creature && !this.players[o.controller]?.battlefield.some(s => s.fx.counterAny))) return n;
-    if (o.fx.type.creature) for (const q of this.alive()) for (const s of q.battlefield) if (s.fx.counterBonusAll) n *= 2;
+    const ops = [];
+    if (o.fx.type.creature) for (const q of this.alive()) for (const s of q.battlefield) if (s.fx.counterBonusAll) ops.push({ mul: 2 });
     // Vorinclex, Monstrous Raider: opponents put half as many
     const putter = this.effectP ?? o.controller;
-    if (this.alive().some(q => q.idx !== putter && q.battlefield.some(s => s.fx.counterHalfOpp) && this.opponents(q).some(x => x.idx === putter))) n = Math.floor(n / 2);
+    if (this.alive().some(q => q.idx !== putter && q.battlefield.some(s => s.fx.counterHalfOpp) && this.opponents(q).some(x => x.idx === putter))) ops.push({ half: true });
     for (const s of this.players[o.controller].battlefield) {
-      if (s.fx.counterBonus === 'plus') n += 1;
-      else if (s.fx.counterBonus === 'double') n *= 2;
+      if (s.fx.counterBonus === 'plus') ops.push({ plus: 1 });
+      else if (s.fx.counterBonus === 'double') ops.push({ mul: 2 });
     }
+    // (Hardened Scales and Doubling Season: the permanent's controller orders them, for the most counters)
+    return this.replaceInOrder(n, ops, 'max');
+  }
+  // Several replacement effects on one event (616.1): the affected player chooses the order they apply in. Every
+  // choice here is about an amount, so the order that's best for that player is used (most counters or life
+  // gained, least damage taken). Rules 4 and earlier applied them in battlefield order.
+  applyOps(n, ops) {
+    for (const op of ops) n = op.plus != null ? n + op.plus : op.mul != null ? n * op.mul : Math.floor(n / 2);
     return n;
+  }
+  replaceInOrder(n, ops, want) {
+    if (ops.length < 2 || this.rules < 5) return this.applyOps(n, ops);
+    // (all orders for up to 6 effects; beyond that, additions first for "max" and last for "min")
+    if (ops.length > 6) {
+      const plus = ops.filter(op => op.plus != null), rest = ops.filter(op => op.plus == null);
+      return this.applyOps(n, want === 'max' ? [...plus, ...rest] : [...rest, ...plus]);
+    }
+    let best = null;
+    const perm = (left, done) => {
+      if (!left.length) { const v = this.applyOps(n, done); if (best == null || (want === 'max' ? v > best : v < best)) best = v; return; }
+      const tried = new Set();
+      left.forEach((op, i) => { const k = JSON.stringify(op); if (tried.has(k)) return; tried.add(k); perm([...left.slice(0, i), ...left.slice(i + 1)], [...done, op]); });
+    };
+    perm(ops, []);
+    return best;
   }
   // Choosing cards from a zone: a human seat picks, the AI takes the most valuable
   async pickCards(p, cards, n, text) {
@@ -2944,8 +2969,10 @@ export class Game {
   lifeGain(p, n) {
     // Erebos, Sulfuric Vortex, Rampaging Ferocidon: no life is gained
     if (this.alive().some(q => q.battlefield.some(s => s.fx.noGain === 'all' || (s.fx.noGain === 'opp' && q !== p)))) return 0;
-    if (n > 0) for (const s of p.battlefield) { if (s.fx.lifePlus) n += s.fx.lifePlus; if (s.fx.lifeDouble) n *= 2; }
-    return n;
+    if (n <= 0) return n;
+    const ops = [];
+    for (const s of p.battlefield) { if (s.fx.lifePlus) ops.push({ plus: s.fx.lifePlus }); if (s.fx.lifeDouble) ops.push({ mul: 2 }); }
+    return this.replaceInOrder(n, ops, 'max');
   }
   // Committing a crime (700.13): targeting an opponent, or something an opponent controls
   noteCrime(p, targets) {
@@ -2954,14 +2981,16 @@ export class Game {
   // Fiery Emancipation, Torbran-style: damage from your sources to opponents and their permanents is doubled
   moreDamage(src, victimIdx, n) {
     if (!src || src.controller == null) return n;
+    const ops = [];
     // Torbran: +2 from (red) sources to opponents
-    if (n > 0 && victimIdx !== src.controller) for (const s of this.players[src.controller].battlefield) if (s.fx.damagePlus && (!s.fx.damagePlus.color || this.colorsOf(src).includes(s.fx.damagePlus.color))) n += s.fx.damagePlus.n;
-    for (const s of this.players[src.controller].battlefield) if (s.fx.damageDouble && (s.fx.damageAny || victimIdx !== src.controller) && (!s.fx.creatureDamageOnly || src.fx.type.creature) && (!s.fx.damageChosen || (s.chosenType && this.isA(src, s.chosenType))) && (!s.fx.damageCounters || src.counters > 0)) n *= s.fx.damageDouble === true ? 2 : s.fx.damageDouble;
+    if (n > 0 && victimIdx !== src.controller) for (const s of this.players[src.controller].battlefield) if (s.fx.damagePlus && (!s.fx.damagePlus.color || this.colorsOf(src).includes(s.fx.damagePlus.color))) ops.push({ plus: s.fx.damagePlus.n });
+    for (const s of this.players[src.controller].battlefield) if (s.fx.damageDouble && (s.fx.damageAny || victimIdx !== src.controller) && (!s.fx.creatureDamageOnly || src.fx.type.creature) && (!s.fx.damageChosen || (s.chosenType && this.isA(src, s.chosenType))) && (!s.fx.damageCounters || src.counters > 0)) ops.push({ mul: s.fx.damageDouble === true ? 2 : s.fx.damageDouble });
     // Dictate of the Twin Gods: every source's damage is doubled
-    for (const q of this.alive()) for (const s of q.battlefield) if (s.fx.damageDoubleAll) n *= 2;
+    for (const q of this.alive()) for (const s of q.battlefield) if (s.fx.damageDoubleAll) ops.push({ mul: 2 });
     // Gisela: damage to her controller and their permanents is halved (rounded down)
-    if (n > 0 && this.players[victimIdx]?.battlefield.some(s => s.fx.halveDamage)) n = Math.floor(n / 2);
-    return n;
+    if (n > 0 && this.players[victimIdx]?.battlefield.some(s => s.fx.halveDamage)) ops.push({ half: true });
+    // (the player or the permanent's controller being dealt the damage orders them: the least damage)
+    return this.replaceInOrder(n, ops, 'min');
   }
   damagePlayer(q, n, src, combat) {
     n = this.moreDamage(src, q.idx, n);

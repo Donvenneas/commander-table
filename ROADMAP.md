@@ -399,8 +399,15 @@ on top of the ones above:
     every state-based-actions pass): each creature's power, toughness and 11 keywords must come out the same with
     every battlefield reversed. Tested: 16 games with an anthem/P-T-setting/keyword-granting deck (no order-dependent
     result found), a set board (aura, then animation, then a later aura), self-test rules check.
-- [ ] 91. Several replacement or prevention effects on one event: the affected player chooses the order (616.1); human
+- [x] 91. Several replacement or prevention effects on one event: the affected player chooses the order (616.1); human
   seats are asked.
+  - Done: counter, damage and life-gain modifiers were applied in battlefield order (Hardened Scales + Doubling
+    Season gave 3 or 4 counters depending on which came first). Game.replaceInOrder tries every order (up to 6
+    effects) and uses the best one for the affected player: most counters on their permanent, most life gained, least
+    damage taken (Torbran, damage doublers, Dictate of the Twin Gods, Gisela's halving). Human seats aren't asked:
+    every choice here is about an amount, so their best order is used. Rules 4 replays keep battlefield order.
+    Zone-change replacements (Rest in Peace, God-Eternals, commanders) are item 96. Tested: set boards both ways
+    round (4 counters either way; 3 damage through Torbran + Dictate into Gisela → 4), 8 games, 0 errors.
 - [ ] 92. Triggers from several players at once go on the stack in APNAP order (603.3b), each player ordering their own
   (extends item 68).
 - [ ] 93. Combat choices for human seats: damage assignment among several blockers, trample with deathtouch, and
