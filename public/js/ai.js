@@ -632,6 +632,9 @@ export class Agent {
     const keyOut = p.battlefield.some(o => o.isCommander || this.pieceWorth(g, p, o));
     const shield = keyOut && p.hand.filter(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'protect' || e.k === 'counter'));
     if (shield?.length) keep = Math.max(keep, Math.min(...shield.map(o => o.card.cmc || 0)));
+    // Bluffing (rules 5, item 112): with cards in hand and an opponent's creatures able to attack next turn, keep two
+    // mana up now and then even with nothing to cast (attackers that fear tricks then hold back)
+    if (this.bluff && g.rules >= 5 && !keep && p.hand.length >= 2 && g.round >= 3 && g.opponents(p).some(q => q.battlefield.some(o => o.fx.type.creature && g.power(o) >= 2)) && g.rand() < this.bluff) keep = 2;
     return keep;
   }
   // A board already well ahead is exposed to a board wipe: more creatures add little but risk a lot

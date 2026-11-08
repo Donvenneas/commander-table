@@ -181,6 +181,12 @@ export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {})
       else s += w.dmg * pol * d * (0.35 + 8 / Math.max(6, q.life - d));
       if ((r.cmd.get(t) || 0) >= 14) s += w.dmg * ((r.cmd.get(t) || 0) - 13);
       for (const o of r.dead) s += o.controller === p.idx ? -w.loss * keyValue(agent, g, o) : (agent.value(g, o) + agent.comboDanger(g, o)) * 0.9;
+      // Combat tricks (rules 5, item 112): a blocked attacker that only just survives is at risk when the defender has
+      // two or more mana open and cards in hand (so open mana deters attacks, and holding it up means something)
+      if (agent.trickFear && g.rules >= 5 && q.hand.length && g.availableMana(q) >= 2) {
+        const risk = Math.min(0.35, 0.1 * q.hand.length);
+        for (const x of plan) if (x.blockers.length && !r.dead.has(x.a) && g.toughness(x.a) - x.a.damage - x.blockers.reduce((a, b) => a + P(g, b), 0) <= 2) s -= w.loss * risk * keyValue(agent, g, x.a);
+      }
       // Attacking a deal partner breaks the deal (and earns a grudge) unless it finishes them
       if (g.dealBetween(p.idx, t) && d < q.life) s -= 12;
     }

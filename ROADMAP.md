@@ -549,8 +549,13 @@ on top of the ones above:
     gave one side the same decks every game (a B-vs-B control came out 16–84); games now come in pairs with the sides
     swapped and each side holding a copy of each deck (control 50–50). Results from the tool before that fix (item
     103's notes are from the browser, not the tool) were not used. Not done: a strength label on each seat.
-- [ ] 112. Bluffing: casual pilots sometimes keep mana open for nothing; strong pilots hold up mana when an opponent is
+- [x] 112. Bluffing: casual pilots sometimes keep mana open for nothing; strong pilots hold up mana when an opponent is
   likely to attack into them.
+  - Done, off by default: combatai.js trickFear (a blocked attacker that only just survives counts as at risk when
+    the defender has 2+ open mana and cards in hand) and ai.js bluff (reserveFor keeps 2 mana up now and then with a
+    full hand and opposing attackers). tools/tune.mjs, fair 2-against-2 pods, 160 games each: trick fear 77–83 (48%),
+    bluffing on top of it 78–82 (49%). Neither helps with these decks (few tricks), so both stay as Agent flags
+    (agent.trickFear, agent.bluff) for decks where they might, rather than on for everyone.
 - [x] 113. Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and
   writes a report, so tuning stops being done by hand in the browser pane.
   - Done: tools/tune.mjs. Runs the game modules in Node (no browser, no npm packages): two pilots as JSON (--a, --b:
@@ -561,10 +566,16 @@ on top of the ones above:
   retarget, Champion scry (listed in README and KINGDOMS_AUTO).
 - [ ] 115. Kingdoms balance with fast decks: Assassins win 9 of 10 with the cEDH presets. Tune the King's guard and the
   Knights' protection until each team wins 30–60%.
-- [ ] 116. Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0)
+- [x] 116. Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0)
   and ship the small JSON files; improve the plain heuristic (removal, curve, two-color commitment) for unrated sets.
 
 ### Playing and the table
+  - Done: tools/ratings_17lands.py run for 17 more sets: OTJ, MH3, LCI, ONE, BRO, SNC, NEO, VOW, MID, AFR, STX,
+    KHM, DFT, TDM, FIN, EOE built (150,000 games each, 254–347 cards rated, 392 KB for all 23 sets); ZNR's public
+    file answers 403. Unrated sets: limited.js pickScore v2 (HEURISTIC.v2) counts more kinds of removal (and
+    removal on enter), creature size for its cost, two-drops when short of them, fewer 6+ drops, and cards with
+    unread text for less. Test: 16 simulated M21 drafts, two drafters on each version, the 40-card decks played
+    each other (both seat orders): v2 72–56.
 - [ ] 117. Drag to attack, block and target: drag a card onto a player, walker or creature; arrows on the table show
   what each stack item targets.
 - [ ] 118. Auto-answers: "always yes / always pay / never pay" for a trigger or card this game (Rhystic Study taxes,
