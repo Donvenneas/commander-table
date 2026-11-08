@@ -192,7 +192,7 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
     - the Cultist converts the player it would eliminate;
     - the Mimic, at 20 life or less (it also runs the upkeep drain and the equal-life eliminations);
     - the Champion picks the Challenger.
-  - **Not automated:** the Schemer, Sellsword, Field Marshal and Straw Man abilities, the War Bears' {Q} ability, the Wizard's retarget mode and the Champion's scry. Announcing these only reveals the role. The Straw Man's own Victory condition is checked.
+  - **Not automated:** the Schemer, Sellsword and Field Marshal abilities, the Wizard's retarget mode and the War Bears' +1/+1 counter. Announcing these only reveals the role. The War Bears' {Q} damage, the Champion's scry and the Straw Man (forced attacks and both Victory conditions) are played.
   - **AI bots play their role:**
     - Assassins hunt the King. Knights never attack him and go after whoever is hurting him. Bandits and Renegades keep the King alive while Assassins remain, because his fall would end the game against them.
     - Nobody finishes off an ally, and a bot doesn't fire an "each opponent" combo that would take one down.

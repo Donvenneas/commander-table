@@ -59,6 +59,8 @@ export class Game {
     this.nextId = 1;
     // Timestamps (613.7): later effects that set power and toughness win over earlier ones
     this.tsN = 0;
+    /** Kingdoms: the Straw Man whose Announce forces attacks at them (kingdomsPlay.js) @type {any} */
+    this.strawMan = null;
     this.objects = new Map();
     this.handlers = {};
     this.logEntries = [];
@@ -4622,6 +4624,14 @@ export class Game {
     // "Attacks each combat if able" (Toski, Juggernaut)
     for (const o of p.battlefield) if ((o.fx.mustAttack || (o.fx.condBuff?.mustAttack && this.condBuff(o))) && this.canAttack(o) && !decl.some(x => x.o === o) && this.opponents(p).length) {
       decl.push({ o, target: p.agent.weakestOpponent(this, p).idx });
+    }
+    // Kingdoms, the Straw Man: every creature able to attack them does (until their next turn)
+    const straw = this.strawMan && this.players[this.strawMan.idx];
+    if (straw && !straw.lost && straw.idx !== p.idx) {
+      for (const o of p.battlefield) if (o.fx.type.creature && this.canAttack(o)) {
+        const d = decl.find(x => x.o === o);
+        if (d) { d.target = straw.idx; d.obj = null; } else decl.push({ o, target: straw.idx });
+      }
     }
     // Propaganda-style taxes: each attacker costs mana, and any that can't be paid for stay home
     for (const t of new Set(decl.map(d => d.target))) {

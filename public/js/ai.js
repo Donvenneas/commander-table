@@ -408,8 +408,8 @@ export class Agent {
   chooseTarget(g, p, e, src) {
     // (an ability's X is already paid while its targets are chosen: g.xNow)
     const xGuess = () => this.xOverride ?? g.xNow ?? Math.max(1, g.availableMana(p) - 1);
-    const n = e.n === 'X' ? xGuess() : e.n;
-    const N0 = v => (v === 'X' ? xGuess() : v && typeof v === 'object' ? g.dynValue(p, v) : v);
+    const N0 = v => (v === 'X' ? xGuess() : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
+    const n = N0(e.n);
     switch (e.k) {
       case 'remove': return this.bestEnemy(g, p, o => this.matches(o, e.what) && (e.mode === 'exile' || !g.has(o, 'indestructible')) && (e.maxMv == null || ((o.card.cmc || 0) <= e.maxMv && !o.token))
         // ("nonartifact, nonblack creature")
@@ -941,7 +941,7 @@ export class Agent {
 
   effectValue(g, p, src, e, isSpell) {
     const opps = g.opponents(p);
-    const N = v => (v === 'X' ? this.xOverride ?? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v) : v);
+    const N = v => (v === 'X' ? this.xOverride ?? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
     const myCreatures = p.battlefield.filter(o => o.fx.type.creature);
     // Life thresholds below were set for Commander's 40; L scales them to the format (0.5 at 20 life)
     const L = (g.startLife || 40) / 40;

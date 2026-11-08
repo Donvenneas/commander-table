@@ -562,8 +562,16 @@ on top of the ones above:
     style plus any Agent field), games in pairs with the same decks and seed and the sides swapped (each side holds a
     copy of each deck), fixed seeds, --control for B vs B, the rules watcher on every game. Decks: the cEDH presets or deck-list files; card data from Scryfall
     /cards/collection once, cached in data/tune-cache.json. Tested: control runs come out 50–50 (after the seating fix in item 111), 0 errors, 0 rule problems. Its point is running long tuning grids from a terminal, where the hidden browser pane slows them.
-- [ ] 114. Kingdoms roles still missing: Schemer, Sellsword, Field Marshal, Straw Man abilities, War Bear {Q}, Wizard
+- [x] 114. Kingdoms roles still missing: Schemer, Sellsword, Field Marshal, Straw Man abilities, War Bear {Q}, Wizard
   retarget, Champion scry (listed in README and KINGDOMS_AUTO).
+  - Done, partly: War Bears get "{Q}: deals damage equal to its power to target creature" (the +1/+1 counter part
+    isn't played); the Champion scries 1 each upkeep; the Straw Man's Announce forces every opponent's creature to
+    attack them until their next turn, and from that upkeep they win by eliminating themself (the AI Straw Man Announces
+    on its turn at 20 life or less while nobody is out). Fixed on the way: the AI valued "damage equal to its power"
+    and other counted amounts as 0 when choosing targets and abilities (ai.js now passes the source). Still not
+    automated (Announce reveals the role): the Schemer, Sellsword and Field Marshal, and the Wizard's retarget.
+    Tested: 24 + 24 Kingdoms games with those roles dealt (War Bears used {Q} 34 times, a Straw Man Announced and won,
+    Champion scried 31 times; 0 errors, no rule broken).
 - [ ] 115. Kingdoms balance with fast decks: Assassins win 9 of 10 with the cEDH presets. Tune the King's guard and the
   Knights' protection until each team wins 30–60%.
 - [x] 116. Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0)
