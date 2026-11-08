@@ -1801,6 +1801,62 @@ $('puzzleList').addEventListener('click', e => {
   if (b) startPuzzle(BUILT_IN[+b.dataset.pz]).catch(err => { $('puzzleStatus').textContent = `Couldn't start it: ${err.message}`; });
 });
 $('btnPuzzleLoad').addEventListener('click', () => $('puzzleFile').click());
+// ---------- Puzzle editor (item 130): build a board as text, test it, save it as a file or a challenge link
+const PE_ZONES = [['battlefield', 'Battlefield'], ['hand', 'Hand'], ['graveyard', 'Graveyard'], ['libraryTop', 'Top of library (first line on top)']];
+function peLine(e) { return typeof e === 'string' ? e : `${e.name}${e.tapped ? ' *tapped*' : ''}${e.counters ? ` (+${e.counters})` : ''}`; }
+function peRender(pz) {
+  $('peName').value = pz.name || 'My puzzle';
+  $('peGoal').value = pz.goal || 'win this turn';
+  $('peHint').value = pz.hint || '';
+  $('pePlayers').value = String(pz.players.length);
+  $('pePlayersBox').innerHTML = pz.players.map((p, i) => `<div class="pe-player" data-i="${i}">
+    <div class="pe-row"><input class="input pe-pname" value="${esc(p.name || (i ? `Opponent ${i}` : 'You'))}" title="Player name"><input class="input pe-cmd" value="${esc(p.commander || '')}" placeholder="Commander" title="Commander"><input class="input pe-life" type="number" value="${p.life ?? ''}" placeholder="Life" title="Life (empty: the format's starting life)"><label class="pe-cob"><input type="checkbox" class="pe-cob-in" ${p.commanderOnBattlefield ? 'checked' : ''}> commander out</label></div>
+    ${PE_ZONES.map(([z, label]) => `<label class="pe-zone">${label}<textarea class="input pe-z" data-z="${z}" rows="3">${esc((p[z] || []).map(peLine).join('\n'))}</textarea></label>`).join('')}</div>`).join('');
+}
+function peRead() {
+  const parse = line => {
+    const m = line.trim().match(/^(.+?)(\s*\*tapped\*)?(?:\s*\(\+(\d+)\))?$/);
+    if (!m || !m[1].trim()) return null;
+    return m[2] || m[3] ? { name: m[1].trim(), ...(m[2] ? { tapped: true } : {}), ...(m[3] ? { counters: +m[3] } : {}) } : m[1].trim();
+  };
+  const players = [...$('pePlayersBox').querySelectorAll('.pe-player')].map(el => {
+    const p = { name: el.querySelector('.pe-pname').value.trim() || 'Player', commander: el.querySelector('.pe-cmd').value.trim() };
+    const life = el.querySelector('.pe-life').value;
+    if (life !== '') p.life = +life;
+    if (el.querySelector('.pe-cob-in').checked) p.commanderOnBattlefield = true;
+    for (const ta of el.querySelectorAll('.pe-z')) {
+      const list = ta.value.split('\n').map(parse).filter(Boolean);
+      if (list.length) p[ta.dataset.z] = ta.dataset.z === 'battlefield' ? list : list.map(x => (typeof x === 'string' ? x : x.name));
+    }
+    return p;
+  });
+  return { app: 'commander-table-puzzle', name: $('peName').value.trim() || 'Puzzle', goal: $('peGoal').value.trim() || 'win this turn', ...($('peHint').value.trim() ? { hint: $('peHint').value.trim() } : {}), players };
+}
+const PE_START = { name: 'My puzzle', goal: 'win this turn', players: [{ name: 'You', commander: 'Krenko, Tin Street Kingpin', battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Lightning Bolt'] }, { name: 'Opponent', commander: 'Kenrith, the Returned King', life: 3, battlefield: ['Plains'] }] };
+$('btnPuzzleEdit').addEventListener('click', () => { peRender(store('ct.puzzleDraft') || PE_START); $('peStatus').textContent = ''; $('puzzleEditModal').hidden = false; });
+$('btnPeClose').addEventListener('click', () => { store('ct.puzzleDraft', peRead()); $('puzzleEditModal').hidden = true; });
+$('pePlayers').addEventListener('change', () => {
+  const pz = peRead(), n = +$('pePlayers').value;
+  while (pz.players.length < n) pz.players.push({ name: `Opponent ${pz.players.length}`, commander: 'Kenrith, the Returned King', battlefield: [] });
+  pz.players.length = n;
+  peRender(pz);
+});
+$('btnPeFromBoard').addEventListener('click', () => {
+  if (!game) { $('peStatus').textContent = 'No game on the table to copy.'; return; }
+  peRender({ ...boardToPuzzle(game, $('peName').value || 'Board'), name: $('peName').value || 'Board' });
+});
+$('btnPeTest').addEventListener('click', async () => {
+  const pz = peRead();
+  store('ct.puzzleDraft', pz);
+  if (!validPuzzle(pz)) { $('peStatus').textContent = 'Every player needs a commander (and 2 to 4 players).'; return; }
+  try { await startPuzzle(pz, {}, t => { $('peStatus').textContent = t; }); $('puzzleEditModal').hidden = true; } catch (err) { $('peStatus').textContent = `Couldn't start it: ${err.message}`; }
+});
+$('btnPeSave').addEventListener('click', () => { const pz = peRead(); store('ct.puzzleDraft', pz); download(`${pz.name.replace(/[^\w -]+/g, '').trim() || 'puzzle'}.json`, JSON.stringify(pz, null, 1)); });
+$('btnPeLink').addEventListener('click', async () => {
+  const pz = peRead();
+  const link = challengeLink(await encodeChallenge({ puzzle: pz }));
+  try { await navigator.clipboard.writeText(link); $('peStatus').textContent = 'Challenge link copied: it opens this puzzle on any PC running Commander Table.'; } catch { $('peStatus').textContent = link; }
+});
 $('puzzleFile').addEventListener('change', async e => {
   const file = e.target.files[0];
   e.target.value = '';

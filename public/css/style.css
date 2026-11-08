@@ -1068,3 +1068,14 @@ body.contrast .btn.primary { background: #ffd400; color: #000; border-color: #ff
 body.contrast .card.pickable { outline: 3px solid #ffd400; outline-offset: 2px; }
 body.contrast .muted, body.contrast small { color: #e8e8e8 !important; opacity: 1 !important; }
 body.contrast .le { color: #fff; }
+
+/* Puzzle editor (item 130) */
+.pe-head { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.pe-head label { display: flex; flex-direction: column; font-size: 12px; gap: 2px; }
+.pe-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.pe-player { border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.pe-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.pe-row .pe-pname { width: 110px; } .pe-row .pe-cmd { flex: 1; min-width: 140px; } .pe-row .pe-life { width: 64px; }
+.pe-cob { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.pe-zone { display: block; font-size: 12px; margin-top: 4px; }
+.pe-zone textarea { width: 100%; box-sizing: border-box; font-size: 12px; }

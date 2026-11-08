@@ -659,8 +659,13 @@ on top of the ones above:
     Round 3 setup buttons that had stayed English (Learn to play, Story, Expedition, Tabletop, Deck builder, Players…).
     Not done: the game log, longer help paragraphs, the self-test page, and the inside of the Round 3–4 windows
     (Expedition, builder, Draft, Updates). Tested: the setup screen in Japanese and Italian.
-- [ ] 130. Puzzle editor: build a board by clicking (search cards, place them in any zone for any player, set life and
+- [x] 130. Puzzle editor: build a board by clicking (search cards, place them in any zone for any player, set life and
   counters), test it, save it as a file or a challenge link (item 77 has no button to make one from a board).
+  - Done, as a text editor rather than click-to-place: Puzzles → Make a puzzle… has a name, goal, hint, 2–4
+    players (name, commander, life, commander out) and their battlefield, hand, graveyard and top of library, one card
+    per line ("*tapped*" and "(+2)" for tapped cards and counters). Test it (plays it at once), Save as file, Copy a
+    challenge link (opens the puzzle on any PC: item 77 had no button for this), or start From the current board. The
+    draft is kept between visits. Tested: a board with a tapped Hill Giant and countered Grizzly Bears loaded and played.
 - [ ] 131. Rematch with changes: swap decks between seats, rotate seats or change one pilot, on the same seed.
 - [ ] 132. "What if" from the timeline: take over any seat from any point of a replay and play on; the branch is saved
   as its own replay.

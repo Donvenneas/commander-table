@@ -328,7 +328,18 @@
       <p class="muted">You get one turn, starting in your first main phase. Win it. Puzzles are small files: save any game's board with <b>Save board as puzzle</b> on the timeline, and load boards that others share.</p>
       <div id="puzzleList"></div>
       <p id="puzzleStatus" class="muted"></p>
-      <div class="modal-foot"><button class="btn" id="btnPuzzleLoad">Load a puzzle file…</button><button class="btn ghost" id="btnPuzzleClose">Close</button></div>
+      <div class="modal-foot"><button class="btn" id="btnPuzzleEdit">Make a puzzle…</button><button class="btn" id="btnPuzzleLoad">Load a puzzle file…</button><button class="btn ghost" id="btnPuzzleClose">Close</button></div>
+    </div>
+  </div>
+
+  <div id="puzzleEditModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <h2>Make a puzzle</h2>
+      <p class="muted">Seat 1 gets one turn from its first main phase. One card per line; add <code>*tapped*</code> or <code>(+2)</code> for a tapped card or +1/+1 counters, like <code>Grizzly Bears *tapped* (+1)</code>. Names are checked against Scryfall when you test it.</p>
+      <div class="pe-head"><label>Name <input id="peName" class="input" value="My puzzle"></label><label>Goal <input id="peGoal" class="input" value="win this turn"></label><label>Hint <input id="peHint" class="input" placeholder="(optional)"></label><label>Players <select id="pePlayers" class="input"><option>2</option><option>3</option><option>4</option></select></label></div>
+      <div id="pePlayersBox" class="pe-players"></div>
+      <p id="peStatus" class="muted"></p>
+      <div class="modal-foot"><button class="btn primary" id="btnPeTest">Test it</button><button class="btn" id="btnPeSave">Save as file</button><button class="btn" id="btnPeLink">Copy a challenge link</button><button class="btn" id="btnPeFromBoard">From the current board</button><button class="btn ghost" id="btnPeClose">Close</button></div>
     </div>
   </div>
 
