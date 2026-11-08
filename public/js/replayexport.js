@@ -49,7 +49,7 @@ export async function buildReplayHtml(setup, onProgress) {
     if (key !== last) { frames.push(f); last = key; }
   };
   const clock = { beat: async () => { capture(); if (frames.length % 50 === 0) { onProgress?.(`Recording step ${frames.length}…`); await new Promise(r => setTimeout(r, 0)); } } };
-  g = new Game(seats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer });
+  g = new Game(seats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules });
   for (const ui of uis) ui.attach(g);
   g.on('log', e => log.push([plain(e.html), e.kind, e.p ?? -1]));
   await g.run();

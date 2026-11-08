@@ -404,8 +404,10 @@ export class Agent {
   }
 
   chooseTarget(g, p, e, src) {
-    const n = e.n === 'X' ? Math.max(1, g.availableMana(p) - 1) : e.n;
-    const N0 = v => (v === 'X' ? Math.max(1, g.availableMana(p) - 1) : v && typeof v === 'object' ? g.dynValue(p, v) : v);
+    // (an ability's X is already paid while its targets are chosen: g.xNow)
+    const xGuess = () => this.xOverride ?? g.xNow ?? Math.max(1, g.availableMana(p) - 1);
+    const n = e.n === 'X' ? xGuess() : e.n;
+    const N0 = v => (v === 'X' ? xGuess() : v && typeof v === 'object' ? g.dynValue(p, v) : v);
     switch (e.k) {
       case 'remove': return this.bestEnemy(g, p, o => this.matches(o, e.what) && (e.mode === 'exile' || !g.has(o, 'indestructible')) && (e.maxMv == null || ((o.card.cmc || 0) <= e.maxMv && !o.token))
         // ("nonartifact, nonblack creature")
@@ -766,7 +768,7 @@ export class Agent {
     for (const ab of this.usableAbilities(g, p, reserve)) {
       const instant = !ab.ab.sorcery;
       if (phase === 'main1' && instant && ab.s < 3) continue;
-      if (ab.s > 0.5) opts.push({ s: ab.s * 0.8, why: `uses ${ab.o.card.name}'s ability`, run: () => g.activate(p, ab.o, ab.ab) });
+      if (ab.s > 0.5) opts.push({ s: ab.s * 0.8, why: `uses ${ab.o.card.name}'s ability${ab.x ? ` (X = ${ab.x})` : ''}`, run: () => g.activate(p, ab.o, ab.ab, { x: ab.x }) });
     }
     if (!opts.length) return null;
     // Casual pilots don't always find the best play
@@ -858,7 +860,7 @@ export class Agent {
 
   effectValue(g, p, src, e, isSpell) {
     const opps = g.opponents(p);
-    const N = v => (v === 'X' ? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v) : v);
+    const N = v => (v === 'X' ? this.xOverride ?? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v) : v);
     const myCreatures = p.battlefield.filter(o => o.fx.type.creature);
     // Life thresholds below were set for Commander's 40; L scales them to the format (0.5 at 20 life)
     const L = (g.startLife || 40) / 40;
@@ -1180,11 +1182,35 @@ export class Agent {
         if (ab.life && p.life <= ab.life + 5) continue;
         // What it costs besides mana: the permanent itself, life, cards, other permanents
         const extra = (ab.sacSelf ? (o.token && !o.fx.type.creature ? 0.3 : this.value(g, o) + this.pieceWorth(g, p, o)) : 0) + this.extraCostValue(g, p, o, ab.costs, ab);
+        // {X} in the cost: value the best X that leaves the kept mana open (an X of 0 does nothing)
+        if (cost.x && g.rules >= 5) {
+          const max = g.maxAbilityX(p, o, ab) - Math.ceil(keep / cost.x);
+          const best = this.bestAbilityX(g, p, o, ab, max);
+          if (best.x < 1) continue;
+          out.push({ o, ab, s: best.s - extra, x: best.x });
+          continue;
+        }
         out.push({ o, ab, s: ab.effects.reduce((sum, e) => sum + this.effectValue(g, p, o, e, false), 0) - extra });
       }
     }
     return out;
   }
+  // The X worth paying for an ability: each X is valued as the ability's effects with that X, less a little for
+  // the mana spent (so 1 more damage that changes nothing doesn't eat the rest of the mana)
+  bestAbilityX(g, p, o, ab, max) {
+    const per = parseCost(ab.cost).x || 1;
+    let best = { x: 0, s: 0 };
+    const prev = this.xOverride;
+    try {
+      for (let x = 1; x <= Math.min(max, 20); x++) {
+        this.xOverride = x;
+        const s = ab.effects.reduce((sum, e) => sum + this.effectValue(g, p, o, e, false), 0) - x * per * 0.15;
+        if (s > best.s + 0.05) best = { x, s };
+      }
+    } finally { this.xOverride = prev; }
+    return best;
+  }
+  chooseAbilityX(g, p, o, ab, max) { return this.bestAbilityX(g, p, o, ab, max).x; }
 
   // ---------- instant speed
   // Mana held up through an opponent's turn gets used before it would untap anyway
@@ -1226,7 +1252,7 @@ export class Agent {
       if (!best && !ability && !ping) return;
       g.log(`End of ${g.pn(active)}'s turn: ${g.pn(q)} ${ping ? 'uses ' + g.cn(ping.o) : 'uses mana held up'}`, { kind: 'minor' });
       if (ping) { await g.ping(q, ping.o, ping.plan.targets); continue; }
-      if (ability) { await g.activate(q, ability.o, ability.ab); continue; }
+      if (ability) { await g.activate(q, ability.o, ability.ab, { x: ability.x }); continue; }
       await g.cast(q, best);
     }
   }

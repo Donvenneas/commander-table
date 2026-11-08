@@ -1,4 +1,4 @@
-import { Game, Abort } from './engine.js';
+import { Game, Abort, RULES } from './engine.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
 import { sf, fetchCollection } from './scryfall.js';
@@ -302,6 +302,7 @@ function matchScore(m) { return m.wins.join('–'); }
 // ---------- game lifecycle
 let game = null, clock = null, view = null;
 // What's needed to rebuild the current game exactly: its seed and seats, plus where each turn starts
+/** @type {any} */
 let setup = null;
 
 function newGame(opts = {}) {
@@ -330,6 +331,8 @@ function newGame(opts = {}) {
       // The format's rules, and (in a match) who goes first this game
       format: opts.format || (opts.puzzle ? 'commander' : formatKey),
       firstPlayer: opts.firstPlayer ?? null,
+      // The engine's rules version (engine.js RULES); a loaded replay brings its own, older ones are version 4
+      rules: opts.rules ?? RULES,
       // Kingdoms: the secret roles, dealt from the game's seed (so replays deal the same)
       roles: opts.roles || null,
       // Which game of a best-of-three match this is (1–3), if any
@@ -378,7 +381,7 @@ function newGame(opts = {}) {
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
       : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0, lookahead: s.lookahead }),
   }));
-  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles });
+  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules });
   setup.learned ||= game.players.map(p => p.learned);
   // The coach panel (lessons) shows beside the table while the game runs
   $('coach').innerHTML = setup.coach || '';
@@ -722,6 +725,8 @@ $('btnSaveReplay').addEventListener('click', () => {
     ...(setup.roles ? { roles: setup.roles } : {}),
     // (version 4: the stops your seats played with, so your recorded answers line up again)
     stopOpts: setup.stopOpts,
+    // (version 6: the engine's rules version)
+    rules: setup.rules,
     // (version 5: which AI seats looked ahead)
     seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck), ...(s.lookahead ? { lookahead: true } : {}) })),
   }, null, 1));
@@ -753,7 +758,7 @@ $('replayFile').addEventListener('change', async e => {
     $('setup').hidden = true;
     newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
       // (replays saved before decks learned have no table, and are played without it)
-      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   } catch (err) {
     $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`;
   }

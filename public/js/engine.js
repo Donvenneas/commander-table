@@ -11,6 +11,9 @@ export const PHASES = [
   ['combat', 'Combat'], ['main2', 'Main 2'], ['end', 'End'],
 ];
 const COLORS = ['W', 'U', 'B', 'R', 'G'];
+// Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
+// replays saved before them still play out the same (a replay with no "rules" field is version 4)
+export const RULES = 5;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -46,6 +49,7 @@ export class Game {
     this.firstPlayer = opts.firstPlayer ?? null;
     this.maxRounds = opts.maxRounds || 30;
     this.puzzle = opts.puzzle || null;
+    this.rules = opts.rules ?? RULES;
     // Every random choice comes from this seed, so a game can be replayed exactly
     this.seed = opts.seed ?? Math.floor(Math.random() * 2 ** 32);
     this.rand = makeRng(this.seed);
@@ -1439,15 +1443,19 @@ export class Game {
 
   // Triggered and activated abilities use the stack too: targets are chosen as the ability is put
   // on the stack, every player gets priority, and an ability whose targets are all gone does nothing
-  async stackAbility(p, src, effects, label, kind = 'ability', trig = null) {
+  async stackAbility(p, src, effects, label, kind = 'ability', trig = null, x = 0) {
     if (!effects?.length) return;
     // (a human player is asked; the AI answers straight away)
     const targets = [];
-    for (const e of effects) targets.push(needsTarget(e) ? await (p.agent.chooseTargetAsync?.(this, p, e, src) ?? p.agent.chooseTarget(this, p, e, src)) : null);
+    // (the X already paid, for players choosing targets for "X damage")
+    this.xNow = x || null;
+    try {
+      for (const e of effects) targets.push(needsTarget(e) ? await (p.agent.chooseTargetAsync?.(this, p, e, src) ?? p.agent.chooseTarget(this, p, e, src)) : null);
+    } finally { this.xNow = null; }
     if (!this.payWard(p, targets, src)) return;
     for (const t of targets) if (t?.obj) this.fire('targeted', { o: t.obj, p: p.idx });
     this.noteCrime(p, targets);
-    const item = { o: src, p, x: 0, targets, effects, ability: true, label, countered: false, kind, trig };
+    const item = { o: src, p, x, targets, effects, ability: true, label, countered: false, kind, trig };
 
     this.stack.push(item);
     const tgtText = targets.filter(Boolean).map(t => this.tname(t)).join(', ');
@@ -1461,7 +1469,7 @@ export class Game {
       this.log(`${this.cn(src)}'s ability does nothing: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
       return;
     }
-    await this.runEffects(p, src, effects, { targets, strict: true, trig });
+    await this.runEffects(p, src, effects, { targets, strict: true, trig, x });
   }
   sbaPass() {
     let any = false;
@@ -3813,14 +3821,37 @@ export class Game {
     }
     if (c.energy) p.energy -= c.energy;
   }
-  async activate(p, o, ab) {
-    if (!this.canActivate(p, o, ab)) return false;
+  // The most X an ability with {X} in its cost can be paid with right now (107.3, 602.2b)
+  maxAbilityX(p, o, ab) {
+    const prev = this.payingFor;
     this.payingFor = { o, ability: true };
-    const plan = this.planPayment(p, this.abilityCost(p, o, ab), 0, ab.tap ? o : null);
+    try {
+      const c = this.abilityCost(p, o, ab);
+      if (!c.x) return 0;
+      let x = 0;
+      while (x < 99 && this.planPayment(p, c, (x + 1) * c.x, ab.tap ? o : null)) x++;
+      return x;
+    } finally { this.payingFor = prev; }
+  }
+  async activate(p, o, ab, opts = {}) {
+    if (!this.canActivate(p, o, ab)) return false;
+    // {X} in the cost (Crypt Rats, Helix Pinnacle): X is chosen before paying (601.2b through 602.2b).
+    // The AI passes the X it valued, a human seat is asked. (Rules 4 and earlier played every X as 0.)
+    const cost0 = this.abilityCost(p, o, ab);
+    const hasX = !!cost0.x && this.rules >= 5;
+    let x = 0;
+    if (hasX) {
+      const max = this.maxAbilityX(p, o, ab);
+      const want = opts.x ?? (p.agent.chooseAbilityXAsync ? await p.agent.chooseAbilityXAsync(this, p, o, ab, max) : p.agent.chooseAbilityX ? p.agent.chooseAbilityX(this, p, o, ab, max) : max);
+      x = Math.max(0, Math.min(max, want ?? 0));
+    }
+    this.payingFor = { o, ability: true };
+    const plan = this.planPayment(p, this.abilityCost(p, o, ab), x * (cost0.x || 0), ab.tap ? o : null);
+    if (!plan) { this.payingFor = null; return false; }
     this.commitPayment(p, plan);
     if (ab.tap) { o.tapped = true; this.fire('tapped', { o, p: p.idx }); }
     o.usedAbility = this.turn;
-    this.log(`${this.pn(p)} activates ${this.cn(o)}${ab.text ? `: ${esc(ab.text.replace(/\.$/, '').slice(0, 80))}` : ''}`, { kind: 'minor' });
+    this.log(`${this.pn(p)} activates ${this.cn(o)}${hasX ? ` with X = ${x}` : ''}${ab.text ? `: ${esc(ab.text.replace(/\.$/, '').slice(0, 80))}` : ''}`, { kind: 'minor' });
     // Other costs: life, discards, sacrifices, tapping other permanents… (Clue, Food, Survival of the Fittest, Springleaf Drum)
     await this.payCosts(p, o, ab.costs || { life: ab.life || 0, discard: ab.discard ? { n: ab.discard, types: [] } : null, sacSelf: !!ab.sacSelf });
     // Rings of Brighthearth: pay {2} to copy an ability that isn't a mana ability (the copy resolves first).
@@ -3831,10 +3862,10 @@ export class Game {
       if (plan2 && (await (p.agent.wantsAbilityCopy?.(this, p, o, ab) ?? true))) {
         this.commitPayment(p, plan2);
         this.log(`${this.pn(p)} pays {2}: Rings of Brighthearth copies ${this.cn(o)}'s ability`, { kind: 'minor' });
-        await this.stackAbility(p, o, ab.effects, `${ab.text || 'ability'} (copy)`);
+        await this.stackAbility(p, o, ab.effects, `${ab.text || 'ability'} (copy)`, 'ability', null, x);
       }
     }
-    await this.stackAbility(p, o, ab.effects, ab.text);
+    await this.stackAbility(p, o, ab.effects, ab.text, 'ability', null, x);
     await this.sba();
     return true;
   }

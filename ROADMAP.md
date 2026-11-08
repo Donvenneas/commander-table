@@ -336,8 +336,14 @@ on top of the ones above:
   from Scryfall like every other card; all art, names and wording for modes are our own.
 
 ### Rules engine and card coverage
-- [ ] 85. X in activated ability costs ("{X}, {T}: …"): read X in parseCostText, the AI picks X by value, a human seat
+- [x] 85. X in activated ability costs ("{X}, {T}: …"): read X in parseCostText, the AI picks X by value, a human seat
   gets a number prompt. The biggest missing engine piece in item 82's notes.
+  - Done: the cost and effects were already read, but every X was played as 0. Game.maxAbilityX and activate(p, o, ab,
+    { x }) pay X, the stack item and its effects carry it (g.xNow while targets are chosen); AI bestAbilityX values
+    X = 1…20 (effects with that X, less 0.15 a mana) and keeps counterspell mana; human seats pick X from buttons.
+    New engine RULES = 5 (Game opts.rules, saved in setup and replays; replays without it play as rules 4 with X = 0).
+    Tested: 30 games with Crypt Rats, Cinder Elemental and Kessig Wolf Run (116 activations with X, 0 errors, no rule
+    broken); self-test. Not done: "spend only black mana on X".
 - [ ] 86. Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents,
   turning face up as a special action; hidden from opponents on the table, in friends' snapshots and in replays shared
   as web pages.

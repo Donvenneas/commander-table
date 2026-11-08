@@ -189,6 +189,17 @@ export class HumanAgent extends Agent {
     return r.button === true;
   }
 
+  // {X} in an ability's cost: how much X to pay (up to what the mana allows)
+  async chooseAbilityXAsync(g, p, o, ab, max) {
+    if (max <= 0) return 0;
+    const vals = max <= 12 ? Array.from({ length: max }, (_, i) => i + 1) : [...new Set([1, 2, 3, 4, 5, 6, 8, 10, Math.floor(max / 2), max - 1, max])].filter(v => v >= 1 && v <= max).sort((a, b) => a - b);
+    const ai = super.chooseAbilityX(g, p, o, ab, max);
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b>: choose X for ${esc((ab.text || 'its ability').slice(0, 70))} (you can pay up to ${max})`, {
+      buttons: [...vals.map(v => ({ label: `X = ${v}`, value: v, primary: v === ai })), { label: 'X = 0', value: 0 }],
+    });
+    return typeof r.button === 'number' ? r.button : ai;
+  }
+
   // ---------- priority stops (engine.stopFor) and trigger order
   async stopAt(g, q, step, active) {
     const mine = q === active;

@@ -53,11 +53,7 @@ public/js/main.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/main.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/main.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/main.js TS2339 Property 'explain' does not exist on type 'Game'.
-public/js/main.js TS2339 Property 'human' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
 public/js/main.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/main.js TS2339 Property 'humans' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
-public/js/main.js TS2339 Property 'humans' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
-public/js/main.js TS2339 Property 'humans' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
 public/js/main.js TS2339 Property 'id' does not exist on type 'EventTarget'.
 public/js/main.js TS2339 Property 'interaction' does not exist on type '{ seat: { color: string; name: any; source: any; style: any; bracket: any; deck: any; }; wins: number; place: number; comboWins: number; combos: number; damage: number; styles: {}; cards: Map<any, any>; }'.
 public/js/main.js TS2339 Property 'interaction' does not exist on type '{ seat: { color: string; name: any; source: any; style: any; bracket: any; deck: any; }; wins: number; place: number; comboWins: number; combos: number; damage: number; styles: {}; cards: Map<any, any>; }'.
@@ -65,15 +61,10 @@ public/js/main.js TS2339 Property 'lobbyChoice' does not exist on type '{ color:
 public/js/main.js TS2339 Property 'lobbyChoice' does not exist on type '{ color: string; name: any; source: any; style: any; bracket: any; deck: any; }'.
 public/js/main.js TS2339 Property 'matches' does not exist on type 'EventTarget'.
 public/js/main.js TS2339 Property 'presence' does not exist on type 'Room'.
-public/js/main.js TS2339 Property 'ranked' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
-public/js/main.js TS2339 Property 'remote' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
-public/js/main.js TS2339 Property 'remote' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
 public/js/main.js TS2339 Property 'rivalKey' does not exist on type '{ color: string; name: any; source: any; style: any; bracket: any; deck: any; }'.
 public/js/main.js TS2339 Property 'rivalKey' does not exist on type '{ color: string; name: any; source: any; style: any; bracket: any; deck: any; }'.
-public/js/main.js TS2339 Property 'rivalKeys' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
 public/js/main.js TS2339 Property 'rivalSource' does not exist on type '{ color: string; name: any; source: any; style: any; bracket: any; deck: any; }'.
 public/js/main.js TS2339 Property 'seat' does not exist on type 'HumanUI'.
-public/js/main.js TS2339 Property 'stopOpts' does not exist on type '{ seed: any; puzzle: any; seats: any; format: any; firstPlayer: any; roles: any; matchGame: any; lifeBonus: any; coach: any; after: any; turnStarts: undefined[]; total: number; decisions: any; remoteDecisions: any; replayOnly: boolean; learned: any; noLearning: boolean; loadedReplay: boolean; }'.
 public/js/main.js TS2339 Property 'untilLive' does not exist on type 'Clock'.
 public/js/main.js TS2339 Property 'untilLive' does not exist on type 'Clock'.
 public/js/main.js TS2339 Property 'value' does not exist on type 'Element'.
