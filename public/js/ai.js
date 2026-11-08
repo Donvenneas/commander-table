@@ -80,7 +80,7 @@ const needsOwnTarget = e => e.k === 'pump' || e.k === 'blink' || (e.k === 'prote
 export class Agent {
   // noise: how loosely this pilot plays (low brackets play more casually; see brackets.js)
   // lookahead: check the best main-phase plays by simulating the rest of the turn (lookahead.js)
-  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; /** AI strength handicap (main.js STRENGTH), 0–1 */ this.handicap = 0;
+  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; /** AI strength handicap (main.js STRENGTH), 0–1 */ this.handicap = 0; /** item 112 experiments, off by default */ this.bluff = 0; this.trickFear = false;
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
   }
