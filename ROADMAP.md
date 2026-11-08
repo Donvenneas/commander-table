@@ -648,7 +648,10 @@ on top of the ones above:
   - Done: synthesized effects already played for casts, lands, combat, damage, removal, deaths, combos, wins and
     losses; added a two-note "your turn" sound and separate Music volume and Effects volume sliders in the Display
     window (saved in prefs). Tested: sliders change both levels and are saved.
-- [ ] 128. High-contrast theme, card text size setting, and the OS "reduce motion" setting turning on "Fewer animations".
+- [x] 128. High-contrast theme, card text size setting, and the OS "reduce motion" setting turning on "Fewer animations".
+  - Done: Display window: High contrast (black panels, white borders and text, yellow main buttons and pickable
+    cards), Text size (Normal / Large / Larger), and Fewer animations starts on when the system asks for reduced
+    motion (until the player changes it). Tested: both settings switch on and off in the Display window.
 - [ ] 129. Finish translations: help paragraphs, the game log, the self-test page and the windows from rounds 3–4
   (Expedition, builder, Draft, Updates) in es/fr/de/pt; add Italian and Japanese interfaces.
 - [ ] 130. Puzzle editor: build a board by clicking (search cards, place them in any zone for any player, set life and

@@ -973,11 +973,17 @@ const prefs = store('ct.prefs') || {};
 // ---------- Display: board background, color-blind-friendly seat colors, larger text, fewer animations
 // (Okabe–Ito colors: they stay distinct with the common kinds of color blindness)
 const CB_COLORS = ['#E69F00', '#56B4E9', '#F0E442', '#CC79A7', '#009E73', '#D55E00', '#0072B2', '#999999', '#FFFFFF'];
+// (the system's "reduce motion" setting turns on Fewer animations until the player chooses otherwise)
+if (prefs.calm === undefined && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) prefs.calm = true;
 function applyDisplay(initial = false) {
   document.body.dataset.bg = prefs.bg || 'art';
   document.body.classList.toggle('cb', !!prefs.cb);
   document.body.classList.toggle('big', !!prefs.big);
   document.body.classList.toggle('calm', !!prefs.calm);
+  // High contrast and text size (item 128)
+  document.body.classList.toggle('contrast', !!prefs.contrast);
+  document.documentElement.style.setProperty('--text-scale', prefs.textScale || '1');
+  document.body.classList.toggle('text-scaled', !!prefs.textScale);
   const colors = prefs.cb ? CB_COLORS : SEAT_COLORS;
   allSeats.forEach((s, i) => { s.color = colors[i]; });
   // A game in progress switches colors too (boards, log and arrows read the player's color)
@@ -1023,11 +1029,13 @@ $('btnDisplay').addEventListener('click', () => {
   $('dispCb').checked = !!prefs.cb;
   $('dispBig').checked = !!prefs.big;
   $('dispCalm').checked = !!prefs.calm;
+  $('dispContrast').checked = !!prefs.contrast;
+  $('dispText').value = prefs.textScale || '';
   renderCosmetics();
   $('displayModal').hidden = false;
 });
 $('displayModal').addEventListener('change', () => {
-  Object.assign(prefs, { bg: $('dispBg').value, cb: $('dispCb').checked, big: $('dispBig').checked, calm: $('dispCalm').checked });
+  Object.assign(prefs, { bg: $('dispBg').value, cb: $('dispCb').checked, big: $('dispBig').checked, calm: $('dispCalm').checked, contrast: $('dispContrast').checked, textScale: $('dispText').value });
   store('ct.prefs', prefs);
   applyDisplay();
 });

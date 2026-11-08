@@ -1057,3 +1057,14 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 /* Screen readers only (item 126) */
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 .card.pickable:focus-visible { outline: 3px solid #5b8cff; outline-offset: 2px; }
+
+/* High contrast and text size (item 128) */
+body.text-scaled { font-size: calc(14px * var(--text-scale, 1)); }
+body.text-scaled .ab-text, body.text-scaled .log, body.text-scaled .btn { font-size: calc(1em * var(--text-scale, 1)); }
+body.contrast { --line: #ffffff; --muted: #e8e8e8; background: #000 !important; color: #fff; }
+body.contrast .board, body.contrast .action-bar, body.contrast .modal > div, body.contrast .cd-panel { background: #000 !important; border: 2px solid #fff !important; }
+body.contrast .btn { background: #000; color: #fff; border: 2px solid #fff; }
+body.contrast .btn.primary { background: #ffd400; color: #000; border-color: #ffd400; }
+body.contrast .card.pickable { outline: 3px solid #ffd400; outline-offset: 2px; }
+body.contrast .muted, body.contrast small { color: #e8e8e8 !important; opacity: 1 !important; }
+body.contrast .le { color: #fff; }
