@@ -8,6 +8,7 @@ import { watchGame } from './invariants.js';
 import { esc, store, makeRng } from './util.js';
 import { dealRoles } from './kingdoms.js';
 import { LOOKAHEAD, laStats } from './lookahead.js';
+import { searchCards } from './bulk.js';
 
 /** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
@@ -108,6 +109,30 @@ async function run() {
     const r = await fetch('https://backend.commanderspellbook.com/find-my-combos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ commanders: [], main: [{ card: 'Sol Ring' }] }) });
     expect(r.ok, `HTTP ${r.status}`);
     return 'reachable';
+  });
+  await check('Local card search (Scryfall card file syntax)', async () => {
+    const L = { commander: 'legal', standard: 'not_legal' };
+    const cards = [
+      { name: 'Alpha Lord', type_line: 'Legendary Creature — Elf', color_identity: ['G'], colors: ['G'], rarity: 'mythic', cmc: 3, legalities: L, games: ['paper'], edhrec_rank: 5, oracle_text: 'Search your library for a land card.', produced_mana: [] },
+      { name: 'Bolt', type_line: 'Instant', color_identity: ['R'], colors: ['R'], rarity: 'common', cmc: 1, legalities: L, games: ['paper', 'mtgo'], edhrec_rank: 2, oracle_text: 'Deal 3 damage.' },
+      { name: 'Grove', type_line: 'Land', color_identity: ['G', 'R'], colors: [], rarity: 'rare', cmc: 0, legalities: L, games: ['paper'], edhrec_rank: 9, produced_mana: ['G', 'R'] },
+      { name: 'Online Thing', type_line: 'Sorcery', color_identity: [], colors: [], rarity: 'uncommon', cmc: 2, legalities: {}, games: ['arena'], digital: true, game_changer: true },
+    ];
+    const names = (q, o) => searchCards(cards, q, o).map(c => c.name).join(',');
+    const cases = [
+      ['legal:commander game:paper id<=gr -t:land', 'edhrec', 'Bolt,Alpha Lord'],
+      ['t:land -t:basic produces:g produces:r', 'name', 'Grove'],
+      ['is:commander t:creature', 'name', 'Alpha Lord'],
+      ['(t:instant or t:sorcery) -is:gamechanger', 'name', 'Bolt'],
+      ['-(o:"search your library for a" -o:land) r<=uncommon', 'name', 'Bolt,Online Thing'],
+      ['c<=r (c:r) mv=1', 'name', 'Bolt'],
+      ['lord', 'name', 'Alpha Lord'],
+    ];
+    for (const [q, o, want] of cases) expect(names(q, o) === want, `"${q}" gave ${names(q, o) || 'nothing'}, expected ${want}`);
+    let unsupported = false;
+    try { searchCards(cards, 'e:blb is:booster'); } catch { unsupported = true; }
+    expect(unsupported, 'set searches should go to Scryfall');
+    return `${cases.length} searches; set searches left to Scryfall`;
   });
 
   // Games

@@ -2,6 +2,7 @@
 import { sleep, imgUrl } from './util.js';
 import { analyzeCard } from './effects.js';
 import { getCards, putCards } from './cardcache.js';
+import { bulkAnswer, bulkCard } from './bulk.js';
 
 const API = 'https://api.scryfall.com';
 let nextSlot = 0;
@@ -16,6 +17,8 @@ async function throttle() {
 }
 
 export async function sf(path, init = {}) {
+  // Searches the saved card file can answer don't go to Scryfall at all (bulk.js; off unless turned on)
+  if (!init.method || init.method === 'GET') { const local = await bulkAnswer(path); if (local) return local; }
   await throttle();
   const go = () => fetch(API + path, {
     ...init,
@@ -100,6 +103,12 @@ export async function fetchCollection(identifiers, onProgress) {
   let staleBefore = 0;
   try { staleBefore = +JSON.parse(localStorage.getItem('ct.cardsStaleBefore') || '0') || 0; } catch { /* no storage */ }
   for (const [k, raw] of saved) if (!raw._at || (Date.now() - raw._at < FRESH && raw._at >= staleBefore)) out.set(k, normalize(raw));
+  // Cards asked for by name (or by the id of the printing it has) come from the saved card file, when it's on
+  for (const i of uniq) {
+    if (out.has(key(i)) || i.set) continue;
+    const raw = await bulkCard(i);
+    if (raw) out.set(key(i), normalize(raw));
+  }
   const need = uniq.filter(i => !out.has(key(i)));
   const fresh = [];
   try {

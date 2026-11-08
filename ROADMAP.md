@@ -262,8 +262,21 @@ Rules for this round, on top of the ones above:
     No ALSA (would need the 200–350 MB draft files). Credit in README and in the draft window.
 
 ### Card coverage
-- [ ] 81. Scryfall bulk data ("Oracle Cards" file, once a day when asked) for random decks, the builder and the card
+- [x] 81. Scryfall bulk data ("Oracle Cards" file, once a day when asked) for random decks, the builder and the card
   scan, instead of many search calls; falls back to the API when there's no bulk file.
+  - Done (1.17.0): public/js/bulk.js. Off until "Download the card file" in Updates; data.scryfall.io allows browser
+    requests, so the page fetches the JSON Lines .gz itself (25 MB, unpacked with DecompressionStream; no server
+    change), keeps only the fields normalize() and searches read, and saves 35,769 cards in IndexedDB "ct-bulk"
+    (2,000 per record; meta in localStorage ct.bulk). Download + save 14 s; load 0.4 s. dailyBulk at startup refetches
+    only when Scryfall's updated_at changed, at most once a day. sf() answers /cards/search and /cards/random locally
+    with a small parser for the syntax the game uses (legal, game, is:commander/digital/gamechanger/reserved, t, o,
+    id, c, r, cmc/mv, produces, bare names, "or", parentheses, "-"; order name/edhrec/cmc; 175-card pages with
+    next_page); anything else (e:, is:booster, unique=prints…) still goes to Scryfall. fetchCollection takes {name}
+    identifiers from the file (full name, then front face, then other faces). Checked against Scryfall: edhrec order
+    identical in the top 30 for six of the game's queries; totals 1–8% lower (one printing per card, so rarity and
+    game:paper see only that printing). Random Commander deck 2 s → 0.1 s with 0 Scryfall calls (brackets 1–4, Brawl,
+    Pauper Commander, Oathbreaker, pauper budget, Modern). Self-test row "Local card search" (7 searches on made-up
+    cards). The card scan in item 82 used the API; it can now use the same sf() call.
 - [x] 82. Coverage pass using Forge's and XMage's card lists as a checklist (ideas only): rerun the scan of the 3,500
   most-played Commander cards, take the most common unread lines, and model them. Target: 81% → 88% fully read.
   - Done (1.17.0): scan rerun (Scryfall `legal:commander game:paper`, EDHREC order, first 3,500): fully read 80.8%

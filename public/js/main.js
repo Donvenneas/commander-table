@@ -34,6 +34,7 @@ import { openBuilder } from './builder.js';
 import { Tabletop, renderTabletop } from './manual.js';
 import { tableText, dealRoles } from './kingdoms.js';
 import { setsState, checkSets, dailySetCheck, draftableSets } from './sets.js';
+import { bulkInfo, downloadBulk, removeBulk, dailyBulk } from './bulk.js';
 import { revealedCards, aiSideboard, swapText } from './match.js';
 
 /** @type {(id: string) => any} */
@@ -2640,7 +2641,23 @@ $('btnSetsCheck').addEventListener('click', async () => {
   $('setsBody').textContent = 'Asking Scryfall…';
   try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
 });
-$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); });
+$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); });
+
+// ---------- Scryfall's card file (bulk.js): off until downloaded here; then refreshed once a day at startup
+function showBulk(msg) {
+  const m = bulkInfo();
+  const on = !!(m?.on && m.count);
+  $('bulkBody').textContent = msg || (on ? `Saved: ${m.count.toLocaleString()} cards, from ${new Date(m.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not downloaded: searches go to Scryfall.');
+  $('btnBulk').textContent = on ? 'Download again now' : 'Download the card file';
+  $('btnBulkOff').hidden = !on;
+}
+$('btnBulk').addEventListener('click', async e => {
+  e.target.disabled = true;
+  try { await downloadBulk(showBulk); showBulk(); }
+  catch (err) { showBulk(`Couldn't get the card file: ${err.message}`); }
+  e.target.disabled = false;
+});
+$('btnBulkOff').addEventListener('click', async () => { await removeBulk(); showBulk(); });
 // Draft / Sealed and the Expedition offer the newest draftable sets too
 function refreshSetLists() {
   const extra = draftableSets(10).filter(([c]) => !SUGGESTED_SETS.some(x => x[0] === c));
@@ -2706,3 +2723,4 @@ fetch('/api/update').then(r => r.json()).then(j => { $('smVersion').textContent 
 if (!$('setup').hidden || openedChallenge) $('startMenu').hidden = true;
 renderMenu();
 if (prefs.autoSets !== false) dailySetCheck().then(r => { if (r) { renderMenu(r); refreshSetLists(); } });
+dailyBulk();

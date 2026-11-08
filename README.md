@@ -80,6 +80,13 @@ For the official versions, use the project's GitHub releases address, which alwa
 - When a new set is out, saved card data from before it is fetched again the next time a deck needs it (legalities and Standard rotation change with new sets). Offline, the saved copies are still used.
 - The newest draftable sets are added to Draft / Sealed and the Expedition.
 
+**Card file (optional):** **Download the card file** in Updates saves Scryfall's free bulk card file (every card, about 25 MB to download) in the game's browser data.
+- Random decks of every kind, the deck builder's searches and decks loaded by card name then come from this PC: a random Commander deck takes about a tenth of a second instead of two, and works offline.
+- While it's on, a newer file is fetched at most once a day when the game starts (only if Scryfall has published one).
+- Searches it can't answer still go to Scryfall: a set's cards for Draft / Sealed, specific printings, and search terms it doesn't know.
+- It has one printing per card, so searches that depend on rarity or paper availability can find slightly fewer cards than Scryfall would.
+- **Turn off and remove** in Updates deletes it.
+
 ## Privacy and sharing
 
 The game folder contains no personal information: no names, accounts, email addresses, computer names or file paths from the PC it was made on. It has no tracking or analytics, and it never sends anything about you anywhere.
@@ -95,7 +102,7 @@ The game folder contains no personal information: no names, accounts, email addr
 
 | Service | What for |
 |---|---|
-| Scryfall | card data, images and mana symbols |
+| Scryfall | card data, images and mana symbols (and the card file, only if you download it) |
 | Archidekt, MTGGoldfish, TappedOut, Moxfield | the decks you link |
 | EDHTop16, cEDH Decklist Database | cEDH meta data |
 | Commander Spellbook | combos and its bracket estimate |
