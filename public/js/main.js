@@ -10,7 +10,7 @@ import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText,
 import { boosterData, boosterPacker } from './boosters.js';
 import { combosIn, fetchSpellbook, fetchSpellbookBracket } from './combos.js';
 import { coverage } from './effects.js';
-import { TableView, installPreview, Sound } from './ui.js';
+import { TableView, installPreview, installDetails, Sound } from './ui.js';
 import { HumanAgent, HumanUI, SeatUI } from './human.js';
 import { Room, RemoteUI, snapshot, TURN_CLOCKS } from './net.js';
 // (a friend's time bank counts down on their board while they decide)
@@ -1277,6 +1277,12 @@ $('rankedSel').addEventListener('change', e => {
 // ---------- log filters: one kind of event, or one player
 $('logFilter').addEventListener('change', e => { $('log').dataset.f = e.target.value; $('log').scrollTop = $('log').scrollHeight; });
 $('logSeat').addEventListener('change', e => { $('log').dataset.seat = e.target.value; $('log').scrollTop = $('log').scrollHeight; });
+// Log search (item 123): only lines containing the text (turn headers stay)
+$('logSearch').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  for (const el of $('log').children) if (!el.classList.contains('turn')) el.classList.toggle('search-hide', !!q && !el.textContent.toLowerCase().includes(q));
+});
+$('logSearch').addEventListener('keydown', e => e.stopPropagation());
 function fillLogSeats() {
   const opts = '<option value="">All players</option>' + (game?.players || []).map(p => `<option value="${p.idx}">${esc(p.name)}</option>`).join('');
   if ($('logSeat').dataset.v !== opts) { $('logSeat').innerHTML = opts; $('logSeat').dataset.v = opts; $('log').dataset.seat = ''; }
@@ -2357,6 +2363,7 @@ Rules.load().then(() => {
 });
 
 installPreview(iid => game?.objects.get(iid));
+installDetails(iid => game?.objects.get(iid), () => view);
 renderSeats();
 if (location.protocol === 'file:') $('setupStatus').textContent = 'Open this game with Commander Table.exe or start.bat. Deck import needs its local server.';
 // First visit: a short tour of the setup screen (remembered; the Tour button shows it again)

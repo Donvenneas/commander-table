@@ -630,6 +630,74 @@ export const Sound = {
 function ordinal(n) { return n ? `${n}${['th', 'st', 'nd', 'rd'][n % 10 > 3 || Math.floor(n / 10) === 1 ? 0 : n % 10]} place` : ''; }
 
 // ---------- hover preview (works for board cards, log names, zone viewers)
+// Card details (items 122 and 123): right-click any card (on the table, in a pile, in the stack panel, or its name in
+// the log) for its Oracle text, how the simulator reads each line, and Scryfall's rulings (fetched once, kept for
+// offline). Clicking a card name in the log points the card out on the table.
+const RULINGS_KEY = 'ct.rulings';
+async function rulingsFor(card) {
+  if (!card.id) return [];
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(RULINGS_KEY) || '{}'); } catch { all = {}; }
+  if (all[card.id]) return all[card.id];
+  const { sf } = await import('./scryfall.js');
+  const j = await sf(`/cards/${card.id}/rulings`);
+  const list = (j.data || []).map(r => ({ d: r.published_at, t: r.comment }));
+  all[card.id] = list;
+  const ids = Object.keys(all);
+  for (const id of ids.slice(0, Math.max(0, ids.length - 300))) delete all[id];
+  try { localStorage.setItem(RULINGS_KEY, JSON.stringify(all)); } catch { /* full: shown, not kept */ }
+  return list;
+}
+export function installDetails(getObject, getView) {
+  let box = document.getElementById('cardDetails');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'cardDetails';
+    box.className = 'card-details';
+    box.hidden = true;
+    document.body.append(box);
+    box.addEventListener('click', e => { if (e.target === box || /** @type {any} */ (e.target).closest?.('.cd-close')) box.hidden = true; });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') box.hidden = true; });
+  }
+  const open = o => {
+    const c = o.card;
+    const unread = new Set(o.fx.unread || []);
+    const lines = String(c.fullText || c.text || '').split('\n').filter(Boolean);
+    const reads = describeFx(o.fx);
+    box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close">✕</button>
+      <div class="cd-cols">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}
+      <div class="cd-text"><h3>${esc(c.name)}</h3><div class="muted">${esc(c.typeLine || '')} ${c.manaCost ? symbolize(c.manaCost) : ''}</div>
+      <h4>Oracle text</h4>${lines.map(l => `<p>${symbolize(esc(l))}</p>`).join('') || '<p class="muted">(no text)</p>'}
+      <h4>How the simulator reads it</h4>${reads.length ? `<ul>${reads.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">Nothing beyond its type, power and toughness.</p>'}
+      ${unread.size ? `<p class="cd-unread">⚠ Not simulated: ${[...unread].map(esc).join(' / ')}</p>` : ''}
+      <h4>Rulings</h4><div class="cd-rulings muted">Loading…</div></div></div></div>`;
+    box.hidden = false;
+    rulingsFor(c).then(list => {
+      const el = box.querySelector('.cd-rulings');
+      if (!el) return;
+      el.classList.remove('muted');
+      el.innerHTML = list.length ? list.map(r => `<p><small class="muted">${esc(r.d)}</small> ${esc(r.t)}</p>`).join('') : '<p class="muted">Scryfall has no rulings for this card.</p>';
+    }).catch(() => { const el = box.querySelector('.cd-rulings'); if (el) el.textContent = "Couldn't reach Scryfall for the rulings."; });
+  };
+  document.addEventListener('contextmenu', ev => {
+    const t = /** @type {HTMLElement | null} */ (/** @type {any} */ (ev.target).closest?.('[data-iid]'));
+    const o = t && getObject(+t.dataset.iid);
+    if (!o) return;
+    ev.preventDefault();
+    open(o);
+  });
+  document.addEventListener('click', ev => {
+    const t = /** @type {HTMLElement | null} */ (/** @type {any} */ (ev.target).closest?.('.le .cn[data-iid]'));
+    if (!t) return;
+    const el = getView()?.cards.get(+t.dataset.iid);
+    if (!el?.isConnected) return;
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    el.classList.remove('pointed'); void el.offsetWidth; el.classList.add('pointed');
+    setTimeout(() => el.classList.remove('pointed'), 1600);
+  });
+  return open;
+}
+
 export function installPreview(getObject) {
   const pv = document.getElementById('preview');
   let current = null;

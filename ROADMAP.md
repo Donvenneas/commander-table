@@ -615,9 +615,16 @@ on top of the ones above:
     or combat) are drawn together as an overlapped pile with a ×N count on the first card; each token is still its own
     card for clicks and targets. Cards shrink further past 34 and 50 permanents (38 and 34 px). Tested: a goblin token
     game drawn on the table (piles of ×7 and ×2).
-- [ ] 122. Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line,
+- [x] 122. Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line,
   from any card on the table, in a pile or in the log.
-- [ ] 123. Clickable log: card names highlight the card on the table and open its details; a search box over the log.
+  - Done: right-click any card (table, piles, stack panel, or its name in the log) for a details panel: image, Oracle
+    text, how the simulator reads it (describeFx) and any unread lines, and Scryfall's rulings (fetched once per card,
+    the last 300 kept in the browser profile for offline). Tested: Hill Giant (no rulings), Rhystic Study (2 rulings,
+    cached).
+- [x] 123. Clickable log: card names highlight the card on the table and open its details; a search box over the log.
+  - Done: clicking a card name in the log points the card out on the table (scrolls to it, a gold pulse); right-click
+    opens its details (item 122); a "Search the log…" box shows only lines with that text (turn headers stay).
+    Tested: searching "giant" in a lesson left the matching lines.
 - [ ] 124. Post-game report: life-total graph, damage dealt by and to each player, cards drawn and cast, the turn that
   decided the game and the biggest plays; kept in History.
 - [ ] 125. The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.
