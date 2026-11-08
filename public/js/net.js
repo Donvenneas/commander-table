@@ -8,7 +8,10 @@ const post = (url, body) => fetch(url, { method: 'POST', body: typeof body === '
 const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
 
 export class Room {
-  constructor() { this.code = null; this.port = 0; this.ips = []; this.seats = []; }
+  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; }
+  // A seat's join code: its own secret key, then the seat number (spectators: 0), like "K7Q2XF9ABM-2".
+  // Each seat has its own key, so changing the seat number in a link doesn't open another player's hand.
+  joinCode(seat) { return `${this.keys[seat] || ''}-${seat + 1}`; }
   // Opens the room for the given seat numbers; returns false if this isn't running in Commander Table.exe
   async open(seats) {
     this.seats = seats;
@@ -28,8 +31,8 @@ export class Room {
   links() {
     return this.seats.map(s => ({
       seat: s,
-      urls: this.ips.map(ip => `http://${ip}:${this.port}/play.html?code=${this.code}&seat=${s}`),
-      internet: this.tunnelUrl ? `${this.tunnelUrl}/play.html?code=${this.code}&seat=${s}` : null,
+      urls: this.ips.map(ip => `http://${ip}:${this.port}/play.html?code=${this.keys[s]}&seat=${s}`),
+      internet: this.tunnelUrl ? `${this.tunnelUrl}/play.html?code=${this.keys[s]}&seat=${s}` : null,
     }));
   }
   // Friends' chat messages newer than the last one fetched

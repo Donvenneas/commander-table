@@ -685,7 +685,28 @@ static class CommanderTable
     // The game runs in the host's window. For each seat a friend plays, the host posts that seat's view of
     // the board and any question waiting for them; the friend's page polls for it and posts an answer.
     // Host-only calls are accepted only from this PC; friends need the room code.
-    class Seat { public string State = "null", Question = "null", Answer = null, Name = "", UndoReply = null, Deck = null; public DateTime Seen = DateTime.MinValue, LastChat = DateTime.MinValue, UndoAsk = DateTime.MinValue; }
+    class Seat { public string State = "null", Question = "null", Answer = null, Name = "", UndoReply = null, Deck = null, Key = SeatKey(); public DateTime Seen = DateTime.MinValue, LastChat = DateTime.MinValue, UndoAsk = DateTime.MinValue; }
+    // Each seat (and the spectators' view) has its own secret join code, so a friend can't open another
+    // seat's view (and see that hand) by changing the seat number in their link. 10 characters from 32
+    // letters and digits (no 0/O, 1/I) is about 50 bits; wrong codes are also limited to 30 a minute.
+    const string KeyChars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    static readonly System.Security.Cryptography.RandomNumberGenerator Rng = System.Security.Cryptography.RandomNumberGenerator.Create();
+    static string SeatKey()
+    {
+        var b = new byte[10];
+        lock (Rng) Rng.GetBytes(b);
+        var sb = new StringBuilder();
+        foreach (var x in b) sb.Append(KeyChars[x % 32]);
+        return sb.ToString();
+    }
+    static List<DateTime> Fails = new List<DateTime>();
+    static bool SameKey(string a, string b)
+    {
+        if (a == null || b == null || a.Length != b.Length) return false;
+        int d = 0;
+        for (int i = 0; i < a.Length; i++) d |= a[i] ^ b[i];
+        return d == 0;
+    }
     static List<string> Chat = new List<string>();
     static int ChatId;
     class Reply { public int Status = 200; public string Type = "application/json"; public string Body = "{}"; }
@@ -715,7 +736,12 @@ static class CommanderTable
             if (action == "view" || action == "answer" && method == "POST" || action == "hello" || action == "chat" && method == "POST" || action == "undo" && method == "POST" || action == "deck" && method == "POST")
             {
                 Seat s;
-                if (RoomCode == null || code != RoomCode || !Seats.TryGetValue(seat, out s)) { r.Status = 403; r.Body = "{\"error\":\"This game isn't open, or the link is out of date.\"}"; return r; }
+                if (RoomCode == null || !Seats.TryGetValue(seat, out s) || !SameKey((code ?? "").ToUpperInvariant(), s.Key))
+                {
+                    Fails.RemoveAll(t => (DateTime.Now - t).TotalSeconds >= 60);
+                    Fails.Add(DateTime.Now);
+                    if (Fails.Count > 30) { r.Status = 429; r.Body = "{\"error\":\"Too many wrong join codes. Wait a minute and try again.\"}"; return r; }
+                    r.Status = 403; r.Body = "{\"error\":\"This game isn't open, or the link is out of date.\"}"; return r; }
                 if (seat >= 0) s.Seen = DateTime.Now;
                 if (action == "view")
                 {
@@ -754,12 +780,15 @@ static class CommanderTable
                     RoomCode = Guid.NewGuid().ToString("N").Substring(0, 6).ToUpper();
                     Seats = new Dictionary<int, Seat>();
                     Chat.Clear();
+                    Fails.Clear();
                     foreach (var part in body.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)) { int i; if (int.TryParse(part.Trim(), out i)) Seats[i] = new Seat(); }
+                    var keys = new List<string>();
+                    foreach (var kv in Seats) keys.Add(Js(kv.Key.ToString()) + ":" + Js(kv.Value.Key));
                     var ips = new List<string>();
                     foreach (var a in Dns.GetHostAddresses(Dns.GetHostName()))
                         // (169.254.x.x addresses are self-assigned and never reachable from other devices)
                         if (a.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a) && !a.ToString().StartsWith("169.254.")) ips.Add(Js(a.ToString()));
-                    r.Body = "{\"code\":" + Js(RoomCode) + ",\"port\":" + LanPort + ",\"ips\":[" + string.Join(",", ips) + "]}";
+                    r.Body = "{\"code\":" + Js(RoomCode) + ",\"keys\":{" + string.Join(",", keys) + "},\"port\":" + LanPort + ",\"ips\":[" + string.Join(",", ips) + "]}";
                     return r;
                 }
                 case "close": RoomCode = null; Seats.Clear(); Chat.Clear(); return r;

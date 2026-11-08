@@ -8,11 +8,12 @@ import { renderTabletop } from './manual.js';
 /** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
-// A link carries ?code=…&seat=…; a short join code ("K7Q2XF-2": room code, then seat number) can be typed instead
+// A link carries ?code=…&seat=…; a join code ("K7Q2XF9ABM-2": the seat's own key, then the seat number,
+// 0 for spectators) can be typed instead
 let code = params.get('code'), seat = +params.get('seat');
 if (!code && params.get('j')) [code, seat] = parseJoin(params.get('j'));
 function parseJoin(s) {
-  const m = String(s).toUpperCase().replace(/\s/g, '').match(/^([A-Z0-9]{6})-?(\d)$/);
+  const m = String(s).toUpperCase().replace(/[\s-]/g, '').match(/^([A-Z0-9]{10})(\d)$/);
   return m ? [m[1], +m[2] - 1] : [null, NaN];
 }
 const api = (action, opts) => fetch(`/api/room/${action}?code=${encodeURIComponent(code || '')}&seat=${seat}`, opts);
@@ -46,7 +47,7 @@ if (!code || Number.isNaN(seat)) {
 $('btnJoin').addEventListener('click', async () => {
   if (!$('joinCode').hidden) {
     const [c, s] = parseJoin($('joinCode').value);
-    if (!c) { $('joinText').textContent = 'That code doesn\'t look right: it\'s six letters or numbers, a dash, and your seat number (like K7Q2XF-2).'; return; }
+    if (!c) { $('joinText').textContent = 'That code doesn\'t look right: it\'s ten letters or numbers, a dash, and your seat number (like K7Q2XF9ABM-2).'; return; }
     // Reload with the full link so a refresh or a dropped connection rejoins the same seat
     store('ct.name', $('joinName').value.trim() || 'Friend');
     store('ct.joined', `${c}/${s}`);

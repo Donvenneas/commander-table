@@ -18,11 +18,13 @@ Run:  python3 server.py           (opens the game in your browser; never Microso
 """
 import argparse
 import hashlib
+import hmac
 import io
 import json
 import os
 import platform
 import re
+import secrets
 import shutil
 import socket
 import stat
@@ -107,10 +109,22 @@ class Seat:
     def __init__(self):
         self.state, self.question, self.answer, self.name = 'null', 'null', None, ''
         self.seen, self.last_chat, self.undo_ask, self.undo_reply, self.deck = 0.0, 0.0, 0.0, None, None
+        self.key = seat_key()
+
+
+# Each seat (and the spectators' view) has its own secret join code, so a friend can't open another
+# seat's view (and see that hand) by changing the seat number in their link. 10 characters from 32
+# letters and digits (no 0/O, 1/I) is about 50 bits; wrong codes are also limited to 30 a minute.
+KEY_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+MAX_FAILS = 30
+
+
+def seat_key():
+    return ''.join(secrets.choice(KEY_CHARS) for _ in range(10))
 
 
 ROOM_LOCK = threading.Lock()
-ROOM = {'code': None, 'seats': {}, 'chat': [], 'chat_id': 0}
+ROOM = {'code': None, 'seats': {}, 'chat': [], 'chat_id': 0, 'fails': []}
 LAN = {'server': None, 'port': 0}
 TUNNEL = {'status': 'off', 'url': '', 'error': '', 'proc': None}
 
@@ -137,7 +151,11 @@ def room(method, action, seat, code, body, local):
     with ROOM_LOCK:
         if action in ('view', 'hello') or (action in ('answer', 'chat', 'undo', 'deck') and method == 'POST'):
             s = ROOM['seats'].get(seat)
-            if ROOM['code'] is None or code != ROOM['code'] or s is None:
+            if ROOM['code'] is None or s is None or not hmac.compare_digest((code or '').upper(), s.key):
+                now = time.time()
+                ROOM['fails'] = [t for t in ROOM['fails'] if now - t < 60] + [now]
+                if len(ROOM['fails']) > MAX_FAILS:
+                    return 429, '{"error":"Too many wrong join codes. Wait a minute and try again."}'
                 return 403, '{"error":"This game isn\'t open, or the link is out of date."}'
             if seat >= 0:
                 s.seen = time.time()
@@ -175,15 +193,17 @@ def room(method, action, seat, code, body, local):
         if action == 'open':
             if not start_lan():
                 return 500, '{"error":"Couldn\'t open a port for other players (8800-8820 are busy)."}'
-            ROOM['code'] = uuid.uuid4().hex[:6].upper()
+            ROOM['code'] = uuid.uuid4().hex[:6].upper()   # the open room's id; seats join with their own keys
             ROOM['seats'] = {}
             ROOM['chat'] = []
+            ROOM['fails'] = []
             for part in body.split(','):
                 try:
                     ROOM['seats'][int(part.strip())] = Seat()
                 except ValueError:
                     pass
-            return 200, json.dumps({'code': ROOM['code'], 'port': LAN['port'], 'ips': local_ips()})
+            keys = {str(k): v.key for k, v in ROOM['seats'].items()}
+            return 200, json.dumps({'code': ROOM['code'], 'keys': keys, 'port': LAN['port'], 'ips': local_ips()})
         if action == 'close':
             ROOM['code'] = None
             ROOM['seats'].clear()

@@ -337,6 +337,11 @@ Rules for this round, on top of the ones above:
   Tested with forged requests against the .exe, server.py and server.ps1 (all refused) and the self-test 15/15.
   Not fixed (low risk, noted): a friend with the room code can view another seat's hand by changing ?seat= in the
   link; room codes are 6 hex characters with no rate limit.
+  - Fixed 2026-11-08 (1.17.0): every seat and the spectators' view get their own secret key (10 characters from 32
+    letters and digits, cryptographic random, about 50 bits); a friend call must carry its seat's key, so editing
+    ?seat= gets 403. More than 30 wrong codes a minute get 429 (right codes still work). Join codes are now
+    KEY-seat (like K7Q2XF9ABM-2). Same in the .exe, server.ps1 and server.py; tested by probe script against
+    server.py and server.ps1 (own key 200, another seat's key 403, 429 after 30 wrong codes); the .exe compiled.
 
 - 2026-11-04 (interactive session, version 1.15.0, asked: "add the AI bots to fill the kingdom game should have host friends and ai bots as an option"):
   - New: kingdomsPlay.js handles roles in the rules engine.

@@ -94,10 +94,15 @@ function Send-Text($Ctx, [int]$Status, [string]$Text) {
 # The game runs in the host's browser. Friends' pages poll their view of the table and post answers.
 # Friends connect to a plain TCP listener on 8800-8820 (an HttpListener on the network would need admin
 # rights); host-only calls are accepted only from this PC.
-$Room = @{ Code = $null; Seats = @{}; Chat = New-Object System.Collections.ArrayList; ChatId = 0 }
+$Room = @{ Code = $null; Seats = @{}; Chat = New-Object System.Collections.ArrayList; ChatId = 0; Fails = New-Object System.Collections.ArrayList }
 $Lan = $null; $LanPort = 0
 $Tunnel = @{ Status = 'off'; Url = ''; Error = ''; Proc = $null; Log = '' }
-function New-Seat { @{ State = 'null'; Question = 'null'; Answer = $null; Name = ''; Seen = $null; LastChat = [DateTime]::MinValue; UndoAsk = $null; UndoReply = $null; Deck = $null } }
+# Each seat (and the spectators' view) has its own secret join code, so a friend can't open another
+# seat's view (and see that hand) by changing the seat number in their link. 10 characters from 32
+# letters and digits (no 0/O, 1/I) is about 50 bits; wrong codes are also limited to 30 a minute.
+$Rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+function New-SeatKey { $b = New-Object byte[] 10; $Rng.GetBytes($b); -join ($b | ForEach-Object { 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[$_ % 32] }) }
+function New-Seat { @{ State = 'null'; Question = 'null'; Answer = $null; Name = ''; Seen = $null; LastChat = [DateTime]::MinValue; UndoAsk = $null; UndoReply = $null; Deck = $null; Key = (New-SeatKey) } }
 function JsStr([string]$s) { if ($null -eq $s) { $s = '' }; '"' + ($s -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace "`t", ' ') + '"' }
 function Start-Lan {
   if ($script:Lan) { return $true }
@@ -110,7 +115,13 @@ function Room-Call([string]$method, [string]$action, [int]$seat, [string]$code, 
   $friend = $action -in 'view', 'hello' -or ($action -in 'answer', 'chat', 'undo', 'deck' -and $method -eq 'POST')
   if ($friend) {
     $s = $Room.Seats[$seat]
-    if (-not $Room.Code -or $code -ne $Room.Code -or -not $s) { return @(403, '{"error":"This game isn''t open, or the link is out of date."}') }
+    if (-not $Room.Code -or -not $s -or "$code".ToUpperInvariant() -cne $s.Key) {
+      $now = Get-Date
+      foreach ($t in @($Room.Fails)) { if (($now - $t).TotalSeconds -ge 60) { $Room.Fails.Remove($t) } }
+      [void]$Room.Fails.Add($now)
+      if ($Room.Fails.Count -gt 30) { return @(429, '{"error":"Too many wrong join codes. Wait a minute and try again."}') }
+      return @(403, '{"error":"This game isn''t open, or the link is out of date."}')
+    }
     if ($seat -ge 0) { $s.Seen = Get-Date }
     switch ($action) {
       'view' { $r = $s.UndoReply; $s.UndoReply = $null; return @(200, "{`"state`":$($s.State),`"question`":$($s.Question),`"undoReply`":$(if ($r) { JsStr $r } else { 'null' })}") }
@@ -139,10 +150,11 @@ function Room-Call([string]$method, [string]$action, [int]$seat, [string]$code, 
     'open' {
       if (-not (Start-Lan)) { return @(500, '{"error":"Couldn''t open a port for other players (8800-8820 are busy)."}') }
       $Room.Code = ([Guid]::NewGuid().ToString('N').Substring(0, 6)).ToUpper()
-      $Room.Seats = @{}; $Room.Chat.Clear()
+      $Room.Seats = @{}; $Room.Chat.Clear(); $Room.Fails.Clear()
       foreach ($part in $body.Split(',')) { $n = 0; if ([int]::TryParse($part.Trim(), [ref]$n)) { $Room.Seats[$n] = New-Seat } }
+      $keys = foreach ($k in $Room.Seats.Keys) { "$(JsStr "$k"):$(JsStr $Room.Seats[$k].Key)" }
       $ips = [Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not [Net.IPAddress]::IsLoopback($_) -and -not $_.ToString().StartsWith('169.254.') } | ForEach-Object { JsStr $_.ToString() }
-      return @(200, "{`"code`":$(JsStr $Room.Code),`"port`":$LanPort,`"ips`":[$($ips -join ',')]}")
+      return @(200, "{`"code`":$(JsStr $Room.Code),`"keys`":{$($keys -join ',')},`"port`":$LanPort,`"ips`":[$($ips -join ',')]}")
     }
     'close' { $Room.Code = $null; $Room.Seats = @{}; $Room.Chat.Clear(); return @(200, '{}') }
     'tunnel' { if ($method -eq 'POST') { Start-Tunnel }; Update-Tunnel; return @(200, "{`"status`":$(JsStr $Tunnel.Status),`"url`":$(JsStr $Tunnel.Url),`"error`":$(JsStr $Tunnel.Error)}") }

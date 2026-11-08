@@ -482,7 +482,7 @@ function showInvite() {
       <div class="invite-head"><span class="dot"></span><b>Spectators</b> <span class="muted">Anyone with this link can watch. They see the table and every player's card counts, but no hands.</span></div>
       <div class="invite-quick">
         <div class="invite-qr" title="Scan with a phone camera">${qrSvg(internet || urls[0] || '', 2)}</div>
-        <div><div class="muted">Watch code</div><div class="join-code">${room.code}-0</div></div>
+        <div><div class="muted">Watch code</div><div class="join-code">${room.joinCode(-1)}</div></div>
       </div>
       ${internet ? link(internet, 'Internet') : ''}
       ${urls.map(u => link(u, 'Home network')).join('')}
@@ -492,7 +492,7 @@ function showInvite() {
         <span class="invite-status" data-seat="${seat}">Waiting for them to join…</span></div>
       <div class="invite-quick">
         <div class="invite-qr" title="Scan with a phone camera">${qrSvg(internet || urls[0] || '', 3)}</div>
-        <div><div class="muted">Join code</div><div class="join-code">${room.code}-${seat + 1}</div>
+        <div><div class="muted">Join code</div><div class="join-code">${room.joinCode(seat)}</div>
           <div class="muted small">Friends can open <b>${esc((internet || urls[0] || '').replace(/\/play\.html.*/, ''))}</b> and type this code, or scan the QR code.</div></div>
       </div>
       ${internet ? link(internet, 'Internet') : ''}
