@@ -750,7 +750,7 @@ function keywordLine(line, fx) {
       if (m[1] === 'crew') fx.crew = n;
       continue;
     }
-    if ((m = s.match(/^(kicker|multikicker|buyback|unearth|embalm|eternalize|dash|blitz|spectacle|echo|ninjutsu|outlast|flashback|evoke|reconfigure) ((?:\{[^}]+\})+)$/))) {
+    if ((m = s.match(/^(kicker|multikicker|buyback|unearth|embalm|eternalize|dash|blitz|spectacle|echo|ninjutsu|outlast|flashback|evoke|reconfigure|madness|cleave) ((?:\{[^}]+\})+)$/))) {
       const cost = m[2].toUpperCase();
       fx.kw.add(m[1]);
       if (m[1] === 'outlast') fx.abilities.push({ cost: m[2], tap: true, effects: [{ k: 'counters', n: 1, on: '~' }], text: 'outlast', sorcery: true });
@@ -929,6 +929,13 @@ export function needsTarget(e) {
 }
 
 export function analyzeCard(card) {
+  // Cleave (702.148): the card is read twice, with the [bracketed] words (cast normally) and without (cleaved)
+  if (!card.cleaveRead && /\[[^\]]*\]/.test(card.text || '') && /^cleave \{/im.test(card.text || '')) {
+    const full = analyzeCard({ ...card, cleaveRead: true, text: card.text.replace(/[[\]]/g, '') });
+    const cut = analyzeCard({ ...card, cleaveRead: true, text: card.text.replace(/ ?\[[^\]]*\]/g, '') });
+    full.cleaveSpell = cut.spell;
+    return full;
+  }
   const typeLine = (card.typeLine || '').toLowerCase();
   const main = typeLine.split('—')[0];
   const type = {
@@ -1866,6 +1873,8 @@ export function describeFx(fx) {
   if (fx.morph) out.push(`${fx.morph.disguise ? 'disguise' : fx.morph.mega ? 'megamorph' : 'morph'} ${fx.morph.cost} (cast face down for {3})`);
   if (fx.turnedUp) out.push(`when turned face up: ${list(fx.turnedUp)}`);
   if (fx.bestow) out.push(`bestow ${fx.bestow} (cast as an Aura)`);
+  if (fx.madness) out.push(`madness ${fx.madness} (cast it when you discard it)`);
+  if (fx.cleave) out.push(`cleave ${fx.cleave}: ${fx.cleaveSpell?.length ? list(fx.cleaveSpell) : '(not modelled)'}`);
   if (fx.mutate) out.push(`mutate ${fx.mutate} (merge onto a non-Human creature you own)`);
   if (fx.onMutate) out.push(`whenever it mutates: ${list(fx.onMutate)}`);
   if (fx.reconfigure) out.push('reconfigure (not a creature while attached)');

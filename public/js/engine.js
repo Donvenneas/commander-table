@@ -785,7 +785,7 @@ export class Game {
   }
   // The cost of an alternative way to cast (or extra costs added on top)
   altCost(o, alt) {
-    const k = { morph: '{3}', bestow: o.fx.bestow, mutate: o.fx.mutate, foretold: o.fx.foretell, foretell: '{2}', plot: o.fx.plot, impending: o.fx.impending?.cost, flashback: o.tempFlashback === this.turn && !o.fx.flashback ? o.card.manaCost : o.fx.flashback, evoke: o.fx.evoke, miracle: o.fx.miracle, suspend: o.fx.suspend?.cost, overload: o.fx.overload, altMana: o.fx.altMana, escape: o.card.manaCost, escapeOwn: o.fx.escape?.cost, jumpstart: o.card.manaCost, dash: o.fx.dash, blitz: o.fx.blitz, spectacle: o.fx.spectacle }[alt];
+    const k = { morph: '{3}', bestow: o.fx.bestow, mutate: o.fx.mutate, madness: o.fx.madness, cleave: o.fx.cleave, aftermath: o.card.manaCost, fuse: o.card.altFace ? `${o.card.manaCost}${o.card.altFace.manaCost}` : null, foretold: o.fx.foretell, foretell: '{2}', plot: o.fx.plot, impending: o.fx.impending?.cost, flashback: o.tempFlashback === this.turn && !o.fx.flashback ? o.card.manaCost : o.fx.flashback, evoke: o.fx.evoke, miracle: o.fx.miracle, suspend: o.fx.suspend?.cost, overload: o.fx.overload, altMana: o.fx.altMana, escape: o.card.manaCost, escapeOwn: o.fx.escape?.cost, jumpstart: o.card.manaCost, dash: o.fx.dash, blitz: o.fx.blitz, spectacle: o.fx.spectacle }[alt];
     return k != null ? parseCost(k) : { generic: 0, pips: [], x: 0 };
   }
   addCost(a, b) { return { generic: a.generic + b.generic, pips: [...a.pips, ...b.pips], x: a.x + b.x }; }
@@ -1108,7 +1108,15 @@ export class Game {
   }
   // Discarding (701.8): "whenever you discard" watchers and madness-style payoffs see it
   discard(p, cards, why = '') {
-    for (const c of cards) { this.move(c, 'graveyard'); this.fire('discard', { o: c, p: p.idx }); }
+    for (const c of cards) {
+      // Madness (702.35): a discarded madness card is exiled instead, and its owner may cast it for the madness cost
+      if (c.fx.madness && this.rules >= 5 && c.zone === 'hand') {
+        this.move(c, 'exile');
+        c.madnessPending = true;
+        this.queue.push({ o: c, effects: [{ k: 'madnessCast' }], label: 'madness', p: this.players[c.owner] });
+      } else this.move(c, 'graveyard');
+      this.fire('discard', { o: c, p: p.idx });
+    }
     if (cards.length && why !== null) this.log(`${this.pn(p)} discards ${cards.map(c => this.cn(c)).join(', ')}${why}`, { kind: 'removal' });
   }
   // Exile and return (blink): a new object with fresh ETB triggers, no counters, auras fall off
@@ -2418,6 +2426,18 @@ export class Game {
         break;
       }
       case 'manifest': this.manifest(p, e, ctx); break;
+      case 'madnessCast': {
+        // (cast it now for its madness cost, or it goes to the graveyard)
+        const o = src;
+        if (!o.madnessPending || o.zone !== 'exile') break;
+        o.madnessPending = false;
+        const can = !p.lost && !!this.planPayment(p, parseCost(o.fx.madness), 0);
+        const want = can && (p.agent.wantsMadnessAsync ? await p.agent.wantsMadnessAsync(this, p, o) : p.agent.wantsMadness ? p.agent.wantsMadness(this, p, o) : true);
+        if (!want || !(await this.cast(p, o, { mode: { alt: 'madness' } }))) {
+          if (o.zone === 'exile') { this.move(o, 'graveyard'); this.log(`${this.cn(o)} goes to the graveyard (madness not used)`, { kind: 'minor' }); }
+        }
+        break;
+      }
       case 'attachSelf': {
         const o = ctx.made?.zone === 'battlefield' ? ctx.made : p.agent.bestOwn(this, p, x => x.fx.type.creature && x !== src);
         if (o && src.zone === 'battlefield') { src.attachedTo = o; this.log(`${S} is attached to ${this.cn(o)}`, { kind: 'minor' }); }
@@ -3031,6 +3051,9 @@ export class Game {
     }
     o.escaped = mode.alt === 'escapeOwn' || mode.alt === 'escape';
     if (mode.alt === 'morph') { if (!this.canCastFaceDown(p, o)) return false; this.makeFaceDown(o, o.fx.morph.disguise ? 'disguise' : 'morph'); }
+    // Cleave: the text without its [bracketed] words; fuse: both halves of a split card (702.102)
+    if (mode.alt === 'cleave' && o.fx.cleaveSpell) choice = { ...choice, effects: o.fx.cleaveSpell };
+    if (mode.alt === 'fuse') { if (!this.canFuse(p, o)) return false; choice = { ...choice, effects: [...o.fx.spell, ...o.card.altFace.fx.spell] }; }
     // Bestow: an Aura spell with enchant creature; mutate: a creature spell that targets a creature to merge onto
     if (mode.alt === 'bestow') { if (!this.canBestow(p, o)) return false; o.bestowed = true; o.fx = this.bestowFx(o); }
     if (mode.alt === 'mutate') {
@@ -3150,7 +3173,7 @@ export class Game {
       this.log(`${this.pn(p)} casts ${this.cn(o)} from their graveyard with jump-start${d ? `, discarding ${this.cn(d)}` : ''}`, { kind: 'minor', rule: '702.133a' });
     }
     // (how it was cast goes into the cast line below: "casts X with flashback")
-    const altText = { flashback: ' with flashback', evoke: ' for its evoke cost', evokePitch: ' for its evoke cost', miracle: ' for its miracle cost', free: ' without paying its mana cost', dash: ' for its dash cost', blitz: ' for its blitz cost', spectacle: ' for its spectacle cost', bestow: ` bestowed on ${auraTarget ? this.cn(auraTarget) : 'a creature'}`, mutate: ` to mutate onto ${o.mutateOnto ? this.cn(o.mutateOnto) : 'a creature'}`, morph: ' face down' }[mode.alt] || '';
+    const altText = { flashback: ' with flashback', evoke: ' for its evoke cost', evokePitch: ' for its evoke cost', miracle: ' for its miracle cost', free: ' without paying its mana cost', dash: ' for its dash cost', blitz: ' for its blitz cost', spectacle: ' for its spectacle cost', bestow: ` bestowed on ${auraTarget ? this.cn(auraTarget) : 'a creature'}`, mutate: ` to mutate onto ${o.mutateOnto ? this.cn(o.mutateOnto) : 'a creature'}`, morph: ' face down', madness: ' for its madness cost', cleave: ' with cleave', fuse: ' fused (both halves)', aftermath: ' from their graveyard (aftermath)' }[mode.alt] || '';
     if (o.kicked) this.log(`${this.pn(p)} pays the kicker for ${this.cn(o)}`, { kind: 'minor', rule: '702.33a' });
     if (buyback) this.log(`${this.pn(p)} pays buyback for ${this.cn(o)}`, { kind: 'minor', rule: '702.27a' });
     // Ward (702.21): targeting an opponent's warded permanent costs extra, or the spell is countered
@@ -3217,7 +3240,7 @@ export class Game {
     this.stack.splice(this.stack.indexOf(item), 1);
     // A flashback (or jump-start) spell is exiled instead of going anywhere else (702.34a); buyback returns it to hand
     // (Yawgmoth's Will: a card cast from the graveyard this way is exiled instead of returning there)
-    const gone = mode.alt === 'flashback' || mode.alt === 'jumpstart' || (o.castFrom === 'graveyard' && (p.gyCast?.turn === this.turn || o.gyOnceExile)) ? 'exile' : buyback ? 'hand' : 'graveyard';
+    const gone = mode.alt === 'flashback' || mode.alt === 'jumpstart' || o.castAftermath || (o.castFrom === 'graveyard' && (p.gyCast?.turn === this.turn || o.gyOnceExile)) ? 'exile' : buyback ? 'hand' : 'graveyard';
     o.gyOnceExile = false;
     if (item.countered) { this.move(o, item.toExile ? 'exile' : item.toHand ? 'hand' : gone === 'hand' ? 'graveyard' : gone); await this.beat(0.4); return true; }
     // A spell whose every target has become illegal doesn't resolve
@@ -3896,20 +3919,46 @@ export class Game {
     o.altFaceOn = false;
   }
   // The face that can be cast instead of the front from the hand (an adventure, or an MDFC's spell back), if castable now
+  // (a split card's second half with aftermath is cast only from the graveyard, and exiled after: 702.127)
+  aftermath(o) { return o.card.layout === 'split' && /^aftermath\b/im.test(o.card.altFace?.text || ''); }
   faceCastMode(p, o) {
     const f = o.card.altFace;
-    if (!f || this.rules < 5 || o.zone !== 'hand' || o.altFaceOn || f.fx.type.land || o.card.layout === 'split') return null;
+    if (!f || this.rules < 5 || o.altFaceOn || f.fx.type.land) return null;
+    if (o.zone !== (this.aftermath(o) ? 'graveyard' : 'hand') || (o.zone === 'graveyard' && o.owner !== p.idx)) return null;
     this.useFace(o, f);
-    try { return this.castMode(p, o); } finally { this.mainFace(o); }
+    // (from the graveyard, aftermath is its permission: the half's own cost, at its own timing)
+    try {
+      if (o.zone === 'graveyard') {
+        if (this.silenced[p.idx] === this.turn) return null;
+        const timing = f.fx.type.instant || (this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length);
+        return timing && this.planPayment(p, parseCost(f.manaCost), 0) ? { alt: 'aftermath' } : null;
+      }
+      return this.castMode(p, o);
+    } finally { this.mainFace(o); }
   }
   async castFace(p, o) {
     const mode = this.faceCastMode(p, o);
     if (!mode) return false;
+    const fromGy = o.zone === 'graveyard';
     this.useFace(o, o.card.altFace);
     o.onAdventure = o.baseCard.layout === 'adventure';
+    o.castAftermath = fromGy;
     const ok = await this.cast(p, o, { mode });
-    if (!ok && o.zone === 'hand') { this.mainFace(o); o.onAdventure = false; }
+    o.castAftermath = false;
+    if (!ok && (o.zone === 'hand' || o.zone === 'graveyard')) { this.mainFace(o); o.onAdventure = false; }
     return ok;
+  }
+  canCleave(p, o) {
+    return !!o.fx.cleave && !!o.fx.cleaveSpell?.length && this.rules >= 5 && o.zone === 'hand' && this.silenced[p.idx] !== this.turn && !this.spellCapped(p, o)
+      && (o.fx.type.instant || this.has(o, 'flash') || (this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length))
+      && !!this.planPayment(p, parseCost(o.fx.cleave), 0);
+  }
+  // Fuse: both halves of a split card from the hand, paying both costs
+  canFuse(p, o) {
+    const f = o.card.altFace;
+    return !!f && this.rules >= 5 && o.zone === 'hand' && o.card.layout === 'split' && /^fuse\b/im.test(o.card.text || '') && !this.aftermath(o)
+      && this.silenced[p.idx] !== this.turn && (o.fx.type.instant || (this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length))
+      && !!this.planPayment(p, this.altCost(o, 'fuse'), 0);
   }
   // A modal double-faced card whose back is a land: played as that land (uses the land drop)
   canPlayBackLand(p, o) {

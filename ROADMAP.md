@@ -380,7 +380,15 @@ on top of the ones above:
     "face down". AI scores bestow and mutate against a plain cast; human seats pick from the card's play options.
     Not done: "unattach" with reconfigure, choosing to put a mutating card underneath. Tested: 30 games with a
     bestow/mutate/reconfigure deck (10 bestowed, 46 mutates, reconfigures, 0 errors, no rule broken after the fixes).
-- [ ] 89. Madness (finish), cleave, meld, split cards with fuse, and aftermath.
+- [x] 89. Madness (finish), cleave, meld, split cards with fuse, and aftermath.
+  - Done: madness and cleave are read as costs. Madness: a discarded madness card is exiled and a "madness" trigger
+    lets its owner cast it for the madness cost (AI if it scores, human seats are asked), else it goes to the
+    graveyard. Cleave: analyzeCard reads the card twice (with and without the [bracketed] words; fx.cleaveSpell), cast
+    with alt 'cleave'. Split cards (via item 87's altFace): either half from hand; fuse casts both halves for both
+    costs (canFuse); aftermath halves only from the graveyard, exiled afterwards. Cast log names the mode. AI weighs
+    cleave and fuse against the plain half; human seats see them in the card's play options. Not done: meld (needs
+    both cards together; left for the coverage pass). Tested: 16 + 12 games with a madness/cleave/split deck (175
+    casts in the new modes, 0 errors, no rule broken), and set boards for madness, cleave, fuse and a split half.
 - [ ] 90. Layers (rule 613) with timestamps for copy, control, text, type, color, ability and P/T effects instead of
   today's fixed order; an invariants check that the result doesn't depend on the order effects were added.
 - [ ] 91. Several replacement or prevention effects on one event: the affected player chooses the order (616.1); human

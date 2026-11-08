@@ -696,12 +696,12 @@ export class Agent {
     const breach = p.battlefield.some(x => x.fx.breach);
     const top = p.library[p.library.length - 1];
     const fromElsewhere = [...p.exile.filter(c => c.mayPlay?.p === p.idx && !c.fx.type.land), ...(top && !top.fx.type.land && g.topPlayable(p, top) ? [top] : [])];
-    for (const o of [...p.hand, ...p.command, ...fromElsewhere, ...p.graveyard.filter(c => c.fx.flashback || c.tempFlashback === g.turn || c.fx.escape || c.fx.jumpstart || (breach && !c.fx.type.land))]) {
+    for (const o of [...p.hand, ...p.command, ...fromElsewhere, ...p.graveyard.filter(c => c.fx.flashback || c.tempFlashback === g.turn || c.fx.escape || c.fx.jumpstart || (breach && !c.fx.type.land) || g.aftermath(c))]) {
       if (o.fx.type.land || held.has(o)) continue;
       // A ritual is worth more next turn when a ready combo is short on mana (planning a turn ahead)
       if (ready.length && !o.fx.type.permanent && o.fx.spell.some(e => e.k === 'addMana')) continue;
       const mode = g.castMode(p, o);
-      const faceMode = o.zone === 'hand' ? g.faceCastMode(p, o) : null;
+      const faceMode = o.zone === 'hand' || o.zone === 'graveyard' ? g.faceCastMode(p, o) : null;
       const bestowOk = o.zone === 'hand' && g.canBestow(p, o), mutateOk = o.zone === 'hand' && g.canMutate(p, o);
       if (!mode && !faceMode && !bestowOk && !mutateOk) continue;
       // A combo spell that does nothing on its own (Tainted Pact without Oracle) waits for its partner
@@ -729,6 +729,16 @@ export class Agent {
         const base = Math.max(0, mode ? s : this.scoreCast(g, p, o, phase));
         const ms = base + (o.fx.onMutate || []).reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) + (host && !host.sick ? 1.5 : 0) - 1;
         if (host && ms > s && ms > 0.5) opts.push({ s: ms, why: `mutates ${o.card.name} onto ${host.card.name}`, run: () => g.cast(p, o, { mode: { alt: 'mutate' }, mutateOnto: host }) });
+      }
+      // Cleave (the text without its brackets) and fuse (both halves of a split card) when they're worth more
+      if (mode && o.zone === 'hand' && g.canCleave(p, o)) {
+        const sum = es => es.reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0);
+        const cs = s + sum(o.fx.cleaveSpell) - sum(o.fx.spell) - 0.5;
+        if (cs > s && cs > 0.5) opts.push({ s: cs, why: `casts ${o.card.name} with cleave`, run: () => g.cast(p, o, { mode: { alt: 'cleave' } }) });
+      }
+      if (o.zone === 'hand' && g.canFuse(p, o)) {
+        const both = [...o.fx.spell, ...o.card.altFace.fx.spell].reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0);
+        if (both > s + 1) opts.push({ s: both, why: `casts both halves of ${o.card.name} (fuse)`, run: () => g.cast(p, o, { mode: { alt: 'fuse' } }) });
       }
       if (!mode && !faceMode) continue;
       if (faceMode) {
@@ -1255,6 +1265,8 @@ export class Agent {
     } finally { this.xOverride = prev; }
     return best;
   }
+  // Madness: cast the discarded card now when it's worth casting at all
+  wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }
   // Mutate onto the creature that gains most from it: one that can attack now, and not our commander
   chooseMutateTarget(g, p, o, hosts) {
     return [...hosts].sort((a, b) => (this.value(g, b) + (b.sick ? 0 : 2) - (b.isCommander ? 3 : 0)) - (this.value(g, a) + (a.sick ? 0 : 2) - (a.isCommander ? 3 : 0)))[0] || null;

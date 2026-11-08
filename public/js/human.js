@@ -189,6 +189,11 @@ export class HumanAgent extends Agent {
     return r.button === true;
   }
 
+  // Madness: cast the card you just discarded for its madness cost?
+  async wantsMadnessAsync(g, p, o) {
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b> was discarded: cast it for its madness cost ${esc(o.fx.madness)}?`, { buttons: [{ label: `Cast it (${o.fx.madness})`, value: true, primary: true }, { label: 'No', value: false }] });
+    return r.button === true;
+  }
   // {X} in an ability's cost: how much X to pay (up to what the mana allows)
   async chooseAbilityXAsync(g, p, o, ab, max) {
     if (max <= 0) return 0;
@@ -375,7 +380,7 @@ export class HumanAgent extends Agent {
       const faceDowns = [...p.hand.filter(o => g.canCastFaceDown(p, o)), ...p.battlefield.filter(o => g.canTurnFaceUp(p, o))];
       // Adventures and modal double-faced cards: the other face can be cast, or a land back played
       // (and bestow or mutate, other ways to cast a creature)
-      const otherFaces = p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o) || g.canBestow(p, o) || g.canMutate(p, o));
+      const otherFaces = [...p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o) || g.canBestow(p, o) || g.canMutate(p, o) || g.canCleave(p, o) || g.canFuse(p, o)), ...p.graveyard.filter(o => g.faceCastMode(p, o))];
       const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns, ...otherFaces])];
       const loop = this.loopBlock();
       const fromGy = spells.some(o => o.zone === 'graveyard') || graveAbs.length;
@@ -435,8 +440,11 @@ export class HumanAgent extends Agent {
           ...(g.canBestow(p, o) ? [{ label: `Bestow (${o.fx.bestow})`, value: 'bestow' }] : []),
           ...(g.canMutate(p, o) ? [{ label: `Mutate (${o.fx.mutate})`, value: 'mutate' }] : []),
           ...(faceDowns.includes(o) ? [{ label: 'Face down ({3})', value: 'down' }] : []),
+          ...(g.canCleave(p, o) ? [{ label: 'Cleave (' + o.fx.cleave + ')', value: 'cleave' }] : []),
+          ...(g.canFuse(p, o) ? [{ label: 'Fuse: cast both halves', value: 'fuse' }] : []),
         ];
         const c = opts.length === 1 ? opts[0].value : (await this.ui.ask(`<b>${esc(o.card.name)}${f ? ` // ${esc(f.name)}` : ''}</b>: how do you want to play it?`, { buttons: [...opts, { label: 'Cancel', value: 'cancel' }] })).button;
+        if (c === 'cleave' || c === 'fuse') { await g.cast(p, o, { mode: { alt: c } }); this.acts = []; continue; }
         if (c === 'bestow') { await g.cast(p, o, { mode: { alt: 'bestow' } }); this.acts = []; continue; }
         if (c === 'mutate') {
           const t = await this.ui.ask(`<b>${esc(o.card.name)}</b>: mutate onto which creature? (on top: it takes this card's name and power/toughness)`, { objs: g.mutateTargets(p, o), buttons: [{ label: 'Cancel', value: 'cancel' }] });
