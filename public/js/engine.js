@@ -1219,6 +1219,19 @@ export class Game {
   etbSuppressed(q) { return !!q && this.opponents(q).some(x => x.battlefield.some(s => s.fx.noEtbOpp)); }
   async flushTriggers() {
     while (this.queue.length && !this.over) {
+      // Triggers that have just triggered go on the stack in APNAP order (603.3b): the active player's first, then
+      // each other player's in turn order, so the last player's resolve first. They sit above any triggers still
+      // waiting from before, so they resolve before those. (Rules 4 and earlier: first triggered, first resolved.)
+      if (this.rules >= 5) {
+        const fresh = this.queue.filter(x => !x.queued);
+        if (fresh.length) {
+          const n = this.players.length, a = this.active;
+          const d = x => (x.p.idx - a + n) % n;
+          fresh.sort((x, y) => d(y) - d(x));
+          for (const x of fresh) x.queued = true;
+          this.queue.splice(0, this.queue.length, ...fresh, ...this.queue.filter(x => !fresh.includes(x)));
+        }
+      }
       // Several of a person's triggers waiting at once: they choose the order (603.3b)
       const head = this.queue[0];
       if (!head.ordered && head.p.agent.orderTriggersAsync && !head.p.lost) {
@@ -1874,6 +1887,16 @@ export class Game {
         } else if (e.to === 'each opponent' || e.to === 'each player') {
           for (const q of e.to === 'each player' ? this.alive() : this.opponents(p)) this.damagePlayer(q, n, src, false);
           this.log(`${S} deals ${n} damage to ${e.to}`);
+        } else if (e.divided > 1 && n > 1 && this.rules >= 5) {
+          // "Divided as you choose among any number of targets" (601.2d): the caster splits it (the AI kills what it
+          // can and sends the rest to the chosen target; people are asked). Chosen as it resolves here.
+          const legal = x => (x.obj ? x.obj.zone === 'battlefield' && x.obj.fx.type.creature && this.canTarget(p, x.obj) : e.to === 'any target' && x.player != null && !this.players[x.player]?.lost);
+          let plan = await (p.agent.divideDamageAsync ? p.agent.divideDamageAsync(this, p, src, e, n, tgt) : p.agent.divideDamage(this, p, src, e, n, tgt));
+          if (!Array.isArray(plan) || plan.length > e.divided || plan.some(x => !(x.n > 0) || !legal(x)) || plan.reduce((a, x) => a + x.n, 0) !== n) plan = tgt && (tgt.obj || tgt.player != null) ? [{ ...tgt, n }] : [];
+          for (const x of plan) {
+            if (x.obj) this.damageObj(x.obj, x.n, src); else this.damagePlayer(this.players[x.player], x.n, src, false);
+          }
+          if (plan.length) this.log(`${S} deals ${plan.map(x => `${x.n} to ${x.obj ? this.cn(x.obj) : this.pn(this.players[x.player])}`).join(', ')}`, { rule: '601.2d' });
         } else if (tgt?.obj) { this.damageObj(tgt.obj, n, src); this.log(`${S} deals ${n} damage to ${tName(tgt)}`); }
         else if (tgt?.player != null) { this.damagePlayer(this.players[tgt.player], n, src, false); this.log(`${S} deals ${n} damage to ${tName(tgt)}`); }
         break;
@@ -4529,6 +4552,16 @@ export class Game {
     return true;
   }
 
+  // A division of an attacker's combat damage: [{ obj, n } for blockers, { player: true, n } for trample-over].
+  // Returns it if it adds up and gives the player nothing before every blocker has lethal damage, else null.
+  lethalFor(b, dt) { return dt ? 1 : Math.max(0, this.toughness(b) - b.damage); }
+  validDamagePlan(plan, blockers, dmg, tr, dt) {
+    if (!Array.isArray(plan) || plan.some(x => !(x.n >= 0) || (x.obj && !blockers.includes(x.obj)))) return null;
+    if (plan.reduce((s, x) => s + x.n, 0) !== dmg) return null;
+    const toPlayer = plan.filter(x => !x.obj).reduce((s, x) => s + x.n, 0);
+    if (toPlayer && (!tr || blockers.some(b => plan.filter(x => x.obj === b).reduce((s, x) => s + x.n, 0) < this.lethalFor(b, dt)))) return null;
+    return plan;
+  }
   async combatDamage(p, first, hadFirst) {
     // Fog effects
     if (this.fogTurn === this.turn && !this.noPrevent()) { if (!first) this.log('All combat damage is prevented this turn', { kind: 'combat', rule: '615.1' }); return; }
@@ -4544,14 +4577,21 @@ export class Game {
           if (!a.blocked) evs.push({ src: a, player: a.attacking, n: dmg });
           else if (!blockers.length) { if (tr) evs.push({ src: a, player: a.attacking, n: dmg }); }
           else {
-            blockers.forEach((b, k) => {
-              if (dmg <= 0) return;
-              const lethal = dt ? 1 : Math.max(0, this.toughness(b) - b.damage);
-              const amt = k === blockers.length - 1 && !tr ? dmg : Math.min(dmg, lethal);
-              evs.push({ src: a, obj: b, n: amt });
-              dmg -= amt;
-            });
-            if (dmg > 0 && tr) evs.push({ src: a, player: a.attacking, n: dmg });
+            // The attacking player divides the damage among the blockers as they choose (510.1c); with trample, the
+            // rest goes to the player once every blocker has been assigned lethal damage (702.19c). Rules 4: in order.
+            const plan = this.rules >= 5 && (blockers.length > 1 || tr) && p.agent.assignCombatDamage
+              ? this.validDamagePlan(await p.agent.assignCombatDamage(this, p, a, blockers, dmg, tr, dt), blockers, dmg, tr, dt) : null;
+            if (plan) { for (const x of plan) if (x.n > 0) evs.push(x.obj ? { src: a, obj: x.obj, n: x.n } : { src: a, player: a.attacking, n: x.n }); }
+            else {
+              blockers.forEach((b, k) => {
+                if (dmg <= 0) return;
+                const lethal = dt ? 1 : Math.max(0, this.toughness(b) - b.damage);
+                const amt = k === blockers.length - 1 && !tr ? dmg : Math.min(dmg, lethal);
+                evs.push({ src: a, obj: b, n: amt });
+                dmg -= amt;
+              });
+              if (dmg > 0 && tr) evs.push({ src: a, player: a.attacking, n: dmg });
+            }
           }
         }
       }

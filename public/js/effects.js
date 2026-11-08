@@ -319,7 +319,7 @@ const PATTERNS = [
   [/exile two target permanents/, () => ({ k: 'remove', mode: 'exile', what: 'nonland permanent' })],
   [/defending player exiles the top (\w+) cards of their library/, m => ({ k: 'mill', who: 'defending player', n: num(m[1]), exile: true })],
   [/copy it for each other instant and sorcery spell you've cast before it this turn/, () => ({ k: 'copyTrig', storm: true })],
-  [/deals (x|\d+) damage divided as you choose among (?:up to )?(?:one|two|three|any number of|one, two, or three) (?:target )?(?:creatures and\/or planeswalkers|targets?)/, m => ({ k: 'damage', n: num(m[1]), to: /planeswalkers/.test(m[0]) ? 'target creature' : 'any target' })],
+  [/deals (x|\d+) damage divided as you choose among (?:up to )?(one|two|three|any number of|one, two, or three) (?:target )?(?:creatures and\/or planeswalkers|targets?)/, m => ({ k: 'damage', n: num(m[1]), to: /planeswalkers/.test(m[0]) ? 'target creature' : 'any target', divided: /any number/.test(m[2]) ? 99 : /three/.test(m[2]) ? 3 : m[2] === 'two' ? 2 : 1 })],
   [/it deals that much damage to each creature that player controls/, () => ({ k: 'sweepThat', n: { dyn: 'trigN' } })],
   [/put that many (\w+) counters on ~/, m => ({ k: 'namedCounter', kind: m[1], n: { dyn: 'trigN' } })],
   // ---- 1.6.0 fourth batch

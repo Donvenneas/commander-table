@@ -189,6 +189,50 @@ export class HumanAgent extends Agent {
     return r.button === true;
   }
 
+  // Your attacker is blocked by several creatures (or has trample): divide its damage
+  async assignCombatDamage(g, p, a, blockers, dmg, tr, dt) {
+    const plan = new Map(blockers.map(b => [b, 0]));
+    let left = dmg;
+    while (left > 0) {
+      const allLethal = blockers.every(b => plan.get(b) >= g.lethalFor(b, dt));
+      const r = await this.ui.ask(`<b>${esc(a.card.name)}</b> has <b>${left}</b> of ${dmg} damage left to assign. Click a blocker${tr ? (allLethal ? ', or send the rest to the player (trample)' : ' (trample: every blocker needs lethal damage before the player gets any)') : ''}. ${blockers.map(b => `${esc(b.card.name)}: ${plan.get(b)} (lethal ${g.lethalFor(b, dt)})`).join(' · ')}`, {
+        objs: blockers,
+        buttons: [...(tr && allLethal ? [{ label: `Rest to the player (${left})`, value: 'player', primary: true }] : []), { label: 'Assign it for me', value: 'ai' }],
+      });
+      if (r.button === 'player') return [...blockers.map(b => ({ obj: b, n: plan.get(b) })), { player: true, n: left }];
+      if (r.button === 'ai' || !r.obj) return super.assignCombatDamage(g, p, a, blockers, dmg, tr, dt);
+      const b = r.obj, need = Math.max(0, g.lethalFor(b, dt) - plan.get(b));
+      const amts = [...new Set([need, 1, 2, 3, left].filter(n => n >= 1 && n <= left))].sort((x, y) => x - y);
+      const c = await this.ui.ask(`How much damage to <b>${esc(b.card.name)}</b>?`, { buttons: [...amts.map(n => ({ label: n === need ? `${n} (lethal)` : n === left ? `${n} (all)` : `${n}`, value: n, primary: n === need })), { label: 'Back', value: 0 }] });
+      if (typeof c.button === 'number' && c.button > 0) { plan.set(b, plan.get(b) + c.button); left -= c.button; }
+    }
+    return blockers.map(b => ({ obj: b, n: plan.get(b) }));
+  }
+  // "Damage divided as you choose among …": pick targets and amounts
+  async divideDamageAsync(g, p, src, e, n, tgt) {
+    const plan = [];
+    let left = n;
+    const creatures = () => g.players.flatMap(q => q.battlefield.filter(o => o.fx.type.creature && g.canTarget(p, o)));
+    const key = x => (x.obj ? `o${x.obj.iid}` : `p${x.player}`);
+    while (left > 0) {
+      const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: ${left} of ${n} damage left to divide${plan.length ? ` (so far: ${plan.map(x => `${x.n} to ${esc(x.obj ? x.obj.card.name : g.players[x.player].name)}`).join(', ')})` : ''}. Click a creature${e.to === 'any target' ? ' or choose a player' : ''}.`, {
+        objs: creatures(),
+        buttons: [...(e.to === 'any target' ? g.alive().map(q => ({ label: q.name, value: { player: q.idx } })) : []), { label: 'Divide it for me', value: 'ai' }],
+      });
+      if (r.button === 'ai') return super.divideDamage(g, p, src, e, n, tgt);
+      const pick = r.obj ? { obj: r.obj } : r.button?.player != null ? { player: r.button.player } : null;
+      if (!pick) continue;
+      const have = plan.find(x => key(x) === key(pick));
+      if (!have && plan.length >= e.divided) continue;
+      const need = pick.obj ? Math.max(1, g.toughness(pick.obj) - pick.obj.damage) : left;
+      const amts = [...new Set([1, 2, 3, need, left].filter(k => k >= 1 && k <= left))].sort((a, b) => a - b);
+      const c = await this.ui.ask(`How much to <b>${esc(pick.obj ? pick.obj.card.name : g.players[pick.player].name)}</b>?`, { buttons: [...amts.map(k => ({ label: `${k}${pick.obj && k === need ? ' (lethal)' : k === left ? ' (all)' : ''}`, value: k, primary: k === need })), { label: 'Back', value: 0 }] });
+      if (typeof c.button !== 'number' || c.button <= 0) continue;
+      if (have) have.n += c.button; else plan.push({ ...pick, n: c.button });
+      left -= c.button;
+    }
+    return plan;
+  }
   // Madness: cast the card you just discarded for its madness cost?
   async wantsMadnessAsync(g, p, o) {
     const r = await this.ui.ask(`<b>${esc(o.card.name)}</b> was discarded: cast it for its madness cost ${esc(o.fx.madness)}?`, { buttons: [{ label: `Cast it (${o.fx.madness})`, value: true, primary: true }, { label: 'No', value: false }] });

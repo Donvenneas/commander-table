@@ -1265,6 +1265,46 @@ export class Agent {
     } finally { this.xOverride = prev; }
     return best;
   }
+  // Combat damage among several blockers (and trample): kill the most valuable blockers it can, then push the rest
+  // through to the player with trample (or onto the next blocker). Lethal through trample comes first.
+  assignCombatDamage(g, p, a, blockers, dmg, tr, dt) {
+    const lethal = b => g.lethalFor(b, dt);
+    const total = blockers.reduce((s, b) => s + lethal(b), 0);
+    const q = g.players[a.attacking];
+    if (tr && dmg - total > 0 && q && dmg - total >= q.life) return [...blockers.map(b => ({ obj: b, n: lethal(b) })), { player: true, n: dmg - total }];
+    const plan = new Map(blockers.map(b => [b, 0]));
+    let left = dmg;
+    for (const b of [...blockers].sort((x, y) => this.value(g, y) - this.value(g, x))) {
+      const need = lethal(b);
+      if (need <= left) { plan.set(b, need); left -= need; }
+    }
+    const out = blockers.map(b => ({ obj: b, n: plan.get(b) }));
+    if (left > 0) {
+      if (tr && blockers.every(b => plan.get(b) >= lethal(b))) out.push({ player: true, n: left });
+      else { const last = out.find(x => x.n < lethal(x.obj)) || out[0]; last.n += left; }
+    }
+    return out;
+  }
+  // "Damage divided as you choose": kill the opponents' best creatures it can, the rest to the chosen target (or the
+  // weakest opponent's face when players can be targeted)
+  divideDamage(g, p, src, e, n, tgt) {
+    const out = [];
+    let left = n;
+    const foes = g.opponents(p).flatMap(q => q.battlefield.filter(o => o.fx.type.creature && g.canTarget(p, o)))
+      .map(o => ({ o, need: Math.max(1, g.toughness(o) - o.damage), v: this.value(g, o) }))
+      .filter(x => !g.has(x.o, 'indestructible')).sort((a, b) => b.v / b.need - a.v / a.need);
+    for (const f of foes) {
+      if (out.length >= e.divided - 1 && left < n) break;
+      if (f.need <= left) { out.push({ obj: f.o, n: f.need }); left -= f.need; }
+    }
+    if (left > 0) {
+      const face = e.to === 'any target' ? (tgt?.player != null ? tgt.player : this.weakestOpponent(g, p)?.idx) : null;
+      if (face != null && out.length < e.divided) out.push({ player: face, n: left });
+      else if (out.length) out[0].n += left;
+      else if (tgt?.obj || tgt?.player != null) out.push({ ...tgt, n: left });
+    }
+    return out;
+  }
   // Madness: cast the discarded card now when it's worth casting at all
   wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }
   // Mutate onto the creature that gains most from it: one that can attack now, and not our commander

@@ -408,10 +408,23 @@ on top of the ones above:
     every choice here is about an amount, so their best order is used. Rules 4 replays keep battlefield order.
     Zone-change replacements (Rest in Peace, God-Eternals, commanders) are item 96. Tested: set boards both ways
     round (4 counters either way; 3 damage through Torbran + Dictate into Gisela → 4), 8 games, 0 errors.
-- [ ] 92. Triggers from several players at once go on the stack in APNAP order (603.3b), each player ordering their own
+- [x] 92. Triggers from several players at once go on the stack in APNAP order (603.3b), each player ordering their own
   (extends item 68).
-- [ ] 93. Combat choices for human seats: damage assignment among several blockers, trample with deathtouch, and
+  - Done: flushTriggers (rules 5) sorts triggers that have just triggered so the active player's go on the stack
+    first and the last player's in turn order resolve first, and puts them above triggers still waiting from before
+    (so a trigger's own triggers resolve before older ones, as on a real stack). Each player still orders their own
+    (item 68). Self-test: 17/17, 0 errors, rules check clean (57 combos landed instead of 50: trigger order changes
+    some games, as expected).
+- [x] 93. Combat choices for human seats: damage assignment among several blockers, trample with deathtouch, and
   dividing damage from "divided as you choose" spells.
+  - Done: an attacker blocked by several creatures, or with trample, has its damage divided by its controller
+    (agent.assignCombatDamage, checked by Game.validDamagePlan: it must add up, and trample damage reaches the player
+    only once every blocker has lethal, 1 with deathtouch). The AI kills the most valuable blockers it can and pushes
+    lethal through with trample; human seats click blockers and amounts, or "Assign it for me". "Divided as you
+    choose" spells and abilities (Arc Lightning, Forked Bolt, Inferno Titan…) now split their damage (fx.divided =
+    most targets): the AI kills what it can and sends the rest to a player; people pick targets and amounts. The split
+    is chosen as it resolves, not when cast. Tested: 16 games (31 divided splits, 0 errors, no rule broken) and a set
+    board (6/6 trampler into three blockers; an illegal split refused).
 - [ ] 94. Initiative and dungeons (venture into the dungeon, Undercity), and day/night (daybound/nightbound).
 - [ ] 95. Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special
   action and check the deck-building condition when the deck loads (a warning in formats.js).
