@@ -2515,13 +2515,25 @@ export class Game {
       }
       case 'animate': {
         if (src.zone !== 'battlefield') break;
-        src.animPT = { p: e.p, t: e.t, turn: this.turn, ts: ++this.tsN };
+        src.animPT = { p: X(e.p), t: X(e.t), turn: this.turn, ts: ++this.tsN };
         if (!src.fx.type.creature) { src.crewed = true; src.fx = { ...src.card.fx, type: { ...src.card.fx.type, creature: true } }; }
         if (e.kw.length) src.tempKw = new Set([...(src.tempKw || []), ...e.kw]);
         this.log(`${S} becomes a ${e.p}/${e.t} creature until end of turn`, { kind: 'minor' });
         break;
       }
       case 'manifest': this.manifest(p, e, ctx); break;
+      case 'scrollRack': {
+        // (the weakest cards in hand, up to three, go on top; that many come off the top first)
+        const worst = [...p.hand].map(o => ({ o, v: p.agent.value(this, o) + p.agent.pieceWorth(this, p, o) * 2 + (o.fx.type.land && p.battlefield.filter(x => x.fx.type.land).length < 5 ? 3 : 0) }))
+          .filter(x => x.v < 3).sort((a, b) => a.v - b.v).slice(0, Math.min(3, p.library.length)).map(x => x.o);
+        if (!worst.length) { this.log(`${S}: ${this.pn(p)} keeps their hand`, { kind: 'minor' }); break; }
+        for (const o of worst) this.move(o, 'exile');
+        const got = p.library.splice(-worst.length).reverse();
+        for (const o of got) { o.zone = 'hand'; p.hand.push(o); }
+        for (const o of worst) this.move(o, 'library');
+        this.log(`${S}: ${this.pn(p)} swaps ${worst.length} card${worst.length === 1 ? '' : 's'} in hand for the top of their library`, { kind: 'minor' });
+        break;
+      }
       case 'venture': if (this.rules >= 5) await this.venture(p); break;
       case 'initiative': if (this.rules >= 5) await this.takeInitiative(p); break;
       case 'madnessCast': {
@@ -3879,10 +3891,11 @@ export class Game {
     if (c.exileGy && pool.exileGy.length < c.exileGy) return false;
     if (c.tapOthers && pool.tapOthers.length < c.tapOthers.n) return false;
     if (c.removeCounters && o.counters < c.removeCounters) return false;
+    if (c.removeNamed && Math.max(o.named?.[c.removeNamed.kind] || 0, o.counters) < c.removeNamed.n) return false;
     // {Q} (untap this permanent, Pili-Pala): it has to be tapped, and like {T} it needs no summoning sickness
     if (c.untapSelf && (!o.tapped || o.zone !== 'battlefield' || !this.canTapNow(p, o))) return false;
     if (c.bounce && !pool.bounce.length) return false;
-    if ((c.sacSelf || c.exileSelf || c.removeCounters || c.bounceSelf) && o.zone !== 'battlefield') return false;
+    if ((c.sacSelf || c.exileSelf || c.removeCounters || c.removeNamed || c.bounceSelf) && o.zone !== 'battlefield') return false;
     if (c.mill && p.library.length < c.mill) return false;
     if (c.untapOthers && pool.untapOthers.length < c.untapOthers.n) return false;
     if (c.exileOwn && !pool.exileOwn.length) return false;
@@ -3972,6 +3985,8 @@ export class Game {
       this.log(`${this.pn(p)} exiles ${xs.length} card${xs.length === 1 ? '' : 's'} from their graveyard${why}`, { kind: 'minor' });
     }
     if (c.removeCounters) o.counters -= c.removeCounters;
+    // (named counters, or +1/+1-style ones where the engine keeps that kind as plain counters)
+    if (c.removeNamed) { const k = c.removeNamed.kind; if ((o.named?.[k] || 0) >= c.removeNamed.n) o.named[k] -= c.removeNamed.n; else o.counters -= c.removeNamed.n; }
     if (c.bounce) { const [x] = await worst(pool.bounce, 1, `Return a ${c.bounce.what} to your hand${why}`); if (x) { this.move(x, 'hand'); this.log(`${this.pn(p)} returns ${this.cn(x)} to hand${why}`, { kind: 'minor' }); } }
     if (c.sac) for (const x of await worst(pool.sac, c.sac.n, `Sacrifice ${c.sac.n > 1 ? c.sac.n : 'a'} ${c.sac.what}${why}`)) this.sacrifice(p, x, why);
     if (c.sacSelf && o.zone === 'battlefield') this.sacrifice(p, o, ' as a cost');

@@ -959,6 +959,7 @@ export class Agent {
       }
       case 'token': return N(e.n) * (N(e.p) + N(e.t)) * 0.7 + e.kw.length * 0.5;
       case 'manifest': return N(e.n || 1) * (e.cloak ? 3.2 : 2.8);
+      case 'scrollRack': return p.hand.length ? 1.5 : 0;
       // (a room's worth of value; the initiative also ventures every upkeep while it's held)
       case 'venture': return 2;
       case 'initiative': return g.initiative === p.idx ? 2 : 5;

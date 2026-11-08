@@ -459,6 +459,14 @@ on top of the ones above:
     Thrasios list is flagged, the four presets aren't.
 - [ ] 97. Coverage pass 2: rerun the 3,500-card scan and model the most common families still unread (Sundial, Scroll
   Rack, Chain Veil, "becomes a copy … with mana value X", Planar Bridge and the like). Target 88% → 93%.
+  - Progress (not ticked: the target isn't met): rescan 2026-11-08 after items 85–96: 88.2% (3,086 of 3,500).
+    The 414 unread cards have almost no families left (the biggest: paradigm ×3, soulbond ×2, "prepared" ×2);
+    each needs its own rule. Done here: Scroll Rack (swaps up to three weak cards for the top of the library),
+    "remove N <kind> counters" costs now use the engine's named counters (Khalni Heart Expedition works end to end),
+    "and sacrifice it" costs, manlands with X or hyphenated types (Lair of the Hydra, Mishra's Factory's first line),
+    Hooded Hydra. Now 88.3% (3,090), none lost. Next candidates: Sundial of the Infinite (end the turn), paradigm,
+    disturb, casualty, graveyard returns with non-mana costs (Metalwork Colossus, Jarad), counter abilities on
+    permanents (Glen Elendra, Siren Stormtamer).
 - [ ] 98. Coverage for 60-card and Limited play: scan the cards the random constructed and Limited generators pick
   most, and the seven rated 17Lands sets. Target 90% fully read, so item 80's rated drafters can trust more cards.
 - [ ] 99. Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with

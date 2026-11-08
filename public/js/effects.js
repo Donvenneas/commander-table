@@ -71,6 +71,8 @@ const PATTERNS = [
   [/reveal the top card of your library and put that card into your hand\. you lose life equal to its mana value/, () => ({ k: 'adNauseam' })],
   // Orcish Bowmasters and friends
   [/amass (?:\w+ )?(\d+)/, m => ({ k: 'token', n: 1, p: +m[1], t: +m[1], desc: 'orc army', kw: [] })],
+  // Scroll Rack: swap cards in hand for the top of the library (engine.js: the AI swaps its weakest cards)
+  [/exile any number of cards from your hand face down\. put that many cards from the top of your library into your hand/, () => ({ k: 'scrollRack' })],
   // Dungeons and the initiative (dungeons.js, engine.js venture)
   [/\bventure into the dungeon\b/, () => ({ k: 'venture' })],
   [/\b(?:you )?take(?:s)? the initiative\b/, () => ({ k: 'initiative' })],
@@ -207,7 +209,7 @@ const PATTERNS = [
   [/(target creature|~|target creature you control) can't be blocked this turn/, m => ({ k: 'evade', self: m[1] === '~' })],
   [/put an? (indestructible|flying|first strike|deathtouch|lifelink|trample|hexproof|menace|reach|vigilance) counter on (~|target creature(?: you control)?)/, m => ({ k: 'kwCounter', kw: m[1], self: m[2] === '~' })],
   [/reveal the top card of your library\. if it's a land card, put it onto the battlefield(?: tapped)?\. otherwise, put (?:that card|it) into your hand/, () => ({ k: 'topLandOrHand' })],
-  [/(?:~ becomes|until end of turn, ~ becomes) an? (\d+)\/(\d+) ([\w ,]*?)creature(?: with ([\w, ]+?))?(?: until end of turn|[.]|$)/, m => ({ k: 'animate', p: +m[1], t: +m[2], kw: kwList(m[4] || m[3]) })],
+  [/(?:~ becomes|until end of turn, ~ becomes) an? (\d+|x)\/(\d+|x) ([\w ,-]*?)creature(?: with ([\w, ]+?))?(?: until end of turn|[.]|$)/, m => ({ k: 'animate', p: m[1] === 'x' ? 'X' : +m[1], t: m[2] === 'x' ? 'X' : +m[2], kw: kwList(m[4] || m[3]) })],
   [/attach (?:it|~) to (?:up to one )?target (?:legendary )?creature you control/, () => ({ k: 'attachSelf' })],
   [/return (?:a|an) (land|creature|permanent|nonland permanent|artifact|enchantment) you control to its owner's hand/, m => ({ k: 'bounceOwn', what: m[1] })],
   [/you may play an additional land this turn/, () => ({ k: 'extraLand' })],
@@ -501,6 +503,8 @@ const COSTN = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|x|
 export function parseCostText(s) {
   const c = { mana: '', tap: false, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null };
   let m;
+  // (Khalni Heart Expedition: "remove three quest counters from ~ and sacrifice it" is two costs)
+  s = s.replace(/ and sacrifice (?:it|~)$/, ', sacrifice ~');
   for (let part of s.split(/,\s*(?![^{]*\})/).map(x => x.trim()).filter(Boolean)) {
     part = part.replace(/^and /, '');
     if (/^(\{[^}]+\})+$/.test(part)) {
@@ -515,7 +519,11 @@ export function parseCostText(s) {
     else if ((m = part.match(new RegExp(`^sacrifice (another |${COSTN} (?:other |untapped )?)([\\w -]+?)s?$`)))) c.sac = { n: m[1].trim() === 'another' ? 1 : num(m[2] || 'a'), what: m[3].replace(/ you control$/, '').trim(), other: /another|other/.test(m[1]) };
     else if ((m = part.match(new RegExp(`^exile ${COSTN} (?:other )?([\\w ]*?)cards? from your graveyard$`)))) c.exileGy = num(m[1]) === 'X' ? 1 : num(m[1]);
     else if ((m = part.match(new RegExp(`^tap ${COSTN} (?:other )?untapped ([\\w -]+?)s? you control$`)))) c.tapOthers = { n: num(m[1]) === 'X' ? 1 : num(m[1]), what: m[2].trim() };
-    else if ((m = part.match(new RegExp(`^remove ${COSTN} ([+\\-\\d/]+ |\\w+ )?counters? from ~$`)))) c.removeCounters = num(m[1]) === 'X' ? 1 : num(m[1]);
+    else if ((m = part.match(new RegExp(`^remove ${COSTN} ([+\\-\\d/]+ |\\w+ )?counters? from ~$`)))) {
+      // (+1/+1 counters, or a named kind the engine keeps apart: quest, charge, time… in o.named)
+      const n = num(m[1]) === 'X' ? 1 : num(m[1]);
+      if (m[2] && /^[a-z]+ $/.test(m[2])) c.removeNamed = { kind: m[2].trim(), n }; else c.removeCounters = n;
+    }
     else if ((m = part.match(/^return (?:a|an) ([\w ]+?) you control to its owner's hand$/))) c.bounce = { what: m[1] };
     // ---- 1.6.0 costs
     else if ((m = part.match(new RegExp(`^mill ${COSTN} cards?$`)))) c.mill = num(m[1]) === 'X' ? 1 : num(m[1]);
@@ -540,7 +548,7 @@ export function costText(c) {
   if (!c) return '';
   return [c.mana, c.tap && '{T}', c.life && `pay ${c.life} life`, c.discardHand && 'discard your hand', c.discard && `discard ${c.discard.n} ${c.discard.types.join('/') || ''} card${c.discard.n > 1 ? 's' : ''}`.replace('  ', ' '),
     c.sacSelf && 'sacrifice it', c.exileSelf && 'exile it', c.sac && `sacrifice ${c.sac.n > 1 ? c.sac.n + ' ' : c.sac.other ? 'another ' : /^[aeiou]/.test(c.sac.what) ? 'an ' : 'a '}${c.sac.what}`,
-    c.exileGy && `exile ${c.exileGy} from graveyard`, c.tapOthers && `tap ${c.tapOthers.n} untapped ${c.tapOthers.what}`, c.removeCounters && `remove ${c.removeCounters} counter${c.removeCounters > 1 ? 's' : ''}`,
+    c.exileGy && `exile ${c.exileGy} from graveyard`, c.tapOthers && `tap ${c.tapOthers.n} untapped ${c.tapOthers.what}`, c.removeCounters && `remove ${c.removeCounters} counter${c.removeCounters > 1 ? 's' : ''}`, c.removeNamed && `remove ${c.removeNamed.n} ${c.removeNamed.kind} counter${c.removeNamed.n > 1 ? 's' : ''}`,
     c.bounce && `return a ${c.bounce.what}`, c.mill && `mill ${c.mill}`, c.untapOthers && `untap ${c.untapOthers.n} tapped ${c.untapOthers.what}`, c.exert && 'exert it',
     c.minusSelf && 'put a -1/-1 counter on it', c.exileOwn && `exile a ${c.exileOwn.what}`, c.removeAny && `remove ${c.removeAny} counter${c.removeAny > 1 ? 's' : ''} from among your permanents`,
     c.forage && 'forage', c.energy && `pay ${c.energy} energy`].filter(Boolean).join(', ');
@@ -1697,6 +1705,8 @@ export function analyzeCard(card) {
       const es = parseEffects(m[1]);
       if (es.length) { fx.turnedUp = es; continue; }
     }
+    // Hooded Hydra: "As ~ is turned face up, put five +1/+1 counters on it"
+    if ((m = line.match(/^as ~ is turned face up, put (\w+) \+1\/\+1 counters on it\.?$/))) { fx.turnedUp = [{ k: 'counters', n: num(m[1]), on: '~' }]; continue; }
     // Gemrazer, Nethroi: "Whenever this creature mutates, …"
     if ((m = line.match(/^whenever (?:~|this creature) mutates, (.+)/))) {
       const es = parseEffects(m[1]);
