@@ -11,6 +11,7 @@ import { boosterData, boosterPacker } from './boosters.js';
 import { combosIn, fetchSpellbook, fetchSpellbookBracket } from './combos.js';
 import { coverage } from './effects.js';
 import { TableView, installPreview, installDetails, Sound } from './ui.js';
+import { Music } from './music.js';
 import { HumanAgent, HumanUI, SeatUI } from './human.js';
 import { Room, RemoteUI, snapshot, TURN_CLOCKS } from './net.js';
 // (a friend's time bank counts down on their board while they decide)
@@ -1325,6 +1326,14 @@ $('btnTheme').addEventListener('click', () => { prefs.theme = document.documentE
 $('followMode').checked = !!prefs.follow;
 $('soundOn').checked = !!prefs.sound;
 Sound.enabled = !!prefs.sound;
+// Separate volumes for the music and the effects (Display window)
+Sound.volume = (prefs.volFx ?? 100) / 100;
+Music.setVolume((prefs.volMusic ?? 100) / 100);
+$('volMusic').value = String(prefs.volMusic ?? 100);
+$('volFx').value = String(prefs.volFx ?? 100);
+$('volMusic').addEventListener('input', e => { prefs.volMusic = +e.target.value; store('ct.prefs', prefs); Music.setVolume(prefs.volMusic / 100); });
+$('volFx').addEventListener('input', e => { prefs.volFx = +e.target.value; store('ct.prefs', prefs); Sound.volume = prefs.volFx / 100; });
+$('volFx').addEventListener('change', () => Sound.play('cast'));
 // Browsers only start audio after a click or key press, so the music starts on the first one
 if (prefs.sound) document.addEventListener('pointerdown', () => Sound.setEnabled(prefs.sound), { once: true });
 document.body.classList.toggle('follow', !!prefs.follow);

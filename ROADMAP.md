@@ -643,8 +643,11 @@ on top of the ones above:
     between them and Enter or Space picks the focused one (buttons already had Space/Enter, 1–9, Esc, A). The action
     bar's question is a polite live region, and casts, combat, damage, removal, combos and eliminations are announced
     through a hidden live region. Tested: the first lesson played with Enter only. Not tested with a real screen reader.
-- [ ] 127. Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and "your turn", with
+- [x] 127. Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and "your turn", with
   separate volumes for music and effects.
+  - Done: synthesized effects already played for casts, lands, combat, damage, removal, deaths, combos, wins and
+    losses; added a two-note "your turn" sound and separate Music volume and Effects volume sliders in the Display
+    window (saved in prefs). Tested: sliders change both levels and are saved.
 - [ ] 128. High-contrast theme, card text size setting, and the OS "reduce motion" setting turning on "Fewer animations".
 - [ ] 129. Finish translations: help paragraphs, the game log, the self-test page and the windows from rounds 3–4
   (Expedition, builder, Draft, Updates) in es/fr/de/pt; add Italian and Japanese interfaces.

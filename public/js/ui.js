@@ -56,7 +56,7 @@ export class TableView {
     game.on('battle', d => { if (live()) { this.battle(d); Sound.combat(); } });
     game.on('combo', d => { if (live()) this.comboBanner(d); });
     game.on('turn', p => { if (live() && this.g.clock.speed !== undefined && this.g.clock.speed < 4) this.turnBanner(p); });
-    game.on('turn', p => { if (live() && document.body.classList.contains('follow')) this.boards[p.idx]?.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+    game.on('turn', p => { if (live() && document.body.classList.contains('follow')) this.boards[p.idx]?.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); if (live() && p.idx === this.humanIdx) Sound.play('yourTurn'); });
     document.querySelectorAll('.combo-banner, .combat-svg, .turn-banner').forEach(e => e.remove());
     this.banner = document.createElement('div');
     this.banner.className = 'combo-banner';
@@ -596,6 +596,8 @@ export class TableView {
 // ---------- sound effects, synthesized with Web Audio (no files to download)
 export const Sound = {
   enabled: false,
+  // Effects volume 0–1 (Display window; item 127), apart from the music's
+  volume: 1,
   ctx: null,
   last: 0,
   // The Sound switch turns the background music on and off with the effects
@@ -605,6 +607,7 @@ export const Sound = {
     cast: [[520, 0.06], [780, 0.08]], land: [[180, 0.07]], combat: [[140, 0.12], [110, 0.12]], damage: [[90, 0.15]],
     removal: [[400, 0.05], [260, 0.1]], death: [[220, 0.08], [150, 0.14]], combo: [[523, 0.08], [659, 0.08], [784, 0.08], [1047, 0.2]],
     win: [[523, 0.12], [659, 0.12], [784, 0.12], [1047, 0.35]], loss: [[300, 0.15], [200, 0.25]], politics: [[660, 0.06], [660, 0.06]],
+    yourTurn: [[440, 0.09], [660, 0.16]],
   },
   forLog(kind) { if (this.tones[kind]) this.play(kind); },
   play(kind) {
@@ -621,7 +624,7 @@ export const Sound = {
         osc.type = kind === 'damage' || kind === 'combat' ? 'triangle' : 'sine';
         osc.frequency.value = freq;
         gain.gain.setValueAtTime(0.0001, t);
-        gain.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.12 * this.volume), t + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
         osc.connect(gain).connect(this.ctx.destination);
         osc.start(t);
