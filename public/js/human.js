@@ -594,9 +594,12 @@ export class HumanAgent extends Agent {
     const chosen = new Set();
     for (;;) {
       const opps = g.opponents(p);
+      // (and the battles and planeswalkers they can attack)
+      const perms = g.alive().flatMap(q => q.battlefield.filter(o => g.attackable(p, o)));
       const r = await this.ui.ask(`<b>Declare attackers.</b> Click creatures to add or remove them (${chosen.size} selected), then choose who to attack.`, {
         objs: ready,
         buttons: [...(chosen.size ? opps.map(q => ({ label: `Attack ${q.name}${g.dealBetween(p.idx, q.idx) ? ' (breaks truce)' : ''}`, value: q.idx, primary: true })) : []),
+          ...(chosen.size ? perms.map(o => ({ label: `Attack ${o.card.name} (${o.fx.type.battle ? `${o.defense} defense` : `${o.loyalty} loyalty`})`, value: { attackObj: o.iid } })) : []),
           { label: 'Select all', value: 'all' }, { label: 'No attack', value: 'none' }],
       });
       for (const o of ready) this.ui.view?.cards.get(o.iid)?.classList.remove('chosen');
@@ -604,6 +607,10 @@ export class HumanAgent extends Agent {
       else if (r.button === 'all') ready.forEach(o => chosen.add(o));
       else if (r.button === 'none' || r.button === 'cancel') return [];
       else if (typeof r.button === 'number') return [...chosen].map(o => ({ o, target: r.button }));
+      else if (r.button?.attackObj) {
+        const t = g.objects.get(r.button.attackObj);
+        if (t) return [...chosen].map(o => ({ o, target: t.fx.type.battle ? t.protector : t.controller, obj: t }));
+      }
       for (const o of chosen) this.ui.view?.cards.get(o.iid)?.classList.add('chosen');
     }
   }

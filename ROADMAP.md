@@ -487,7 +487,7 @@ on top of the ones above:
     unlocked for its cost at sorcery speed (Game.unlockRoom; both doors' abilities then apply, "when you unlock this
     door" triggers), relocked when it leaves; AI and human seats unlock. Board badge ⛨ shows defense. Tested with set
     games instead of shipped puzzles: 24 games with Rooms, Sieges, Sagas and Classes (18 unlocks, 8 Sieges flipped,
-    0 errors, no rule broken). Not done: human seats choosing a battle to attack (they attack players).
+    0 errors, no rule broken). Human seats can attack battles from the attack prompt (added with item 105).
 - [ ] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops
   per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).
   - Done, partly: watchGame now wraps Game.cast and Game.playLand: a player's own cast of a spell without flash
@@ -518,8 +518,9 @@ on top of the ones above:
   - Done, partly: creatures can now attack planeswalkers (item 99's attack-a-permanent: decl.obj, combat damage
     removes loyalty). The AI sends the smallest set of attackers already going at a walker's controller that kills
     it, when the walker is worth more than the damage those attackers would have dealt (and the player isn't about to
-    die anyway). Choosing + or − was already done (pickPW). Not done: blocks that protect our own walkers (blocks
-    treat an attack on a walker like one on us), and human seats choosing a walker to attack. Head to head in a
+    die anyway). Choosing + or − was already done (pickPW). Human seats get "Attack <walker or battle>" buttons once
+    creatures are selected (tested: 44 attacks by a scripted human seat). Not done: blocks that protect our own
+    walkers (blocks treat an attack on a walker like one on us). Head to head in a
     walker-heavy pod, seats alternating, against the same pilots without it: 23–17 over 40 games, no rule broken.
 - [ ] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
   combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.
