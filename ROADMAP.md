@@ -537,8 +537,18 @@ on top of the ones above:
   kept in learn.js and frozen into each game's setup.
 - [ ] 110. Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan
   pieces, fast mana) and how those games went, and nudges planScore.
-- [ ] 111. One "AI strength" choice per seat (Beginner, Casual, Strong, Expert) that sets style noise, look-ahead and
+- [x] 111. One "AI strength" choice per seat (Beginner, Casual, Strong, Expert) that sets style noise, look-ahead and
   learning together; shown on the seat; the ladder rates each strength separately.
+  - Done: setup screen "AI strength" (by bracket / Beginner / Casual / Strong / Expert), saved in prefs; each seat's
+    noise, handicap and look-ahead are kept in the setup and replays; the log names the strength at the start; the
+    ranked ladder rates opponents by strength (1100/1300/1550/1750) when one is chosen. Measuring it showed noise
+    barely weakens a pilot (0.35 noise: 47–53), so a handicap was added (ai.js: that share of main-phase decisions
+    picks any decent play or stops, attacks and blocks use the old rule-of-thumb versions). tools/tune.mjs, 2-against-2
+    pods of fair decks, against Strong: Beginner (handicap 1 + noise) 38%, Casual (0.75) 44%, Expert (look-ahead)
+    49–51%: look-ahead adds little in those pods. tune.mjs itself was fixed on the way: its first seat/deck rotation
+    gave one side the same decks every game (a B-vs-B control came out 16–84); games now come in pairs with the sides
+    swapped and each side holding a copy of each deck (control 50–50). Results from the tool before that fix (item
+    103's notes are from the browser, not the tool) were not used. Not done: a strength label on each seat.
 - [ ] 112. Bluffing: casual pilots sometimes keep mana open for nothing; strong pilots hold up mana when an opponent is
   likely to attack into them.
 - [x] 113. Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and

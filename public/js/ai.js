@@ -80,7 +80,7 @@ const needsOwnTarget = e => e.k === 'pump' || e.k === 'blink' || (e.k === 'prote
 export class Agent {
   // noise: how loosely this pilot plays (low brackets play more casually; see brackets.js)
   // lookahead: check the best main-phase plays by simulating the rest of the turn (lookahead.js)
-  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead;
+  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; /** AI strength handicap (main.js STRENGTH), 0–1 */ this.handicap = 0;
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
   }
@@ -842,6 +842,15 @@ export class Agent {
     if (!opts.length) return null;
     // Casual pilots don't always find the best play
     if (this.noise) for (const o of opts) o.s *= 1 + this.noise * (g.rand() * 2 - 1);
+    // AI strength (Beginner, Casual: main.js STRENGTH): now and then the pilot plays any decent option instead of
+    // its best, or stops for the phase. Noise alone barely changes the order of very different plays.
+    if (this.handicap && g.rand() < this.handicap) {
+      const ok = opts.filter(o => o.s > 0.5);
+      if (!ok.length || g.rand() < 0.4) return null;
+      const r = ok[Math.floor(g.rand() * ok.length)];
+      /** @type {any} */ (r).opts = opts;
+      return r;
+    }
     // Use the turn's mana well: among the best spells, find the set that fits the available mana
     // with the highest total value, and cast its best card first (rather than one big card that wastes mana)
     const casts = opts.filter(x => x.cost != null).sort((a, b) => b.s - a.s).slice(0, 8);
@@ -1765,6 +1774,8 @@ export class Agent {
 
   // Attacks and blocks are planned by simulation (combatai.js); the older rule-of-thumb versions remain as a fallback
   declareAttackers(g, p) {
+    // AI strength: a handicapped pilot sometimes uses the old rule-of-thumb attacks instead of the combat simulation
+    if (this.handicap && g.rand() < this.handicap) return this.declareAttackersHeuristic ? this.declareAttackersHeuristic(g, p) : [];
     try {
       const { attacks, gain } = bestAttacks(g, p, this, { style: this.style, noise: this.noise || 0 });
       if (attacks.length) {
@@ -1780,7 +1791,7 @@ export class Agent {
   declareBlockers(g, q, attackers) {
     try {
       const { blocks } = bestBlocks(g, q, attackers, this);
-      if (this.noise && g.rand() < this.noise * 0.5) return this.declareBlockersHeuristic(g, q, attackers);
+      if ((this.noise && g.rand() < this.noise * 0.5) || (this.handicap && g.rand() < this.handicap)) return this.declareBlockersHeuristic(g, q, attackers);
       const kept = q.battlefield.filter(o => o.fx.type.creature && !o.tapped && (this.pieceWorth(g, q, o) || o.isCommander) && !blocks.some(x => x.b === o));
       if (blocks.length || kept.length) this.explain(g, q, `${blocks.length ? `blocks with ${blocks.map(x => x.b.card.name).join(', ')}` : 'takes the hit'}${kept.length ? `; keeps ${kept.map(o => o.card.name).join(', ')} out of combat` : ''} (best result of the block search)`);
       return blocks;

@@ -7,7 +7,8 @@
 //
 // --a / --b are the two pilots: "style" picks the play style, every other key is set on the Agent (lookahead,
 // noise, budget, or any field an experiment reads, such as a weight). Seats alternate between A and B game by game
-// and decks rotate, so neither side keeps the better seat or deck. Each game has a fixed seed (--seed, then +1), so
+// and each deck layout and seed is played twice with the sides swapped, so neither keeps the better seat or deck
+// (use an even --games). Seeds are fixed (--seed, then +1 a pair), so
 // a run can be repeated exactly. --control also plays B against B as a check that the setup itself is fair.
 //
 // Card data comes from Scryfall's /cards/collection once and is kept in data/tune-cache.json (data/ is private and
@@ -77,12 +78,15 @@ async function run(a, b, label) {
   const w = { A: 0, B: 0, draw: 0, problems: 0, errors: 0 };
   const t0 = Date.now();
   for (let i = 0; i < games; i++) {
-    // (A takes the even seats in even games and the odd seats in odd games)
-    const isA = k => (k % 2 === 0) === (i % 2 === 0);
+    // Games come in pairs with the same decks in the same seats and the same seed: A takes the
+    // first half of the seats in the first game of a pair and the second half in the second, so every deck and seat is played
+    // by both sides equally, and each side has a copy of each deck at the table.
+    const pair = Math.floor(i / 2);
+    const isA = k => (k < seats / 2) === (i % 2 === 0);
     const g = new Game(Array.from({ length: seats }, (_, k) => {
-      const d = decks[(i + k) % decks.length];
+      const d = decks[(pair + k) % decks.length];
       return { playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: agentFrom(isA(k) ? a : b), commanders: d.commanders, cards: d.cards };
-    }), { beat: async () => {} }, { seed: seed0 + i, noLearning: true, format });
+    }), { beat: async () => {} }, { seed: seed0 + pair, noLearning: true, format });
     const found = watchGame(g);
     await g.run();
     w.problems += found.size;

@@ -20,6 +20,16 @@ import { recordGame, learnedSummary, learnedStyle, forgetDeck, learnAs, mastery,
 import { ladder, recordRanked, newSeason, rankOf, aiRating, PLACEMENT, challenges, recordChallenges, checkBadges, badges, BADGE_LIST } from './progress.js';
 import { CEDH_PRESETS } from './presets.js';
 import { BRACKETS, BRACKET_NOISE, estimateBracket } from './brackets.js';
+// One choice for how well the AI seats play (setup screen): mistakes on purpose (noise) and look-ahead together.
+// 'auto' keeps the bracket's noise and the look-ahead switch. Ladder ratings go by strength when one is chosen.
+const STRENGTH = {
+  // (handicap: the share of decisions a pilot makes without its best search; measured with tools/tune.mjs in 2-against-2
+  // pods of fair decks, against Strong: Beginner 38%, Casual 44%, Expert 49–51%: look-ahead adds little there)
+  beginner: { noise: 0.35, handicap: 1, lookahead: false, label: 'Beginner', rating: 1100 },
+  casual: { noise: 0.15, handicap: 0.75, lookahead: false, label: 'Casual', rating: 1300 },
+  strong: { noise: 0, lookahead: false, label: 'Strong', rating: 1550 },
+  expert: { noise: 0, lookahead: true, label: 'Expert', rating: 1750 },
+};
 import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta } from './cedhdata.js';
 import { Rules } from './rules.js';
 import { esc, sleep, store, symbolize, makeRng } from './util.js';
@@ -354,7 +364,14 @@ function newGame(opts = {}) {
     // Every seat played on this PC (more than one is hotseat: they pass the device between decisions)
     if (!setup.roles && formatOf(setup.format).roles) setup.roles = dealRoles(setup.seats.length, makeRng((setup.seed ^ 0x6b696e67) >>> 0));
     // AI look-ahead (lookahead.js), per seat and kept with the game, so replays play the same (older replays: off)
-    setup.seats.forEach((s, i) => { s.lookahead = opts.lookahead ? !!opts.lookahead[i] : !opts.loadedReplay && !opts.puzzle && prefs.lookahead !== false && wantsLookahead(s.style, BRACKET_NOISE[s.bracket] || 0); });
+    const strength = !opts.loadedReplay && !opts.puzzle ? STRENGTH[prefs.aiStrength] || null : null;
+    setup.strength = opts.loadedReplay ? opts.strength || null : strength ? prefs.aiStrength : null;
+    // (each seat's noise is kept with the game too, so a replay plays the same however the bracket is read later)
+    setup.seats.forEach((s, i) => {
+      s.noise = opts.noise ? opts.noise[i] || 0 : strength ? strength.noise : BRACKET_NOISE[s.bracket] || 0;
+      s.handicap = opts.handicap ? opts.handicap[i] || 0 : strength?.handicap || 0;
+      s.lookahead = opts.lookahead ? !!opts.lookahead[i] : !opts.loadedReplay && !opts.puzzle && (strength ? strength.lookahead : prefs.lookahead !== false && wantsLookahead(s.style, s.noise));
+    });
     setup.humans = setup.seats.map((s, i) => (s.style === 'human' ? i : -1)).filter(i => i >= 0);
     setup.human = setup.humans[0] ?? -1;
     setup.remote = setup.seats.map((s, i) => (s.style === 'remote' ? i : -1)).filter(i => i >= 0);
@@ -379,10 +396,11 @@ function newGame(opts = {}) {
     playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards, companion: s.deck.companion || null,
     agent: setup.humans.includes(i) ? new HumanAgent(guessStyle(s.deck), hotseat ? new SeatUI(humanUI, i, setup.seats.map(x => x.name)) : humanUI, setup.stopOpts)
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
-      : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0, lookahead: s.lookahead }),
+      : Object.assign(new Agent(s.style, { noise: s.noise ?? (BRACKET_NOISE[s.bracket] || 0), lookahead: s.lookahead }), s.handicap ? { handicap: s.handicap } : {}),
   }));
   game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules });
   setup.learned ||= game.players.map(p => p.learned);
+  if (STRENGTH[setup.strength]) game.log(`AI strength: ${STRENGTH[setup.strength].label}${STRENGTH[setup.strength].lookahead ? ' (looks ahead)' : ''}`, { kind: 'minor' });
   // The coach panel (lessons) shows beside the table while the game runs
   $('coach').innerHTML = setup.coach || '';
   $('coach').hidden = !setup.coach;
@@ -730,7 +748,8 @@ $('btnSaveReplay').addEventListener('click', () => {
     // (version 6: the engine's rules version)
     rules: setup.rules,
     // (version 5: which AI seats looked ahead)
-    seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck), ...(s.lookahead ? { lookahead: true } : {}) })),
+    seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck), ...(s.lookahead ? { lookahead: true } : {}), ...(s.noise ? { noise: s.noise } : {}), ...(s.handicap ? { handicap: s.handicap } : {}) })),
+    ...(setup.strength ? { strength: setup.strength } : {}),
   }, null, 1));
 });
 $('btnExportLog').addEventListener('click', () => {
@@ -760,7 +779,7 @@ $('replayFile').addEventListener('change', async e => {
     $('setup').hidden = true;
     newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
       // (replays saved before decks learned have no table, and are played without it)
-      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   } catch (err) {
     $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`;
   }
@@ -1080,7 +1099,7 @@ function recordProgress(g) {
   const note = { lines: [] };
   // Ranked: your rating on this format's ladder
   if (setup.ranked) {
-    const r = recordRanked({ format: setup.format, you: h, places, oppRatings: setup.seats.map(s => (setup.format === 'commander' ? aiRating(s.bracket) : 1500)) });
+    const r = recordRanked({ format: setup.format, you: h, places, oppRatings: setup.seats.map(s => (STRENGTH[setup.strength] ? STRENGTH[setup.strength].rating : setup.format === 'commander' ? aiRating(s.bracket) : 1500)) });
     note.lines.push(`<b>Ranked ${esc(formatOf(setup.format).name)}:</b> ${r.delta >= 0 ? '+' : ''}${r.delta} → ${r.rating} · ${esc(r.after.label)}${r.after.label !== r.before.rank.label && r.games > PLACEMENT ? ` (was ${esc(r.before.rank.label)})` : r.games === PLACEMENT ? ' (placement done)' : ''}`);
   }
   // Challenges
@@ -1245,6 +1264,9 @@ async function renderRivals() {
 $('rankedSel').checked = !!prefs.ranked;
 // AI look-ahead (lookahead.js): on unless switched off; saved with each game so replays stay exact
 $('lookaheadSel').checked = prefs.lookahead !== false;
+$('aiStrength').value = STRENGTH[prefs.aiStrength] ? prefs.aiStrength : 'auto';
+$('aiStrength').addEventListener('change', e => { prefs.aiStrength = e.target.value; store('ct.prefs', prefs); $('lookaheadSel').disabled = e.target.value !== 'auto'; });
+$('lookaheadSel').disabled = $('aiStrength').value !== 'auto';
 $('lookaheadSel').addEventListener('change', e => { prefs.lookahead = e.target.checked; store('ct.prefs', prefs); });
 $('rankedSel').addEventListener('change', e => {
   prefs.ranked = e.target.checked; store('ct.prefs', prefs);
