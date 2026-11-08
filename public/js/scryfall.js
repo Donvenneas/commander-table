@@ -75,6 +75,7 @@ export function normalize(raw) {
   // The back face of a transforming card, for "transform ~"
   if (faces.length > 1 && /transform|flip|meld/.test(raw.layout || '') && faces[1].oracle_text !== undefined) {
     const b = faces[1];
+    /** @type {any} */
     const back = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: '', text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, imgNormal: card.backNormal || card.imgNormal, canBeCommander: false };
     back.fx = analyzeCard(back);
     Object.defineProperty(card, 'backCard', { value: back, enumerable: false });

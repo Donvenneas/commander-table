@@ -264,6 +264,7 @@ export class TableView {
     }
     if (onBf && o.counters) badges += o.counters > 0 ? `<span class="bdg ctr" title="+1/+1 counters">+${o.counters}</span>` : `<span class="bdg ctr neg" title="-1/-1 counters">${o.counters}</span>`;
     if (onBf && o.fx.type.planeswalker) badges += `<span class="bdg loy">${o.loyalty}</span>`;
+    if (onBf && o.fx.type.battle && o.defense != null) badges += `<span class="bdg loy" title="Defense counters${o.protector != null ? ` (protected by ${esc(g.players[o.protector]?.name || '')})` : ''}">⛨${o.defense}</span>`;
     if (onBf && o.attachedTo) badges += `<span class="bdg att" title="Attached to ${esc(o.attachedTo.card.name)}">⛓</span>`;
     if (onBf) {
       // States from keywords: shields, goad, time/age counters, crewed vehicles, end-of-turn returns

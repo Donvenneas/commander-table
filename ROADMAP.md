@@ -478,6 +478,16 @@ on top of the ones above:
     enlist, suspect fire; 0 errors, no rule broken).
 - [ ] 99. Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with
   a puzzle each; fix what they show.
+  - Done: Sagas and Classes already worked (39 chapters, 103 level-ups in the test). Battles were missing: cards keep
+    Scryfall's defense; a battle enters with defense counters and its controller picks a protector (the AI: the
+    opponent with the least to block with); combat can now attack a permanent (decl.obj, o.attackingObj: blockers are
+    the protector's, unblocked and trample damage removes defense counters); with no counters left it goes to the
+    graveyard (704.5v) and a Siege is exiled and cast transformed for free. The AI sends attackers already going at
+    the protector at its own Siege when they can finish it. Rooms: either door can be cast (item 87), the other is
+    unlocked for its cost at sorcery speed (Game.unlockRoom; both doors' abilities then apply, "when you unlock this
+    door" triggers), relocked when it leaves; AI and human seats unlock. Board badge ⛨ shows defense. Tested with set
+    games instead of shipped puzzles: 24 games with Rooms, Sieges, Sagas and Classes (18 unlocks, 8 Sieges flipped,
+    0 errors, no rule broken). Not done: human seats choosing a battle to attack (they attack players).
 - [ ] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops
   per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).
 

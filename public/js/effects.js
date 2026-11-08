@@ -1722,6 +1722,11 @@ export function analyzeCard(card) {
     if (/^enchanted (?:creature|permanent) doesn't untap during its controller's untap step\.?$/.test(line)) { fx.attachNoUntap = true; continue; }
     // Hooded Hydra: "As ~ is turned face up, put five +1/+1 counters on it"
     if ((m = line.match(/^as ~ is turned face up, put (\w+) \+1\/\+1 counters on it\.?$/))) { fx.turnedUp = [{ k: 'counters', n: num(m[1]), on: '~' }]; continue; }
+    // Rooms (709.5): "When you unlock this door, …" (engine.js unlockRoom)
+    if ((m = line.match(/^when you unlock this door, (.+)/))) {
+      const es = parseEffects(m[1]);
+      if (es.length) { fx.onUnlock = es; continue; }
+    }
     // Gemrazer, Nethroi: "Whenever this creature mutates, …"
     if ((m = line.match(/^whenever (?:~|this creature) mutates, (.+)/))) {
       const es = parseEffects(m[1]);
@@ -1911,6 +1916,7 @@ export function describeFx(fx) {
   if (fx.daybound || fx.nightbound) out.push(fx.daybound ? 'daybound (transforms when it becomes night)' : 'nightbound (transforms back when it becomes day)');
   if (fx.madness) out.push(`madness ${fx.madness} (cast it when you discard it)`);
   if (fx.enlist) out.push('enlist');
+  if (fx.onUnlock) out.push(`when you unlock this door: ${list(fx.onUnlock)}`);
   if (fx.readAhead) out.push('read ahead (starts on chapter 1)');
   if (fx.kickCounters) out.push(`kicked: enters with ${fx.kickCounters} +1/+1 counters`);
   if (fx.attachNoUntap) out.push("enchanted permanent doesn't untap");

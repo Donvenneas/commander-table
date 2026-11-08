@@ -437,10 +437,11 @@ export class HumanAgent extends Agent {
       const pingers = this.pingers(g, p);
       // Morph and disguise cards that can be cast face down, and face-down permanents that can be turned up
       const faceDowns = [...p.hand.filter(o => g.canCastFaceDown(p, o)), ...p.battlefield.filter(o => g.canTurnFaceUp(p, o))];
+      const rooms = p.battlefield.filter(o => g.canUnlock(p, o));
       // Adventures and modal double-faced cards: the other face can be cast, or a land back played
       // (and bestow or mutate, other ways to cast a creature)
       const otherFaces = [...p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o) || g.canBestow(p, o) || g.canMutate(p, o) || g.canCleave(p, o) || g.canFuse(p, o)), ...p.graveyard.filter(o => g.faceCastMode(p, o))];
-      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns, ...otherFaces])];
+      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns, ...otherFaces, ...rooms])];
       const loop = this.loopBlock();
       const fromGy = spells.some(o => o.zone === 'graveyard') || graveAbs.length;
       // (how many plays are still open, so a pass is never by accident)
@@ -492,6 +493,7 @@ export class HumanAgent extends Agent {
         else if (c === 'cast') await this.castWithChoices(g, p, o);
         continue;
       }
+      if (rooms.includes(o) && !abilities.includes(o)) { await g.unlockRoom(p, o); this.acts = []; continue; }
       if (otherFaces.includes(o)) {
         const f = o.card.altFace;
         const opts = [

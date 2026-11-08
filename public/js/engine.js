@@ -906,6 +906,7 @@ export class Game {
     // (a bestowed card is a creature card again off the battlefield; a merged permanent's other cards follow it)
     if (o.bestowed && to !== 'battlefield') { o.bestowed = false; o.fx = o.card.fx; }
     if (o.reconfigured) { o.reconfigured = false; o.fx = o.card.fx; }
+    if (o.roomUnlocked && from === 'battlefield') { o.roomUnlocked = false; o.fx = o.card.fx; }
     if (o.mutBase && from === 'battlefield') this.unmerge(o, to);
     // (an adventure or the back of a modal double-faced card is the whole card again anywhere but the stack and battlefield)
     if (o.altFaceOn && to !== 'battlefield' && to !== 'stack') { this.mainFace(o); if (to !== 'exile') o.onAdventure = false; }
@@ -4177,6 +4178,36 @@ export class Game {
       this.log(`${this.pn(p)} enlists ${this.cn(pick)}: ${this.cn(d.o)} gets +${this.power(pick)}/+0`, { kind: 'combat', rule: '702.154a' });
     }
   }
+  // ---------- Rooms (709.5): a split card cast one door at a time; the other door is unlocked later for its cost
+  isRoom(o) { return /\broom\b/i.test((o.baseCard || o.card).typeLine || '') && (o.baseCard || o.card).layout === 'split'; }
+  lockedDoor(o) {
+    if (!this.isRoom(o) || o.roomUnlocked || o.zone !== 'battlefield') return null;
+    const main = o.baseCard || o.card;
+    return o.altFaceOn ? main : main.altFace;
+  }
+  canUnlock(p, o) {
+    const d = this.lockedDoor(o);
+    return !!d && this.rules >= 5 && o.controller === p.idx && this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length && !!this.planPayment(p, parseCost(d.manaCost), 0);
+  }
+  async unlockRoom(p, o) {
+    if (!this.canUnlock(p, o)) return false;
+    const door = this.lockedDoor(o), open = o.card;
+    this.commitPayment(p, this.planPayment(p, parseCost(door.manaCost), 0));
+    // (both doors' abilities apply once it's fully unlocked)
+    const fx = { ...open.fx };
+    for (const [k, v] of Object.entries(door.fx)) {
+      if (Array.isArray(v)) fx[k] = [...(fx[k] || []), ...v];
+      else if (v instanceof Set) fx[k] = new Set([...(fx[k] || []), ...v]);
+      else if (fx[k] == null || fx[k] === false || fx[k] === 0) fx[k] = v;
+    }
+    o.fx = fx;
+    o.roomUnlocked = true;
+    this.log(`${this.pn(p)} pays ${door.manaCost} and unlocks ${esc(door.name)}`, { kind: 'cast', p: p.idx, rule: '709.5' });
+    if (door.fx.onUnlock?.length) this.queue.push({ o, effects: door.fx.onUnlock, label: `unlocked ${door.name}`, p });
+    this.emit('update');
+    await this.sba();
+    return true;
+  }
   // ---------- battles (310)
   battleEnters(o) {
     const ctl = this.players[o.controller];
@@ -4619,6 +4650,7 @@ export class Game {
     for (const d of decl) byTarget.set(d.target, [...(byTarget.get(d.target) || []), d.o]);
     for (const [t, os] of byTarget) this.log(`${this.pn(p)} attacks ${this.pn(this.players[t])} with ${os.map(o => this.cn(o)).join(', ')}`, { kind: 'combat', rule: '508.1' });
     for (const t of byTarget.keys()) if (this.dealBetween(p.idx, t)) this.breakDeal(p, this.players[t]);
+    for (const d of decl) if (d.obj) this.log(`${this.cn(d.o)} attacks ${this.cn(d.obj)}`, { kind: 'combat', rule: '506.3' });
     await this.beat(1.4);
     p.attackedTurn = this.turn;
     this.attackKeywords(p, decl);
@@ -4755,6 +4787,7 @@ export class Game {
     if (this.fogTurn === this.turn && !this.noPrevent()) { if (!first) this.log('All combat damage is prevented this turn', { kind: 'combat', rule: '615.1' }); return; }
     const fs = o => this.has(o, 'first strike'), ds = o => this.has(o, 'double strike');
     const deals = o => (first ? fs(o) || ds(o) : !hadFirst || !fs(o) || ds(o));
+    /** @type {any[]} */
     const evs = [];
     for (const a of p.battlefield.filter(o => o.attacking != null)) {
       const blockers = a.blockedBy.filter(b => b.zone === 'battlefield');

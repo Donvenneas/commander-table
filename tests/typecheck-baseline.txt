@@ -93,7 +93,6 @@ public/js/remote.js TS2339 Property 'matches' does not exist on type 'EventTarge
 public/js/remote.js TS2551 Property 'webkitAudioContext' does not exist on type 'Window & typeof globalThis'. Did you mean 'AudioContext'?
 public/js/scryfall.js TS2339 Property 'combosIn' does not exist on type '{ budget?: string; }'.
 public/js/scryfall.js TS2339 Property 'combosIn' does not exist on type '{}'.
-public/js/scryfall.js TS2339 Property 'fx' does not exist on type '{ name: any; frontName: any; typeLine: any; manaCost: string; text: any; power: any; toughness: any; loyalty: any; colors: any; imgNormal: any; canBeCommander: boolean; id: any; cmc: any; fullText: any; colorIdentity: any; ... 14 more ...; gameChanger: boolean; }'.
 public/js/scryfall.js TS2554 Expected 0 arguments, but got 1.
 public/js/selftest.js TS2339 Property 'lastI' does not exist on type '(ok: any, detail: any) => void'.
 public/js/tour.js TS2339 Property 'closest' does not exist on type 'EventTarget'.

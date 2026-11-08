@@ -780,6 +780,12 @@ export class Agent {
         const b = eq.fx.attachBuff || { p: 1, t: 1 };
         opts.push({ s: 2 + b.p + b.t * 0.5, why: `equips ${eq.card.name} to ${best.card.name}`, run: () => g.equip(p, eq, best) });
       }
+      // Rooms: unlock the other door when its abilities are worth the mana
+      for (const o of p.battlefield.filter(x => g.canUnlock(p, x))) {
+        const d = g.lockedDoor(o);
+        const s = 1.5 + (d.fx.onUnlock || []).reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) + (d.cmc || 0) * 0.3;
+        opts.push({ s, why: `unlocks ${d.name}`, run: () => g.unlockRoom(p, o) });
+      }
       // Turn face-down creatures face up when the real card is worth the mana (megamorph adds a counter)
       for (const o of p.battlefield.filter(x => x.faceDown && g.canTurnFaceUp(p, x))) {
         const s = this.faceUpValue(g, p, o);
@@ -1335,6 +1341,22 @@ export class Agent {
   chooseEnlist(g, p, attacker, pool) {
     const keep = g.opponents(p).some(q => q.battlefield.some(o => o.fx.type.creature && g.power(o) >= p.life / 3));
     return [...pool].filter(x => g.power(x) >= 2 && !x.isCommander && !(keep && g.toughness(x) >= 3)).sort((a, b) => this.value(g, a) - this.value(g, b))[0] || null;
+  }
+  // Battles: protect ours with the opponent who has the least to block with
+  chooseProtector(g, p, o, opps) {
+    return [...opps].sort((a, b) => a.battlefield.filter(x => x.fx.type.creature && !x.tapped).reduce((s, x) => s + g.power(x), 0) - b.battlefield.filter(x => x.fx.type.creature && !x.tapped).reduce((s, x) => s + g.power(x), 0))[0] || null;
+  }
+  // Our Sieges: send attackers already going at a battle's protector at the battle instead, when together they
+  // can take its last defense counters (then it flips); the strongest first, only as many as needed
+  battleAttacks(g, p, decl) {
+    for (const b of p.battlefield.filter(o => o.fx.type.battle && g.attackable(p, o) && o.defense > 0)) {
+      const mine = decl.filter(d => d.target === b.protector && !d.obj).sort((x, y) => g.power(y.o) - g.power(x.o));
+      let need = b.defense;
+      const pick = [];
+      for (const d of mine) { if (need <= 0) break; pick.push(d); need -= g.power(d.o); }
+      if (need > 0 || !pick.length) continue;
+      for (const d of pick) d.obj = b;
+    }
   }
   // Madness: cast the discarded card now when it's worth casting at all
   wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }
