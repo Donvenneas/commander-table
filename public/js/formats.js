@@ -49,6 +49,35 @@ const isBasic = c => /\bbasic\b/i.test(c.typeLine) && /\bland\b/i.test(c.typeLin
 
 // Deck checks for a format: size, copies, commander, sideboard and legality. Warnings only: an
 // illegal deck still plays (the game is for testing as much as for tournaments).
+// A companion's deck-building condition (702.139a), for the companions printed so far. A deck that breaks it
+// gets a warning (the game still lets the companion be used, as with every other deck check here).
+export function companionCheck(deck, f) {
+  const c = deck.companion;
+  const out = [];
+  const starting = [...deck.commanders, ...deck.cards.map(x => x.card)];
+  const nonland = starting.filter(x => !/\bland\b/i.test(x.typeLine.split('—')[0]));
+  const permanent = starting.filter(x => !/\b(instant|sorcery)\b/i.test(x.typeLine));
+  const bad = list => [...new Set(list.map(x => x.name))];
+  const name = c.name.split(',')[0];
+  const rule = {
+    'Lurrus of the Dream-Den': () => bad(permanent.filter(x => (x.cmc || 0) > 2)),
+    'Obosh, the Preypiercer': () => bad(nonland.filter(x => (x.cmc || 0) % 2 === 0)),
+    'Gyruda, Doom of Depths': () => bad(starting.filter(x => (x.cmc || 0) % 2 === 1)),
+    'Keruga, the Macrosage': () => bad(nonland.filter(x => (x.cmc || 0) < 3)),
+    'Kaheera, the Orphanguard': () => bad(starting.filter(x => /\bcreature\b/i.test(x.typeLine) && !/\b(cat|elemental|nightmare|dinosaur|beast)\b/i.test(x.typeLine))),
+    'Jegantha, the Wellspring': () => bad(starting.filter(x => { const syms = (x.manaCost || '').match(/\{[^}]+\}/g) || []; return syms.some((s, i) => !/^\{\d+\}$/.test(s) && syms.indexOf(s) !== i); })),
+    'Umori, the Collector': () => { const types = ['artifact', 'creature', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'battle']; return types.some(t => nonland.every(x => new RegExp(`\\b${t}\\b`, 'i').test(x.typeLine))) ? [] : ['nonland cards of different types']; },
+    'Lutri, the Spellchaser': () => bad(deck.cards.filter(x => x.qty > 1 && !/\bland\b/i.test(x.card.typeLine)).map(x => x.card)),
+    'Yorion, Sky Nomad': () => (starting.length + deck.cards.reduce((a, x) => a + x.qty - 1, 0) < f.deck + 20 ? [`fewer than ${f.deck + 20} cards`] : []),
+  }[c.name];
+  if (rule) { const b = rule(); if (b.length) out.push(`Companion ${name}'s condition isn't met: ${b.slice(0, 4).join(', ')}${b.length > 4 ? `, and ${b.length - 4} more` : ''}.`); }
+  // (in Commander, the companion must fit the commanders' color identity too)
+  if (f.commander && deck.commanders.length) {
+    const ci = new Set(deck.commanders.flatMap(x => x.colorIdentity || []));
+    if ((c.colorIdentity || []).some(x => !ci.has(x))) out.push(`Companion ${name} is outside the commander's colors.`);
+  }
+  return out;
+}
 export function checkDeck(deck, key) {
   const f = formatOf(key);
   const out = [];
@@ -61,6 +90,7 @@ export function checkDeck(deck, key) {
     if (!deck.commanders.some(c => /\bplaneswalker\b/i.test(c.typeLine))) out.push('Oathbreaker decks need a planeswalker as the oathbreaker.');
     if (!deck.commanders.some(c => /\b(instant|sorcery)\b/i.test(c.typeLine))) out.push('No signature spell: put an instant or sorcery under the "Commander" heading with the oathbreaker.');
   } else if (f.commander && f.cmdRule) for (const c of deck.commanders) if (!commanderOk(c, key)) out.push(`${c.name} can't be a ${f.name} commander.`);
+  if (deck.companion) out.push(...companionCheck(deck, f));
   const side = (deck.sideboard || []).reduce((a, c) => a + c.qty, 0);
   if (side > f.sideboard) out.push(f.sideboard ? `Sideboard has ${side} cards (at most ${f.sideboard}).` : `${f.name} has no sideboard; its ${side} cards are left out.`);
   // Copies across the main deck and sideboard

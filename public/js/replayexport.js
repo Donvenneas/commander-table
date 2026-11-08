@@ -23,7 +23,7 @@ export async function buildReplayHtml(setup, onProgress) {
   const shared = playbackUI([...(setup.decisions || [])]);
   const uis = [shared];
   const seats = setup.seats.map((s, i) => ({
-    playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, cards: s.deck.cards,
+    playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, cards: s.deck.cards, companion: s.deck.companion || null,
     // (with the stops and trigger ordering the game was played with, so the answers line up)
     agent: setup.humans?.includes(i) ? new HumanAgent(guessStyle(s.deck), shared, setup.stopOpts)
       : setup.remote?.includes(i) ? new HumanAgent(guessStyle(s.deck), uis[uis.push(playbackUI([...(setup.remoteDecisions?.[i] || [])])) - 1], { orderTriggers: setup.stopOpts?.orderTriggers })

@@ -376,7 +376,7 @@ function newGame(opts = {}) {
     return [i, u];
   }));
   const gameSeats = setup.seats.map((s, i) => ({
-    playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards,
+    playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards, companion: s.deck.companion || null,
     agent: setup.humans.includes(i) ? new HumanAgent(guessStyle(s.deck), hotseat ? new SeatUI(humanUI, i, setup.seats.map(x => x.name)) : humanUI, setup.stopOpts)
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
       : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0, lookahead: s.lookahead }),
@@ -711,8 +711,10 @@ const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 function deckText(deck) {
   const line = c => `${c.qty ?? 1} ${c.card?.name ?? c.name}${(c.card ?? c).set ? ` (${(c.card ?? c).set.toUpperCase()}) ${(c.card ?? c).cn}` : ''}`;
   const side = deck.sideboard?.length ? ['', 'Sideboard', ...deck.sideboard.map(line)] : [];
-  if (!deck.commanders.length) return ['Deck', ...deck.cards.map(line), ...side].join('\n');
-  return ['Commander', ...deck.commanders.map(c => line({ card: c })), '', 'Deck', ...deck.cards.map(line), ...side].join('\n');
+  // (a companion that isn't also in the sideboard gets its own section, so replays and challenge links keep it)
+  const comp = deck.companion && !(deck.sideboard || []).some(c => c.card === deck.companion) ? ['', 'Companion', line({ card: deck.companion })] : [];
+  if (!deck.commanders.length) return ['Deck', ...deck.cards.map(line), ...side, ...comp].join('\n');
+  return ['Commander', ...deck.commanders.map(c => line({ card: c })), '', 'Deck', ...deck.cards.map(line), ...side, ...comp].join('\n');
 }
 $('btnSaveReplay').addEventListener('click', () => {
   if (!setup) return;

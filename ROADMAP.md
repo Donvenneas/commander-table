@@ -438,6 +438,14 @@ on top of the ones above:
     (539 ventures, 85 dungeons completed, 84 initiative changes, 12 nights and days, 0 errors) + 8 rules-watched.
 - [ ] 95. Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special
   action and check the deck-building condition when the deck loads (a warning in formats.js).
+  - Done: decks.js keeps the companion (a "Companion" heading in pasted lists, Moxfield's companions board,
+    Archidekt's Companion category, or a companion in a 60-card sideboard) as deck.companion, outside the deck; saved
+    deck text (replays, challenge links) writes a Companion section. The game keeps it outside (zone 'outside') and
+    Game.useCompanion puts it into hand for {3} at sorcery speed, once (702.139c). formats.js companionCheck warns
+    when the condition isn't met (Lurrus, Obosh, Gyruda, Keruga, Kaheera, Jegantha, Umori, Lutri, Yorion) and when
+    it's outside the commander's colors. AI pays when the card scores (more with a small hand); human seats get a
+    "Companion: … to hand ({3})" button; boards show 🐾 and the companion's name. Tested: a Commander and a Modern
+    list with Lurrus (both warnings right; 30 + 20 games with the companion put into hand, 0 errors).
 - [ ] 96. Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses
   (903.9; the AI usually moves it, a human seat is asked). Check partner, Friends forever, Choose a Background and
   Doctor's companion pairings at load.

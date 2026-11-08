@@ -446,6 +446,7 @@ export class HumanAgent extends Agent {
         buttons: [
           ...combos.map(c => ({ label: `Combo: ${c.combo.label}`, value: { combo: c.combo }, primary: true })),
           ...(canAnnounce(g, p) ? [{ label: announceLabel(p), value: 'announce' }] : []),
+          ...(g.canCompanion(p) ? [{ label: `Companion: ${p.companion.card.name} to hand ({3})`, value: 'companion' }] : []),
           ...(loop ? [{ label: `Repeat this loop ×10`, value: { repeat: 10 } }, { label: `Repeat ×99`, value: { repeat: 99 } }] : []),
           { label: `${phase === 'main1' ? 'Go to combat' : 'End turn'}${playable ? ` (${playable} playable)` : ''}`, value: 'pass', primary: !combos.length },
           { label: 'Let the AI play this phase', value: 'ai' },
@@ -454,6 +455,7 @@ export class HumanAgent extends Agent {
       if (r.button === 'pass' || r.button === 'cancel') return;
       if (r.button === 'ai') return super.mainPhase(g, p, phase);
       if (r.button === 'announce') { await announceHuman(g, p, this.ui); continue; }
+      if (r.button === 'companion') { g.useCompanion(p); continue; }
       if (r.button?.combo) { await g.goOff(p, r.button.combo); continue; }
       // (only the shortcut's own buttons: a text value has a .repeat function of its own)
       if (typeof r.button === 'object' && r.button?.repeat && loop) { await this.repeatLoop(g, p, loop, r.button.repeat); continue; }

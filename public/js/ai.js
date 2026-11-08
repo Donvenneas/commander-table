@@ -765,6 +765,11 @@ export class Agent {
       if (reserve && avail - mana < reserve && s < 9) continue;
       opts.push({ s, cost: mana, why: `casts ${o.card.name}${mode.alt ? ` (${mode.alt})` : ''}`, run: () => g.cast(p, o, { mode }) });
     }
+    // A companion: {3} to put it into hand, worth it when it's a card we'd cast (more so with a small hand)
+    if (g.canCompanion(p)) {
+      const s = this.scoreCast(g, p, p.companion, phase) * 0.7 + (p.hand.length <= 2 ? 1.5 : 0) - 1;
+      if (s > 0.5) opts.push({ s, why: `puts its companion ${p.companion.card.name} into hand`, run: async () => g.useCompanion(p) });
+    }
     if (phase === 'main1') {
       for (const eq of p.battlefield.filter(o => o.fx.equip && (!o.fx.reconfigure || g.rules >= 5))) {
         const holder = eq.attachedTo;

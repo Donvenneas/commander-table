@@ -85,6 +85,8 @@ export class Game {
       // Per-deck memory from earlier games (learn.js): given by the setup for replays, else read now
       p.learned = opts.learned ? opts.learned[i] || null : opts.noLearning ? null : learnedBonus(p.learnAs);
       p.agent.learned = p.learned;
+      // A companion waits outside the game until it's put into hand for {3} (702.139c)
+      if (s.companion && this.rules >= 5) { p.companion = this.mk(s.companion, p); p.companion.zone = 'outside'; }
       for (const c of s.commanders) {
         const o = this.mk(c, p, { commander: true }); o.zone = 'command'; p.command.push(o);
         // Oathbreaker: the planeswalker is the oathbreaker, the instant or sorcery its signature spell
@@ -4090,6 +4092,20 @@ export class Game {
     o.card = o.mutBase; o.fx = o.mutBase.fx;
     o.mutBase = null; o.merged = null; o.mergeCards = null;
     for (const u of under) { u.zone = 'merged-left'; this.move(u, to === 'battlefield' ? 'graveyard' : to); }
+  }
+  // ---------- companions (702.139): {3}, put it from outside the game into your hand, once, at sorcery speed
+  canCompanion(p) {
+    const c = p.companion;
+    return !!c && c.zone === 'outside' && this.rules >= 5 && this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length && !!this.planPayment(p, { generic: 3, pips: [], x: 0 }, 0);
+  }
+  useCompanion(p) {
+    if (!this.canCompanion(p)) return false;
+    this.commitPayment(p, this.planPayment(p, { generic: 3, pips: [], x: 0 }, 0));
+    const c = p.companion;
+    c.zone = 'hand'; p.hand.push(c);
+    this.log(`${this.pn(p)} pays {3} and puts their companion ${this.cn(c)} into their hand`, { kind: 'cast', p: p.idx, rule: '702.139c' });
+    this.emit('update');
+    return true;
   }
   // ---------- day and night (726)
   flipFace(o) {

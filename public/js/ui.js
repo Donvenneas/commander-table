@@ -355,6 +355,7 @@ export class TableView {
         + (p.battlefield.some(o => o.fx.noCastMyTurn) && g.active === p.idx ? '<span class="polchip" title="Opponents can\'t cast spells during this player\'s turn">🔇 No spells</span>' : '')
         + (this.humanIdx === p.idx && p.battlefield.some(o => o.fx.seeTop) && p.library.length ? `<span class="polchip" data-iid="${p.library[p.library.length - 1].iid}" title="The top card of your library">👁 Top: ${esc(p.library[p.library.length - 1].card.name)}</span>` : '')
         + (p.dungeon ? `<span class="polchip" title="Dungeon: ${esc(p.dungeon.name)}${p.dungeonsDone ? ` (${p.dungeonsDone} completed)` : ''}">🏰 ${esc(p.dungeon.room)}</span>` : '')
+        + (p.companion?.zone === 'outside' ? `<span class="polchip" data-iid="${p.companion.iid}" title="Companion: {3} puts it into hand once, at sorcery speed">🐾 ${esc(p.companion.card.name)}</span>` : '')
         + (g.initiative === p.idx ? '<span class="polchip" title="Has the initiative: ventures into Undercity each upkeep; combat damage to this player takes it">⚑ Initiative</span>' : '')
         + (g.dayNight && p.idx === g.active ? `<span class="polchip" title="Day or night (daybound and nightbound cards)">${g.dayNight === 'day' ? '☀ Day' : '☾ Night'}</span>` : '');
       const chips = politics + Object.entries(p.cmdDamage).map(([iid, n]) => {
