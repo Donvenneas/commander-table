@@ -495,8 +495,9 @@ on top of the ones above:
     and no player plays more lands than their land drops ("timing" and "land" findings; casts that effects make with
     a given mode — cascade, rebound, madness, Sieges — are left out). Tested: a planted off-turn sorcery and land are
     both caught; 16 cEDH-preset, 16 mixed and 10 extra-land-drop games found nothing; self-test rules check clean.
-    Not done: mana spent against cost (payments go through one planner already), and a hidden-information check
-    (the AI reads other players' hands in a few places by design for its estimates; item 109 territory).
+    Not done: mana spent against cost (payments go through one planner already), and an automatic
+    hidden-information check (a read of ai.js found its hand reads are of the deciding player's own hand; the
+    look-ahead copy already redeals opponents' hands; a checker that proves it in every decision isn't built).
 
 ### AI
 - [ ] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
