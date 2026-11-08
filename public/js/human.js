@@ -373,7 +373,9 @@ export class HumanAgent extends Agent {
       const pingers = this.pingers(g, p);
       // Morph and disguise cards that can be cast face down, and face-down permanents that can be turned up
       const faceDowns = [...p.hand.filter(o => g.canCastFaceDown(p, o)), ...p.battlefield.filter(o => g.canTurnFaceUp(p, o))];
-      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns])];
+      // Adventures and modal double-faced cards: the other face can be cast, or a land back played
+      const otherFaces = p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o));
+      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns, ...otherFaces])];
       const loop = this.loopBlock();
       const fromGy = spells.some(o => o.zone === 'graveyard') || graveAbs.length;
       // (how many plays are still open, so a pass is never by accident)
@@ -421,6 +423,22 @@ export class HumanAgent extends Agent {
           : 'exile';
         if (c === 'exile') g.exileForMana(p, o);
         else if (c === 'cast') await this.castWithChoices(g, p, o);
+        continue;
+      }
+      if (otherFaces.includes(o)) {
+        const f = o.card.altFace;
+        const opts = [
+          ...(spells.includes(o) ? [{ label: `Cast ${o.card.name}`, value: 'front', primary: true }] : []),
+          ...(g.faceCastMode(p, o) ? [{ label: `Cast ${f.name}${o.card.layout === 'adventure' ? ' (adventure)' : ''}`, value: 'face' }] : []),
+          ...(g.canPlayBackLand(p, o) ? [{ label: `Play ${f.name} (land)`, value: 'land' }] : []),
+          ...(faceDowns.includes(o) ? [{ label: 'Face down ({3})', value: 'down' }] : []),
+        ];
+        const c = opts.length === 1 ? opts[0].value : (await this.ui.ask(`<b>${esc(o.card.name)} // ${esc(f.name)}</b>: which face?`, { buttons: [...opts, { label: 'Cancel', value: 'cancel' }] })).button;
+        if (c === 'face') { await g.castFace(p, o); this.acts = []; continue; }
+        if (c === 'land') { await g.playLand(p, o); continue; }
+        if (c === 'down') { await g.cast(p, o, { mode: { alt: 'morph' } }); this.acts = []; continue; }
+        if (c !== 'front') continue;
+        await this.castWithChoices(g, p, o);
         continue;
       }
       if (faceDowns.includes(o)) {

@@ -360,6 +360,15 @@ on top of the ones above:
     manifest dread, 0 errors, no rule broken) and 3 games with a scripted human seat (5 cast face down, 3 turned up).
 - [ ] 87. Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back
   face as a land (the AI counts those as lands for mulligans and land drops).
+  - Done: scryfall.js normalize keeps the second face of adventure, modal_dfc and split cards (card.altFace, with
+    its own fx) and card.layout. engine.js useFace/mainFace swap the card's face on the stack and battlefield
+    (restored as it leaves, via baseCard); faceCastMode/castFace cast the other face from hand; an adventure
+    resolves into exile and the creature may be cast from there (715.4); playLand plays an MDFC's land back.
+    AI: scores the other face against the front (adventures get 60% of the creature's value on top), plays a land
+    back only with no other land in hand (and under 6 lands or the front uncastable), counts land backs in
+    mulligans. Human seats choose the face when they click such a card. Tested: 18 games with 20 adventure/MDFC
+    cards (30 adventures, creatures cast from exile, 7 land backs played, 0 errors, no rule broken) and 3 games with
+    a scripted human seat. Card names still show as "Front // Back" (Scryfall's name).
 - [ ] 88. Finish "aura or creature" cards: bestow end to end, mutate (merged stack with every ability), reconfigure.
 - [ ] 89. Madness (finish), cleave, meld, split cards with fuse, and aftermath.
 - [ ] 90. Layers (rule 613) with timestamps for copy, control, text, type, color, ability and P/T effects instead of

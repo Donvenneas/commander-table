@@ -316,11 +316,12 @@ export class Agent {
     const plan = this.planScore(g, p);
     // cEDH: a hand needs to do something fast (tutors, fast mana, combo pieces, free interaction)
     if (this.style === 'cedh' && p.mulligans < 2) {
-      const lands = p.hand.filter(o => o.fx.type.land).length;
+      const lands = p.hand.filter(o => o.fx.type.land || (g.rules >= 5 && o.card.layout === 'modal_dfc' && o.card.altFace?.fx.type.land)).length;
       const good = p.hand.filter(o => this.pieceWorth(g, p, o) || [...o.fx.spell, ...o.fx.etb].some(e => e.k === 'tutor' || e.k === 'addMana') || (o.fx.mana && (o.card.cmc || 0) <= 2) || o.fx.altFree).length;
       return lands >= 1 && lands <= 4 && (good >= 2 || plan >= 4);
     }
-    const lands = p.hand.filter(o => o.fx.type.land);
+    // (a modal double-faced card with a land back counts as a land)
+    const lands = p.hand.filter(o => o.fx.type.land || (g.rules >= 5 && o.card.layout === 'modal_dfc' && o.card.altFace?.fx.type.land));
     const n = lands.length;
     if (p.mulligans >= 2) return true;
     // A hand with a whole combo is worth keeping on fewer lands
@@ -595,7 +596,13 @@ export class Agent {
     const extra = [...p.exile.filter(o => o.fx.type.land && o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn), p.library[p.library.length - 1]].filter(o => o && o.fx.type.land && (o.zone === 'exile' || g.topPlayable(p, o)));
     if (extra.length) return extra[0];
     const lands = p.hand.filter(o => o.fx.type.land);
-    if (!lands.length) return null;
+    if (!lands.length) {
+      // Modal double-faced cards with a land back: play one as a land when there's no other land and mana is short
+      // (the cheapest front first; never while the front could be cast and the board has 6+ lands)
+      const onBf = p.battlefield.filter(o => o.fx.type.land).length;
+      const backs = p.hand.filter(o => g.canPlayBackLand(p, o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
+      return backs.find(o => onBf < 6 || !g.canCast(p, o)) || null;
+    }
     const have = new Set(p.battlefield.flatMap(o => o.fx.mana?.colors || []));
     const wanted = new Set(p.hand.concat(p.command).flatMap(o => [...o.card.manaCost.matchAll(/\{([WUBRG])\}/g)].map(m => m[1])));
     // Is there a spell that needs this land's mana right now? If not, a tapped land costs nothing today
@@ -694,16 +701,28 @@ export class Agent {
       // A ritual is worth more next turn when a ready combo is short on mana (planning a turn ahead)
       if (ready.length && !o.fx.type.permanent && o.fx.spell.some(e => e.k === 'addMana')) continue;
       const mode = g.castMode(p, o);
-      if (!mode) continue;
+      const faceMode = o.zone === 'hand' ? g.faceCastMode(p, o) : null;
+      if (!mode && !faceMode) continue;
       // A combo spell that does nothing on its own (Tainted Pact without Oracle) waits for its partner
       if (!o.fx.type.permanent && !o.fx.spell.length && this.pieceWorth(g, p, o)) continue;
-      let s = this.scoreCast(g, p, o, phase);
+      let s = mode ? this.scoreCast(g, p, o, phase) : 0;
       // Don't overextend into a wipe: a plain extra creature is worth less when the board is already well ahead
       if (o.fx.type.creature && !o.fx.etb.length && !o.isCommander && !this.pieceWorth(g, p, o) && !g.has(o, 'haste') && this.overextended(g, p)) s *= 0.55;
       // An evoked creature is sacrificed at once, so only its enters-the-battlefield effect counts
-      if (mode.alt === 'evoke') s = o.fx.etb.reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) * 0.9 - 1;
+      if (mode?.alt === 'evoke') s = o.fx.etb.reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) * 0.9 - 1;
       // Cast face down (morph, disguise): a 2/2 now, and the real card later
-      if (mode.alt === 'morph') s = 2 + Math.min(3, s * 0.3);
+      if (mode?.alt === 'morph') s = 2 + Math.min(3, s * 0.3);
+      // An adventure (the creature is cast from exile later) or an MDFC's back face, when it scores better
+      if (faceMode) {
+        g.useFace(o, o.card.altFace);
+        let fs;
+        try { fs = this.scoreCast(g, p, o, phase); } finally { g.mainFace(o); }
+        if (o.card.layout === 'adventure') fs += Math.max(0, mode ? s : this.scoreCast(g, p, o, phase)) * 0.6;
+        if (fs > s || !mode) {
+          if (fs > 0.5) opts.push({ s: fs, why: `casts ${o.card.altFace.name}${o.card.layout === 'adventure' ? ' (adventure)' : ''}`, run: () => g.castFace(p, o), o });
+          continue;
+        }
+      }
       // Pitching a card is a real cost; free spells are mostly for responses
       if (mode.alt === 'pitch') s -= 4;
       if (mode.alt === 'jumpstart') s -= 1.5;

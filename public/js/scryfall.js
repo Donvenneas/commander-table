@@ -78,6 +78,18 @@ export function normalize(raw) {
     back.fx = analyzeCard(back);
     Object.defineProperty(card, 'backCard', { value: back, enumerable: false });
   }
+  // The other half of an adventure card or a modal double-faced card (castable or playable instead of the front)
+  card.layout = raw.layout || 'normal';
+  if (faces.length > 1 && /^(adventure|modal_dfc|split)$/.test(raw.layout || '') && faces[1].oracle_text !== undefined) {
+    const b = faces[1];
+    const cost = b.mana_cost || '';
+    const mv = [...cost.matchAll(/\{([^}]+)\}/g)].reduce((s, [, x]) => s + (/^\d+$/.test(x) ? +x : x === 'X' ? 0 : 1), 0);
+    const dfc = raw.layout === 'modal_dfc';
+    /** @type {any} */
+    const alt = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: cost, cmc: mv, text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, keywords: [], produced: dfc ? card.produced : [], imgNormal: dfc ? card.backNormal || card.imgNormal : card.imgNormal, imgSmall: dfc ? card.backNormal || card.imgSmall : card.imgSmall, canBeCommander: false, isAltFace: raw.layout };
+    alt.fx = analyzeCard(alt);
+    Object.defineProperty(card, 'altFace', { value: alt, enumerable: false });
+  }
   byId.set(raw.id, card);
   return card;
 }

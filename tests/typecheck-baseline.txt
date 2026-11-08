@@ -53,7 +53,6 @@ public/js/main.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/main.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/main.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/main.js TS2339 Property 'explain' does not exist on type 'Game'.
-public/js/main.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
 public/js/main.js TS2339 Property 'id' does not exist on type 'EventTarget'.
 public/js/main.js TS2339 Property 'interaction' does not exist on type '{ seat: { color: string; name: any; source: any; style: any; bracket: any; deck: any; }; wins: number; place: number; comboWins: number; combos: number; damage: number; styles: {}; cards: Map<any, any>; }'.
 public/js/main.js TS2339 Property 'interaction' does not exist on type '{ seat: { color: string; name: any; source: any; style: any; bracket: any; deck: any; }; wins: number; place: number; comboWins: number; combos: number; damage: number; styles: {}; cards: Map<any, any>; }'.
@@ -103,13 +102,6 @@ public/js/tour.js TS2339 Property 'offsetParent' does not exist on type 'Element
 public/js/ui.js TS2339 Property 'closest' does not exist on type 'EventTarget'.
 public/js/ui.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/ui.js TS2339 Property 'disabled' does not exist on type 'Element'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
-public/js/ui.js TS2339 Property 'humanIdx' does not exist on type 'TableView'.
 public/js/ui.js TS2339 Property 'onclick' does not exist on type 'Element'.
 public/js/ui.js TS2339 Property 'revealAll' does not exist on type 'TableView'.
 public/js/ui.js TS2339 Property 'src' does not exist on type 'Element'.

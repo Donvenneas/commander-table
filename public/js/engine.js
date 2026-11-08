@@ -888,6 +888,8 @@ export class Game {
       this.restoreFace(o);
       this.log(`${esc(hidden)} is revealed: ${this.cn(o)}`, { kind: 'minor', rule: '708.9' });
     }
+    // (an adventure or the back of a modal double-faced card is the whole card again anywhere but the stack and battlefield)
+    if (o.altFaceOn && to !== 'battlefield' && to !== 'stack') { this.mainFace(o); if (to !== 'exile') o.onAdventure = false; }
     if (o.token && to !== 'battlefield') { o.zone = 'gone'; return o; }
     o.mayPlay = null;
     if (o.isCommander && !opts.stay && ['graveyard', 'exile', 'hand', 'library'].includes(to) && !p.lost) {
@@ -2969,6 +2971,8 @@ export class Game {
   // ---------- actions the agents take
   async playLand(p, o) {
     if (p.landsPlayed >= this.landDrops(p) ||!(p.hand.includes(o) || (o.zone === 'library' && this.topPlayable(p, o)) || (o.zone === 'exile' && o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn))) return false;
+    // (a modal double-faced card with a land back is played as that land)
+    if (!o.fx.type.land) { if (!this.canPlayBackLand(p, o)) return false; this.useFace(o, o.card.altFace); }
     p.landsPlayed++;
     // Thespian's Stage-style lands (Vesuva): enter as a copy of the best land on the battlefield
     if (o.fx.clone === 'land') {
@@ -3246,6 +3250,13 @@ export class Game {
       if (stormCopies && effects.every(e => e.k === 'mill')) await this.runEffects(p, o, effects, { x, targets, strict: true, copies: stormCopies + 1 });
       else for (let c = 0; c <= stormCopies && !this.over; c++) await this.runEffects(p, o, effects, { x, targets, strict: true });
       if (!effects.length && !choice.combo) this.log(`${this.cn(o)} resolves (its effect isn't modelled by the simulator)`, { kind: 'minor' });
+      // An adventure resolves into exile, and the card's creature may be cast from there later (715.4)
+      if (o.zone === 'stack' && o.onAdventure) {
+        this.move(o, 'exile');
+        o.onAdventure = false;
+        o.mayPlay = { p: p.idx, until: Infinity, adventure: true };
+        this.log(`${this.cn(o)} goes on an adventure: it can be cast from exile later`, { kind: 'minor', rule: '715.4' });
+      }
       // Rebound (702.88): cast from hand, it's exiled and cast again at the next upkeep
       if (o.zone === 'stack' && (o.fx.rebound || o.reboundGrant) && fromHand && !mode.alt) {
         o.reboundGrant = false; this.move(o, 'exile'); (p.rebounds ||= []).push(o); this.log(`${this.cn(o)} is exiled with rebound`, { kind: 'minor', rule: '702.88a' }); }
@@ -3832,6 +3843,39 @@ export class Game {
       else { const f = p.battlefield.find(x => x.card.name === 'Food'); if (f) this.sacrifice(p, f, ' (forage)'); }
     }
     if (c.energy) p.energy -= c.energy;
+  }
+  // ---------- the other face: adventures (715) and modal double-faced cards (712)
+  // The card takes its other face's characteristics while on the stack (and, for a modal double-faced card, on
+  // the battlefield); it turns back as it leaves (leaveBattlefield restores baseCard, move() the stack).
+  useFace(o, face) {
+    if (!o.baseCard) o.baseCard = o.card;
+    o.card = face; o.fx = face.fx; o.altFaceOn = true;
+  }
+  mainFace(o) {
+    if (!o.altFaceOn) return;
+    if (o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; }
+    o.altFaceOn = false;
+  }
+  // The face that can be cast instead of the front from the hand (an adventure, or an MDFC's spell back), if castable now
+  faceCastMode(p, o) {
+    const f = o.card.altFace;
+    if (!f || this.rules < 5 || o.zone !== 'hand' || o.altFaceOn || f.fx.type.land || o.card.layout === 'split') return null;
+    this.useFace(o, f);
+    try { return this.castMode(p, o); } finally { this.mainFace(o); }
+  }
+  async castFace(p, o) {
+    const mode = this.faceCastMode(p, o);
+    if (!mode) return false;
+    this.useFace(o, o.card.altFace);
+    o.onAdventure = o.baseCard.layout === 'adventure';
+    const ok = await this.cast(p, o, { mode });
+    if (!ok && o.zone === 'hand') { this.mainFace(o); o.onAdventure = false; }
+    return ok;
+  }
+  // A modal double-faced card whose back is a land: played as that land (uses the land drop)
+  canPlayBackLand(p, o) {
+    const f = o.card.altFace;
+    return !!f && this.rules >= 5 && o.card.layout === 'modal_dfc' && f.fx.type.land && !o.fx.type.land && o.zone === 'hand' && p.landsPlayed < this.landDrops(p);
   }
   // ---------- face-down permanents (708): morph, megamorph, disguise, manifest, manifest dread, cloak
   canCastFaceDown(p, o) {
