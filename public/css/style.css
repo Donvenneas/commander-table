@@ -1009,3 +1009,6 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 /* Auto-answers (human.js): "Always" checkbox and the list chip in the action bar */
 .ab-always { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .85; margin-left: 6px; cursor: pointer; }
 .ab-autos { font-size: 11px; opacity: .8; }
+
+/* Payment preview (human.js): the sources a cast would tap */
+.card.will-tap { outline: 2px dashed #f5c542; outline-offset: 2px; }

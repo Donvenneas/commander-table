@@ -25,6 +25,25 @@ export class HumanUI {
       const board = e.target.closest('.board[data-player]');
       if (board && this.pending.players.has(+board.dataset.player) && !card) return this.finish({ player: +board.dataset.player });
     }, true);
+    // Payment preview (item 120): hovering a card you can cast right now outlines the lands and mana sources the
+    // automatic payment would tap. (To pay with others, tap those by hand first: tapped mana is spent first.)
+    const clearTaps = () => document.querySelectorAll('.card.will-tap').forEach(el => el.classList.remove('will-tap'));
+    document.addEventListener('pointerover', e => {
+      const el = /** @type {HTMLElement | null} */ (/** @type {any} */ (e.target).closest?.('.card[data-iid]'));
+      if (!el || !this.pending || !this.game || !this.view) return;
+      const o = this.pending.objs.get(+el.dataset.iid);
+      if (!o || o.zone === 'battlefield' || o.fx.type.land) return;
+      const g = this.game, p = g.players[o.owner];
+      try {
+        const mode = g.castMode(p, o);
+        if (!mode) return;
+        const { c, extra } = mode.alt ? { c: g.altCost(o, mode.alt), extra: 0 } : g.costOf(p, o);
+        const plan = g.planPayment(p, c, extra);
+        clearTaps();
+        for (const s of plan?.srcs || []) this.view.cards.get(s.iid)?.classList.add('will-tap');
+      } catch { /* a preview never gets in the way */ }
+    }, true);
+    document.addEventListener('pointerout', e => { if (/** @type {any} */ (e.target).closest?.('.card[data-iid]')) clearTaps(); }, true);
     // Drag to attack (item 117): drop one of the highlighted creatures on an opponent's board while declaring
     // attackers. It's answered as the same two clicks (the creature, then "Attack <player>"), so replays don't change.
     let drag = null;

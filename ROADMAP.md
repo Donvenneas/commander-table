@@ -605,7 +605,11 @@ on top of the ones above:
     While one is on, those windows pass without asking; blocks and your own main phases are still asked. The choice is a
     recorded answer, so replays set the same mode. Tested with a scripted Full-control seat in 4 cEDH games each:
     1,202 response prompts with plain Pass, 189 / 293 / 110 with the three modes, 0 errors, no rule broken.
-- [ ] 120. Payment preview: before a cast is confirmed, highlight the sources that will tap and let the player swap one.
+- [x] 120. Payment preview: before a cast is confirmed, highlight the sources that will tap and let the player swap one.
+  - Done, partly: hovering a card you can cast now outlines (yellow dashes) the lands and mana sources the automatic
+    payment would tap. Swapping a source is done the way it already worked: tap the sources you want by hand first
+    (mana in your pool is spent first); there is no separate confirm step, which would add a click to every cast.
+    Tested in the first lesson: hovering Grizzly Bears outlined both Forests.
 - [ ] 121. Big boards: identical tokens stack with a ×N count; rows shrink instead of overflowing at 50+ permanents.
 - [ ] 122. Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line,
   from any card on the table, in a pile or in the log.
