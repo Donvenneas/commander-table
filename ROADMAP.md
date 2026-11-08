@@ -632,7 +632,11 @@ on top of the ones above:
     three biggest hits. The engine only records these (lifeLog, bigHits, stats.draws/taken); nothing reads them
     during play, so results and replays don't change. History entries keep each seat's spells and damage dealt and
     taken (not yet shown on the History page). Tested on a finished lesson game.
-- [ ] 125. The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.
+- [x] 125. The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.
+  - Done: under 600 px the top toolbar and the timeline are single rows that scroll sideways (156 px tall
+    together instead of 332 at 375 px wide), the page never scrolls sideways, the lesson coach panel moves to the top
+    and stays short, and a long press on a card opens its details (the right-click panel of item 122) as the card
+    zoom. Checked at 375×812 in a lesson. Not checked on a real phone.
 - [ ] 126. Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts,
   announcements of other players' actions.
 - [ ] 127. Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and "your turn", with
