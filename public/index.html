@@ -85,6 +85,7 @@
           <select id="logSeat" class="sbracket" title="Show only lines about one player"><option value="">All players</option></select>
           <input id="logSearch" class="input small" placeholder="Search the log…" title="Show only log lines with this text (card or player names, words)" autocomplete="off">
         </div>
+        <div id="srLog" class="sr-only" aria-live="polite"></div>
         <div id="log" class="log"><div class="log-empty">Load four decks to begin.</div></div>
         <div id="chatBox" class="chatbox" hidden>
           <div class="emotes"><button data-say="👍">👍</button><button data-say="😮">😮</button><button data-say="😂">😂</button><button data-say="🤔">🤔</button><button data-say="Nice!">Nice!</button><button data-say="GG">GG</button><button id="btnDealOpen" title="Offer another player a deal">🤝 Deal</button></div>
@@ -106,8 +107,8 @@
 
   <div id="preview" class="preview" hidden></div>
 
-  <div id="actionBar" class="action-bar" hidden>
-    <div id="abText" class="ab-text"></div>
+  <div id="actionBar" class="action-bar" hidden role="region" aria-label="Your decision">
+    <div id="abText" class="ab-text" aria-live="polite"></div>
     <div id="abButtons" class="ab-buttons"></div>
   </div>
 

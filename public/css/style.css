@@ -1053,3 +1053,7 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
   .coach { max-height: 28vh; bottom: auto; top: 8px; font-size: 12px; }
   .board .card { touch-action: manipulation; }
 }
+
+/* Screen readers only (item 126) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.card.pickable:focus-visible { outline: 3px solid #5b8cff; outline-offset: 2px; }

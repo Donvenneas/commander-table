@@ -637,8 +637,12 @@ on top of the ones above:
     together instead of 332 at 375 px wide), the page never scrolls sideways, the lesson coach panel moves to the top
     and stays short. Card zoom on touch relies on the right-click details panel (item 122): phone browsers send a long
     press as a context menu, but that wasn't tested here. Checked at 375×812 in a lesson; not on a real phone.
-- [ ] 126. Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts,
+- [x] 126. Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts,
   announcements of other players' actions.
+  - Done: the cards you can pick are focusable buttons named for screen readers ("Forest, in your hand"); Tab moves
+    between them and Enter or Space picks the focused one (buttons already had Space/Enter, 1–9, Esc, A). The action
+    bar's question is a polite live region, and casts, combat, damage, removal, combos and eliminations are announced
+    through a hidden live region. Tested: the first lesson played with Enter only. Not tested with a real screen reader.
 - [ ] 127. Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and "your turn", with
   separate volumes for music and effects.
 - [ ] 128. High-contrast theme, card text size setting, and the OS "reduce motion" setting turning on "Fewer animations".

@@ -539,6 +539,11 @@ export class TableView {
 
   addLog(e) {
     const log = this.els.log;
+    // (screen readers hear what other players do: casts, combat, removal, eliminations)
+    if (['cast', 'combat', 'damage', 'removal', 'loss', 'combo'].includes(e.kind)) {
+      const sr = document.getElementById('srLog');
+      if (sr && !this.g.clock.ff) { const d = document.createElement('div'); d.innerHTML = e.html; sr.textContent = d.textContent; }
+    }
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
     const div = document.createElement('div');
     div.className = `le ${e.kind}`;

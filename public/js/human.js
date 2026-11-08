@@ -154,7 +154,14 @@ export class HumanUI {
   highlight(on) {
     if (!this.pending || !this.view) return;
     this.view.render();
-    for (const iid of this.pending.objs.keys()) this.view.cards.get(iid)?.classList.toggle('pickable', on);
+    // (keyboard and screen readers, item 126: the cards you can pick are focusable buttons with their names)
+    for (const [iid, o] of this.pending.objs) {
+      const el = this.view.cards.get(iid);
+      if (!el) continue;
+      el.classList.toggle('pickable', on);
+      if (on) { el.tabIndex = 0; el.setAttribute('role', 'button'); el.setAttribute('aria-label', `${o.card.name}${o.zone === 'hand' ? ', in your hand' : o.zone === 'battlefield' ? (o.tapped ? ', tapped' : '') : `, in ${o.zone}`}`); }
+      else { el.removeAttribute('tabindex'); el.removeAttribute('role'); }
+    }
     for (const b of this.view.boards) b.el.classList.toggle('pickable', on && this.pending.players.has(b.p.idx));
   }
   finish(value) {
@@ -179,6 +186,9 @@ export class HumanUI {
   // Keyboard: Space/Enter = main button, Esc = cancel, 1–9 = nth button, A = let the AI decide
   key(e) {
     if (!this.pending) return false;
+    // (a focused card you can pick: Enter or Space picks it; Tab moves between them)
+    const f = /** @type {HTMLElement | null} */ (document.activeElement);
+    if ((e.key === 'Enter' || e.key === ' ') && f?.classList?.contains('pickable') && f.dataset.iid) { e.preventDefault(); f.click(); return true; }
     const btns = [...this.buttons.children];
     let b = null;
     if (e.key === ' ' || e.key === 'Enter') b = btns.find(x => x.classList.contains('primary')) || btns[0];
