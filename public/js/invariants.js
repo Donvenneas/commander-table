@@ -36,7 +36,7 @@ export function checkInvariants(g, afterSba = false) {
     if (afterSba && !p.lost && p.life <= 0 && !g.cantLose?.(p)) bad('life', `${p.name} is at ${p.life} life and hasn't lost`);
     if (afterSba && !p.lost && p.poison >= 10) bad('poison', `${p.name} has ${p.poison} poison counters and hasn't lost`);
     // (a commander exiled for a while, by Flickerwisp and friends, may stay there until it returns)
-    for (const o of [...p.graveyard, ...p.exile, ...p.hand, ...p.library]) if (o.isCommander && !p.lost && !(g.delayed || []).includes(o) && !o.mayPlay) bad('commander', `${p.name}'s commander ${o.card.name} is in their ${o.zone}`);
+    for (const o of [...p.graveyard, ...p.exile, ...p.hand, ...p.library]) if (o.isCommander && !p.lost && !(g.delayed || []).includes(o) && !o.mayPlay && !o.cmdChoicePending && !o.cmdStay && !o.cmdLeft) bad('commander', `${p.name}'s commander ${o.card.name} is in their ${o.zone}`);
     if (!Number.isFinite(p.life)) bad('life', `${p.name}'s life is ${p.life}`);
   }
   // Layers (613): continuous effects mustn't depend on the order permanents happen to sit on the battlefield.

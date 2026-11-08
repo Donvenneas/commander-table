@@ -449,6 +449,14 @@ on top of the ones above:
 - [ ] 96. Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses
   (903.9; the AI usually moves it, a human seat is asked). Check partner, Friends forever, Choose a Background and
   Doctor's companion pairings at load.
+  - Done: (rules 5) a commander put into a graveyard or exile now really goes there (so "dies" and "put into a
+    graveyard" triggers see it) and its owner chooses at the next state-based check (Game.commanderChoices, 903.9a);
+    to a hand or library it's a replacement decided at once (903.9b). The AI leaves it in the graveyard only when it can
+    recast or reanimate it this turn (Kess, Muldrotha-style permission, a reanimation spell in hand); human seats are
+    asked for graveyard and exile. The rules check accepts a commander its owner chose to leave. formats.js checks two
+    commanders are a legal pair (partner, partner with each other, friends forever, background, Doctor's companion)
+    and at most two. Tested: 12 cEDH-preset games (commanders returning, 0 errors, no rule broken); a Kinnan +
+    Thrasios list is flagged, the four presets aren't.
 - [ ] 97. Coverage pass 2: rerun the 3,500-card scan and model the most common families still unread (Sundial, Scroll
   Rack, Chain Veil, "becomes a copy … with mana value X", Planar Bridge and the like). Target 88% → 93%.
 - [ ] 98. Coverage for 60-card and Limited play: scan the cards the random constructed and Limited generators pick

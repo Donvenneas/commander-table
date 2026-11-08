@@ -911,9 +911,18 @@ export class Game {
     if (o.altFaceOn && to !== 'battlefield' && to !== 'stack') { this.mainFace(o); if (to !== 'exile') o.onAdventure = false; }
     if (o.token && to !== 'battlefield') { o.zone = 'gone'; return o; }
     o.mayPlay = null;
+    o.cmdStay = false;
     if (o.isCommander && !opts.stay && ['graveyard', 'exile', 'hand', 'library'].includes(to) && !p.lost) {
-      this.log(`${this.cn(o)} returns to ${this.pn(p)}'s command zone`, { rule: to === 'graveyard' || to === 'exile' ? '903.9a' : '903.9b' });
-      to = 'command';
+      // Rules 5: the owner may choose (903.9). To a graveyard or exile it goes there and the choice is made as a
+      // state-based action (Game.commanderChoices); to a hand or library it's a replacement, decided now.
+      if (this.rules >= 5 && (to === 'graveyard' || to === 'exile')) o.cmdChoicePending = true;
+      else if (this.rules >= 5 && p.agent.commanderToCommandZone && !p.agent.commanderToCommandZone(this, p, o, to)) {
+        o.cmdStay = true;
+        this.log(`${this.pn(p)} lets ${this.cn(o)} go to their ${to} instead of the command zone`, { kind: 'minor', rule: '903.9b' });
+      } else {
+        this.log(`${this.cn(o)} returns to ${this.pn(p)}'s command zone`, { rule: to === 'graveyard' || to === 'exile' ? '903.9a' : '903.9b' });
+        to = 'command';
+      }
     }
     o.zone = to;
     if (to === 'battlefield') {
@@ -1594,9 +1603,27 @@ export class Game {
     if (this.kingdoms) K.tick(this);
     for (let guard = 0; guard < 25 && !this.over; guard++) {
       let changed = this.sbaPass();
+      if (await this.commanderChoices()) changed = true;
       if (this.queue.length) { await this.flushTriggers(); changed = true; }
       if (!changed) break;
     }
+  }
+  // 903.9a: a commander put into a graveyard or exile since the last check may go to the command zone (its owner's
+  // choice; the AI keeps it there only to reanimate or recast it from there, people are asked)
+  async commanderChoices() {
+    let any = false;
+    for (const p of this.players) for (const o of [...p.graveyard, ...p.exile]) {
+      if (!o.cmdChoicePending) continue;
+      o.cmdChoicePending = false;
+      if (p.lost) continue;
+      const back = await (p.agent.commanderToCommandZoneAsync ? p.agent.commanderToCommandZoneAsync(this, p, o, o.zone) : p.agent.commanderToCommandZone ? p.agent.commanderToCommandZone(this, p, o, o.zone) : true);
+      if (back) {
+        this.log(`${this.cn(o)} returns to ${this.pn(p)}'s command zone`, { rule: '903.9a' });
+        this.move(o, 'command', { stay: true });
+        any = true;
+      } else { o.cmdStay = true; this.log(`${this.pn(p)} leaves ${this.cn(o)} in their ${o.zone}`, { kind: 'minor', rule: '903.9a' }); }
+    }
+    return any;
   }
   cantLose(q) { return q.cantLoseTurn === this.turn || q.battlefield.some(s => s.fx.cantLose); }
   lose(q, reason, rule) {

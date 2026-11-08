@@ -1319,6 +1319,14 @@ export class Agent {
   roomValue(g, p, d, r) { return roomEffects(d, r).reduce((s, e) => s + this.effectValue(g, p, p.dungeonObj || p.battlefield[0] || { card: { cmc: 0 }, fx: {} }, e, false), 0); }
   chooseRoom(g, p, d, rooms) { return [...rooms].sort((a, b) => this.roomValue(g, p, d, b) - this.roomValue(g, p, d, a))[0]; }
   chooseDungeon(g, p, names) { return names.includes('Dungeon of the Mad Mage') && g.round >= 8 ? 'Dungeon of the Mad Mage' : names.includes('Lost Mine of Phandelver') ? 'Lost Mine of Phandelver' : names[0]; }
+  // A commander going to a graveyard or exile, hand or library: back to the command zone, unless it's going to a
+  // graveyard we can cast it from or reanimate it out of this turn (Kess, Muldrotha, a reanimation spell in hand)
+  commanderToCommandZone(g, p, o, to) {
+    if (to !== 'graveyard') return true;
+    const recast = g.gyOnceSource?.(p, o) || p.gyCast?.turn === g.turn;
+    const reanimate = p.hand.some(x => [...x.fx.spell].some(e => e.k === 'reanimate') && g.canCast(p, x));
+    return !(recast || reanimate) || (o.card.cmc || 0) <= 2;
+  }
   // Madness: cast the discarded card now when it's worth casting at all
   wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }
   // Mutate onto the creature that gains most from it: one that can attack now, and not our commander

@@ -90,6 +90,19 @@ export function checkDeck(deck, key) {
     if (!deck.commanders.some(c => /\bplaneswalker\b/i.test(c.typeLine))) out.push('Oathbreaker decks need a planeswalker as the oathbreaker.');
     if (!deck.commanders.some(c => /\b(instant|sorcery)\b/i.test(c.typeLine))) out.push('No signature spell: put an instant or sorcery under the "Commander" heading with the oathbreaker.');
   } else if (f.commander && f.cmdRule) for (const c of deck.commanders) if (!commanderOk(c, key)) out.push(`${c.name} can't be a ${f.name} commander.`);
+  // Two commanders must be a legal pair (702.124): both partners, "partner with" each other, both "friends forever",
+  // a "choose a background" commander with a Background, or a Doctor's companion with a Time Lord Doctor
+  if (f.commander && !f.signature && deck.commanders.length === 2) {
+    const [a, b] = deck.commanders;
+    const t = c => (c.text || '').toLowerCase();
+    const has = (c, re) => re.test(t(c));
+    const pw = (c, d) => t(c).includes(`partner with ${d.name.toLowerCase()}`);
+    const bg = (c, d) => has(c, /^choose a background\b/m) && /\bbackground\b/i.test(d.typeLine);
+    const doc = (c, d) => has(c, /^doctor's companion\b/m) && /\btime lord doctor\b/i.test(d.typeLine);
+    const ok = (has(a, /^partner\b(?! with)/m) && has(b, /^partner\b(?! with)/m)) || (pw(a, b) && pw(b, a))
+      || (has(a, /^friends forever\b/m) && has(b, /^friends forever\b/m)) || bg(a, b) || bg(b, a) || doc(a, b) || doc(b, a);
+    if (!ok) out.push(`${a.name} and ${b.name} can't be commanders together (no partner, background or companion pairing).`);
+  } else if (f.commander && !f.signature && deck.commanders.length > 2) out.push(`${deck.commanders.length} commanders: a deck can have at most two.`);
   if (deck.companion) out.push(...companionCheck(deck, f));
   const side = (deck.sideboard || []).reduce((a, c) => a + c.qty, 0);
   if (side > f.sideboard) out.push(f.sideboard ? `Sideboard has ${side} cards (at most ${f.sideboard}).` : `${f.name} has no sideboard; its ${side} cards are left out.`);

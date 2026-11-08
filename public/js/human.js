@@ -243,6 +243,11 @@ export class HumanAgent extends Agent {
     const r = await this.ui.ask(`<b>${esc(d)}:</b> venture into which room?`, { buttons: rooms.map((n, i) => ({ label: `${n}: ${DUNGEONS[d].rooms[n].text}`, value: n, primary: i === 0 })) });
     return rooms.includes(r.button) ? r.button : rooms[0];
   }
+  // Your commander went to your graveyard or exile: move it to the command zone? (903.9a)
+  async commanderToCommandZoneAsync(g, p, o, zone) {
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b> went to your ${zone}. Move it to the command zone?`, { buttons: [{ label: 'Command zone', value: true, primary: true }, { label: `Leave it in the ${zone}`, value: false }] });
+    return r.button !== false;
+  }
   // Madness: cast the card you just discarded for its madness cost?
   async wantsMadnessAsync(g, p, o) {
     const r = await this.ui.ask(`<b>${esc(o.card.name)}</b> was discarded: cast it for its madness cost ${esc(o.fx.madness)}?`, { buttons: [{ label: `Cast it (${o.fx.madness})`, value: true, primary: true }, { label: 'No', value: false }] });
