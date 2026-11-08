@@ -610,7 +610,11 @@ on top of the ones above:
     payment would tap. Swapping a source is done the way it already worked: tap the sources you want by hand first
     (mana in your pool is spent first); there is no separate confirm step, which would add a click to every cast.
     Tested in the first lesson: hovering Grizzly Bears outlined both Forests.
-- [ ] 121. Big boards: identical tokens stack with a ×N count; rows shrink instead of overflowing at 50+ permanents.
+- [x] 121. Big boards: identical tokens stack with a ×N count; rows shrink instead of overflowing at 50+ permanents.
+  - Done: identical creature tokens (same name, power/toughness and tapped state, no counters, damage, attachments
+    or combat) are drawn together as an overlapped pile with a ×N count on the first card; each token is still its own
+    card for clicks and targets. Cards shrink further past 34 and 50 permanents (38 and 34 px). Tested: a goblin token
+    game drawn on the table (piles of ×7 and ×2).
 - [ ] 122. Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line,
   from any card on the table, in a pile or in the log.
 - [ ] 123. Clickable log: card names highlight the card on the table and open its details; a search box over the log.

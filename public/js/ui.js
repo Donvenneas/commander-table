@@ -287,11 +287,16 @@ export class TableView {
 
   sync(container, objs, opts = {}) {
     let i = 0;
-    let prevName = null;
+    let prevName = null, runStart = null, runLen = 0, prevKey = null;
+    const endRun = () => { if (runStart) { if (runLen > 1) runStart.dataset.count = `×${runLen}`; else delete runStart.dataset.count; } };
     for (const o of objs) {
       const el = this.cardEl(o);
-      el.classList.toggle('stacked', !!opts.stack && prevName === o.card.name);
+      const key = opts.stackBy ? opts.stackBy(o) : null;
+      const same = opts.stack ? prevName === o.card.name : !!key && key === prevKey;
+      el.classList.toggle('stacked', same);
+      if (opts.stackBy) { if (same) runLen++; else { endRun(); runStart = el; runLen = 1; } if (!same) delete el.dataset.count; }
       prevName = o.card.name;
+      prevKey = key;
       if (container.children[i] !== el) {
         // A card moving between zones (hand → battlefield, creature row → another player) glides there
         const from = el.isConnected && el.parentElement !== container && !this.g.clock.ff ? el.getBoundingClientRect() : null;
@@ -304,6 +309,7 @@ export class TableView {
       }
       i++;
     }
+    if (opts.stackBy) endRun();
     while (container.children.length > i) container.lastChild.remove();
   }
 
@@ -371,14 +377,17 @@ export class TableView {
       b.tax.textContent = taxes;
 
       const bf = p.battlefield;
-      const creatures = bf.filter(o => o.fx.type.creature);
+      // (identical tokens sit together, so they can be drawn as one overlapped pile with a count: item 121)
+      const tokenKey = o => (o.token && !o.counters && !o.attachedTo && o.attacking == null && o.blocking == null && !o.damage ? `${o.card.name}|${o.tapped ? 1 : 0}|${g.power(o)}/${g.toughness(o)}` : null);
+      const creatures = bf.filter(o => o.fx.type.creature).map((o, i) => ({ o, i, k: tokenKey(o) }))
+        .sort((a, c) => (a.k && c.k ? a.k.localeCompare(c.k) : 0) || (a.k ? 1 : 0) - (c.k ? 1 : 0) || a.i - c.i).map(x => x.o);
       const lands = bf.filter(o => o.fx.type.land && !o.fx.type.creature).sort((a, c) => a.card.name.localeCompare(c.card.name) || a.tapped - c.tapped);
       const others = bf.filter(o => !o.fx.type.creature && !(o.fx.type.land && !o.fx.type.creature));
       const n = creatures.length + others.length;
       // (larger in the Display window's "Larger text and cards" mode)
-      const cw = n > 22 ? 44 : n > 16 ? 50 : n > 10 ? 58 : 66;
+      const cw = n > 50 ? 34 : n > 34 ? 38 : n > 22 ? 44 : n > 16 ? 50 : n > 10 ? 58 : 66;
       b.el.style.setProperty('--cw', `${document.body.classList.contains('big') ? Math.round(cw * 1.2) : cw}px`);
-      this.sync(b.creatures, creatures);
+      this.sync(b.creatures, creatures, { stackBy: tokenKey });
       this.sync(b.others, others);
       this.sync(b.lands, lands, { stack: true });
 
