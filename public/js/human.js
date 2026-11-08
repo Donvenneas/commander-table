@@ -25,6 +25,25 @@ export class HumanUI {
       const board = e.target.closest('.board[data-player]');
       if (board && this.pending.players.has(+board.dataset.player) && !card) return this.finish({ player: +board.dataset.player });
     }, true);
+    // Drag to attack (item 117): drop one of the highlighted creatures on an opponent's board while declaring
+    // attackers. It's answered as the same two clicks (the creature, then "Attack <player>"), so replays don't change.
+    let drag = null;
+    document.addEventListener('pointerdown', e => {
+      const card = e.target.closest?.('[data-iid]');
+      drag = this.pending && card && this.pending.objs.has(+card.dataset.iid) && /Declare attackers/.test(this.text.textContent) ? { iid: +card.dataset.iid, x: e.clientX, y: e.clientY } : null;
+    }, true);
+    document.addEventListener('pointerup', e => {
+      const d = drag; drag = null;
+      if (!d || !this.pending || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 30) return;
+      const board = document.elementFromPoint(e.clientX, e.clientY)?.closest('.board[data-player]');
+      if (!board) return;
+      const target = +board.dataset.player;
+      this.autoNext = { button: target };
+      // (if the creature was already selected, the click would unselect it: answer the attack straight away instead)
+      const hasAttack = this.pending.buttons.some(b => b.value === target);
+      if (hasAttack && this.view?.cards.get(d.iid)?.classList.contains('chosen')) { this.autoNext = null; this.finish({ button: target }); }
+      else this.finish({ obj: this.pending.objs.get(d.iid) });
+    }, true);
   }
   // record: every answer given in this game, in order. When a game is rebuilt (replay, rewind, undo)
   // the recorded answers are replayed until they run out, then you're asked live again.
@@ -51,6 +70,10 @@ export class HumanUI {
       };
       this.pending = { resolve: rec, buttons, objs: objMap, players: new Set(players) };
       this.waiting = true;
+      // (the second half of a drag-to-attack: answer at once if this question offers that attack)
+      const auto = this.autoNext;
+      this.autoNext = null;
+      if (auto && buttons.some(b => b.value === auto.button)) { setTimeout(() => this.finish(auto), 0); }
       this.text.innerHTML = text;
       this.buttons.innerHTML = '';
       // A long list (searching a library) gets a filter box and scrolls

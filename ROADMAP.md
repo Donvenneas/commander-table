@@ -584,8 +584,13 @@ on top of the ones above:
     removal on enter), creature size for its cost, two-drops when short of them, fewer 6+ drops, and cards with
     unread text for less. Test: 16 simulated M21 drafts, two drafters on each version, the 40-card decks played
     each other (both seat orders): v2 72–56.
-- [ ] 117. Drag to attack, block and target: drag a card onto a player, walker or creature; arrows on the table show
+- [x] 117. Drag to attack, block and target: drag a card onto a player, walker or creature; arrows on the table show
   what each stack item targets.
+  - Done, partly: drag one of your highlighted creatures onto an opponent's board while declaring attackers to
+    attack them (with it and any already selected); it's answered as the same clicks, so replays and undo are
+    unchanged. Arrows: dotted arrows from each spell or ability in the stack panel to its targets, and attack arrows
+    now point at an attacked planeswalker or battle. Not done: dragging to block or to choose a spell's target.
+    Tested by hand in the Attacking lesson (dragged Hill Giant onto the dummy: it attacked and won).
 - [ ] 118. Auto-answers: "always yes / always pay / never pay" for a trigger or card this game (Rhystic Study taxes,
   "you may" triggers), listed so they can be undone; saved with the answers so replays stay exact.
 - [ ] 119. Smart pass: "pass until something targets me or mine", "pass to my turn", "pass to end of turn", working

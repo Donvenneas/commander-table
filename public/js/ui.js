@@ -441,7 +441,8 @@ export class TableView {
     }
   }
 
-  // Arrows from each attacker to the player it's attacking, and dashed lines from blockers
+  // Arrows from each attacker to the player (or planeswalker or battle) it's attacking, dashed lines from blockers,
+  // and dotted arrows from each spell or ability on the stack to its targets
   drawCombat() {
     const wrap = this.els.table.parentElement;
     if (!this.svg) {
@@ -451,7 +452,8 @@ export class TableView {
     }
     const g = this.g;
     const attackers = g.players.flatMap(p => p.battlefield.filter(o => o.attacking != null));
-    if (!attackers.length || g.clock.ff) { if (this.svg.innerHTML) this.svg.innerHTML = ''; return; }
+    const targeting = g.stack.filter(it => (it.targets || []).some(Boolean));
+    if ((!attackers.length && !targeting.length) || g.clock.ff) { if (this.svg.innerHTML) this.svg.innerHTML = ''; return; }
     const base = wrap.getBoundingClientRect();
     const center = el => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2 - base.left, r.top + r.height / 2 - base.top]; };
     let html = '';
@@ -459,7 +461,8 @@ export class TableView {
       const el = this.cards.get(o.iid), board = this.boards[o.attacking];
       if (!el?.isConnected || !board) continue;
       // Aim at the defender's portrait, which is always visible (the life box can be squeezed on small boards)
-      const [x1, y1] = center(el), [x2, y2] = center(board.el.querySelector('.avatar'));
+      const aimed = o.attackingObj?.zone === 'battlefield' ? this.cards.get(o.attackingObj.iid) : null;
+      const [x1, y1] = center(el), [x2, y2] = center(aimed?.isConnected ? aimed : board.el.querySelector('.avatar'));
       const mx = (x1 + x2) / 2 + (y2 - y1) * 0.15, my = (y1 + y2) / 2 - (x2 - x1) * 0.15;
       const color = g.players[o.controller].color;
       html += `<path d="M${x1},${y1} Q${mx},${my} ${x2},${y2}" stroke="${color}" marker-end="url(#ah-${o.controller})"/>`;
@@ -470,6 +473,18 @@ export class TableView {
         html += `<path class="block" d="M${bx},${by} L${x1},${y1}"/>`;
       }
     }
+    // (stack targets: from the item's row in the stack panel, or its card, to each target)
+    const rows = this.stackPanel?.querySelectorAll('.sp-item') || [];
+    [...g.stack].reverse().forEach((it, i) => {
+      const from = rows[i] || this.cards.get(it.o.iid);
+      if (!from?.isConnected) return;
+      for (const t of (it.targets || []).filter(Boolean)) {
+        const to = t.obj ? this.cards.get(t.obj.iid) : t.player != null ? this.boards[t.player]?.el.querySelector('.avatar') : null;
+        if (!to?.isConnected) continue;
+        const [x1, y1] = center(from), [x2, y2] = center(to);
+        html += `<path class="target" d="M${x1},${y1} L${x2},${y2}" stroke="${it.p.color}" marker-end="url(#ah-${it.p.idx})"/>`;
+      }
+    });
     const defs = g.players.map(p => `<marker id="ah-${p.idx}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${p.color}" stroke="none"/></marker>`).join('');
     html = `<defs>${defs}</defs>${html}`;
     if (this.svg.innerHTML !== html) this.svg.innerHTML = html;
@@ -493,6 +508,7 @@ export class TableView {
       <div class="cap">${it.ability ? `${esc(it.o.card.name)}: ${esc(String(it.label).slice(0, 48))}` : `${esc(it.p.name)} casts ${esc(it.o.card.name)}`}</div></div>`).join('');
     if (this.els.spotlight.dataset.v !== html) { this.els.spotlight.innerHTML = html; this.els.spotlight.dataset.v = html; }
     this.renderStackPanel();
+    if (this.g.stack.length) this.drawCombat();
   }
 
   renderStackPanel() {

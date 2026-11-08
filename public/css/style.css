@@ -1002,3 +1002,6 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 .role-chip.t-renegade { background: rgba(180, 110, 240, .22); border-color: #b46ef0; }
 .role-chip.t-hidden { opacity: .7; }
 @media (max-width: 900px) { .table[data-n="5"], .table[data-n="6"], .table[data-n="7"], .table[data-n="8"], .table[data-n="9"] { grid-template-columns: 1fr; grid-template-rows: none; } }
+
+/* Stack targets (ui.js drawCombat): dotted arrows from a spell or ability to what it targets */
+.combat-svg path.target { stroke-dasharray: 2 5; stroke-width: 2.5; fill: none; opacity: .85; }
