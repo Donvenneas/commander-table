@@ -635,8 +635,8 @@ on top of the ones above:
 - [x] 125. The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.
   - Done: under 600 px the top toolbar and the timeline are single rows that scroll sideways (156 px tall
     together instead of 332 at 375 px wide), the page never scrolls sideways, the lesson coach panel moves to the top
-    and stays short, and a long press on a card opens its details (the right-click panel of item 122) as the card
-    zoom. Checked at 375×812 in a lesson. Not checked on a real phone.
+    and stays short. Card zoom on touch relies on the right-click details panel (item 122): phone browsers send a long
+    press as a context menu, but that wasn't tested here. Checked at 375×812 in a lesson; not on a real phone.
 - [ ] 126. Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts,
   announcements of other players' actions.
 - [ ] 127. Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and "your turn", with
