@@ -55,6 +55,7 @@ export function normalize(raw) {
     power: front.power ?? raw.power,
     toughness: front.toughness ?? raw.toughness,
     loyalty: front.loyalty ?? raw.loyalty,
+    defense: front.defense ?? raw.defense,
     colors: front.colors ?? raw.colors ?? [],
     colorIdentity: raw.color_identity || [],
     keywords: raw.keywords || [],

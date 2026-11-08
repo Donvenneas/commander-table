@@ -928,6 +928,8 @@ export class Game {
     if (to === 'battlefield') {
       o.controller = opts.under ?? o.owner; this.players[o.controller].battlefield.push(o);
       o.ts = ++this.tsN;
+      // A battle enters with defense counters, and its controller chooses an opponent to protect it (310.4, 310.5)
+      if (o.fx.type.battle && this.rules >= 5) this.battleEnters(o);
       // (a daybound or nightbound permanent makes it day if it's neither; at night a daybound one enters transformed)
       if (this.rules >= 5 && (o.fx.daybound || o.fx.nightbound)) {
         if (!this.dayNight) { this.dayNight = 'day'; this.log('It becomes day', { kind: 'minor', rule: '726.2' }); }
@@ -1579,6 +1581,12 @@ export class Game {
           }
           if (o.fx.saga && o.zone === 'battlefield' && !o.chapterPending && o.lore >= o.fx.saga.length) {
             this.move(o, 'graveyard'); this.log(`${this.cn(o)} is sacrificed after its final chapter`, { rule: '714.4', kind: 'minor' }); again = true;
+          }
+          if (o.fx.type.battle && !o.fx.type.creature && this.rules >= 5 && o.zone === 'battlefield' && (o.defense || 0) <= 0) {
+            const siege = /\bsiege\b/i.test(o.card.typeLine) && !!o.card.backCard;
+            this.log(`${this.cn(o)} has no defense counters left`, { rule: '704.5v', kind: 'combat' });
+            this.move(o, 'graveyard'); again = true;
+            if (siege) this.queue.push({ o, effects: [{ k: 'siegeCast' }], label: 'defeated', p: this.players[o.owner] });
           }
           if (o.fx.type.aura && o.zone === 'battlefield' && (!o.attachedTo || o.attachedTo.zone !== 'battlefield')) {
             if (o.bestowed) this.unbestow(o); else this.move(o, 'graveyard');
@@ -2522,6 +2530,15 @@ export class Game {
         break;
       }
       case 'manifest': this.manifest(p, e, ctx); break;
+      case 'siegeCast': {
+        // A defeated Siege: exile it, then its controller may cast it transformed without paying its mana cost (310.11b)
+        if (src.zone !== 'graveyard') break;
+        this.move(src, 'exile');
+        this.useFace(src, src.card.backCard);
+        const ok = await this.cast(p, src, { mode: { alt: 'free' } });
+        if (!ok && src.zone === 'exile') this.mainFace(src);
+        break;
+      }
       case 'tuck': {
         // (its owner chooses top or bottom: the top, to draw it again)
         const o = tgt?.obj;
@@ -3111,6 +3128,7 @@ export class Game {
     // Protection from a color prevents damage from sources of that color (702.16e)
     if (src && o.fx.prot?.some(c => this.colorsOf(src).includes(c))) { this.log(`${this.cn(o)}'s protection prevents the damage`, { kind: 'minor', rule: '702.16e' }); return; }
     if (o.fx.type.planeswalker && !o.fx.type.creature) o.loyalty -= n;
+    else if (o.fx.type.battle && !o.fx.type.creature) o.defense = Math.max(0, (o.defense || 0) - n);
     // Wither and infect deal damage to creatures as -1/-1 counters
     else if (src && (this.has(src, 'wither') || this.has(src, 'infect'))) { o.counters -= n; o.hadMinus = true; }
     else { o.damage += n; if (src && this.has(src, 'deathtouch')) o.deathtouched = true; }
@@ -4159,6 +4177,23 @@ export class Game {
       this.log(`${this.pn(p)} enlists ${this.cn(pick)}: ${this.cn(d.o)} gets +${this.power(pick)}/+0`, { kind: 'combat', rule: '702.154a' });
     }
   }
+  // ---------- battles (310)
+  battleEnters(o) {
+    const ctl = this.players[o.controller];
+    o.defense = parseInt(o.card.defense, 10) || 0;
+    const opps = this.opponents(ctl);
+    // (the protector: the AI picks the opponent with the least to block with; people are asked through chooseProtector)
+    const pick = ctl.agent.chooseProtector ? ctl.agent.chooseProtector(this, ctl, o, opps) : opps[0];
+    o.protector = (pick || opps[0])?.idx ?? null;
+    if (o.protector != null) this.log(`${this.cn(o)} enters with ${o.defense} defense counters, protected by ${this.pn(this.players[o.protector])}`, { kind: 'minor', rule: '310.5' });
+  }
+  // A permanent p's creatures may attack: a battle whose protector is someone else, or an opponent's planeswalker
+  attackable(p, o) {
+    if (!o || o.zone !== 'battlefield') return false;
+    if (o.fx.type.battle && this.rules >= 5) return o.protector != null && o.protector !== p.idx && !this.players[o.protector]?.lost;
+    if (o.fx.type.planeswalker && this.rules >= 5) return o.controller !== p.idx;
+    return false;
+  }
   // ---------- companions (702.139): {3}, put it from outside the game into your hand, once, at sorcery speed
   canCompanion(p) {
     const c = p.companion;
@@ -4536,6 +4571,9 @@ export class Game {
     // Kingdoms: the Knight in Shining Armor made this player skip their next combat
     if (p.skipCombat) { p.skipCombat = false; this.log(`${this.pn(p)} skips this combat`, { kind: 'minor', rule: 'Kingdoms' }); return; }
     let decl = (await p.agent.declareAttackers(this, p)).filter(d => this.canAttack(d.o) && d.target !== p.idx && !this.players[d.target].lost && (!this.kingdoms || !K.teammates(p, this.players[d.target])));
+    // (an attack on a battle or planeswalker is an attack on its protector or controller: d.obj is the permanent)
+    for (const d of decl) if (d.obj && !this.attackable(p, d.obj)) d.obj = null;
+    if (this.rules >= 5 && p.agent.battleAttacks) p.agent.battleAttacks(this, p, decl);
     // Goad (701.15): a goaded creature attacks each combat if able, and attacks someone other than the goader
     for (const o of p.battlefield) {
       if (!o.goaded || o.goaded.until < this.turn || !this.canAttack(o)) continue;
@@ -4574,7 +4612,7 @@ export class Game {
     }
     if (!decl.length) { await this.beat(0.3); return; }
     for (const d of decl) {
-      Object.assign(d.o, { attacking: d.target, blockedBy: [], blocked: false });
+      Object.assign(d.o, { attacking: d.target, attackingObj: d.obj || null, blockedBy: [], blocked: false });
       if (!this.has(d.o, 'vigilance')) { d.o.tapped = true; this.fire('tapped', { o: d.o, p: p.idx }); }
     }
     const byTarget = new Map();
@@ -4724,14 +4762,15 @@ export class Game {
         let dmg = this.power(a);
         const tr = this.has(a, 'trample'), dt = this.has(a, 'deathtouch');
         if (dmg > 0) {
-          if (!a.blocked) evs.push({ src: a, player: a.attacking, n: dmg });
-          else if (!blockers.length) { if (tr) evs.push({ src: a, player: a.attacking, n: dmg }); }
+          const def = n => (a.attackingObj?.zone === 'battlefield' ? { src: a, obj: a.attackingObj, n, attacked: true } : { src: a, player: a.attacking, n });
+          if (!a.blocked) evs.push(def(dmg));
+          else if (!blockers.length) { if (tr) evs.push(def(dmg)); }
           else {
             // The attacking player divides the damage among the blockers as they choose (510.1c); with trample, the
             // rest goes to the player once every blocker has been assigned lethal damage (702.19c). Rules 4: in order.
             const plan = this.rules >= 5 && (blockers.length > 1 || tr) && p.agent.assignCombatDamage
               ? this.validDamagePlan(await p.agent.assignCombatDamage(this, p, a, blockers, dmg, tr, dt), blockers, dmg, tr, dt) : null;
-            if (plan) { for (const x of plan) if (x.n > 0) evs.push(x.obj ? { src: a, obj: x.obj, n: x.n } : { src: a, player: a.attacking, n: x.n }); }
+            if (plan) { for (const x of plan) if (x.n > 0) evs.push(x.obj ? { src: a, obj: x.obj, n: x.n } : def(x.n)); }
             else {
               blockers.forEach((b, k) => {
                 if (dmg <= 0) return;
@@ -4740,7 +4779,7 @@ export class Game {
                 evs.push({ src: a, obj: b, n: amt });
                 dmg -= amt;
               });
-              if (dmg > 0 && tr) evs.push({ src: a, player: a.attacking, n: dmg });
+              if (dmg > 0 && tr) evs.push(def(dmg));
             }
           }
         }

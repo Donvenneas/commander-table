@@ -39,7 +39,7 @@ function slimImages(u) {
 function slim(c) {
   const out = {
     id: c.id, oracle_id: c.oracle_id, name: c.name, layout: c.layout, mana_cost: c.mana_cost, cmc: c.cmc,
-    type_line: c.type_line, oracle_text: c.oracle_text, power: c.power, toughness: c.toughness, loyalty: c.loyalty,
+    type_line: c.type_line, oracle_text: c.oracle_text, power: c.power, toughness: c.toughness, loyalty: c.loyalty, defense: c.defense,
     colors: c.colors, color_identity: c.color_identity, keywords: c.keywords, produced_mana: c.produced_mana,
     image_uris: slimImages(c.image_uris), set: c.set, set_name: c.set_name, collector_number: c.collector_number,
     artist: c.artist, rarity: c.rarity, scryfall_uri: c.scryfall_uri, legalities: c.legalities,
@@ -47,7 +47,7 @@ function slim(c) {
   };
   if (c.card_faces) out.card_faces = c.card_faces.map(f => ({
     name: f.name, mana_cost: f.mana_cost, type_line: f.type_line, oracle_text: f.oracle_text, colors: f.colors,
-    power: f.power, toughness: f.toughness, loyalty: f.loyalty, image_uris: slimImages(f.image_uris),
+    power: f.power, toughness: f.toughness, loyalty: f.loyalty, defense: f.defense, image_uris: slimImages(f.image_uris),
   }));
   return out;
 }
