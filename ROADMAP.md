@@ -391,6 +391,14 @@ on top of the ones above:
     casts in the new modes, 0 errors, no rule broken), and set boards for madness, cleave, fuse and a split half.
 - [ ] 90. Layers (rule 613) with timestamps for copy, control, text, type, color, ability and P/T effects instead of
   today's fixed order; an invariants check that the result doesn't depend on the order effects were added.
+  - Done, partly (the part that changed results): layer 7b now goes by timestamp. Every permanent gets o.ts as it
+    enters the battlefield and every animation (animPT) gets one too; Game.setLayer picks the latest of the animation
+    and auras that set P/T (Kenrith's Transformation, Lignify), where before an animation always won (rules 4 keeps
+    that). Layers 1–6 stay as they were: the engine works out copy, control, type and abilities on the spot rather than
+    as a list of effects, so there was no order to get wrong. New rules check (invariants.js layerOrderIssues, after
+    every state-based-actions pass): each creature's power, toughness and 11 keywords must come out the same with
+    every battlefield reversed. Tested: 16 games with an anthem/P-T-setting/keyword-granting deck (no order-dependent
+    result found), a set board (aura, then animation, then a later aura), self-test rules check.
 - [ ] 91. Several replacement or prevention effects on one event: the affected player chooses the order (616.1); human
   seats are asked.
 - [ ] 92. Triggers from several players at once go on the stack in APNAP order (603.3b), each player ordering their own

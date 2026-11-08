@@ -39,12 +39,29 @@ export function checkInvariants(g, afterSba = false) {
     for (const o of [...p.graveyard, ...p.exile, ...p.hand, ...p.library]) if (o.isCommander && !p.lost && !(g.delayed || []).includes(o) && !o.mayPlay) bad('commander', `${p.name}'s commander ${o.card.name} is in their ${o.zone}`);
     if (!Number.isFinite(p.life)) bad('life', `${p.name}'s life is ${p.life}`);
   }
+  // Layers (613): continuous effects mustn't depend on the order permanents happen to sit on the battlefield.
+  // Each creature's power, toughness and keywords are worked out again with every battlefield reversed.
+  if (afterSba) for (const x of layerOrderIssues(g)) bad('layers', x);
   // Legend rule: two legendary permanents with the same name under one player
   if (afterSba) for (const p of g.players) {
     const names = new Map();
     for (const o of p.battlefield) if (o.fx.type.legendary && !o.token) names.set(o.card.name, (names.get(o.card.name) || 0) + 1);
     for (const [n, k] of names) if (k > 1 && !p.battlefield.some(o => o.fx.legendOff)) bad('legend', `${p.name} controls ${k} copies of the legendary ${n}`);
   }
+  return out;
+}
+
+const LAYER_KWS = ['flying', 'trample', 'haste', 'hexproof', 'indestructible', 'deathtouch', 'lifelink', 'vigilance', 'menace', 'first strike', 'double strike'];
+export function layerOrderIssues(g) {
+  const creatures = g.players.flatMap(p => p.battlefield.filter(o => o.fx.type.creature));
+  if (!creatures.length) return [];
+  const sig = o => [g.power(o), g.toughness(o), ...LAYER_KWS.map(k => (g.has(o, k) ? 1 : 0))].join(',');
+  const before = creatures.map(sig);
+  for (const p of g.players) p.battlefield.reverse();
+  let after;
+  try { after = creatures.map(sig); } finally { for (const p of g.players) p.battlefield.reverse(); }
+  const out = [];
+  creatures.forEach((o, i) => { if (before[i] !== after[i]) out.push(`${o.card.name} reads ${before[i]} or ${after[i]} depending on the order of the battlefield (power, toughness, ${LAYER_KWS.join('/')})`); });
   return out;
 }
 

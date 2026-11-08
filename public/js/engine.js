@@ -56,6 +56,8 @@ export class Game {
     this.steps = 0;
     // Object ids count from 1 in every game, so a rebuilt game has the same ids (replays rely on it)
     this.nextId = 1;
+    // Timestamps (613.7): later effects that set power and toughness win over earlier ones
+    this.tsN = 0;
     this.objects = new Map();
     this.handlers = {};
     this.logEntries = [];
@@ -220,8 +222,18 @@ export class Game {
   baseToughness(card) { return basePT(card.toughness); }
   // Auras like Kenrith's Transformation set the creature's base power and toughness
   setPT(o) { if (o.zone !== 'battlefield') return null; for (const a of this.attachments(o)) if (a.fx.attachSet) return a.fx.attachSet; return null; }
-  power(o) { if (o.animPT?.turn === this.turn) return o.animPT.p + o.counters + o.tempP + this.bonus(o).p; const st = this.setPT(o); if (st) return st.p + o.counters + o.tempP + this.bonus(o).p; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.pDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.pDyn) ?? basePT(o.card.power) : basePT(o.card.power)) + o.counters + o.tempP + this.bonus(o).p; }
-  toughness(o) { if (o.animPT?.turn === this.turn) return o.animPT.t + o.counters + o.tempT + this.bonus(o).t; const st = this.setPT(o); if (st) return st.t + o.counters + o.tempT + this.bonus(o).t; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.tDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.tDyn) ?? basePT(o.card.toughness) : basePT(o.card.toughness)) + o.counters + o.tempT + this.bonus(o).t; }
+  // Layer 7b (613.4b): the effect that sets power and toughness with the latest timestamp (an aura such as Kenrith's
+  // Transformation, or an animation until end of turn). Rules 4 and earlier: an animation always won.
+  setLayer(o) {
+    const anim = o.animPT?.turn === this.turn ? o.animPT : null;
+    if (this.rules < 5) return anim || this.setPT(o);
+    if (o.zone !== 'battlefield') return null;
+    let best = anim, ts = anim ? anim.ts ?? 0 : -1;
+    for (const a of this.attachments(o)) if (a.fx.attachSet && (a.ts ?? 0) > ts) { best = a.fx.attachSet; ts = a.ts ?? 0; }
+    return best;
+  }
+  power(o) { const st = this.setLayer(o); if (st) return st.p + o.counters + o.tempP + this.bonus(o).p; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.pDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.pDyn) ?? basePT(o.card.power) : basePT(o.card.power)) + o.counters + o.tempP + this.bonus(o).p; }
+  toughness(o) { const st = this.setLayer(o); if (st) return st.t + o.counters + o.tempT + this.bonus(o).t; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.tDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.tDyn) ?? basePT(o.card.toughness) : basePT(o.card.toughness)) + o.counters + o.tempT + this.bonus(o).t; }
   has(o, kw) {
     // Shadowspear, Arcane Lighthouse: hexproof and indestructible are switched off this turn
     if (o.stripped?.turn === this.turn && o.stripped.kws.includes(kw)) return false;
@@ -903,6 +915,7 @@ export class Game {
     o.zone = to;
     if (to === 'battlefield') {
       o.controller = opts.under ?? o.owner; this.players[o.controller].battlefield.push(o);
+      o.ts = ++this.tsN;
       // Authority of the Consuls, Blind Obedience: opponents' creatures (and more) enter tapped
       const kinds = { creatures: x => x.fx.type.creature, 'creatures and nonbasic lands': x => x.fx.type.creature || (x.fx.type.land && !x.fx.type.basic), 'artifacts and creatures': x => x.fx.type.creature || x.fx.type.artifact, permanents: () => true, 'nonbasic lands': x => x.fx.type.land && !x.fx.type.basic, artifacts: x => x.fx.type.artifact };
       if (this.opponents(this.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
@@ -2419,7 +2432,7 @@ export class Game {
       }
       case 'animate': {
         if (src.zone !== 'battlefield') break;
-        src.animPT = { p: e.p, t: e.t, turn: this.turn };
+        src.animPT = { p: e.p, t: e.t, turn: this.turn, ts: ++this.tsN };
         if (!src.fx.type.creature) { src.crewed = true; src.fx = { ...src.card.fx, type: { ...src.card.fx.type, creature: true } }; }
         if (e.kw.length) src.tempKw = new Set([...(src.tempKw || []), ...e.kw]);
         this.log(`${S} becomes a ${e.p}/${e.t} creature until end of turn`, { kind: 'minor' });
@@ -2768,13 +2781,13 @@ export class Game {
       case 'teamBase': {
         const P = X(e.p), T = X(e.t);
         const objs = p.battlefield.filter(o => o.fx.type.creature && (!e.what || this.isA(o, e.what)));
-        for (const o of objs) o.animPT = { p: P, t: T, turn: this.turn };
+        for (const o of objs) o.animPT = { p: P, t: T, turn: this.turn, ts: ++this.tsN };
         if (objs.length) this.log(`${S}: ${objs.length} creature${objs.length === 1 ? '' : 's'} have base power and toughness ${P}/${T} until end of turn`, { kind: 'minor' });
         break;
       }
       case 'animateAll': {
         const objs = p.battlefield.filter(o => o.fx.type.artifact && !o.fx.type.creature);
-        for (const o of objs) { o.animPT = { p: e.p, t: e.t, turn: this.turn }; o.crewed = true; o.fx = { ...o.card.fx, type: { ...o.card.fx.type, creature: true } }; }
+        for (const o of objs) { o.animPT = { p: e.p, t: e.t, turn: this.turn, ts: ++this.tsN }; o.crewed = true; o.fx = { ...o.card.fx, type: { ...o.card.fx.type, creature: true } }; }
         if (objs.length) this.log(`${S}: ${objs.length} artifact${objs.length === 1 ? ' becomes a' : 's become'} ${e.p}/${e.t} creature${objs.length === 1 ? '' : 's'} until end of turn`, { kind: 'minor' });
         break;
       }
