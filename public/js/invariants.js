@@ -75,6 +75,28 @@ export function watchGame(g) {
       if (!found.has(key)) found.set(key, { ...x, turn: g.turn, phase: g.phase, recent: g.logEntries.slice(-4).map(e => e.html.replace(/<[^>]+>/g, '')) });
     }
   };
+  const bad = (kind, text) => { const key = `${kind}:${text.replace(/\d+/g, '#')}`; if (!found.has(key)) found.set(key, { kind, text, turn: g.turn, phase: g.phase, recent: g.logEntries.slice(-4).map(e => e.html.replace(/<[^>]+>/g, '')) }); };
+  // Timing (307.1, 305.2): spells without flash and lands only in their player's own main phase with an empty
+  // stack, and no more lands than the player's land drops. (Casts with a given mode come from effects — cascade,
+  // rebound, madness, a defeated Siege — which may happen at any time, so only the players' own casts are checked.)
+  const instantish = (p, o) => o.fx.type.instant || o.fx.kw.has('flash') || g.has(o, 'flash') || !!o.fx.castWhen || !!p.flashNow
+    || p.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature));
+  const sorceryTime = p => g.active === p.idx && (g.phase === 'main1' || g.phase === 'main2') && !g.stack.length;
+  const cast = g.cast.bind(g), playLand = g.playLand.bind(g);
+  g.cast = async (p, o, choice = {}) => {
+    const check = !choice.mode && !choice.response && !choice.combo && !instantish(p, o) && !sorceryTime(p);
+    const name = o.card.name;
+    const r = await cast(p, o, choice);
+    if (r && check) bad('timing', `${p.name} cast ${name} (no flash) outside their main phase or with a spell on the stack`);
+    return r;
+  };
+  g.playLand = async (p, o) => {
+    const early = !sorceryTime(p), name = o.card.name;
+    const r = await playLand(p, o);
+    if (r !== false && early) bad('timing', `${p.name} played ${name} (a land) outside their main phase or with a spell on the stack`);
+    if (r !== false && p.landsPlayed > g.landDrops(p)) bad('land', `${p.name} played ${p.landsPlayed} lands this turn with ${g.landDrops(p)} land drops`);
+    return r;
+  };
   const beat = g.beat.bind(g), sba = g.sba.bind(g);
   g.beat = async w => { note(false); return beat(w); };
   g.sba = async (...a) => { const r = await sba(...a); if (!g.queue.length && !g.over) note(true); return r; };

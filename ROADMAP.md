@@ -490,6 +490,13 @@ on top of the ones above:
     0 errors, no rule broken). Not done: human seats choosing a battle to attack (they attack players).
 - [ ] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops
   per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).
+  - Done, partly: watchGame now wraps Game.cast and Game.playLand: a player's own cast of a spell without flash
+    (or flash granted, or a combat-only timing) must happen in their main phase with an empty stack, a land play too,
+    and no player plays more lands than their land drops ("timing" and "land" findings; casts that effects make with
+    a given mode — cascade, rebound, madness, Sieges — are left out). Tested: a planted off-turn sorcery and land are
+    both caught; 16 cEDH-preset, 16 mixed and 10 extra-land-drop games found nothing; self-test rules check clean.
+    Not done: mana spent against cost (payments go through one planner already), and a hidden-information check
+    (the AI reads other players' hands in a few places by design for its estimates; item 109 territory).
 
 ### AI
 - [ ] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
