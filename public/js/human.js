@@ -35,7 +35,7 @@ export class HumanUI {
     document.addEventListener('pointerup', e => {
       const d = drag; drag = null;
       if (!d || !this.pending || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 30) return;
-      const board = document.elementFromPoint(e.clientX, e.clientY)?.closest('.board[data-player]');
+      const board = /** @type {HTMLElement | null} */ (document.elementFromPoint(e.clientX, e.clientY)?.closest('.board[data-player]'));
       if (!board) return;
       const target = +board.dataset.player;
       this.autoNext = { button: target };
