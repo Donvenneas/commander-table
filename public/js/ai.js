@@ -9,6 +9,7 @@ import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing } from './kingdomsPlay.js';
 import { lookAheadPlay } from './lookahead.js';
+import { DUNGEONS, roomEffects } from './dungeons.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
 function kingdomsWeight(g, me, q) {
@@ -953,6 +954,9 @@ export class Agent {
       }
       case 'token': return N(e.n) * (N(e.p) + N(e.t)) * 0.7 + e.kw.length * 0.5;
       case 'manifest': return N(e.n || 1) * (e.cloak ? 3.2 : 2.8);
+      // (a room's worth of value; the initiative also ventures every upkeep while it's held)
+      case 'venture': return 2;
+      case 'initiative': return g.initiative === p.idx ? 2 : 5;
       case 'treasure': return N(e.n) * 1.5;
       case 'rampLand': return g.round <= 7 ? 4 * N(e.n) + (e.bf ? 2 : 0) : 1.5;
       case 'tutor': {
@@ -1305,6 +1309,11 @@ export class Agent {
     }
     return out;
   }
+  // Dungeons: the room below that's worth most now; Lost Mine of Phandelver (the shortest) when choosing a dungeon,
+  // or the Dungeon of the Mad Mage once the game has gone long
+  roomValue(g, p, d, r) { return roomEffects(d, r).reduce((s, e) => s + this.effectValue(g, p, p.dungeonObj || p.battlefield[0] || { card: { cmc: 0 }, fx: {} }, e, false), 0); }
+  chooseRoom(g, p, d, rooms) { return [...rooms].sort((a, b) => this.roomValue(g, p, d, b) - this.roomValue(g, p, d, a))[0]; }
+  chooseDungeon(g, p, names) { return names.includes('Dungeon of the Mad Mage') && g.round >= 8 ? 'Dungeon of the Mad Mage' : names.includes('Lost Mine of Phandelver') ? 'Lost Mine of Phandelver' : names[0]; }
   // Madness: cast the discarded card now when it's worth casting at all
   wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }
   // Mutate onto the creature that gains most from it: one that can attack now, and not our commander

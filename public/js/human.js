@@ -2,6 +2,7 @@
 // the important ones (main phase plays, attacks, blocks, responses, mulligans, truces) wait for
 // your clicks, and routine choices (what to discard, trigger targets, tutors) use the AI's pick.
 import { Agent } from './ai.js';
+import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
 import { needsTarget, costText } from './effects.js';
 import { esc } from './util.js';
@@ -232,6 +233,15 @@ export class HumanAgent extends Agent {
       left -= c.button;
     }
     return plan;
+  }
+  // Venture into the dungeon: which dungeon, then which room below
+  async chooseDungeonAsync(g, p, names) {
+    const r = await this.ui.ask('<b>Venture into the dungeon:</b> choose a dungeon', { buttons: names.map((n, i) => ({ label: n, value: n, primary: i === 0 })) });
+    return names.includes(r.button) ? r.button : names[0];
+  }
+  async chooseRoomAsync(g, p, d, rooms) {
+    const r = await this.ui.ask(`<b>${esc(d)}:</b> venture into which room?`, { buttons: rooms.map((n, i) => ({ label: `${n}: ${DUNGEONS[d].rooms[n].text}`, value: n, primary: i === 0 })) });
+    return rooms.includes(r.button) ? r.button : rooms[0];
   }
   // Madness: cast the card you just discarded for its madness cost?
   async wantsMadnessAsync(g, p, o) {

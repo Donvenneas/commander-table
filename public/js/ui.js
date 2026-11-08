@@ -353,7 +353,10 @@ export class TableView {
         + (p.pacts || []).map(x => `<span class="polchip pact" title="${esc(x.name)}: pay ${esc(x.cost)} at the next upkeep or lose the game">⚖ Owes ${esc(x.cost)}</span>`).join('')
         + (p.battlefield.length >= 10 && p.battlefield.some(o => o.fx.ascend) ? '<span class="polchip" title="Ten or more permanents with ascend: the city\'s blessing">🏙 Blessing</span>' : '')
         + (p.battlefield.some(o => o.fx.noCastMyTurn) && g.active === p.idx ? '<span class="polchip" title="Opponents can\'t cast spells during this player\'s turn">🔇 No spells</span>' : '')
-        + (this.humanIdx === p.idx && p.battlefield.some(o => o.fx.seeTop) && p.library.length ? `<span class="polchip" data-iid="${p.library[p.library.length - 1].iid}" title="The top card of your library">👁 Top: ${esc(p.library[p.library.length - 1].card.name)}</span>` : '');
+        + (this.humanIdx === p.idx && p.battlefield.some(o => o.fx.seeTop) && p.library.length ? `<span class="polchip" data-iid="${p.library[p.library.length - 1].iid}" title="The top card of your library">👁 Top: ${esc(p.library[p.library.length - 1].card.name)}</span>` : '')
+        + (p.dungeon ? `<span class="polchip" title="Dungeon: ${esc(p.dungeon.name)}${p.dungeonsDone ? ` (${p.dungeonsDone} completed)` : ''}">🏰 ${esc(p.dungeon.room)}</span>` : '')
+        + (g.initiative === p.idx ? '<span class="polchip" title="Has the initiative: ventures into Undercity each upkeep; combat damage to this player takes it">⚑ Initiative</span>' : '')
+        + (g.dayNight && p.idx === g.active ? `<span class="polchip" title="Day or night (daybound and nightbound cards)">${g.dayNight === 'day' ? '☀ Day' : '☾ Night'}</span>` : '');
       const chips = politics + Object.entries(p.cmdDamage).map(([iid, n]) => {
         const src = g.objects.get(+iid);
         const owner = g.players[src.owner];

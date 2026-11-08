@@ -71,6 +71,9 @@ const PATTERNS = [
   [/reveal the top card of your library and put that card into your hand\. you lose life equal to its mana value/, () => ({ k: 'adNauseam' })],
   // Orcish Bowmasters and friends
   [/amass (?:\w+ )?(\d+)/, m => ({ k: 'token', n: 1, p: +m[1], t: +m[1], desc: 'orc army', kw: [] })],
+  // Dungeons and the initiative (dungeons.js, engine.js venture)
+  [/\bventure into the dungeon\b/, () => ({ k: 'venture' })],
+  [/\b(?:you )?take(?:s)? the initiative\b/, () => ({ k: 'initiative' })],
   // Whisperwood Elemental, Hauntwoods Shrieker, Cryptic Coat: face-down 2/2s from the top of the library (engine.js manifest)
   [/\bmanifest dread\b/, () => ({ k: 'manifest', n: 1, dread: true })],
   [/\b(manifest|cloak) the top (?:card|(\w+) cards) of your library/, m => ({ k: 'manifest', n: m[2] ? num(m[2]) : 1, cloak: m[1] === 'cloak' })],
@@ -773,6 +776,9 @@ function keywordLine(line, fx) {
     if ((m = s.match(/^(morph|megamorph|disguise) ((?:\{[^}]+\})+)$/))) { fx.morph = { cost: m[2].toUpperCase(), mega: m[1] === 'megamorph', disguise: m[1] === 'disguise' }; continue; }
     // Bestow (cast as an Aura), mutate (merge onto a creature): engine.js (reconfigure is read with kicker and friends above)
     if ((m = s.match(/^bestow ((?:\{[^}]+\})+)$/))) { fx.bestow = m[1].toUpperCase(); continue; }
+    // Day and night (702.145): werewolves that transform as day turns to night and back (engine.js dayNight)
+    if (s === 'daybound') { fx.daybound = true; continue; }
+    if (s === 'nightbound') { fx.nightbound = true; continue; }
     if ((m = s.match(/^mutate ((?:\{[^}]+\})+)$/))) { fx.mutate = m[1].toUpperCase(); continue; }
     if (s === 'split second') { fx.splitSecond = true; continue; }
     if (s === 'cascade') { fx.cascade = true; continue; }
@@ -1735,6 +1741,8 @@ const EFFECT_TEXT = {
   discard: e => `${e.who} discards ${amount(e.n)}`,
   addMana: e => `add ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`,
   silence: e => `${e.who} can't cast spells this turn`,
+  venture: () => 'venture into the dungeon',
+  initiative: () => 'take the initiative',
   manifest: e => (e.dread ? 'manifest dread' : `${e.cloak ? 'cloak' : 'manifest'} the top ${e.n > 1 ? e.n + ' cards' : 'card'} of your library`),
   adNauseam: () => 'reveal cards into your hand, paying life',
   copyToken: e => `token copy of target ${e.what}`,
@@ -1873,6 +1881,7 @@ export function describeFx(fx) {
   if (fx.morph) out.push(`${fx.morph.disguise ? 'disguise' : fx.morph.mega ? 'megamorph' : 'morph'} ${fx.morph.cost} (cast face down for {3})`);
   if (fx.turnedUp) out.push(`when turned face up: ${list(fx.turnedUp)}`);
   if (fx.bestow) out.push(`bestow ${fx.bestow} (cast as an Aura)`);
+  if (fx.daybound || fx.nightbound) out.push(fx.daybound ? 'daybound (transforms when it becomes night)' : 'nightbound (transforms back when it becomes day)');
   if (fx.madness) out.push(`madness ${fx.madness} (cast it when you discard it)`);
   if (fx.cleave) out.push(`cleave ${fx.cleave}: ${fx.cleaveSpell?.length ? list(fx.cleaveSpell) : '(not modelled)'}`);
   if (fx.mutate) out.push(`mutate ${fx.mutate} (merge onto a non-Human creature you own)`);

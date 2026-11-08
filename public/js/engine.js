@@ -5,6 +5,7 @@ import { shuffle, esc, makeRng } from './util.js';
 import { learnedBonus } from './learn.js';
 import { formatOf } from './formats.js';
 import * as K from './kingdomsPlay.js';
+import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 
 export const PHASES = [
   ['untap', 'Untap'], ['upkeep', 'Upkeep'], ['draw', 'Draw'], ['main1', 'Main 1'],
@@ -916,6 +917,11 @@ export class Game {
     if (to === 'battlefield') {
       o.controller = opts.under ?? o.owner; this.players[o.controller].battlefield.push(o);
       o.ts = ++this.tsN;
+      // (a daybound or nightbound permanent makes it day if it's neither; at night a daybound one enters transformed)
+      if (this.rules >= 5 && (o.fx.daybound || o.fx.nightbound)) {
+        if (!this.dayNight) { this.dayNight = 'day'; this.log('It becomes day', { kind: 'minor', rule: '726.2' }); }
+        else if (this.dayNight === 'night' && o.fx.daybound && o.card.backCard) this.flipFace(o);
+      }
       // Authority of the Consuls, Blind Obedience: opponents' creatures (and more) enter tapped
       const kinds = { creatures: x => x.fx.type.creature, 'creatures and nonbasic lands': x => x.fx.type.creature || (x.fx.type.land && !x.fx.type.basic), 'artifacts and creatures': x => x.fx.type.creature || x.fx.type.artifact, permanents: () => true, 'nonbasic lands': x => x.fx.type.land && !x.fx.type.basic, artifacts: x => x.fx.type.artifact };
       if (this.opponents(this.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
@@ -2487,6 +2493,8 @@ export class Game {
         break;
       }
       case 'manifest': this.manifest(p, e, ctx); break;
+      case 'venture': if (this.rules >= 5) await this.venture(p); break;
+      case 'initiative': if (this.rules >= 5) await this.takeInitiative(p); break;
       case 'madnessCast': {
         // (cast it now for its madness cost, or it goes to the graveyard)
         const o = src;
@@ -4083,6 +4091,65 @@ export class Game {
     o.mutBase = null; o.merged = null; o.mergeCards = null;
     for (const u of under) { u.zone = 'merged-left'; this.move(u, to === 'battlefield' ? 'graveyard' : to); }
   }
+  // ---------- day and night (726)
+  flipFace(o) {
+    const b = (o.frontCard || o.card).backCard;
+    if (!b) return;
+    o.frontCard ||= o.card;
+    o.card = o.card === o.frontCard ? b : o.frontCard;
+    o.fx = o.card.fx;
+  }
+  setDayNight(v) {
+    this.dayNight = v;
+    const turned = [];
+    for (const q of this.players) for (const o of q.battlefield) {
+      if ((v === 'night' && o.fx.daybound) || (v === 'day' && o.fx.nightbound)) { const was = o.card.name; this.flipFace(o); if (o.card.name !== was) turned.push(o); }
+    }
+    this.log(`It becomes ${v}${turned.length ? `: ${turned.map(o => this.cn(o)).join(', ')} transform${turned.length === 1 ? 's' : ''}` : ''}`, { kind: 'minor', rule: '726.2' });
+  }
+  // ---------- dungeons (701.49) and the initiative (725)
+  // Venture: enter a dungeon's first room, or move to one of the rooms below the current one; the room's ability
+  // triggers. Finishing the last room completes the dungeon (it's removed once that ability has resolved).
+  async venture(p, undercity = false) {
+    if (p.lost) return;
+    if (p.dungeon && !DUNGEONS[p.dungeon.name].rooms[p.dungeon.room].next.length) this.completeDungeon(p);
+    let room;
+    if (!p.dungeon) {
+      const names = undercity ? ['Undercity'] : ventureChoices();
+      const name = names.length === 1 ? names[0] : await (p.agent.chooseDungeonAsync ? p.agent.chooseDungeonAsync(this, p, names) : p.agent.chooseDungeon(this, p, names));
+      p.dungeon = { name: DUNGEONS[name] ? name : names[0] };
+      room = DUNGEONS[p.dungeon.name].start;
+    } else {
+      const next = DUNGEONS[p.dungeon.name].rooms[p.dungeon.room].next;
+      room = next.length === 1 ? next[0] : await (p.agent.chooseRoomAsync ? p.agent.chooseRoomAsync(this, p, p.dungeon.name, next) : p.agent.chooseRoom(this, p, p.dungeon.name, next));
+      if (!next.includes(room)) room = next[0];
+    }
+    p.dungeon.room = room;
+    if (!p.dungeonObj) {
+      const card = { name: 'Dungeon', typeLine: 'Dungeon', manaCost: '', cmc: 0, colors: [], colorIdentity: [], text: '' };
+      card.fx = analyzeCard(card);
+      p.dungeonObj = this.mk(card, p);
+      p.dungeonObj.zone = 'command-dungeon';
+    }
+    p.dungeonObj.card = { ...p.dungeonObj.card, name: p.dungeon.name };
+    this.log(`${this.pn(p)} ventures into ${esc(room)} (${esc(p.dungeon.name)})`, { kind: 'cast', p: p.idx, rule: undercity ? '725.2' : '701.49a' });
+    this.queue.push({ o: p.dungeonObj, effects: roomEffects(p.dungeon.name, room), label: `room: ${room}`, p });
+    this.emit('update');
+  }
+  completeDungeon(p) {
+    if (!p.dungeon) return;
+    p.dungeonsDone = (p.dungeonsDone || 0) + 1;
+    this.log(`${this.pn(p)} completes ${esc(p.dungeon.name)}`, { kind: 'minor', rule: '309.7' });
+    p.dungeon = null;
+  }
+  // Take the initiative: you have it until someone takes it from you, and venture into Undercity now and at each of
+  // your upkeeps; a player dealt combat damage by your creature... (the creature's controller takes it from them)
+  async takeInitiative(p) {
+    if (p.lost) return;
+    if (this.initiative !== p.idx) this.log(`${this.pn(p)} takes the initiative`, { kind: 'cast', p: p.idx, rule: '725.2' });
+    this.initiative = p.idx;
+    await this.venture(p, true);
+  }
   // ---------- face-down permanents (708): morph, megamorph, disguise, manifest, manifest dread, cloak
   canCastFaceDown(p, o) {
     const m = o.fx.morph;
@@ -4599,6 +4666,7 @@ export class Game {
     }
     if (!evs.length) return;
     const toPlayer = new Map();
+    let initiativeTo = null;
     // Fog Bank: no combat damage to or from it
     for (let k = evs.length - 1; k >= 0; k--) if (evs[k].src?.fx.fogBank || evs[k].obj?.fx.fogBank) evs.splice(k, 1);
     for (const ev of evs) {
@@ -4606,6 +4674,8 @@ export class Game {
         const q = this.players[ev.player];
         if (q.lost) continue;
         this.damagePlayer(q, ev.n, ev.src, true);
+        // (combat damage to the player with the initiative takes it from them: 725.2)
+        if (this.rules >= 5 && this.initiative === ev.player && ev.src.controller !== ev.player && initiativeTo == null) initiativeTo = ev.src.controller;
         // Ragavan and other "deals combat damage to a player" triggers
         if (ev.src.fx.combatDamage?.length) this.queue.push({ o: ev.src, effects: ev.src.fx.combatDamage, label: 'combat damage', p: this.players[ev.src.controller], trig: { o: ev.src, target: ev.player, n: ev.n } });
         const info = { o: ev.src, p: ev.src.controller, target: ev.player, n: ev.n };
@@ -4618,6 +4688,7 @@ export class Game {
       const cmd = list.filter(e => e.src.isCommander).map(e => `${this.cn(e.src)} commander damage ${q.cmdDamage[e.src.iid]}/${this.format.cmdDamage || 21}`);
       this.log(`${list.map(e => this.cn(e.src)).join(', ')} deal${list.length === 1 ? 's' : ''} ${total} combat damage to ${this.pn(q)}${cmd.length ? ` (${cmd.join(', ')})` : ''}`, { kind: 'damage', rule: first ? '510.4' : '510.2' });
     }
+    if (initiativeTo != null) await this.takeInitiative(this.players[initiativeTo]);
     await this.beat(1.2);
   }
 
@@ -4817,7 +4888,14 @@ export class Game {
   }
 
   async takeTurn(p, opts = {}) {
+    // Day and night (726.2): night if last turn's active player cast no spells, day again if they cast two or more
+    const prevP = this.players[this.active];
+    const prevSpells = prevP?.turnSpells?.turn === this.turn ? prevP.turnSpells.n : 0;
     this.turn++;
+    if (this.rules >= 5 && this.dayNight && this.turn > 1) {
+      if (this.dayNight === 'day' && prevSpells === 0) this.setDayNight('night');
+      else if (this.dayNight === 'night' && prevSpells >= 2) this.setDayNight('day');
+    }
     this.active = p.idx;
     for (const q of this.players) q.flashNow = false;
     this.log(`Turn ${this.turn} · ${this.pn(p)}`, { kind: 'turn', p: p.idx });
@@ -4870,6 +4948,8 @@ export class Game {
     await this.upkeepCosts(p);
     for (const o of p.battlefield) this.trigger(o, 'upkeep');
     this.fire('upkeep', { p: p.idx });
+    if (this.initiative != null && this.players[this.initiative]?.lost) await this.takeInitiative(p);
+    else if (this.initiative === p.idx) await this.venture(p, true);
     if (this.kingdoms) K.upkeep(this, p);
     await this.sba();
     if (this.over || p.lost) return;

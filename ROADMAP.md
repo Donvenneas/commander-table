@@ -425,7 +425,17 @@ on top of the ones above:
     most targets): the AI kills what it can and sends the rest to a player; people pick targets and amounts. The split
     is chosen as it resolves, not when cast. Tested: 16 games (31 divided splits, 0 errors, no rule broken) and a set
     board (6/6 trampler into three blockers; an illegal split refused).
-- [ ] 94. Initiative and dungeons (venture into the dungeon, Undercity), and day/night (daybound/nightbound).
+- [x] 94. Initiative and dungeons (venture into the dungeon, Undercity), and day/night (daybound/nightbound).
+  - Done: public/js/dungeons.js has the four dungeons as room maps; each room's ability is read by parseEffects
+    (Twisted Caverns' "can't attack" isn't read and does nothing). Game.venture (choose a dungeon, then a room below;
+    the room's ability triggers; a finished dungeon is completed on the next venture), Game.takeInitiative (ventures
+    into Undercity, again at each of the holder's upkeeps; combat damage to the holder takes it; a holder who left
+    passes it to the active player). Day/night: daybound/nightbound read as keywords; the first such permanent makes
+    it day, and at each turn's start it turns night if the last active player cast no spells, day if they cast two
+    or more, transforming the werewolves; at night they enter transformed. AI picks rooms by value, Lost Mine of
+    Phandelver first (the Mad Mage late); human seats choose. Board chips: 🏰 room, ⚑ Initiative, ☀/☾.
+    Not done: "if you've completed a dungeon" conditions. Tested: 12 games with a venture/initiative/werewolf deck
+    (539 ventures, 85 dungeons completed, 84 initiative changes, 12 nights and days, 0 errors) + 8 rules-watched.
 - [ ] 95. Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special
   action and check the deck-building condition when the deck loads (a warning in formats.js).
 - [ ] 96. Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses
