@@ -264,8 +264,16 @@ Rules for this round, on top of the ones above:
 ### Card coverage
 - [ ] 81. Scryfall bulk data ("Oracle Cards" file, once a day when asked) for random decks, the builder and the card
   scan, instead of many search calls; falls back to the API when there's no bulk file.
-- [ ] 82. Coverage pass using Forge's and XMage's card lists as a checklist (ideas only): rerun the scan of the 3,500
+- [x] 82. Coverage pass using Forge's and XMage's card lists as a checklist (ideas only): rerun the scan of the 3,500
   most-played Commander cards, take the most common unread lines, and model them. Target: 81% → 88% fully read.
+  - Done (1.17.0): scan rerun (Scryfall `legal:commander game:paper`, EDHREC order, first 3,500): fully read 80.8%
+    (2,829) → 88.0% (3,080); 251 cards newly read, none lost. The unread lines turned out to be almost all one-of-a-kind
+    (598 of the 671 unread cards missed by a single line), so the work was ~150 small families rather than a few big
+    ones; the scan itself was the checklist (no Forge/XMage lists needed). Parser bugs fixed along the way: unread
+    "whenever…" lines no longer stop later rules from reading the line, ability words with digits/punctuation, "if …
+    would … instead" replacements, 3-letter names (Zur, Ral, Uro). Tested: self-test 15/15 (0 simulator errors, no rule
+    broken), 44 games with decks of the 251 new cards (0 errors; 207 appeared, 189 logged an effect), 12 games focused on
+    the new mechanics (foretell, plot, impending, encore, copies, Kaalia, devour… all fired), 12 rules-watched games.
 
 ### AI
 - [ ] 83. Look-ahead for main-phase decisions: for the top 3 candidate plays, simulate the rest of the turn and the
@@ -287,6 +295,17 @@ Rules for this round, on top of the ones above:
 
 ## Notes from sessions
 
+- 2026-11-07 (side session, version 1.17.0, item 82): card scan 80.8% → 88.0% fully read (3,080 of 3,500). How the
+  scan was run: in the browser pane on the local server, `sf()` from scryfall.js pages `/cards/search?order=edhrec&q=legal:commander game:paper`
+  (20 pages), the raw cards kept in localStorage, `normalize()` + `ignoredText()` per card; regressions checked against
+  `git show HEAD:public/js/effects.js` loaded as a second module. New engine pieces: Game.becomeCopy-style effect with
+  end-of-turn revert (o.copyUntil), Game.gyOnceSource (Kess/Lurrus), foretell/plot (o.foretold, cast later from exile),
+  impending (o.impending time counters, not a creature until 0), encore in graveAbility, devour, typecycling,
+  bestType() for "choose a creature type" spells, q.lostAmt (life lost this turn), stack items keep kind/trig
+  (copyAbility), watch w.cmdr for backgrounds. ai.js only got effectValue cases for the new effect kinds.
+  Left unread (420 cards): mostly unique rules (Sundial, Scroll Rack, Chain Veil, X-cost activated abilities, bestow,
+  morph, madness, cleave, "becomes a copy … with mana value X", meld) — X in activated ability costs is the biggest
+  missing engine feature.
 - 2026-11-07 (interactive session): project put in git and on GitHub; CLAUDE.md and the `test-commander-table` project
   skill added; CI self-test (Playwright, server.py) and tag-based release workflow added. Security review of the three
   servers: server.py had no Host-header check, so a DNS-rebinding website could reach /api/update and replace the

@@ -1102,6 +1102,33 @@ export class Agent {
         const loss = q => q.battlefield.filter(o => o.fx.type.creature || (e.pw && o.fx.type.planeswalker)).map(o => this.value(g, o)).sort((a, b) => b - a).slice(e.n).reduce((s, v) => s + v, 0);
         return e.who === 'each' ? opps.reduce((s, q) => s + loss(q), 0) - loss(p) * 1.3 : 3;
       }
+      // ---- 1.17.0 (card scan, item 82)
+      case 'deadbridge': return p.graveyard.length ? 2.5 : 0;
+      case 'hermit': return p.library.some(o => o.fx.type.basic) ? 1.5 : (p.battlefield.some(o => o.fx.labMan) || p.hand.some(o => o.fx.labMan) ? 30 : (isSpell ? -100 : -5));
+      case 'bribery': return Math.max(0, ...opps.flatMap(q => q.library.filter(o => o.fx.type.creature).map(o => this.value(g, o)))) * 0.9;
+      case 'peer': return p.library.length > 25 && p.life > 20 * L ? 6 : (isSpell ? -100 : -5);
+      case 'moveEquip': return p.battlefield.some(o => o.fx.type.equipment && !o.attachedTo) && myCreatures.length ? 1.5 : 0;
+      case 'tapAttached': return 0;
+      case 'doublePool': return p.pool.length * 0.8;
+      case 'halfLifeDamage': return opps.reduce((s, q) => s + Math.floor(q.life / 2), 0) * 0.5 - Math.floor(p.life / 2) * 0.7;
+      case 'lostAgain': return opps.reduce((s, q) => s + (q.lostLifeTurn === g.turn ? q.lostAmt || 0 : 0), 0) * 0.5;
+      case 'copyAbility': { const it = [...g.stack].reverse().find(x => x.ability && x.p === p && x.o !== src); return it ? it.effects.reduce((s, x) => s + this.effectValue(g, p, it.o, x, false), 0) : 0; }
+      case 'grasp': return 4;
+      case 'sacUnlessEscaped': return src?.escaped ? 0 : -this.value(g, src) * 0.6;
+      case 'gyFreeCast': return Math.max(0, ...p.graveyard.filter(o => e.types.some(t => o.fx.type[t])).map(o => o.fx.spell.reduce((s, x) => s + this.effectValue(g, p, o, x, true), 0)));
+      case 'castCommanderFree': return p.command.length ? 5 : 0;
+      case 'reanimateTrig': return 3;
+      case 'becomeCopy': {
+        if (!src || src.zone !== 'battlefield') return e.eot ? 0.5 : 2;
+        const pool = e.trig ? [] : (e.gy ? p.graveyard : e.own ? p.battlefield : g.alive().flatMap(q => q.battlefield)).filter(x => x !== src && !x.token && e.what.split(' or ').some(w => w === 'permanent' ? x.fx.type.permanent : g.isA(x, w)));
+        const best = Math.max(0, ...pool.map(x => this.value(g, x)));
+        return Math.max(0, best - this.value(g, src)) * (e.eot ? 0.3 : 0.8);
+      }
+      case 'grantRebound': return 1.5;
+      case 'returnTrigHand': return 2;
+      case 'teamBase': return myCreatures.filter(o => !e.what || g.isA(o, e.what)).reduce((s, o) => s + Math.max(0, N(e.p) - g.power(o)), 0) * (g.active === p.idx && g.phase === 'main1' ? 0.6 : 0.1);
+      case 'animateAll': return g.active === p.idx && g.phase === 'main1' ? p.battlefield.filter(o => o.fx.type.artifact && !o.fx.type.creature).length * 1.5 : 0;
+      case 'devour': return 0;
       default: return 0;
     }
   }
