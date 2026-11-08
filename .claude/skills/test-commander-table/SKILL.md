@@ -29,6 +29,7 @@ Pass means:
 - the summary says "All N checks passed", and
 - "50 games at full speed" reports **0 simulator errors**, and
 - "Rules check" says "no rule broken", and
+- "AI look-ahead" passes (6/6 replayed exactly, 2/2 untouched, 0 errors), and
 - "Kingdoms" has 8+ of 10 games ending on a role win with 0 errors.
 
 Outside services (Scryfall, EDHTop16, Commander Spellbook, Archidekt) can be down for a while; a failure in only those rows

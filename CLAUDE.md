@@ -8,10 +8,10 @@ history of every feature: `ROADMAP.md` (read its "Rules for every session" and t
 
 - `public/` — the game. Key modules in `public/js/`:
   - `engine.js` (`Game`: turns, stack, zones, combat, formats), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
-  - `ai.js` (`Agent`, play styles), `combatai.js`, `combos.js` (Commander Spellbook), `learn.js` (per-deck learning)
+  - `ai.js` (`Agent`, play styles), `combatai.js`, `lookahead.js` (main-phase look-ahead on a copied game), `combos.js` (Commander Spellbook), `learn.js` (per-deck learning)
   - `main.js` (setup screen and table UI), `ui.js`, `human.js` (human seat prompts), `remote.js` / `net.js` (online seats)
   - `decks.js`, `scryfall.js`, `formats.js`, `limited.js`, `builder.js`, `presets.js` (built-in cEDH decks)
-  - `selftest.js` + `selftest.html` — endpoint checks, 50 fast games, a 20-game rules check, 10 Kingdoms games
+  - `selftest.js` + `selftest.html` — endpoint checks, 50 fast games, a 20-game rules check, 6 look-ahead games (replayed), 10 Kingdoms games
 - `launcher/CommanderTable.cs` — the `.exe` (window, tray icon, local server). Rebuild with `powershell -ExecutionPolicy Bypass -File launcher\build.ps1`.
 - `server.ps1` (start.bat) and `server.py` (Mac/Linux) — the same local server. **When an endpoint changes, change all three servers** (the .exe, server.ps1, server.py).
 - `cache/` — bundled Comprehensive Rules. `data/` — private browser profile, deck library, image cache. **Never read for sharing, commit or ship `data/`.**

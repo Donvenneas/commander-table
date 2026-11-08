@@ -1,6 +1,4 @@
 public/js/ai.js TS2339 Property 'human' does not exist on type 'Agent'.
-public/js/ai.js TS2339 Property 'learned' does not exist on type 'Agent'.
-public/js/ai.js TS2339 Property 'learned' does not exist on type 'Agent'.
 public/js/cedhdata.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/cedhdata.js TS2339 Property 'dataset' does not exist on type 'Element'.
 public/js/cedhdata.js TS2339 Property 'dataset' does not exist on type 'Element'.
@@ -15,13 +13,7 @@ public/js/decks.js TS2339 Property 'status' does not exist on type 'Error'.
 public/js/decks.js TS2353 Object literal may only specify known properties, and 'combosIn' does not exist in type '{ budget?: string; }'.
 public/js/decks.js TS2353 Object literal may only specify known properties, and 'combosIn' does not exist in type '{ budget?: string; }'.
 public/js/effects.js TS18047 'lastPlain' is possibly 'null'.
-public/js/effects.js TS2322 Type 'string' is not assignable to type 'boolean'.
-public/js/effects.js TS2322 Type 'string' is not assignable to type 'boolean'.
-public/js/effects.js TS2322 Type 'string' is not assignable to type 'boolean'.
-public/js/effects.js TS2322 Type 'string' is not assignable to type 'boolean'.
-public/js/effects.js TS2339 Property 'source' does not exist on type 'RegExp | (() => any) | ((m: any) => { k: string; n: any; }) | ((m: any) => { k: string; what: any; }) | ((m: any) => { k: string; who: any; }) | ((m: any) => { k: string; on: any; }) | ((m: any) => { k: string; syms: any; }) | ... 10 more ... | ((m: any) => { ...; })'.
 public/js/effects.js TS2339 Property 'table' does not exist on type 'never'.
-public/js/effects.js TS2349 This expression is not callable.
 public/js/effects.js TS2349 This expression is not callable.
 public/js/effects.js TS2488 Type 'never' must have a '[Symbol.iterator]()' method that returns an iterator.
 public/js/engine.js TS2339 Property 'endSac' does not exist on type 'Game'.

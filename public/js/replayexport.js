@@ -28,7 +28,7 @@ export async function buildReplayHtml(setup, onProgress) {
     agent: setup.humans?.includes(i) ? new HumanAgent(guessStyle(s.deck), shared, setup.stopOpts)
       : setup.remote?.includes(i) ? new HumanAgent(guessStyle(s.deck), uis[uis.push(playbackUI([...(setup.remoteDecisions?.[i] || [])])) - 1], { orderTriggers: setup.stopOpts?.orderTriggers })
       // (same bracket noise as the live game, so the AI makes the same choices)
-      : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0 }),
+      : new Agent(s.style, { noise: BRACKET_NOISE[s.bracket] || 0, lookahead: !!s.lookahead }),
   }));
   const cards = {};
   const frames = [];
