@@ -625,8 +625,13 @@ on top of the ones above:
   - Done: clicking a card name in the log points the card out on the table (scrolls to it, a gold pulse); right-click
     opens its details (item 122); a "Search the log…" box shows only lines with that text (turn headers stay).
     Tested: searching "giant" in a lesson left the matching lines.
-- [ ] 124. Post-game report: life-total graph, damage dealt by and to each player, cards drawn and cast, the turn that
+- [x] 124. Post-game report: life-total graph, damage dealt by and to each player, cards drawn and cast, the turn that
   decided the game and the biggest plays; kept in History.
+  - Done: the results screen has a Game report: a life-total graph by turn (one line per player), spells cast, cards
+    drawn, damage dealt and taken per player, the turn that decided it (where the winner's lead grew most) and the
+    three biggest hits. The engine only records these (lifeLog, bigHits, stats.draws/taken); nothing reads them
+    during play, so results and replays don't change. History entries keep each seat's spells and damage dealt and
+    taken (not yet shown on the History page). Tested on a finished lesson game.
 - [ ] 125. The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.
 - [ ] 126. Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts,
   announcements of other players' actions.

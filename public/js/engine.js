@@ -61,6 +61,10 @@ export class Game {
     this.tsN = 0;
     /** Kingdoms: the Straw Man whose Announce forces attacks at them (kingdomsPlay.js) @type {any} */
     this.strawMan = null;
+    /** For the post-game report (main.js gameReport): life totals at each turn start, the biggest hits @type {any[]} */
+    this.lifeLog = [];
+    /** @type {any[]} */
+    this.bigHits = [];
     this.objects = new Map();
     this.handlers = {};
     this.logEntries = [];
@@ -1077,7 +1081,7 @@ export class Game {
       if (lich && p.library.length > 3) for (let k = 0; k < 2; k++) this.move(p.library[p.library.length - 2], 'graveyard');
       const o = p.library.pop();
       if (!o) { p.drewFromEmpty = true; this.log(`${this.pn(p)} tries to draw from an empty library`, { rule: '704.5b' }); break; }
-      o.zone = 'hand'; p.hand.push(o); drawn++;
+      o.zone = 'hand'; p.hand.push(o); drawn++; p.stats.draws = (p.stats.draws || 0) + 1;
       // Faerie Mastermind: an opponent's second draw each turn
       if (p.drawsThisTurn?.turn !== this.turn) p.drawsThisTurn = { turn: this.turn, n: 0 };
       ++p.drawsThisTurn.n;
@@ -3114,6 +3118,9 @@ export class Game {
     q.damagedTurn = this.turn;
     const sp = this.players[src.controller];
     sp.stats.damage += n;
+    q.stats.taken = (q.stats.taken || 0) + n;
+    // (the biggest single hits, for the post-game report)
+    if (n >= 3) (this.bigHits ||= []).push({ turn: this.turn, n, by: sp.idx, to: q.idx, src: src.card.name, combat: !!combat });
     q.grudge[src.controller] += n;
     if (combat && src.isCommander) q.cmdDamage[src.iid] = (q.cmdDamage[src.iid] || 0) + n;
     if (this.has(src, 'lifelink')) { const g = this.lifeGain(sp, n); sp.life += g; this.emit('life', { p: sp.idx, d: g }); }
@@ -5059,6 +5066,8 @@ export class Game {
   }
 
   async takeTurn(p, opts = {}) {
+    // (life totals at the start of each turn, for the post-game report's graph; read only by the results screen)
+    (this.lifeLog ||= []).push({ turn: this.turn + 1, life: this.players.map(q => (q.lost ? 0 : q.life)) });
     // Day and night (726.2): night if last turn's active player cast no spells, day again if they cast two or more
     const prevP = this.players[this.active];
     const prevSpells = prevP?.turnSpells?.turn === this.turn ? prevP.turnSpells.n : 0;

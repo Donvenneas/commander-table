@@ -785,6 +785,33 @@ $('replayFile').addEventListener('change', async e => {
   }
 });
 
+// Post-game report (item 124): life totals turn by turn, what each player did, the turn that decided it, the biggest hits
+function gameReport(g) {
+  const log = [...(g.lifeLog || []), { turn: g.turn + 1, life: g.players.map(q => (q.lost ? 0 : q.life)) }];
+  if (log.length < 2) return '';
+  const W = 520, H = 140, top = Math.max(...log.flatMap(x => x.life), 1);
+  const X = i => 30 + (i / (log.length - 1)) * (W - 40), Y = v => H - 18 - (Math.max(0, v) / top) * (H - 30);
+  const lines = g.players.map(q => `<polyline fill="none" stroke="${q.color}" stroke-width="2" points="${log.map((x, i) => `${X(i).toFixed(1)},${Y(x.life[q.idx]).toFixed(1)}`).join(' ')}"><title>${esc(q.name)}</title></polyline>`).join('');
+  const axis = `<line x1="30" y1="${H - 18}" x2="${W - 10}" y2="${H - 18}" stroke="currentColor" opacity=".3"/><text x="2" y="${Y(top) + 4}" font-size="10" fill="currentColor" opacity=".7">${top}</text><text x="2" y="${H - 14}" font-size="10" fill="currentColor" opacity=".7">0</text><text x="${W - 60}" y="${H - 2}" font-size="10" fill="currentColor" opacity=".7">turn ${log.at(-1).turn - 1}</text>`;
+  // The deciding turn: the one where the winner's lead over the others grew the most
+  let decide = null;
+  const w = g.winner?.idx;
+  if (w != null) {
+    let best = -Infinity;
+    for (let i = 1; i < log.length; i++) {
+      const lead = x => x.life[w] - Math.max(...x.life.filter((_, k) => k !== w));
+      const d = lead(log[i]) - lead(log[i - 1]);
+      if (d > best) { best = d; decide = log[i - 1].turn; }
+    }
+  }
+  const hits = [...(g.bigHits || [])].sort((a, b) => b.n - a.n).slice(0, 3);
+  return `<div class="report"><h3>Game report</h3>
+    <svg viewBox="0 0 ${W} ${H}" class="life-graph" role="img" aria-label="Life totals by turn">${axis}${lines}</svg>
+    <table class="report-table"><tr><th></th><th>Spells</th><th>Cards drawn</th><th>Damage dealt</th><th>Damage taken</th></tr>
+    ${g.players.map(q => `<tr><td><span class="dot" style="background:${q.color}"></span>${esc(q.name)}</td><td>${q.stats.spells}</td><td>${q.stats.draws || 0}</td><td>${q.stats.damage}</td><td>${q.stats.taken || 0}</td></tr>`).join('')}</table>
+    ${decide != null ? `<p class="muted">The turn that decided it: turn ${decide} (${esc(g.winner.name)}'s lead grew the most).</p>` : ''}
+    ${hits.length ? `<p class="muted">Biggest hits: ${hits.map(h => `${esc(h.src)} for ${h.n} to ${esc(g.players[h.to].name)} (turn ${h.turn})`).join('; ')}.</p>` : ''}</div>`;
+}
 function showResults() {
   const ranked = [...game.players].sort((a, b) => (a.place || 9) - (b.place || 9));
   $('resultsBody').innerHTML = `<h2>${game.winners?.length > 1 ? `🏆 ${esc(game.winners.map(w => w.name).join(', '))} win!` : game.winner ? `${esc(game.winner.name)} wins!` : 'Draw'}</h2>` + ranked.map(p => `
@@ -793,7 +820,7 @@ function showResults() {
       <div class="avatar" style="background-image:url('${p.art || ''}')"></div>
       <div class="meta"><b>${esc(p.name)}</b> — ${esc(p.deckName)}<br>
         ${p.lost ? esc(p.lossReason) : `${p.life} life remaining`} · ${p.stats.spells} spells cast · ${p.stats.damage} damage dealt${p.stats.combos ? ` · ${p.stats.combos} combo${p.stats.combos === 1 ? '' : 's'}` : ''}</div>
-    </div>`).join('') + `<p class="muted">${game.turn} turns over ${game.round} rounds.</p>` + matchSummary()
+    </div>`).join('') + `<p class="muted">${game.turn} turns over ${game.round} rounds.</p>` + gameReport(game) + matchSummary()
     + (setup.progressNote?.lines.length ? `<div class="match-box">${setup.progressNote.lines.join('<br>')}</div>` : '');
   // In an unfinished match the next step is the next game, not a rematch
   const more = setup.matchGame && match && !matchOver(match) && match.games.length === setup.matchGame;
@@ -1132,7 +1159,7 @@ function addHistory(g) {
   list.unshift({
     at: Date.now(), rounds: g.round, reason: g.winReason || '', winner: g.winner?.idx ?? null,
     online: setup.remote.length > 0,
-    seats: g.players.map((p, i) => ({ name: p.name, deck: p.deckName, style: setup.seats[i].style, place: p.place || (g.winner === p ? 1 : null), you: setup.humans.includes(i), friend: setup.remote.includes(i), bracket: setup.seats[i].bracket })),
+    seats: g.players.map((p, i) => ({ name: p.name, deck: p.deckName, style: setup.seats[i].style, place: p.place || (g.winner === p ? 1 : null), you: setup.humans.includes(i), friend: setup.remote.includes(i), bracket: setup.seats[i].bracket, spells: p.stats.spells, dealt: p.stats.damage, taken: p.stats.taken || 0 })),
   });
   store(HISTORY, list.slice(0, 500));
 }

@@ -1032,3 +1032,12 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 .card.pointed { animation: pointed 1.6s ease-out; }
 @keyframes pointed { 0%, 60% { box-shadow: 0 0 0 4px #f5c542, 0 0 18px #f5c542; } 100% { box-shadow: none; } }
 .log .search-hide { display: none; }
+
+/* Post-game report (main.js gameReport) */
+.report { margin: 10px 0; }
+.report h3 { margin: 6px 0; font-size: 15px; }
+.life-graph { width: 100%; max-width: 520px; height: auto; display: block; }
+.report-table { border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+.report-table th, .report-table td { padding: 2px 8px; text-align: right; }
+.report-table td:first-child, .report-table th:first-child { text-align: left; }
+.report-table .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
