@@ -702,7 +702,8 @@ export class Agent {
       if (ready.length && !o.fx.type.permanent && o.fx.spell.some(e => e.k === 'addMana')) continue;
       const mode = g.castMode(p, o);
       const faceMode = o.zone === 'hand' ? g.faceCastMode(p, o) : null;
-      if (!mode && !faceMode) continue;
+      const bestowOk = o.zone === 'hand' && g.canBestow(p, o), mutateOk = o.zone === 'hand' && g.canMutate(p, o);
+      if (!mode && !faceMode && !bestowOk && !mutateOk) continue;
       // A combo spell that does nothing on its own (Tainted Pact without Oracle) waits for its partner
       if (!o.fx.type.permanent && !o.fx.spell.length && this.pieceWorth(g, p, o)) continue;
       let s = mode ? this.scoreCast(g, p, o, phase) : 0;
@@ -713,6 +714,23 @@ export class Agent {
       // Cast face down (morph, disguise): a 2/2 now, and the real card later
       if (mode?.alt === 'morph') s = 2 + Math.min(3, s * 0.3);
       // An adventure (the creature is cast from exile later) or an MDFC's back face, when it scores better
+      // Bestow: the creature as an Aura on our best creature (it stays as a creature when that one dies)
+      if (bestowOk) {
+        const host = this.bestOwn(g, p, x => x.fx.type.creature);
+        const b = o.card.fx.attachBuff;
+        if (host && b) {
+          const bs = (b.p + b.t * 0.6 + (b.kw || []).length * 1.2) * (host.sick ? 0.7 : 1) + Math.max(0, mode ? s : this.scoreCast(g, p, o, phase)) * 0.35 + 1;
+          if (bs > s && bs > 0.5) opts.push({ s: bs, why: `bestows ${o.card.name} on ${host.card.name}`, run: () => g.cast(p, o, { mode: { alt: 'bestow' } }) });
+        }
+      }
+      // Mutate: merge onto a creature we own (no summoning sickness if it's been around; the mutate triggers fire)
+      if (mutateOk) {
+        const host = this.chooseMutateTarget(g, p, o, g.mutateTargets(p, o));
+        const base = Math.max(0, mode ? s : this.scoreCast(g, p, o, phase));
+        const ms = base + (o.fx.onMutate || []).reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) + (host && !host.sick ? 1.5 : 0) - 1;
+        if (host && ms > s && ms > 0.5) opts.push({ s: ms, why: `mutates ${o.card.name} onto ${host.card.name}`, run: () => g.cast(p, o, { mode: { alt: 'mutate' }, mutateOnto: host }) });
+      }
+      if (!mode && !faceMode) continue;
       if (faceMode) {
         g.useFace(o, o.card.altFace);
         let fs;
@@ -737,9 +755,9 @@ export class Agent {
       opts.push({ s, cost: mana, why: `casts ${o.card.name}${mode.alt ? ` (${mode.alt})` : ''}`, run: () => g.cast(p, o, { mode }) });
     }
     if (phase === 'main1') {
-      for (const eq of p.battlefield.filter(o => o.fx.equip)) {
+      for (const eq of p.battlefield.filter(o => o.fx.equip && (!o.fx.reconfigure || g.rules >= 5))) {
         const holder = eq.attachedTo;
-        const best = this.bestOwn(g, p, o => o.fx.type.creature && !o.sick);
+        const best = this.bestOwn(g, p, o => o.fx.type.creature && !o.sick && o !== eq);
         if (!best || holder === best || !g.planPayment(p, g.equipCost(p, eq), 0)) continue;
         if (holder && holder.zone === 'battlefield' && !holder.sick) continue;
         const b = eq.fx.attachBuff || { p: 1, t: 1 };
@@ -1236,6 +1254,10 @@ export class Agent {
       }
     } finally { this.xOverride = prev; }
     return best;
+  }
+  // Mutate onto the creature that gains most from it: one that can attack now, and not our commander
+  chooseMutateTarget(g, p, o, hosts) {
+    return [...hosts].sort((a, b) => (this.value(g, b) + (b.sick ? 0 : 2) - (b.isCommander ? 3 : 0)) - (this.value(g, a) + (a.sick ? 0 : 2) - (a.isCommander ? 3 : 0)))[0] || null;
   }
   chooseAbilityX(g, p, o, ab, max) { return this.bestAbilityX(g, p, o, ab, max).x; }
   // What turning a face-down permanent up gains: the real card over a vanilla 2/2, plus its "turned face up" effect

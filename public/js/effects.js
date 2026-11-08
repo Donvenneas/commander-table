@@ -755,7 +755,8 @@ function keywordLine(line, fx) {
       fx.kw.add(m[1]);
       if (m[1] === 'outlast') fx.abilities.push({ cost: m[2], tap: true, effects: [{ k: 'counters', n: 1, on: '~' }], text: 'outlast', sorcery: true });
       else if (m[1] === 'multikicker') fx.kicker = cost;
-      else if (m[1] !== 'reconfigure') fx[m[1]] = cost;
+      else if (m[1] === 'reconfigure') { fx.reconfigure = true; fx.equip ||= cost; }
+      else fx[m[1]] = cost;
       continue;
     }
     if ((m = s.match(/^((?:basic )?land|plains|island|swamp|mountain|forest)?cycling ((?:\{[^}]+\})+)$/))) { fx.cycling = { cost: m[2].toUpperCase(), land: m[1] ? m[1].replace('basic land', 'basic') : null }; fx.kw.add('cycling'); continue; }
@@ -770,6 +771,9 @@ function keywordLine(line, fx) {
     if (s === 'ravenous') { fx.entersCounters = 'X'; continue; }
     // Morph, megamorph, disguise: cast face down for {3}, turned face up for this cost (engine.js canCastFaceDown)
     if ((m = s.match(/^(morph|megamorph|disguise) ((?:\{[^}]+\})+)$/))) { fx.morph = { cost: m[2].toUpperCase(), mega: m[1] === 'megamorph', disguise: m[1] === 'disguise' }; continue; }
+    // Bestow (cast as an Aura), mutate (merge onto a creature): engine.js (reconfigure is read with kicker and friends above)
+    if ((m = s.match(/^bestow ((?:\{[^}]+\})+)$/))) { fx.bestow = m[1].toUpperCase(); continue; }
+    if ((m = s.match(/^mutate ((?:\{[^}]+\})+)$/))) { fx.mutate = m[1].toUpperCase(); continue; }
     if (s === 'split second') { fx.splitSecond = true; continue; }
     if (s === 'cascade') { fx.cascade = true; continue; }
     if (['fear', 'shadow', 'exalted', 'battle cry', 'flanking', 'melee', 'dethrone', 'training', 'mentor', 'evolve', 'undying', 'persist',
@@ -1680,6 +1684,11 @@ export function analyzeCard(card) {
       const es = parseEffects(m[1]);
       if (es.length) { fx.turnedUp = es; continue; }
     }
+    // Gemrazer, Nethroi: "Whenever this creature mutates, …"
+    if ((m = line.match(/^whenever (?:~|this creature) mutates, (.+)/))) {
+      const es = parseEffects(m[1]);
+      if (es.length) { fx.onMutate = es; continue; }
+    }
     // Hardened Scales, Branching Evolution: more +1/+1 counters
     if ((m = line.match(/^if one or more \+1\/\+1 counters would be put on (?:a creature|a permanent|an artifact or creature) you control, (that many plus one|twice that many)/))) { fx.counterBonus = m[1] === 'that many plus one' ? 'plus' : 'double'; continue; }
     // Activated abilities: "<costs>: <effect>", where every part of the cost is one the engine can pay
@@ -1856,6 +1865,10 @@ export function describeFx(fx) {
   if (fx.storm) out.push('storm');
   if (fx.morph) out.push(`${fx.morph.disguise ? 'disguise' : fx.morph.mega ? 'megamorph' : 'morph'} ${fx.morph.cost} (cast face down for {3})`);
   if (fx.turnedUp) out.push(`when turned face up: ${list(fx.turnedUp)}`);
+  if (fx.bestow) out.push(`bestow ${fx.bestow} (cast as an Aura)`);
+  if (fx.mutate) out.push(`mutate ${fx.mutate} (merge onto a non-Human creature you own)`);
+  if (fx.onMutate) out.push(`whenever it mutates: ${list(fx.onMutate)}`);
+  if (fx.reconfigure) out.push('reconfigure (not a creature while attached)');
   if (fx.onOppSecondDraw) out.push(`when an opponent draws their second card each turn: ${list(fx.onOppSecondDraw)}`);
   if (fx.flashGrant) out.push(`${fx.flashGrant === 'noncreature' ? 'noncreature spells' : 'spells'} as though they had flash`);
   if (fx.lifeCost) out.push(`costs ${fx.lifeCost} life extra`);

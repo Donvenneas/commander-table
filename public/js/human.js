@@ -374,7 +374,8 @@ export class HumanAgent extends Agent {
       // Morph and disguise cards that can be cast face down, and face-down permanents that can be turned up
       const faceDowns = [...p.hand.filter(o => g.canCastFaceDown(p, o)), ...p.battlefield.filter(o => g.canTurnFaceUp(p, o))];
       // Adventures and modal double-faced cards: the other face can be cast, or a land back played
-      const otherFaces = p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o));
+      // (and bestow or mutate, other ways to cast a creature)
+      const otherFaces = p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o) || g.canBestow(p, o) || g.canMutate(p, o));
       const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns, ...otherFaces])];
       const loop = this.loopBlock();
       const fromGy = spells.some(o => o.zone === 'graveyard') || graveAbs.length;
@@ -429,11 +430,19 @@ export class HumanAgent extends Agent {
         const f = o.card.altFace;
         const opts = [
           ...(spells.includes(o) ? [{ label: `Cast ${o.card.name}`, value: 'front', primary: true }] : []),
-          ...(g.faceCastMode(p, o) ? [{ label: `Cast ${f.name}${o.card.layout === 'adventure' ? ' (adventure)' : ''}`, value: 'face' }] : []),
-          ...(g.canPlayBackLand(p, o) ? [{ label: `Play ${f.name} (land)`, value: 'land' }] : []),
+          ...(f && g.faceCastMode(p, o) ? [{ label: `Cast ${f.name}${o.card.layout === 'adventure' ? ' (adventure)' : ''}`, value: 'face' }] : []),
+          ...(f && g.canPlayBackLand(p, o) ? [{ label: `Play ${f.name} (land)`, value: 'land' }] : []),
+          ...(g.canBestow(p, o) ? [{ label: `Bestow (${o.fx.bestow})`, value: 'bestow' }] : []),
+          ...(g.canMutate(p, o) ? [{ label: `Mutate (${o.fx.mutate})`, value: 'mutate' }] : []),
           ...(faceDowns.includes(o) ? [{ label: 'Face down ({3})', value: 'down' }] : []),
         ];
-        const c = opts.length === 1 ? opts[0].value : (await this.ui.ask(`<b>${esc(o.card.name)} // ${esc(f.name)}</b>: which face?`, { buttons: [...opts, { label: 'Cancel', value: 'cancel' }] })).button;
+        const c = opts.length === 1 ? opts[0].value : (await this.ui.ask(`<b>${esc(o.card.name)}${f ? ` // ${esc(f.name)}` : ''}</b>: how do you want to play it?`, { buttons: [...opts, { label: 'Cancel', value: 'cancel' }] })).button;
+        if (c === 'bestow') { await g.cast(p, o, { mode: { alt: 'bestow' } }); this.acts = []; continue; }
+        if (c === 'mutate') {
+          const t = await this.ui.ask(`<b>${esc(o.card.name)}</b>: mutate onto which creature? (on top: it takes this card's name and power/toughness)`, { objs: g.mutateTargets(p, o), buttons: [{ label: 'Cancel', value: 'cancel' }] });
+          if (t.obj) await g.cast(p, o, { mode: { alt: 'mutate' }, mutateOnto: t.obj });
+          this.acts = []; continue;
+        }
         if (c === 'face') { await g.castFace(p, o); this.acts = []; continue; }
         if (c === 'land') { await g.playLand(p, o); continue; }
         if (c === 'down') { await g.cast(p, o, { mode: { alt: 'morph' } }); this.acts = []; continue; }

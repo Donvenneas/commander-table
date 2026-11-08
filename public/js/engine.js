@@ -785,7 +785,7 @@ export class Game {
   }
   // The cost of an alternative way to cast (or extra costs added on top)
   altCost(o, alt) {
-    const k = { morph: '{3}', foretold: o.fx.foretell, foretell: '{2}', plot: o.fx.plot, impending: o.fx.impending?.cost, flashback: o.tempFlashback === this.turn && !o.fx.flashback ? o.card.manaCost : o.fx.flashback, evoke: o.fx.evoke, miracle: o.fx.miracle, suspend: o.fx.suspend?.cost, overload: o.fx.overload, altMana: o.fx.altMana, escape: o.card.manaCost, escapeOwn: o.fx.escape?.cost, jumpstart: o.card.manaCost, dash: o.fx.dash, blitz: o.fx.blitz, spectacle: o.fx.spectacle }[alt];
+    const k = { morph: '{3}', bestow: o.fx.bestow, mutate: o.fx.mutate, foretold: o.fx.foretell, foretell: '{2}', plot: o.fx.plot, impending: o.fx.impending?.cost, flashback: o.tempFlashback === this.turn && !o.fx.flashback ? o.card.manaCost : o.fx.flashback, evoke: o.fx.evoke, miracle: o.fx.miracle, suspend: o.fx.suspend?.cost, overload: o.fx.overload, altMana: o.fx.altMana, escape: o.card.manaCost, escapeOwn: o.fx.escape?.cost, jumpstart: o.card.manaCost, dash: o.fx.dash, blitz: o.fx.blitz, spectacle: o.fx.spectacle }[alt];
     return k != null ? parseCost(k) : { generic: 0, pips: [], x: 0 };
   }
   addCost(a, b) { return { generic: a.generic + b.generic, pips: [...a.pips, ...b.pips], x: a.x + b.x }; }
@@ -888,6 +888,10 @@ export class Game {
       this.restoreFace(o);
       this.log(`${esc(hidden)} is revealed: ${this.cn(o)}`, { kind: 'minor', rule: '708.9' });
     }
+    // (a bestowed card is a creature card again off the battlefield; a merged permanent's other cards follow it)
+    if (o.bestowed && to !== 'battlefield') { o.bestowed = false; o.fx = o.card.fx; }
+    if (o.reconfigured) { o.reconfigured = false; o.fx = o.card.fx; }
+    if (o.mutBase && from === 'battlefield') this.unmerge(o, to);
     // (an adventure or the back of a modal double-faced card is the whole card again anywhere but the stack and battlefield)
     if (o.altFaceOn && to !== 'battlefield' && to !== 'stack') { this.mainFace(o); if (to !== 'exile') o.onAdventure = false; }
     if (o.token && to !== 'battlefield') { o.zone = 'gone'; return o; }
@@ -1005,6 +1009,9 @@ export class Game {
     }
     for (const q of this.players) for (const a of [...q.battlefield]) if (a.attachedTo === o) {
       a.attachedTo = null;
+      // (a bestowed Aura becomes a creature again; a reconfigured equipment creature too)
+      if (a.bestowed) { this.unbestow(a); continue; }
+      if (a.reconfigured) { a.reconfigured = false; a.fx = a.card.fx; continue; }
       if (a.fx.type.aura) { this.move(a, 'graveyard'); this.log(`${this.cn(a)} is put into the graveyard (not attached)`, { rule: '704.5m', kind: 'minor' }); }
     }
   }
@@ -1523,7 +1530,8 @@ export class Game {
             this.move(o, 'graveyard'); this.log(`${this.cn(o)} is sacrificed after its final chapter`, { rule: '714.4', kind: 'minor' }); again = true;
           }
           if (o.fx.type.aura && o.zone === 'battlefield' && (!o.attachedTo || o.attachedTo.zone !== 'battlefield')) {
-            this.move(o, 'graveyard'); again = true;
+            if (o.bestowed) this.unbestow(o); else this.move(o, 'graveyard');
+            again = true;
           }
         }
         const legends = {};
@@ -3003,6 +3011,8 @@ export class Game {
 
   async cast(p, o, choice = {}) {
     if (this.over || p.lost) return false;
+    // (a bestow or mutate attempt that didn't go through leaves the card as it was)
+    if (o.zone === 'hand') { if (o.bestowed) this.unbestow(o); o.mutateOnto = null; }
     const mode = choice.mode || this.castMode(p, o);
     if (!mode) return false;
     this.payingFor = { o, ability: false };
@@ -3021,6 +3031,14 @@ export class Game {
     }
     o.escaped = mode.alt === 'escapeOwn' || mode.alt === 'escape';
     if (mode.alt === 'morph') { if (!this.canCastFaceDown(p, o)) return false; this.makeFaceDown(o, o.fx.morph.disguise ? 'disguise' : 'morph'); }
+    // Bestow: an Aura spell with enchant creature; mutate: a creature spell that targets a creature to merge onto
+    if (mode.alt === 'bestow') { if (!this.canBestow(p, o)) return false; o.bestowed = true; o.fx = this.bestowFx(o); }
+    if (mode.alt === 'mutate') {
+      if (!this.canMutate(p, o)) return false;
+      const t = choice.mutateOnto || (p.agent.chooseMutateTarget ? await p.agent.chooseMutateTarget(this, p, o, this.mutateTargets(p, o)) : this.mutateTargets(p, o)[0]);
+      if (!t) return false;
+      o.mutateOnto = t;
+    }
     o.impendingCast = mode.alt === 'impending';
     // Foretell and plot: pay, exile it face down, and cast it on a later turn (see castModeRaw)
     if (mode.alt === 'foretell' || mode.alt === 'plot') {
@@ -3132,7 +3150,7 @@ export class Game {
       this.log(`${this.pn(p)} casts ${this.cn(o)} from their graveyard with jump-start${d ? `, discarding ${this.cn(d)}` : ''}`, { kind: 'minor', rule: '702.133a' });
     }
     // (how it was cast goes into the cast line below: "casts X with flashback")
-    const altText = { flashback: ' with flashback', evoke: ' for its evoke cost', evokePitch: ' for its evoke cost', miracle: ' for its miracle cost', free: ' without paying its mana cost', dash: ' for its dash cost', blitz: ' for its blitz cost', spectacle: ' for its spectacle cost' }[mode.alt] || '';
+    const altText = { flashback: ' with flashback', evoke: ' for its evoke cost', evokePitch: ' for its evoke cost', miracle: ' for its miracle cost', free: ' without paying its mana cost', dash: ' for its dash cost', blitz: ' for its blitz cost', spectacle: ' for its spectacle cost', bestow: ` bestowed on ${auraTarget ? this.cn(auraTarget) : 'a creature'}`, mutate: ` to mutate onto ${o.mutateOnto ? this.cn(o.mutateOnto) : 'a creature'}`, morph: ' face down' }[mode.alt] || '';
     if (o.kicked) this.log(`${this.pn(p)} pays the kicker for ${this.cn(o)}`, { kind: 'minor', rule: '702.33a' });
     if (buyback) this.log(`${this.pn(p)} pays buyback for ${this.cn(o)}`, { kind: 'minor', rule: '702.27a' });
     // Ward (702.21): targeting an opponent's warded permanent costs extra, or the spell is countered
@@ -3211,6 +3229,18 @@ export class Game {
       return true;
     }
 
+    // Mutate: merge onto its target if that's still legal; otherwise it enters as a plain creature (702.140b)
+    if (o.mutateOnto) {
+      const host = o.mutateOnto;
+      o.mutateOnto = null;
+      if (host.zone === 'battlefield' && host.controller === p.idx && host.fx.type.creature && !host.fx.subtypes.includes('human')) {
+        this.mergeOnto(p, o, host);
+        await this.sba();
+        return true;
+      }
+    }
+    // Bestow: with its target gone it resolves as an enchantment creature spell (702.103e)
+    if (o.bestowed && !(auraTarget?.zone === 'battlefield')) { this.unbestow(o); auraTarget = null; }
     if (o.fx.type.permanent) {
       this.move(o, 'battlefield', { tapped: o.fx.entersTapped && !o.fx.type.creature });
       if (o.fx.entersCounters === 'X') o.counters = x;
@@ -3675,9 +3705,18 @@ export class Game {
   async equip(p, eq, target) {
     const plan = this.planPayment(p, this.equipCost(p, eq), 0);
     if (!plan) return false;
+    if (target === eq || (eq.fx.reconfigure && this.rules < 5)) return false;
     this.commitPayment(p, plan);
     eq.attachedTo = target;
-    this.log(`${this.pn(p)} equips ${this.cn(eq)} to ${this.cn(target)}`, { kind: 'minor' });
+    // Reconfigure (702.151): an equipment creature stops being a creature while it's attached
+    if (eq.fx.reconfigure && eq.fx.type.creature && this.rules >= 5) {
+      eq.reconfigured = true;
+      eq.fx = { ...eq.card.fx, type: { ...eq.card.fx.type, creature: false } };
+      Object.assign(eq, { attacking: null, blocking: null, blockedBy: [], blocked: false });
+      // (equipment on it falls off, now that it isn't a creature: 704.5n)
+      for (const x of this.players[eq.controller].battlefield) if (x.attachedTo === eq && x.fx.type.equipment) x.attachedTo = null;
+    }
+    this.log(`${this.pn(p)} ${eq.reconfigured ? 'reconfigures' : 'equips'} ${this.cn(eq)} ${eq.reconfigured ? 'onto' : 'to'} ${this.cn(target)}`, { kind: 'minor' });
     await this.beat(0.7);
     return true;
   }
@@ -3876,6 +3915,59 @@ export class Game {
   canPlayBackLand(p, o) {
     const f = o.card.altFace;
     return !!f && this.rules >= 5 && o.card.layout === 'modal_dfc' && f.fx.type.land && !o.fx.type.land && o.zone === 'hand' && p.landsPlayed < this.landDrops(p);
+  }
+  // ---------- bestow (702.103) and mutate (702.140): other ways to cast a creature card from hand
+  // (both at the creature's own timing, for their own cost, and only with something to enchant or merge onto)
+  creatureTiming(p, o) {
+    return this.has(o, 'flash') || o.fx.kw.has('flash') || (this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length);
+  }
+  canBestow(p, o) {
+    return !!o.fx.bestow && this.rules >= 5 && o.zone === 'hand' && !o.faceDown && this.silenced[p.idx] !== this.turn && !this.spellCapped(p, o)
+      && this.creatureTiming(p, o) && this.alive().some(q => q.battlefield.some(x => x.fx.type.creature && this.canTarget(p, x)))
+      && !!this.planPayment(p, parseCost(o.fx.bestow), 0);
+  }
+  bestowFx(o) { return { ...o.card.fx, type: { ...o.card.fx.type, creature: false, aura: true } }; }
+  // A bestowed Aura that's no longer attached becomes an enchantment creature again (702.103e)
+  unbestow(o) {
+    if (!o.bestowed) return;
+    o.bestowed = false; o.fx = o.card.fx; o.attachedTo = null;
+    if (o.zone === 'battlefield') this.log(`${this.cn(o)} is no longer attached: it's a creature again`, { kind: 'minor', rule: '702.103e' });
+  }
+  mutateTargets(p, o) {
+    return p.battlefield.filter(x => x.fx.type.creature && x.owner === o.owner && !x.fx.subtypes.includes('human') && !x.faceDown && this.canTarget(p, x));
+  }
+  canMutate(p, o) {
+    return !!o.fx.mutate && this.rules >= 5 && o.zone === 'hand' && this.silenced[p.idx] !== this.turn && !this.spellCapped(p, o)
+      && this.creatureTiming(p, o) && this.mutateTargets(p, o).length > 0 && !!this.planPayment(p, parseCost(o.fx.mutate), 0);
+  }
+  // The merged permanent has the top card's characteristics and every card's abilities (702.140c, e)
+  mergeFx(cards) {
+    const top = cards[0].fx;
+    const out = { ...top, kw: new Set(cards.flatMap(c => [...c.fx.kw])), kwN: Object.assign({}, ...cards.map(c => c.fx.kwN || {}).reverse()) };
+    for (const k of ['abilities', 'attack', 'dies', 'upkeep', 'endstep', 'combatDamage', 'landfall', 'watch', 'pw']) out[k] = cards.flatMap(c => c.fx[k] || []);
+    out.onMutate = cards.flatMap(c => c.fx.onMutate || []);
+    return out;
+  }
+  mergeOnto(p, m, host) {
+    this.log(`${this.cn(m)} mutates onto ${this.cn(host)}`, { kind: 'cast', p: p.idx, rule: '702.140c' });
+    host.mutBase ||= host.card;
+    (host.merged ||= []).push(m);
+    // (the mutating card goes on top, and the merged permanent takes its name, cost and power/toughness)
+    m.zone = 'merged';
+    host.mergeCards = [m.card, ...(host.mergeCards || [host.card])];
+    const top = { ...m.card, fx: this.mergeFx(host.mergeCards) };
+    host.card = top; host.fx = top.fx;
+    const trig = host.mergeCards.flatMap(c => c.fx.onMutate || []);
+    if (trig.length) this.queue.push({ o: host, effects: trig, label: 'mutates', p });
+    this.emit('update');
+  }
+  // When a merged permanent leaves, every card in it goes to the same zone (721.3 / 702.140f)
+  unmerge(o, to) {
+    if (!o.mutBase) return;
+    const under = o.merged || [];
+    o.card = o.mutBase; o.fx = o.mutBase.fx;
+    o.mutBase = null; o.merged = null; o.mergeCards = null;
+    for (const u of under) { u.zone = 'merged-left'; this.move(u, to === 'battlefield' ? 'graveyard' : to); }
   }
   // ---------- face-down permanents (708): morph, megamorph, disguise, manifest, manifest dread, cloak
   canCastFaceDown(p, o) {

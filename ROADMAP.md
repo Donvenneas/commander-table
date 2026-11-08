@@ -369,7 +369,17 @@ on top of the ones above:
     mulligans. Human seats choose the face when they click such a card. Tested: 18 games with 20 adventure/MDFC
     cards (30 adventures, creatures cast from exile, 7 land backs played, 0 errors, no rule broken) and 3 games with
     a scripted human seat. Card names still show as "Front // Back" (Scryfall's name).
-- [ ] 88. Finish "aura or creature" cards: bestow end to end, mutate (merged stack with every ability), reconfigure.
+- [x] 88. Finish "aura or creature" cards: bestow end to end, mutate (merged stack with every ability), reconfigure.
+  - Done: bestow wasn't read at all. effects.js reads bestow/mutate costs, "whenever this creature mutates" and
+    reconfigure (as an equip cost). Bestow: cast as an Aura for its bestow cost (castMode alt 'bestow'), becomes an
+    enchantment creature again when the creature leaves or the target is gone (702.103e). Mutate: targets a non-Human
+    creature you own; on resolution the card merges on top (the permanent takes its name and P/T and every card's
+    abilities; mutate triggers fire); when the merged permanent leaves, every card goes to the same zone (a commander
+    still goes to the command zone); an illegal target makes it a plain creature. Reconfigure: equipping stops it being a
+    creature (equipment on it falls off) until it's unattached. Cast log says "bestowed on X", "to mutate onto X",
+    "face down". AI scores bestow and mutate against a plain cast; human seats pick from the card's play options.
+    Not done: "unattach" with reconfigure, choosing to put a mutating card underneath. Tested: 30 games with a
+    bestow/mutate/reconfigure deck (10 bestowed, 46 mutates, reconfigures, 0 errors, no rule broken after the fixes).
 - [ ] 89. Madness (finish), cleave, meld, split cards with fuse, and aftermath.
 - [ ] 90. Layers (rule 613) with timestamps for copy, control, text, type, color, ability and P/T effects instead of
   today's fixed order; an invariants check that the result doesn't depend on the order effects were added.
