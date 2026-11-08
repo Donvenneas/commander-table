@@ -1005,3 +1005,7 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 
 /* Stack targets (ui.js drawCombat): dotted arrows from a spell or ability to what it targets */
 .combat-svg path.target { stroke-dasharray: 2 5; stroke-width: 2.5; fill: none; opacity: .85; }
+
+/* Auto-answers (human.js): "Always" checkbox and the list chip in the action bar */
+.ab-always { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .85; margin-left: 6px; cursor: pointer; }
+.ab-autos { font-size: 11px; opacity: .8; }

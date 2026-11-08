@@ -47,7 +47,15 @@ export class HumanUI {
   }
   // record: every answer given in this game, in order. When a game is rebuilt (replay, rewind, undo)
   // the recorded answers are replayed until they run out, then you're asked live again.
-  attach(game, view, record = []) { this.cancel(); this.game = game; this.view = view; this.record = record; this.pos = 0; }
+  attach(game, view, record = []) { this.cancel(); this.game = game; this.view = view; this.record = record; this.pos = 0; this.autoAnswers = new Map(); }
+  // Auto-answers (item 118): a yes/no-style question answered "always" is answered the same way for the rest of the
+  // game. The answers are still recorded one by one, so replays and undo don't change.
+  autoKey(text, buttons, objs) {
+    if (objs.length || buttons.length < 2 || buttons.length > 6) return null;
+    const plain = text.replace(/<[^>]+>/g, '').replace(/\d+/g, '#').trim();
+    if (/main phase|Declare attackers|being attacked|Respond|which face|how do you want|choose X|Mulligan|keep this hand/i.test(plain)) return null;
+    return plain;
+  }
   get replaying() { return this.pos < this.record.length; }
   // Show a question; resolves with {button}, {obj} or {player}
   ask(text, { buttons = [], objs = [], players = [] } = {}) {
@@ -74,6 +82,10 @@ export class HumanUI {
       const auto = this.autoNext;
       this.autoNext = null;
       if (auto && buttons.some(b => b.value === auto.button)) { setTimeout(() => this.finish(auto), 0); }
+      const key = this.autoKey(text, buttons, objs);
+      const always = key && this.autoAnswers?.get(key);
+      const preset = always && buttons.find(b => b.label === always);
+      if (preset) setTimeout(() => this.finish({ button: preset.value }), 0);
       this.text.innerHTML = text;
       this.buttons.innerHTML = '';
       // A long list (searching a library) gets a filter box and scrolls
@@ -95,8 +107,26 @@ export class HumanUI {
         if (/AI/.test(b.label)) el.dataset.ai = '1';
         if (/^(Cancel|Pass|No )/.test(b.label)) el.dataset.esc = '1';
         if (b.iid) el.dataset.iid = b.iid;
-        el.addEventListener('click', () => this.finish({ button: b.value }));
+        el.addEventListener('click', () => {
+          if (key && /** @type {HTMLInputElement | null} */ (this.buttons.querySelector('.ab-always input'))?.checked) this.autoAnswers.set(key, b.label);
+          this.finish({ button: b.value });
+        });
         this.buttons.append(el);
+      }
+      if (key) {
+        const lab = document.createElement('label');
+        lab.className = 'ab-always';
+        lab.title = 'Answer this question the same way for the rest of this game';
+        lab.innerHTML = '<input type="checkbox"> Always';
+        this.buttons.append(lab);
+      }
+      if (this.autoAnswers?.size) {
+        const chip = document.createElement('button');
+        chip.className = 'btn ab-autos keep';
+        chip.textContent = `Auto answers: ${this.autoAnswers.size} ✕`;
+        chip.title = [...this.autoAnswers].map(([q, a]) => `${q.slice(0, 60)} → ${a}`).join('\n') + '\n(click to stop answering these automatically)';
+        chip.addEventListener('click', e => { e.stopPropagation(); this.autoAnswers.clear(); chip.remove(); });
+        this.buttons.append(chip);
       }
       this.bar.hidden = false;
       this.highlight(true);

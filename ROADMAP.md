@@ -591,8 +591,13 @@ on top of the ones above:
     unchanged. Arrows: dotted arrows from each spell or ability in the stack panel to its targets, and attack arrows
     now point at an attacked planeswalker or battle. Not done: dragging to block or to choose a spell's target.
     Tested by hand in the Attacking lesson (dragged Hill Giant onto the dummy: it attacked and won).
-- [ ] 118. Auto-answers: "always yes / always pay / never pay" for a trigger or card this game (Rhystic Study taxes,
+- [x] 118. Auto-answers: "always yes / always pay / never pay" for a trigger or card this game (Rhystic Study taxes,
   "you may" triggers), listed so they can be undone; saved with the answers so replays stay exact.
+  - Done: yes/no-style questions (2–6 buttons, no cards to click; not main-phase, attack, block, response or X
+    questions) get an "Always" checkbox in the action bar; ticked, that answer is given automatically to the same
+    question (numbers ignored, so "pay {1} or P3 draws" counts as the same) for the rest of the game. An "Auto answers:
+    N ✕" button lists them (hover) and clears them. Each automatic answer is recorded like a click, so replays and undo
+    are unchanged. Tested on the action bar: one ticked "Don't pay" answered the next two questions.
 - [ ] 119. Smart pass: "pass until something targets me or mine", "pass to my turn", "pass to end of turn", working
   with the stops from item 67.
 - [ ] 120. Payment preview: before a cast is confirmed, highlight the sources that will tap and let the player swap one.
