@@ -176,6 +176,8 @@
           <button class="btn ghost" id="btnStory" title="An original story in four chapters, each a game from a special board">Story</button>
           <button class="btn ghost" id="btnExpedition" title="A solo roguelike: three acts of duels, events and bosses, building your deck as you go">Expedition</button>
           <button class="btn ghost" id="btnTabletop" title="A manual table: nothing automated, for house rules (with friends online too)">Tabletop</button>
+          <button class="btn ghost" id="btnTabletopLoad" title="Carry on a tabletop saved with Save table">Load table…</button>
+          <input type="file" id="tabletopFile" accept=".json,application/json" hidden>
           <button class="btn ghost" id="btnBuilder" title="Build a deck from every card on Scryfall, with search, filters and a live mana curve">Deck builder</button>
           <button class="btn ghost" id="btnChallenge" title="Share this table setup as a link or code, or open one">Challenge link…</button>
           <button class="btn ghost" id="btnTour" title="A short guided look at the main controls">Tour</button>
@@ -489,6 +491,7 @@
     <div class="mt-bar"><b>Tabletop</b> <span class="muted">Nothing is automated: click a card for its moves, use the buttons for life, draws and turns.</span>
       <span id="tabletopNet" class="muted"></span>
       <button class="btn small" id="btnTabletopInvite" hidden>Invite</button>
+      <button class="btn small" id="btnTabletopSave" title="Save this table to a file, to carry on later with Load table">Save table</button>
       <button class="btn small ghost" id="btnTabletopClose">Leave the table</button></div>
     <div id="tabletopBody"></div>
   </div>

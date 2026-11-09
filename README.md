@@ -177,6 +177,7 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
   - **Seats:** a seat is "Played on this PC" or "A friend plays this seat (online)"; there are no AI players at a manual table. When several seats share this PC, **Viewing as** picks whose hand (and Kingdoms role) the screen shows, or Nobody while you pass the device.
   - **Online:** friends join with **Invite**. They move their own cards from their page (moves are sent one at a time and confirmed), and see every public zone plus their own hand and role.
   - The **Tabletop** button on the setup screen opens a manual table with the current format's decks.
+  - **Save table** (in the tabletop bar) saves the whole table to a file; **Load table…** on the setup screen carries on from it, with the same players, cards, life, turn and log. Friends get new invite links for the loaded table.
 - **Kingdoms** (format **Kingdoms (5–9 players, secret roles)**, or **Kingdoms** on the start menu): Advanced Kingdoms v1.56, a fan-made Commander variant with secret roles. It plays two ways: pick it with **Table** on the setup screen.
   - **Rules engine: you, friends and AI bots** (the default). Each seat is you, a friend online, or an AI bot (any AI style, or Auto). The engine deals the roles from the game's seed (replays deal the same), and it tracks:
     - teams (face-up roles of the same type, and a face-up Knight with the King);

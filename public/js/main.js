@@ -2812,7 +2812,7 @@ function drawTabletop() {
   });
 }
 function pushTabletop() { if (!tabletop || !room.code) return; for (const i of room.seats) room.state(i, tabletop.view(i)); }
-async function startTabletop() {
+async function startTabletop(loaded = null) {
   try {
     // (the last game stops, and stops sending its table to friends: the room is the tabletop's now)
     clock?.abort();
@@ -2822,8 +2822,9 @@ async function startTabletop() {
     const f = fmt();
     if (f.roles && (seats.length < 5 || seats.length > 9)) { $('setupStatus').textContent = 'Kingdoms needs 5 to 9 players: choose the number of players above.'; $('setup').hidden = false; return; }
     $('setupStatus').textContent = 'Loading decks for the tabletop…';
-    for (const [i, s] of seats.entries()) if (!s.deck || (s.deck.format || 'commander') !== formatKey) await loadSeatDeck(s, msg => seatStatus(i, esc(msg)));
-    tabletop = new Tabletop(seats.map(s => ({ name: s.name, color: s.color, deck: s.deck, remote: s.style === 'remote' })), { life: f.manual ? +(prefs.tableLife || f.life) : f.life, kingdoms: !!f.roles });
+    if (loaded) tabletop = loaded;
+    else for (const [i, s] of seats.entries()) if (!s.deck || (s.deck.format || 'commander') !== formatKey) await loadSeatDeck(s, msg => seatStatus(i, esc(msg)));
+    if (!loaded) tabletop = new Tabletop(seats.map(s => ({ name: s.name, color: s.color, deck: s.deck, remote: s.style === 'remote' })), { life: f.manual ? +(prefs.tableLife || f.life) : f.life, kingdoms: !!f.roles });
     ttViewer = -1;
     $('setupStatus').textContent = '';
     $('setup').hidden = true;
@@ -2850,10 +2851,35 @@ async function startTabletop() {
     }
   } catch (err) { $('setupStatus').textContent = `Couldn't open the tabletop: ${err.message}`; $('setup').hidden = false; }
 }
-$('btnTabletop').addEventListener('click', startTabletop);
+$('btnTabletop').addEventListener('click', () => startTabletop());
+// Save and load a tabletop (item 138). The seats are set from the save: names, colors, and which are friends online
+$('btnTabletopSave').addEventListener('click', () => {
+  if (!tabletop) return;
+  download(`tabletop-${stamp()}.json`, JSON.stringify({ tabletop: tabletop.save() }));
+});
+$('btnTabletopLoad').addEventListener('click', () => $('tabletopFile').click());
+$('tabletopFile').addEventListener('change', async e => {
+  const file = /** @type {HTMLInputElement} */ (e.target).files?.[0];
+  /** @type {HTMLInputElement} */ (e.target).value = '';
+  if (!file) return;
+  try {
+    const t = Tabletop.load(JSON.parse(await file.text()).tabletop);
+    const n = t.players.length;
+    if (n > allSeats.length) throw new Error(`too many players (${n})`);
+    if (t.kingdoms) prefs.kingdomsMode = 'manual';
+    prefs.tablePlayers = n;
+    store('ct.prefs', prefs);
+    setFormat(t.kingdoms ? 'kingdoms' : 'manual', { quiet: true });
+    seats = allSeats.slice(0, seatCount());
+    t.players.forEach((p, i) => { const s = allSeats[i]; s.name = p.name; s.color = p.color; if (p.remote) s.style = 'remote'; else if (s.style === 'remote') s.style = 'human'; });
+    persist();
+    renderSeats();
+    await startTabletop(t);
+  } catch (err) { $('setupStatus').textContent = `Couldn't load the table: ${err.message}`; }
+});
 $('btnTabletopInvite').addEventListener('click', () => showInvite());
 $('btnTabletopClose').addEventListener('click', () => {
-  if (!confirm('Leave the tabletop? The table is not saved.')) return;
+  if (!confirm('Leave the tabletop? Use Save table first to carry on later.')) return;
   clearInterval(ttTimer); ttTimer = null; tabletop = null; tabletopInvite = false;
   if (room.code) room.close();
   $('tabletop').hidden = true;

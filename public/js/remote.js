@@ -135,6 +135,8 @@ async function pumpManual() {
 function render() {
   if (!snap) return;
   if (snap.lobby) return renderLobby();
+  // (deals belong to rules-engine games; the tabletop has none)
+  $('btnDealOpen').hidden = watching || !!snap.manual;
   if (snap.manual) { renderManual(); pumpManual(); return; }
   if ($('table').dataset.lobby === '1') { $('table').dataset.lobby = ''; $('table').innerHTML = ''; boardHtml.clear(); }
   const me = snap.players[seat];
