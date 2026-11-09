@@ -35,6 +35,19 @@ function parseArchidekt(j) {
   return { deckName: j.name, entries };
 }
 
+// Archidekt folders (item 156; its robots.txt allows them): a folder's decks and subfolders, and one deck as a list
+export async function archidektFolder(id) {
+  const j = await proxied(`https://archidekt.com/api/decks/folders/${Number(id)}/`);
+  return { name: j.name || 'Archidekt folder', owner: j.owner?.username || '', decks: (j.decks || []).map(d => ({ id: d.id, name: d.name, size: d.size || 0 })), subfolders: (j.subfolders || []).map(f => ({ id: f.id, name: f.name })) };
+}
+export async function archidektDeckText(id) {
+  const p = parseArchidekt(await proxied(`https://archidekt.com/api/decks/${Number(id)}/`));
+  const line = e => `${e.qty} ${e.name}`;
+  const cmd = p.entries.filter(e => e.commander && e.name), side = p.entries.filter(e => e.side && !e.commander && e.name), comp = p.entries.filter(e => e.companion && e.name);
+  const main = p.entries.filter(e => !e.commander && !e.side && !e.companion && e.name);
+  return { name: p.deckName || `Archidekt ${id}`, text: [...(cmd.length ? ['Commander', ...cmd.map(line), ''] : []), ...(comp.length ? ['Companion', ...comp.map(line), ''] : []), 'Deck', ...main.map(line), ...(side.length ? ['', 'Sideboard', ...side.map(line)] : [])].join('\n') };
+}
+
 function parseMoxfield(j) {
   const boards = j.boards || { mainboard: { cards: j.mainboard }, commanders: { cards: j.commanders } };
   const entries = [];

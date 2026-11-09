@@ -6,7 +6,7 @@ import { dekXml, arenaText, checklistText } from './deckexport.js';
 import { importCollection, clearCollection, summary as collectionSummary, missingCards, hasCollection } from './collection.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
-import { loadDeck, parseText } from './decks.js';
+import { loadDeck, parseText, archidektFolder, archidektDeckText } from './decks.js';
 import { sf, fetchCollection } from './scryfall.js';
 import { listDecks, saveDeck, deleteDeck, deckMeta, withMeta, commandersOf, versions, diffLists } from './library.js';
 import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.js';
@@ -2486,6 +2486,41 @@ $('btnLibrary').addEventListener('click', () => { $('libraryModal').hidden = fal
 $('btnLibraryClose').addEventListener('click', () => { $('libraryModal').hidden = true; });
 $('librarySearch').addEventListener('input', renderLibrary);
 $('libFolder').addEventListener('change', renderLibrary);
+// Import an Archidekt folder (item 156): pick decks from a public folder; each is saved to the library in a folder
+// of the same name
+$('btnArchFolder').addEventListener('click', async () => {
+  const link = prompt('Paste a public Archidekt folder link (like https://archidekt.com/folders/12345):');
+  const id = link?.match(/archidekt\.com\/folders\/(\d+)/i)?.[1] || link?.match(/^\s*(\d+)\s*$/)?.[1];
+  if (!link) return;
+  if (!id) { $('libraryStatus').textContent = 'That isn\'t an Archidekt folder link.'; return; }
+  $('libraryStatus').textContent = 'Reading the folder…';
+  try { showArchFolder(await archidektFolder(id)); } catch (err) { $('libraryStatus').textContent = `Couldn't read the folder: ${err.message}`; }
+});
+function showArchFolder(f) {
+  $('libraryStatus').textContent = '';
+  $('libraryBody').innerHTML = `<h3>${esc(f.name)}${f.owner ? ` <span class="muted">by ${esc(f.owner)}</span>` : ''}</h3>
+    ${f.decks.length ? `<p><label><input type="checkbox" id="archAll" checked> All</label></p>${f.decks.map(d => `<div><label><input type="checkbox" class="archpick" value="${d.id}" checked> ${esc(d.name)} <span class="muted">${d.size} cards</span></label></div>`).join('')}
+      <p><button class="btn primary" id="btnArchSave">Save the chosen decks to the library</button> <span class="muted">They go in a folder named "${esc(f.name)}".</span></p>` : '<p class="muted">No public decks in this folder.</p>'}
+    ${f.subfolders.length ? `<p class="muted">Subfolders: ${f.subfolders.map(s => `<button class="btn small" data-archsub="${s.id}">${esc(s.name)}</button>`).join(' ')}</p>` : ''}
+    <p><button class="btn ghost small" id="btnArchBack">Back to the library</button></p>`;
+  $('archAll')?.addEventListener('change', e => document.querySelectorAll('.archpick').forEach(x => { /** @type {HTMLInputElement} */ (x).checked = /** @type {HTMLInputElement} */ (e.target).checked; }));
+  $('btnArchBack').addEventListener('click', renderLibrary);
+  $('libraryBody').querySelectorAll('[data-archsub]').forEach(b => b.addEventListener('click', async () => { try { showArchFolder(await archidektFolder(/** @type {HTMLElement} */ (b).dataset.archsub)); } catch (err) { $('libraryStatus').textContent = err.message; } }));
+  $('btnArchSave')?.addEventListener('click', async () => {
+    const ids = [...document.querySelectorAll('.archpick:checked')].map(x => /** @type {HTMLInputElement} */ (x).value);
+    let n = 0;
+    for (const id of ids) {
+      try {
+        $('libraryStatus').textContent = `Saving ${n + 1} of ${ids.length}…`;
+        const d = await archidektDeckText(id);
+        await saveDeck(d.name, withMeta(d.text, { folder: f.name, tags: ['archidekt'], colors: '', bracket: null, notes: `From https://archidekt.com/decks/${id}` }));
+        n++;
+      } catch (err) { $('libraryStatus').textContent = `Couldn't save deck ${id}: ${err.message}`; }
+    }
+    await renderLibrary();
+    $('libraryStatus').textContent = `Saved ${n} of ${ids.length} decks in the folder "${f.name}".`;
+  });
+}
 $('libraryBody').addEventListener('click', async e => {
   const seat = e.target.closest('.libseat'), del = e.target.closest('.libdel');
   const info = e.target.closest('.libinfo, .libhist');

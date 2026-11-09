@@ -784,8 +784,11 @@ on top of the ones above:
   - Done: a Trends tab: share across the year/6-month/3-month/month windows with a sparkline and rising/falling, win
     rates, and a daily snapshot history (ct.metaTrend, a year) shown as "Your visits" from the second day. Tested in
     the browser (25 commanders); the visits column needs a second day, not seen yet.
-- [ ] 156. More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish,
+- [x] 156. More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish,
   Archidekt folders).
+  - Done: Archidekt folders (robots.txt allows them; the folder API goes through the existing proxy, no server change):
+    Import an Archidekt folder… in the library, with subfolders, saving each chosen deck into a library folder.
+    TappedOut and MTGGoldfish deck links already loaded (earlier rounds). Tested with a public folder (saved, then deleted).
 - [ ] 157. Printings offline: the optional "Default Cards" bulk file so set searches for Draft / Sealed and printings
   work without Scryfall (item 81 still sends e: and is:booster there).
 - [ ] 158. "Download images for my library": fetch every image for library decks into data\images with progress, and
