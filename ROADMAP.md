@@ -834,8 +834,11 @@ on top of the ones above:
     until 7 match wins or 3 losses); each decided match counts once for a Limited Elo rating; the results screen shows
     the record and "Next league opponent"; Progress › Ladder lists the rating and past leagues. Tested with a sealed
     FDN pool: a loss counted (0–1, 1480), the next opponent was seated and its match started.
-- [ ] 167. More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress
+- [x] 167. More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress
   toward each unlock.
+  - Done: six badges (puzzle of the day x2, Gauntlet x2, Limited league, friend tournament), two original SVG avatars
+    and two CSS card backs, and an Unlocks tab in Progress with a progress bar per locked item (badges report their
+    own progress). Badges are checked right after those modes record a result. Tested in the browser.
 - [x] 168. Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in
   Ranked.
   - Done: a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate

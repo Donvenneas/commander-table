@@ -41,7 +41,7 @@ import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta, t
 import { Rules } from './rules.js';
 import { esc, sleep, store, symbolize, makeRng } from './util.js';
 import { FORMATS, formatOf, checkDeck } from './formats.js';
-import { AVATARS, BACKS, avatarById, backById, unlocked, pickerHtml } from './cosmetics.js';
+import { AVATARS, BACKS, avatarById, backById, unlocked, unlockText, pickerHtml } from './cosmetics.js';
 import { LANGS, startI18n } from './i18n.js';
 import { LESSONS, lessonsDone, markLesson, lessonPuzzle, coachHtml } from './tutorial.js';
 import { CHAPTERS, storyDone, markChapter, chapterOpen, chapterPuzzle } from './story.js';
@@ -484,6 +484,7 @@ function newGame(opts = {}) {
       setup.leagueDone = true;
       const won = setup.matchGame && match ? match.wins[0] > match.wins[1] : game.winner === game.players[0];
       setup.leagueResult = recordLeague(won);
+      checkBadges();
     }
     // Your progress (ladder, challenges, badges, rival records): once per game, when you played a seat
     if (!setup.progressed && !setup.loadedReplay && !setup.puzzle && setup.humans.length === 1 && !setup.remote.length) {
@@ -1446,9 +1447,28 @@ function renderProgress() {
     body.innerHTML = `<div class="badge-grid">${BADGE_LIST.map(b => `<div class="badge ${got[b.id] ? 'got' : ''}"><div class="badge-medal">${got[b.id] ? '🏅' : '🔒'}</div><b>${esc(b.name)}</b><span class="muted">${esc(b.text)}</span>${got[b.id] ? `<small class="muted">${esc(new Date(got[b.id]).toLocaleDateString())}</small>` : ''}</div>`).join('')}</div>
       <p class="muted">${Object.keys(got).length} of ${BADGE_LIST.length} earned. Badges are only for show.</p>`;
   } else if (progressTab === 'gauntlet') renderGauntlet();
+  else if (progressTab === 'unlocks') renderUnlocks();
   else renderRivals();
 }
 
+// ---------- Unlocks (item 167): every avatar and card back, and how far along you are toward each locked one
+function renderUnlocks() {
+  checkBadges();
+  const ctx = cosmeticCtx();
+  const toward = it => {
+    const u = it.unlock;
+    if (!u || unlocked(it, ctx)) return 1;
+    if (u.games) return Math.min(1, (ctx.games || 0) / u.games);
+    if (u.mastery) return Math.min(1, (ctx.maxMastery || 0) / u.mastery);
+    const b = BADGE_LIST.find(x => x.id === u.badge);
+    const pr = b?.progress?.();
+    return pr ? Math.min(1, pr[0] / pr[1]) : 0;
+  };
+  const row = (it, preview) => { const p = toward(it), done = unlocked(it, ctx); return `<div class="unlock-row ${done ? 'got' : ''}">${preview}<div><b>${esc(it.name)}</b> ${done ? '✔' : '🔒'}<br><span class="muted">${esc(unlockText(it, BADGE_LIST))}</span>${done ? '' : `<div class="mastery-bar"><span style="width:${Math.round(p * 100)}%"></span></div>`}</div></div>`; };
+  $('progressBody').innerHTML = `<h3>Avatars</h3><div class="unlock-grid">${AVATARS.filter(a => a.url).map(a => row(a, `<img class="unlock-av" src="${a.url}" alt="">`)).join('')}</div>
+    <h3>Card backs</h3><div class="unlock-grid">${BACKS.map(b => row(b, `<span class="unlock-back" style="background:${b.css}"></span>`)).join('')}</div>
+    <p class="muted">Everything is earned by playing; nothing is sold. Choose them in Settings.</p>`;
+}
 // ---------- Gauntlet (item 162): beat a chain of rivals one on one with your deck; one loss ends the run.
 // Rivals come from the EDHTop16 top 8 (1v1 Commander), your library, or random decks of the table's format.
 const GAUNTLET = 'ct.gauntlet';
@@ -1518,6 +1538,7 @@ async function fightGauntlet() {
         if (cur?.run && cur.run.beaten === run.beaten && cur.run.from === run.from) {
           if (won) { cur.run.beaten++; store(GAUNTLET, cur); if (cur.run.beaten >= cur.run.rivals.length) endGauntlet(true); }
           else endGauntlet(false);
+          checkBadges();
         }
         const after = store(GAUNTLET);
         const open = () => { progressTab = 'gauntlet'; renderProgress(); $('progressModal').hidden = false; };
@@ -2198,6 +2219,7 @@ async function renderDaily() {
           const r = store('ct.daily') || {};
           if (won) r[dayNumber()] = 'solved'; else if (!r[dayNumber()]) r[dayNumber()] = 'tried';
           store('ct.daily', r);
+          checkBadges();
           return { html: won ? '✔ <b>Puzzle of the day solved.</b> A new one comes tomorrow.' : 'Not this time. The position is the same all day: try again.', buttons: [{ label: 'Back to the puzzles', primary: true, fn: () => { renderPuzzles(); $('puzzleModal').hidden = false; } }], noRematch: false };
         },
       });
@@ -3087,6 +3109,8 @@ async function playCupPod(k) {
     if (!c || c.round !== cup.round) return;
     recordPod(c, k, g.players.map(p => (g.winner === p ? 1 : p.place || 2)), g.players.map(p => p.life));
     store(CUP, c);
+    // (a friend tournament won by a seat you play counts for the "Champion of Friends" badge)
+    if (c.done && c.entrants[c.champion]?.kind === 'you') { store('ct.cupWon', Date.now()); checkBadges(); }
   };
   const people = pod.seats.some(ei => ei >= 0 && cup.entrants[ei].kind !== 'ai');
   if (!people) {

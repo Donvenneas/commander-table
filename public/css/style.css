@@ -1174,3 +1174,10 @@ ul.whatsnew details p { margin: 2px 0 6px; }
 
 /* Storage in Updates (item 179) */
 table.storage td { padding: 2px 8px; }
+
+/* Unlocks page (item 167) */
+.unlock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.unlock-row { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 8px; border: 1px solid var(--line, rgba(127,127,127,.25)); opacity: .8; }
+.unlock-row.got { opacity: 1; }
+.unlock-av { width: 48px; height: 48px; border-radius: 50%; }
+.unlock-back { display: inline-block; width: 36px; height: 50px; border-radius: 4px; flex: none; }
