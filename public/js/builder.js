@@ -7,6 +7,7 @@ import { sf, normalize } from './scryfall.js';
 import { formatOf } from './formats.js';
 import { esc, symbolize } from './util.js';
 import { owned, hasCollection } from './collection.js';
+import { almostCombos } from './combos.js';
 
 const TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle'];
 const typeOf = c => TYPES.find(t => new RegExp(`\\b${t}\\b`, 'i').test(c.typeLine)) || 'other';
@@ -41,6 +42,7 @@ function ensure() {
       </div>
       <div class="bld-deck" id="bldDeckDrop" title="Drop cards here to add them">
         <div class="bld-stats" id="bldStats"></div>
+        <div class="bld-almost"><button class="btn small" id="bldAlmost" title="Commander Spellbook: combos in your colors that need one more card">Combos one card away</button><div id="bldAlmostOut"></div></div>
         <div id="bldList"></div>
       </div>
     </div></div>`;
@@ -169,6 +171,19 @@ export function openBuilder(opts) {
     } catch (e) { $('bldStatus').textContent = /no cards/i.test(e.message) ? 'No cards match.' : `Search failed: ${e.message}`; if (!more) $('bldResults').innerHTML = ''; $('bldMore').hidden = true; }
   }
   $('bldGo').onclick = () => search();
+  $('bldAlmost').hidden = !f.commander;
+  $('bldAlmostOut').innerHTML = '';
+  $('bldAlmost').onclick = async () => {
+    const out = $('bldAlmostOut');
+    const cmd = [...deck.values()].filter(e => e.cmd).map(e => e.card.name), main = [...deck.values()].filter(e => e.main).map(e => e.card.name);
+    if (!cmd.length) { out.innerHTML = '<p class="muted">Choose a commander (★) first: the combos are found in its colors.</p>'; return; }
+    out.innerHTML = '<p class="muted">Asking Commander Spellbook…</p>';
+    try {
+      const list = await almostCombos(cmd, main);
+      out.innerHTML = list.length ? `<ul>${list.slice(0, 12).map(c => `<li><button class="btn small" data-almost="${esc(c.missing[0])}" title="Search for it">${esc(c.missing[0])}</button> + ${c.have.map(esc).join(' + ')}: ${esc(c.produces[0] || 'a combo')}</li>`).join('')}</ul>` : '<p class="muted">None one card away.</p>';
+    } catch (err) { out.innerHTML = `<p class="muted">Couldn't reach Commander Spellbook: ${esc(err.message)}</p>`; }
+  };
+  $('bldAlmostOut').onclick = e => { const b = e.target.closest('[data-almost]'); if (b) { $('bldQuery').value = `!"${b.dataset.almost}"`; search(); } };
   $('bldOwned').onchange = () => search();
   $('bldMore').onclick = () => search(true);
   $('bldQuery').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') search(); };

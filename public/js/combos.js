@@ -229,6 +229,28 @@ const SPELLBOOK_TAGS = {
   P: { name: 'Powerful', about: 3 }, S: { name: 'Spicy', about: 3 }, R: { name: 'Ruthless', about: 4 }, B: { name: 'Banned card', about: null },
 };
 const bracketCache = new Map();
+// Combos one card away (item 151): Commander Spellbook's "almost included" combos for a list of names, in the deck's
+// colors: [{ id, missing: [names], have: [names], produces: [features], popularity }], most popular first
+const almostCache = new Map();
+export async function almostCombos(commanders, main) {
+  const key = [...commanders, '|', ...main].join('\n');
+  if (almostCache.has(key)) return almostCache.get(key);
+  const res = await fetch('https://backend.commanderspellbook.com/find-my-combos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ commanders: commanders.map(card => ({ card })), main: main.map(card => ({ card })) }),
+  });
+  if (!res.ok) throw new Error(`Commander Spellbook answered ${res.status}`);
+  const data = await res.json();
+  const have = new Set([...commanders, ...main].map(n => n.toLowerCase()));
+  const out = (data.results?.almostIncluded || []).map(v => {
+    const uses = (v.uses || []).map(u => u.card.name);
+    return { id: v.id, missing: uses.filter(n => !have.has(n.toLowerCase())), have: uses.filter(n => have.has(n.toLowerCase())), produces: (v.produces || []).map(p => p.feature?.name).filter(Boolean), popularity: v.popularity || 0 };
+  }).filter(c => c.missing.length === 1).sort((a, b) => b.popularity - a.popularity);
+  almostCache.set(key, out);
+  return out;
+}
+
 export async function fetchSpellbookBracket(deck) {
   const key = [...deck.commanders.map(c => c.name), ...deck.cards.map(c => `${c.qty}${c.card.name}`)].sort().join('|');
   if (bracketCache.has(key)) return bracketCache.get(key);

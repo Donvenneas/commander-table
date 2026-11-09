@@ -1132,3 +1132,7 @@ table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
 table.odds { border-collapse: collapse; margin: 4px 0; }
 table.odds td, table.odds th { padding: 2px 8px; }
 #oddsWhat { max-width: 340px; }
+
+/* Combos one card away in the builder (item 151) */
+.bld-almost { margin: 6px 0; }
+.bld-almost ul { margin: 4px 0; padding-left: 16px; font-size: 12px; }

@@ -13,7 +13,7 @@ import { startTour } from './tour.js';
 import { buildReplayHtml } from './replayexport.js';
 import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames, loadRatings } from './limited.js';
 import { boosterData, boosterPacker } from './boosters.js';
-import { combosIn, fetchSpellbook, fetchSpellbookBracket } from './combos.js';
+import { combosIn, fetchSpellbook, fetchSpellbookBracket, almostCombos } from './combos.js';
 import { coverage } from './effects.js';
 import { TableView, installPreview, installDetails, Sound } from './ui.js';
 import { Music } from './music.js';
@@ -2521,6 +2521,7 @@ function showDeck(s) {
       <div id="gfHand"></div><div id="gfRunsOut"></div></div>
     <h3>What the simulator understands: ${cov.pct}%</h3>
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
+    ${d.commanders.length ? '<h3>Combos one card away</h3><div id="almostCombos"><p><button class="btn small" id="btnAlmost">Ask Commander Spellbook</button> <span class="muted">Combos in your colors that need just one more card.</span></p></div>' : ''}
     ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
     ${tips || '<p class="muted">Run a batch with this deck seated to get card suggestions.</p>'}
     ${hasCollection() ? (() => { const miss = missingCards(d); return `<h3>Collection</h3>${miss.length ? `<p>Missing ${miss.reduce((a, m) => a + m.need - m.have, 0)} cards (${miss.length} different): <button class="btn small" id="btnCopyMissing">Copy the list</button></p><p class="ignored">${miss.map(m => `${m.need - m.have} ${esc(m.name)}`).join(' · ')}</p>` : '<p>✔ You own every card in this deck.</p>'}`; })() : ''}
@@ -2617,6 +2618,15 @@ function showDeck(s) {
     } catch (err) { out.innerHTML = `<p class="muted">Couldn't run: ${esc(err.message)}</p>`; }
     delete btn.dataset.running;
     btn.textContent = 'Run the AI pilot alone';
+  });
+  $('btnAlmost')?.addEventListener('click', async () => {
+    const box = $('almostCombos');
+    box.innerHTML = '<p class="muted">Asking Commander Spellbook…</p>';
+    try {
+      const list = await almostCombos(d.commanders.map(c => c.name), d.cards.map(c => c.card.name));
+      box.innerHTML = list.length ? `<ul>${list.slice(0, 15).map(c => `<li>Add <b>${esc(c.missing[0])}</b> to ${c.have.map(esc).join(' + ')}: ${esc(c.produces.slice(0, 3).join(', ') || 'a combo')} <a href="https://commanderspellbook.com/combo/${encodeURIComponent(c.id)}/" target="_blank" rel="noopener" class="muted">details</a></li>`).join('')}</ul>
+        <p class="muted">${list.length} combo${list.length === 1 ? '' : 's'} one card away, most popular first${list.length > 15 ? ' (the first 15 shown)' : ''}. The simulator plays combos that end in a win, infinite damage or infinite mana; others are listed for interest.</p>` : '<p>No combo in your colors is one card away.</p>';
+    } catch (err) { box.innerHTML = `<p class="muted">Couldn't reach Commander Spellbook: ${esc(err.message)}</p>`; }
   });
   $('btnDeckHealth')?.addEventListener('click', async () => {
     const box = $('deckHealth');
