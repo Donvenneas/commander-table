@@ -1,6 +1,7 @@
 import { Game, Abort, RULES } from './engine.js';
 import { deckHealth, healthSuggestions, HEALTH_TEMPLATE } from './dechealth.js';
 import { preconList } from './precons.js';
+import { sampleHands, goldfishRuns } from './goldfish.js';
 import { importCollection, clearCollection, summary as collectionSummary, missingCards, hasCollection } from './collection.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
@@ -2514,6 +2515,9 @@ function showDeck(s) {
       <div><h3>Card types</h3><ul class="typelist">${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<li><span>${k}</span><b>${n}</b></li>`).join('')}</ul></div>
     </div>
     ${d.commanders.length ? '<h3>Deck health</h3><div id="deckHealth"><p><button class="btn small" id="btnDeckHealth">Check lands, ramp, card draw, removal and wipes</button> <span class="muted">Uses Scryfall card tags; each card is asked about once.</span></p></div>' : ''}
+    <h3>Goldfish</h3><div id="goldfish"><p><button class="btn small" id="btnSampleHand">Sample hand</button>
+      <label class="muted">Solo runs <select id="gfRuns" class="sbracket"><option>100</option><option>250</option><option>1000</option></select></label> <button class="btn small" id="btnGoldfish">Run the AI pilot alone</button></p>
+      <div id="gfHand"></div><div id="gfRunsOut"></div></div>
     <h3>What the simulator understands: ${cov.pct}%</h3>
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
     ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
@@ -2534,6 +2538,45 @@ function showDeck(s) {
     } catch (err) { box.innerHTML = `<p class="muted">Couldn't compare: ${esc(err.message)}</p>`; }
   });
   $('btnCopyMissing')?.addEventListener('click', e => { navigator.clipboard?.writeText(missingCards(d).map(m => `${m.need - m.have} ${m.name}`).join('\n')).then(() => { /** @type {HTMLElement} */ (e.target).textContent = 'Copied'; }).catch(() => {}); });
+  // Goldfish (item 149): sample hands, and the AI pilot playing the deck alone
+  let sampler = null;
+  const drawHand = () => {
+    const card = c => `<img class="gf-card" src="${esc(c.imgSmall || c.imgNormal || '')}" alt="${esc(c.name)}" title="${esc(c.name)}" loading="lazy">`;
+    const lands = sampler.hand.filter(c => c.fx?.type.land).length;
+    $('gfHand').innerHTML = `<div class="gf-row">${sampler.hand.map(card).join('')}</div>
+      <p class="muted">${sampler.mulligans ? `Mulligan ${sampler.mulligans}: put ${sampler.mulligans} card${sampler.mulligans === 1 ? '' : 's'} on the bottom. ` : ''}${lands} land${lands === 1 ? '' : 's'} in the hand.</p>
+      ${sampler.drawn.length ? `<p class="muted">Draws, turn by turn:</p><div class="gf-row">${sampler.drawn.map(card).join('')}</div>` : ''}
+      <p><button class="btn small" data-gf="mull">Mulligan</button><button class="btn small" data-gf="draw">Draw</button><button class="btn small" data-gf="new">New hand</button></p>`;
+  };
+  $('btnSampleHand')?.addEventListener('click', () => { sampler = sampleHands(d); drawHand(); });
+  $('gfHand')?.addEventListener('click', e => {
+    const b = e.target.closest('[data-gf]');
+    if (!b || !sampler) return;
+    if (b.dataset.gf === 'mull') sampler.mulligan(); else if (b.dataset.gf === 'draw') sampler.draw(); else sampler.newHand();
+    drawHand();
+  });
+  let gfStop = false;
+  $('btnGoldfish')?.addEventListener('click', async () => {
+    const btn = $('btnGoldfish');
+    if (btn.dataset.running) { gfStop = true; return; }
+    gfStop = false;
+    btn.dataset.running = '1';
+    btn.textContent = 'Stop';
+    const out = $('gfRunsOut');
+    try {
+      const r = await goldfishRuns(d, { runs: +$('gfRuns').value, format: d.format || formatKey, stop: () => gfStop || $('deckModal').hidden, onProgress: (k, n) => { out.innerHTML = `<p class="muted">Playing ${k} of ${n}…</p>`; } });
+      const t = v => (v == null ? '–' : `turn ${v.toFixed(1)}`);
+      const pct = (a, n) => `${Math.round((a / Math.max(1, n)) * 100)}%`;
+      out.innerHTML = `<ul>
+        ${d.commanders.length ? `<li>Commander cast: <b>${t(r.avgCmd)}</b> on average (${pct(r.cmd.length, r.runs)} of games by turn 10)</li>` : ''}
+        <li>A combo started: <b>${r.combo.length ? t(r.avgCombo) : 'never'}</b>${r.combo.length ? ` (${pct(r.combo.length, r.runs)} of games)` : ''}</li>
+        <li>Won alone (a 40-life opponent who only plays lands): <b>${r.win.length ? t(r.avgWin) : 'not by turn 10'}</b>${r.win.length ? ` (${pct(r.win.length, r.runs)} of games)` : ''}</li>
+        <li>Lands on the battlefield after three turns: ${r.avgLandsT3 == null ? '–' : r.avgLandsT3.toFixed(2)} · mulligans per game: ${r.avgMulls.toFixed(2)}</li></ul>
+        <p class="muted">${r.runs} games, one seed each (the same seeds every time, so changes to the deck compare fairly), the AI pilot going first, up to its tenth turn.</p>`;
+    } catch (err) { out.innerHTML = `<p class="muted">Couldn't run: ${esc(err.message)}</p>`; }
+    delete btn.dataset.running;
+    btn.textContent = 'Run the AI pilot alone';
+  });
   $('btnDeckHealth')?.addEventListener('click', async () => {
     const box = $('deckHealth');
     box.innerHTML = '<p class="muted">Checking…</p>';

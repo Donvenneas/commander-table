@@ -1123,3 +1123,7 @@ table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
 .libver { padding: 4px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); }
 .libdiff .add { color: var(--good, #3a9a5b); }
 .libdiff .cut { color: var(--bad, #c0392b); }
+
+/* Goldfish in the deck viewer (item 149) */
+.gf-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.gf-card { width: 92px; border-radius: 5px; }

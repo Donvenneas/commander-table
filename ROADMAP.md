@@ -756,8 +756,11 @@ on top of the ones above:
   - Done: folder, tags, colors, bracket and notes in each list's About section (loaders skip it; no server change);
     folder filter and multi-word search; Info panel with "Work out colors and bracket"; every save keeps the replaced
     list (last 10, in the browser profile) with Show changes and Restore. Tested with a throwaway deck, then deleted.
-- [ ] 149. Goldfish: sample hands with mulligans, and solo runs of the AI pilot over 1,000 seeds giving the average turn
+- [x] 149. Goldfish: sample hands with mulligans, and solo runs of the AI pilot over 1,000 seeds giving the average turn
   the commander comes down and the combo is assembled.
+  - Done: goldfish.js + a Goldfish section in the deck viewer: sample hands (London mulligan, draws) and 100/250/1,000
+    solo runs against a lands-only opponent (commander turn, first combo attempt, win turn, lands after three turns,
+    mulligans). Fixed seeds, so results compare before and after an edit. Tested on a precon: 100 runs in about 2 s.
 - [ ] 150. Draw odds: chance of having a card or a category (ramp, a combo piece) by turn N, in the deck viewer.
 - [ ] 151. Combos one card away: Commander Spellbook's "almost included" results in the deck viewer and the builder.
 - [ ] 152. Bracket estimate refresh: follow the current official bracket rules (tutors, extra turns, Game Changers from

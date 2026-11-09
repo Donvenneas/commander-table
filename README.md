@@ -234,6 +234,7 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
 **Deck mastery:** every deck levels up as it plays: 10 points a game and 15 more for a win, up to level 20. The level shows on the seat's picture. The deck viewer shows its progress and its best cards (the ones it cast most in its wins). Decks without a commander are now remembered too (by format, name and card list), so they also learn from their games.
 
 **Deck health** (deck viewer, Commander decks): counts lands, ramp, card draw, targeted removal and board wipes and compares them with the usual ranges for a 100-card Commander deck (35–39 lands, 10–15 ramp, 10–15 draw, 8–12 removal, 2–5 wipes), lists the cards in each role, warns about a curve that is heavy for its ramp or low for its land count, and suggests popular cards in your colors for a role you are short of. Card roles come from Scryfall's community card tags; each card is asked about once and remembered.
+**Goldfish** (deck viewer): **Sample hand** deals 7 from a shuffled deck, with **Mulligan** (a fresh 7; put one card per mulligan on the bottom), **Draw** and **New hand**. **Run the AI pilot alone** plays the deck 100, 250 or 1,000 times against an opponent who only plays lands, up to its tenth turn, and reports the average turn the commander is cast, a combo is started and the game is won, lands after three turns and mulligans per game. The seeds are the same every time, so you can compare a deck before and after a change.
 
 ## Decks
 
