@@ -56,8 +56,28 @@ export const savedCount = () => Object.keys(savedAll()).length;
 export function topCommanders({ count = 40, timePeriod = 'THREE_MONTHS', minSize = 32, colorId = '' } = {}) {
   return cached(`top:${count}:${timePeriod}:${minSize}:${colorId}`, async () => {
     const d = await gql(QUERY.commanders, { timePeriod, sortBy: 'POPULARITY', minEntries: 0, minSize, colorId, count });
-    return d.commanders.edges.map(e => ({ name: e.node.name, colorId: e.node.colorId, art: e.node.cards?.[0]?.imageUrls?.[0] || '', ...e.node.stats }));
+    const list = d.commanders.edges.map(e => ({ name: e.node.name, colorId: e.node.colorId, art: e.node.cards?.[0]?.imageUrls?.[0] || '', ...e.node.stats }));
+    if (!colorId && count >= 30) recordTrend(`${timePeriod}:${minSize}`, list);
+    return list;
   });
+}
+
+// Trends (item 155): one snapshot a day of each fresh top-commanders answer (any colors), kept for a year, so the
+// meta browser can show how a commander's share and win rate moved between visits
+const TREND = 'ct.metaTrend';
+function recordTrend(key, list) {
+  try {
+    const all = JSON.parse(localStorage.getItem(TREND) || '{}');
+    const day = new Date().toISOString().slice(0, 10);
+    const snaps = (all[key] ||= []).filter(s => s.day !== day);
+    snaps.push({ day, top: list.slice(0, 40).map(c => [c.name, +(c.metaShare || 0).toFixed(4), +(c.winRate || 0).toFixed(4)]) });
+    all[key] = snaps.sort((a, b) => a.day.localeCompare(b.day)).slice(-365);
+    localStorage.setItem(TREND, JSON.stringify(all));
+  } catch { /* full or blocked: no history */ }
+}
+// [{ day, top: [[name, share, winRate]] }] oldest first
+export function trendHistory(timePeriod, minSize) {
+  try { return JSON.parse(localStorage.getItem(TREND) || '{}')[`${timePeriod}:${minSize}`] || []; } catch { return []; }
 }
 
 // Recent top finishes for one commander (names as EDHTop16 writes them, partners joined with " / ")

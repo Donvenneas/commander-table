@@ -37,7 +37,7 @@ const STRENGTH = {
   strong: { noise: 0, lookahead: false, label: 'Strong', rating: 1550 },
   expert: { noise: 0, lookahead: true, label: 'Expert', rating: 1750 },
 };
-import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta } from './cedhdata.js';
+import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta, trendHistory } from './cedhdata.js';
 import { Rules } from './rules.js';
 import { esc, sleep, store, symbolize, makeRng } from './util.js';
 import { FORMATS, formatOf, checkDeck } from './formats.js';
@@ -1536,6 +1536,7 @@ async function renderMeta() {
   const q = $('metaSearch').value.trim().toLowerCase();
   const body = $('metaBody');
   $('btnMetaTop4').hidden = metaTab !== 'top';
+  $('metaPeriod').disabled = metaTab === 'trend';
   $('metaStatus').textContent = 'Loading…';
   try {
     if (metaTab === 'top') {
@@ -1547,7 +1548,7 @@ async function renderMeta() {
           <td class="num">${(c.metaShare * 100).toFixed(1)}%</td><td class="num">${(c.winRate * 100).toFixed(1)}%</td><td class="num">${(c.conversionRate * 100).toFixed(1)}%</td><td class="num">${c.count}</td>
           <td class="seatpicks">${seatButtons(`edhtop16:${c.name}`)}</td></tr>`).join('')}</tbody></table>`;
       $('metaStatus').textContent = `${top.length} commanders from EDHTop16, ${$('metaPeriod').selectedOptions[0].text.toLowerCase()}, events of ${f.minSize}+ players${f.colorId ? `, color identity ${f.colorId}` : ''}${offlineNote(`top:60:${f.timePeriod}:${f.minSize}:${f.colorId}`)}`;
-    } else {
+    } else if (metaTab === 'ddb') {
       const decks = await ddbDecks();
       const rows = decks.filter(d => !q || `${d.title} ${d.commanders.join(' ')} ${d.section} ${d.colors.join('')}`.toLowerCase().includes(q));
       const sections = [...new Set(rows.map(d => d.section))];
@@ -1560,6 +1561,36 @@ async function renderMeta() {
           <div class="seatpicks">${seatButtons(`edhtop16:${edhtop16Name(d.commanders)}`)}</div>
         </div>`).join('')).join('') || '<p class="muted">No decks match.</p>';
       $('metaStatus').textContent = `${decks.length} archetypes from the cEDH Decklist Database${offlineNote('ddb')}`;
+    } else {
+      // Trends (item 155): each commander's share and win rate in the last year, 6 months, 3 months and month (the
+      // windows overlap, so a share higher in the month than the year means rising), and between saved visits
+      const f = metaFilter();
+      const W = [['ONE_YEAR', 'Year'], ['SIX_MONTHS', '6 mo'], ['THREE_MONTHS', '3 mo'], ['ONE_MONTH', 'Month']];
+      const lists = [];
+      for (const [p] of W) lists.push(await topCommanders({ count: 60, timePeriod: p, minSize: f.minSize, colorId: f.colorId }));
+      const names = lists[3].slice(0, 25).map(c => c.name).filter(n => !q || n.toLowerCase().includes(q));
+      const stat = (i, n) => lists[i].find(c => c.name === n);
+      const hist = trendHistory('ONE_MONTH', f.minSize);
+      // (a single-series sparkline: share in each window, oldest left; hover a point for its value)
+      const spark = vals => {
+        const pts = vals.map((v, i) => [6 + i * 26, v]).filter(p => p[1] != null);
+        if (pts.length < 2) return '';
+        const top = Math.max(...pts.map(p => p[1]), 0.001);
+        const y = v => 26 - (v / top) * 20;
+        return `<svg class="spark" width="96" height="30" viewBox="0 0 96 30" role="img" aria-label="Share by window"><polyline fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" points="${pts.map(([x, v]) => `${x},${y(v).toFixed(1)}`).join(' ')}"/>${pts.map(([x, v], i) => `<circle cx="${x}" cy="${y(v).toFixed(1)}" r="4" fill="currentColor"><title>${W[i]?.[1] || ''} ${(v * 100).toFixed(1)}%</title></circle>`).join('')}</svg>`;
+      };
+      const pc = v => (v == null ? '–' : `${(v * 100).toFixed(1)}%`);
+      body.innerHTML = `<table class="trend"><thead><tr><th>Commander</th>${W.map(([, l]) => `<th class="num">${l}</th>`).join('')}<th>Share</th><th>Trend</th><th class="num">Win rate (month)</th><th class="num">Win rate (year)</th>${hist.length >= 2 ? '<th>Your visits</th>' : ''}<th>Load into seat</th></tr></thead><tbody>
+        ${names.map(n => {
+          const sh = W.map((_, i) => stat(i, n)?.metaShare ?? null);
+          const ratio = sh[0] ? sh[3] / sh[0] : null;
+          const trend = ratio == null ? '<span class="muted">new</span>' : ratio > 1.2 ? '▲ rising' : ratio < 0.8 ? '▼ falling' : '– steady';
+          const visits = hist.map(s => s.top.find(t => t[0] === n)?.[1] ?? null);
+          return `<tr><td>${esc(n)}</td>${sh.map(v => `<td class="num">${pc(v)}</td>`).join('')}<td>${spark(sh)}</td><td>${trend}</td>
+            <td class="num">${pc(stat(3, n)?.winRate)}</td><td class="num">${pc(stat(0, n)?.winRate)}</td>${hist.length >= 2 ? `<td>${spark(visits)}</td>` : ''}<td class="seatpicks">${seatButtons(`edhtop16:${n}`)}</td></tr>`;
+        }).join('')}</tbody></table>
+        <p class="muted">Meta share in tournaments of ${f.minSize}+ players over the last year, 6 months, 3 months and month. The windows overlap, so a commander whose share in the month is well above its share over the year is rising.${hist.length >= 2 ? ` "Your visits" shows its monthly share on each day you opened this (${hist.length} days since ${esc(hist[0].day)}).` : ' Each day you open the meta browser a snapshot is kept, and a "Your visits" column appears from the second day.'}</p>`;
+      $('metaStatus').textContent = `Top ${names.length} commanders of the last month${offlineNote(`top:60:ONE_MONTH:${f.minSize}:${f.colorId}`)}`;
     }
   } catch (e) {
     $('metaStatus').textContent = `Couldn't load: ${e.message}`;

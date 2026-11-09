@@ -780,7 +780,10 @@ on top of the ones above:
 - [x] 154. "Fully simulated only" filter in the builder, so people can build decks the AI plays at full strength.
   - Done: a builder checkbox (effects.js ignoredText per result, reading on like the owned filter) and a ⚠ badge on
     partly simulated results. Tested: o:"exchange life totals" showed 7 cards with 5 ⚠, and 2 with the filter on.
-- [ ] 155. EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.
+- [x] 155. EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.
+  - Done: a Trends tab: share across the year/6-month/3-month/month windows with a sparkline and rising/falling, win
+    rates, and a daily snapshot history (ct.metaTrend, a year) shown as "Your visits" from the second day. Tested in
+    the browser (25 commanders); the visits column needs a second day, not seen yet.
 - [ ] 156. More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish,
   Archidekt folders).
 - [ ] 157. Printings offline: the optional "Default Cards" bulk file so set searches for Draft / Sealed and printings
