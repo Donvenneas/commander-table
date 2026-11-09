@@ -817,8 +817,12 @@ on top of the ones above:
 - [ ] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs
   shareable as a code.
 - [ ] 164. Story: four more chapters of The Lantern Road, balanced like the first four.
-- [ ] 165. Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the
+- [x] 165. Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the
   engine to have a solution and picked by date.
+  - Done: tools/dailypuzzles.mjs saves the board at the winner's last first main phase in AI games (the cEDH decks,
+    fixed seeds) and keeps it only when an AI pilot wins from it on three shuffles: 91 of 120 games (71 combo wins,
+    20 damage). The Puzzles window shows the day's puzzle with a streak. Tested: today's opened with all 4 boards
+    and no missing cards.
 - [ ] 166. Limited ladder: Elo from draft and sealed results, and a league record per draft (best of seven wins).
   No entry fees.
 - [ ] 167. More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress

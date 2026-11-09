@@ -2115,7 +2115,40 @@ $('btnEditSave').addEventListener('click', async () => {
 });
 
 // ---------- puzzles: a set board and one turn to win
+// Puzzle of the day (item 165): positions from AI games where the player to move won that turn, each checked by the
+// engine (tools/dailypuzzles.mjs); the date picks one, the same for everybody on that day
+let daily = null;
+const dayNumber = () => Math.floor((Date.now() - new Date().getTimezoneOffset() * 60000) / 864e5);
+async function dailyPuzzle() {
+  try { daily ||= await (await fetch('data/daily-puzzles.json')).json(); } catch { return null; }
+  const list = daily?.puzzles || [];
+  return list.length ? list[dayNumber() % list.length] : null;
+}
+async function renderDaily() {
+  const pz = await dailyPuzzle();
+  const box = $('puzzleDaily');
+  if (!box) return;
+  if (!pz) { box.innerHTML = ''; return; }
+  const rec = store('ct.daily') || {};
+  const today = rec[dayNumber()];
+  const streak = (() => { let n = 0; for (let d = dayNumber(); rec[d] === 'solved'; d--) n++; return n; })();
+  box.innerHTML = `<div class="standing daily" style="--pc:#e8d44d"><div class="meta"><b>Puzzle of the day</b> ${today === 'solved' ? '✔ solved' : ''}<br>${esc(pz.name)} · ${pz.players.length} players · ${esc(pz.hint || '')}<br><span class="muted">A real position from an AI game, checked to have a win. Streak: ${streak} day${streak === 1 ? '' : 's'}.</span></div><button class="btn small primary" id="btnDaily">Play</button></div>`;
+  $('btnDaily').addEventListener('click', async () => {
+    try {
+      await startPuzzle({ ...pz, goal: 'win this turn' }, {
+        after: g => {
+          const won = g.winner === g.players[0];
+          const r = store('ct.daily') || {};
+          if (won) r[dayNumber()] = 'solved'; else if (!r[dayNumber()]) r[dayNumber()] = 'tried';
+          store('ct.daily', r);
+          return { html: won ? '✔ <b>Puzzle of the day solved.</b> A new one comes tomorrow.' : 'Not this time. The position is the same all day: try again.', buttons: [{ label: 'Back to the puzzles', primary: true, fn: () => { renderPuzzles(); $('puzzleModal').hidden = false; } }], noRematch: false };
+        },
+      });
+    } catch (err) { $('puzzleStatus').textContent = `Couldn't open the puzzle: ${err.message}`; }
+  });
+}
 function renderPuzzles() {
+  renderDaily();
   $('puzzleList').innerHTML = BUILT_IN.map((pz, i) => `<div class="standing" style="--pc:${SEAT_COLORS[i % 4]}"><div class="meta"><b>${esc(pz.name)}</b><br>${esc(pz.hint || pz.goal)}</div><button class="btn small primary" data-pz="${i}">Play</button></div>`).join('');
 }
 // extra: newGame options (a lesson's coach and after step, a chapter's); say: where to show progress

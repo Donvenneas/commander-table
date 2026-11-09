@@ -444,6 +444,8 @@ Every game is generated from a random seed, and any decisions you made are recor
 
 **Puzzles…** on the setup screen: you get one turn, starting in your first main phase, to win. Three puzzles come built in. **Save board as puzzle** on the timeline turns any game's current board into a puzzle file (seat 1 to move) that you can share; **Load a puzzle file…** plays one.
 
+**Puzzle of the day:** at the top of the Puzzles window, a new position each day (the same for everyone that day). Each one is a real moment from an AI game where the player to move won that turn, and the engine has checked that an AI pilot wins from that board on three different shuffles. Solving it on consecutive days builds a streak. The list is made with `node tools/dailypuzzles.mjs` (91 positions now, from 120 games of the built-in cEDH decks).
+
 ## Draft and sealed
 
 **Draft / Sealed…** opens packs from a real set (any set code; the Commander Legends sets work best for pods) or from a cube. Set packs match the real boosters, using MTGJSON's booster contents: the set's play or draft booster slots (commons, uncommons, rare or mythic, wildcard, foil and so on) and how often each card turns up. For example, Commander Legends packs have 20 cards with two legends.
