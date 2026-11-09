@@ -672,8 +672,13 @@ on top of the ones above:
     puzzles, custom seats and unfinished matches. Tested: a Standard game, rotated (the 60-card deck moved seats with
     the same seed), played out and rotated back. Fixed on the way: the opening-hand question no longer offers
     item 118's "Always" box.
-- [ ] 132. "What if" from the timeline: take over any seat from any point of a replay and play on; the branch is saved
+- [x] 132. "What if" from the timeline: take over any seat from any point of a replay and play on; the branch is saved
   as its own replay.
+  - Done: timeline "Take over…" (games of AI seats, or loaded replays): pick a seat; the game is rebuilt to this
+    step and that seat is yours from there (setup.takeovers = [{ seat, step }], applied at that step in every rebuild
+    and saved in replay files, so the branch replays exactly). The branch replaces the game on the table: Save replay
+    first to keep the original. Tested: an AI Standard game stepped back to turn 10, Amber taken over, the main-phase
+    question came up for her.
 - [ ] 133. Save and resume: the game in progress is autosaved (setup + answers) so closing the app or a crash loses
   nothing; Resume on the start menu.
 - [ ] 134. Readable big tables: layouts and card sizes for 5–9 seat Kingdoms tables on a 1080p screen.

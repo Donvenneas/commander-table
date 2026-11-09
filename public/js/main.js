@@ -356,6 +356,8 @@ function newGame(opts = {}) {
       decisions: opts.decisions || [],
       // Online friends' answers, by seat (a loaded replay plays them back with no friend connected)
       remoteDecisions: opts.remoteDecisions || {},
+      // "What if" (item 132): seats you took over from a point of the game ({ seat, step }); kept in replays
+      takeovers: opts.takeovers || [],
       replayOnly: !!opts.remoteDecisions,
       // Each deck's learned card bonuses as they were when the game started (replays use the same)
       learned: opts.learned || null,
@@ -420,6 +422,23 @@ function newGame(opts = {}) {
   if (opts.untilLive) clock.untilLive = true;
   $('tlUndo').hidden = !(setup.human >= 0) || !!locked;
   if (opts.skip) clock.skip = opts.skip;
+  // (a seat taken over becomes yours at the step it was taken over, in this game and every rebuild of it)
+  if (setup.takeovers?.length) {
+    const g = game, beat0 = g.beat.bind(g), done = new Set();
+    g.beat = async w => {
+      for (const t of setup.takeovers) if (!done.has(t) && g.steps >= t.step) {
+        done.add(t);
+        const s = setup.seats[t.seat];
+        g.players[t.seat].agent = new HumanAgent(guessStyle(s.deck), humanUI, setup.stopOpts);
+        g.players[t.seat].style = 'human';
+        if (!setup.humans.includes(t.seat)) setup.humans.push(t.seat);
+        setup.human = t.seat;
+        if (view) view.humanIdx = t.seat;
+        g.log(`You take over ${g.pn(g.players[t.seat])} from here`, { kind: 'minor' });
+      }
+      return beat0(w);
+    };
+  }
   if (opts.paused) clock.paused = true;
   game.on('turn', p => {
     // Turn clock: a friend's bank fills up at the start of each of their turns
@@ -679,6 +698,24 @@ function togglePlay() {
 
 // ---------- timeline: replays are the same game re-simulated from its seed
 // (with your answers and online friends' answers played back)
+// "What if": pick an AI seat; the game is rebuilt to this step and that seat is yours from here on
+$('tlTakeover').addEventListener('click', () => {
+  const m = $('tlTakeoverMenu');
+  if (!m.hidden) { m.hidden = true; return; }
+  if (!game || !canRewind() || setup.humans.length || setup.remote.length) { m.innerHTML = '<small class="muted">Only in a game of AI seats (watch one, or load a replay).</small>'; m.hidden = false; return; }
+  m.innerHTML = game.players.filter(p => !p.lost).map(p => `<button class="btn small" data-take="${p.idx}" style="border-color:${p.color}">${esc(p.name)}</button>`).join('');
+  m.hidden = false;
+});
+$('tlTakeoverMenu').addEventListener('click', e => {
+  const b = e.target.closest('[data-take]');
+  if (!b || !game) return;
+  $('tlTakeoverMenu').hidden = true;
+  const step = game.steps;
+  setup.takeovers = [{ seat: +b.dataset.take, step }];
+  setup.decisions.length = 0;
+  setup.ranked = false;
+  newGame({ replay: true, skip: Math.max(0, step), paused: false });
+});
 function canRewind() {
   // A ranked game can't be rewound until it's over (then it's only watched again)
   return !!setup && !(setup.ranked && !setup.progressed && game && !game.over);
@@ -746,6 +783,7 @@ $('btnSaveReplay').addEventListener('click', () => {
     ...(setup.roles ? { roles: setup.roles } : {}),
     // (version 4: the stops your seats played with, so your recorded answers line up again)
     stopOpts: setup.stopOpts,
+    ...(setup.takeovers?.length ? { takeovers: setup.takeovers } : {}),
     // (version 6: the engine's rules version)
     rules: setup.rules,
     // (version 5: which AI seats looked ahead)
@@ -780,7 +818,7 @@ $('replayFile').addEventListener('change', async e => {
     $('setup').hidden = true;
     newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
       // (replays saved before decks learned have no table, and are played without it)
-      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   } catch (err) {
     $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`;
   }

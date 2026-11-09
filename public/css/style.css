@@ -1079,3 +1079,6 @@ body.contrast .le { color: #fff; }
 .pe-cob { font-size: 12px; display: flex; align-items: center; gap: 4px; }
 .pe-zone { display: block; font-size: 12px; margin-top: 4px; }
 .pe-zone textarea { width: 100%; box-sizing: border-box; font-size: 12px; }
+
+/* "What if" seat picker on the timeline (item 132) */
+.takeover-menu { display: inline-flex; gap: 4px; flex-wrap: wrap; }
