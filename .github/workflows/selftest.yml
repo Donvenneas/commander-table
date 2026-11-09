@@ -27,6 +27,8 @@ jobs:
         run: node tests/cards.mjs
       - name: Golden games (rules 4 and 5 outcomes unchanged)
         run: node tests/golden.mjs
+      - name: Fuzz games (random answers to every prompt, rules watcher)
+        run: node tests/fuzz.mjs
 
   selftest:
     runs-on: ubuntu-latest

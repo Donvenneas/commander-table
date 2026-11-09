@@ -1599,6 +1599,13 @@ export class Game {
             if (o.bestowed) this.unbestow(o); else this.move(o, 'graveyard');
             again = true;
           }
+          // Equipment on something that is no longer a creature (a Vehicle after the turn it was crewed, an animated
+          // land or artifact) becomes unattached and stays on the battlefield (704.5n; found by the fuzz games)
+          if (this.rules >= 5 && o.fx.type.equipment && o.zone === 'battlefield' && o.attachedTo?.zone === 'battlefield' && !o.attachedTo.fx.type.creature) {
+            this.log(`${this.cn(o)} becomes unattached from ${this.cn(o.attachedTo)}, which isn't a creature`, { rule: '704.5n', kind: 'minor' });
+            o.attachedTo = null;
+            again = true;
+          }
         }
         const legends = {};
         // (Sakashima, Mirror Gallery: the legend rule doesn't apply)

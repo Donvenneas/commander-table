@@ -556,7 +556,7 @@ export class HumanAgent extends Agent {
       if (typeof r.button === 'object' && r.button?.repeat && loop) { await this.repeatLoop(g, p, loop, r.button.repeat); continue; }
       const o = r.obj;
       if (!o) continue;
-      document.getElementById('zoneModal')?.setAttribute('hidden', '');
+      globalThis.document?.getElementById('zoneModal')?.setAttribute('hidden', '');
       // A source you tapped by hand: take its mana back, unless you meant its ability (Basalt Monolith's untap)
       if (backs.includes(o)) {
         const both = abilities.includes(o);
@@ -918,9 +918,10 @@ export class HumanAgent extends Agent {
     return r?.[0] || super.pickTutor(g, p, e);
   }
   async considerDeal(g, q, from, kind = 'truce', rounds = 2) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = g.dealText(kind, from, q, kind === 'gangUp' ? g.players[g.archenemy] : null, rounds);
-    const r = await this.ui.ask(`<b>${esc(from.name)}</b> offers you a deal: ${esc(tmp.textContent)}.`, {
+    // (plain text of the deal; outside a browser, as in the fuzz tests, the tags are just dropped)
+    const plainText = html => (globalThis.document ? Object.assign(document.createElement('div'), { innerHTML: html }).textContent : String(html).replace(/<[^>]*>/g, ''));
+    const dealText = plainText(g.dealText(kind, from, q, kind === 'gangUp' ? g.players[g.archenemy] : null, rounds));
+    const r = await this.ui.ask(`<b>${esc(from.name)}</b> offers you a deal: ${esc(dealText)}.`, {
       buttons: [{ label: 'Accept', value: true, primary: true }, { label: 'Decline', value: false }],
     });
     return r.button === true;

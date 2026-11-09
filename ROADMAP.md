@@ -843,8 +843,12 @@ on top of the ones above:
     rules 5 and compares winner, rounds, steps and a log hash with tests/golden-games.json; card data is saved in
     tests/golden-cards.json so it runs offline in CI. Replays saved from the app with your own answers need the browser
     (HumanUI), so they aren't part of it. Recorded and re-run: 12/12 identical.
-- [ ] 174. Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI
+- [x] 174. Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI
   with a fixed seed list.
+  - Done: tests/fuzz.mjs (random Commander decks from the card snapshot; seat 1 is a HumanAgent whose UI answers at
+    random; 12 fixed seeds in CI, more with --games/--seed). HumanAgent no longer needs a page (two DOM uses guarded).
+    Found and fixed: equipment stayed on a Vehicle after it stopped being a creature; now 704.5n unattaches it
+    (rules 5), and the watcher checks that after state-based actions. 132 more games: 0 errors, 0 broken rules.
 - [ ] 175. Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.
 - [ ] 176. Split main.js and engine.js into smaller modules (setup screen, windows, results; combat, stack, zones, mana)
   with no change in behaviour, checked by the golden replays (item 173).

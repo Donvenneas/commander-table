@@ -35,6 +35,8 @@ Card readings: `node tests/cards.mjs` (CI runs it too) compares how the effects 
 
 Golden games: `node tests/golden.mjs` (CI runs it too) plays 12 AI games under rules 4 and 5 and compares results and log hashes with `tests/golden-games.json`. A rules 4 difference breaks old replays: gate new behaviour behind `this.rules >= 5` (or a new RULES version). Accept a deliberate change with `--update`.
 
+Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for more) plays random decks with one seat answering every prompt at random, under the rules watcher.
+
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.

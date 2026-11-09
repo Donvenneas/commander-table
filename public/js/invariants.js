@@ -28,7 +28,8 @@ export function checkInvariants(g, afterSba = false) {
       if (o.attachedTo) {
         const host = o.attachedTo;
         if (host.zone !== 'battlefield') bad('attach', `${o.card.name} is attached to ${host.card.name}, which isn't on the battlefield`);
-        else if (o.fx.type.equipment && !host.fx.type.creature) bad('attach', `${o.card.name} (equipment) is attached to ${host.card.name}, which isn't a creature`);
+        // (704.5n is a state-based action: it holds once they're applied, like the death checks)
+        else if (afterSba && g.rules >= 5 && o.fx.type.equipment && !host.fx.type.creature) bad('attach', `${o.card.name} (equipment) is attached to ${host.card.name}, which isn't a creature`);
       }
       if (afterSba && o.fx.type.planeswalker && o.loyalty <= 0) bad('loyalty', `${o.card.name} has ${o.loyalty} loyalty and is still on the battlefield`);
       if ((o.counters | 0) !== o.counters) bad('counters', `${o.card.name} has ${o.counters} +1/+1 counters`);
