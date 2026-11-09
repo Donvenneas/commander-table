@@ -363,6 +363,7 @@ Friends can each take a seat from their own computer, tablet or phone, with noth
 - **Undo for friends:** a friend can click **Undo my last decision**. You get **Allow** / **No** on the timeline; allowing it rebuilds the game without that answer (and anything anyone decided after it), and they're asked again.
 - **Deals:** friends have the same **🤝 Deal** button in their chat box.
 - **Hand a seat to someone else:** in **Invite**, **New link for someone else** gives a friend's seat a new link and join code. The old ones stop working; the AI plays the seat until the new person joins.
+- **Streamer view:** **Invite** (or **Spectators**) also has a streamer link: every hand and face-down card, shown 30 seconds to 3 minutes late (**Delay**), with the chat and buttons hidden for screen capture. Keep it to yourself; players watching your stream only see the table after the delay.
 
 Good to know:
 - The first time you host, Windows may ask whether to allow Commander Table through the firewall. Allow it on **private networks**, or friends' links won't load.

@@ -719,8 +719,10 @@ on top of the ones above:
 - [x] 141. Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.
   - Done: "New link for someone else" in Invite (room/rekey in all three servers). Tested with server.py: the old link
     was refused, the new one joined the seat mid-game; server.ps1's rekey checked with curl; the .exe rebuilt, not run.
-- [ ] 142. Streamer view: a spectator link with a delay (30 s–3 min) that shows every hand after the delay, in a clean
+- [x] 142. Streamer view: a spectator link with a delay (30 s–3 min) that shows every hand after the delay, in a clean
   layout for screen capture.
+  - Done: seat -2 in every room; the host samples the whole table every 2 s and sends it only after the delay. Tested
+    with server.py: both hands shown, chat and buttons hidden, a chat line appeared 31 s later at the 30 s setting.
 - [ ] 143. Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.
 - [ ] 144. Connection check for friends: a page on the host that tests the port and the tunnel from outside the PC and
   says what to fix (firewall, router, tunnel down).

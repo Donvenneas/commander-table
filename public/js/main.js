@@ -490,12 +490,12 @@ function newGame(opts = {}) {
   // Keep friends' and spectators' view of the table up to date while a room is open
   const g = game;
   let timer = null;
-  const push = () => { timer = null; if (game === g && room.code) for (const i of room.seats) room.state(i, snapshot(g, i)); };
+  const push = () => { timer = null; if (game === g && room.code) for (const i of room.seats) if (i !== -2) room.state(i, snapshot(g, i)); };
   g.on('update', () => { if (room.code && !timer) timer = setTimeout(push, clock.ff ? 1500 : 350); });
   pushView = push;
   if (!live) {
     // No friends' seats: keep a spectators-only room open, otherwise close it
-    if (room.code && room.seats.join(',') !== '-1') room.close();
+    if (room.code && room.seats.filter(s => s >= 0).length) room.close();
     if (room.code) push();
     game.run();
     return;
@@ -514,7 +514,20 @@ function newGame(opts = {}) {
 const room = new Room();
 let remoteUIs = new Map();
 let pushView = () => {};
-async function openRoom(seatList = [...setup.remote, -1]) {
+// Streamer view (item 142): every 2 seconds the whole table, every hand included, is kept for the delay and only then
+// sent to the streamer link, so it can be shown on a stream without giving the hands away to the players
+let streamQ = [];
+setInterval(() => {
+  if (!room.code || !room.seats.includes(-2) || !game) { streamQ = []; return; }
+  const now = Date.now(), delay = (prefs.streamDelay || 60) * 1000;
+  streamQ.push({ t: now, g: game, s: JSON.stringify(snapshot(game, -2)) });
+  let send = null;
+  while (streamQ.length && streamQ[0].t <= now - delay) send = streamQ.shift();
+  // (a new game starts the delay again)
+  streamQ = streamQ.filter(x => x.g === game);
+  if (send && send.g === game) room.state(-2, send.s);
+}, 2000);
+async function openRoom(seatList = [...setup.remote, -1, -2]) {
   const want = seatList.join(',');
   if (room.code && room.seats.join(',') === want) return true;
   const ok = await room.open(seatList, setup?.roomKeys);
@@ -535,7 +548,12 @@ function showInvite() {
       <span class="muted">After this, the AI decides for them.</span></label>
     <label class="decision-time">Turn clock
       <select id="turnClock" class="input">${Object.entries(TURN_CLOCKS).map(([k, c]) => `<option value="${k}" ${(prefs.turnClock || 'off') === k ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
-      <span class="muted">A time bank per friend instead of a time per decision; it runs down while they decide. When it's empty the AI plays for them until their next turn. You can nudge a friend who's thinking. Applies from the next game.</span></label>` + room.links().map(({ seat, urls, internet }) => seat < 0 ? `
+      <span class="muted">A time bank per friend instead of a time per decision; it runs down while they decide. When it's empty the AI plays for them until their next turn. You can nudge a friend who's thinking. Applies from the next game.</span></label>` + room.links().map(({ seat, urls, internet }) => seat === -2 ? `
+    <div class="invite spectators">
+      <div class="invite-head"><span class="dot"></span><b>Streamer view</b> <span class="muted">Every hand, shown late so players watching the stream learn nothing. A clean layout for screen capture. Keep this link to yourself.</span></div>
+      <label class="decision-time">Delay <select id="streamDelay" class="input">${[30, 60, 120, 180].map(s => `<option value="${s}" ${(prefs.streamDelay || 60) === s ? 'selected' : ''}>${s < 60 ? `${s} seconds` : `${s / 60} minute${s > 60 ? 's' : ''}`}</option>`).join('')}</select></label>
+      ${urls.slice(0, 1).map(u => link(u, 'This network')).join('')}
+    </div>` : seat < 0 ? `
     <div class="invite spectators">
       <div class="invite-head"><span class="dot"></span><b>Spectators</b> <span class="muted">Anyone with this link can watch. They see the table and every player's card counts, but no hands.</span></div>
       <div class="invite-quick">
@@ -557,6 +575,7 @@ function showInvite() {
       ${urls.map(u => link(u, 'Home network')).join('') || (internet ? '' : '<p class="warn">No network address found. Is this PC connected to a network?</p>')}
       ${lobbyOpen ? '' : `<button class="btn small ghost" data-rekey="${seat}" title="Give this seat to someone else: a new link and code; the old ones stop working">New link for someone else</button>`}
     </div>`).join('');
+  $('streamDelay')?.addEventListener('change', e => { prefs.streamDelay = +(/** @type {HTMLSelectElement} */ (e.target).value) || 60; store('ct.prefs', prefs); streamQ = []; });
   $('btnInternet')?.addEventListener('click', async e => {
     e.target.disabled = true;
     const say = t => { $('internetStatus').textContent = t; };
@@ -601,7 +620,7 @@ $('tlInvite').addEventListener('click', async () => {
   if (room.code) return showInvite();
   if (!game) return;
   // A game without friends' seats: open a room just for spectators
-  if (await openRoom([-1])) pushView();
+  if (await openRoom([-1, -2])) pushView();
   else $('tlLabel').textContent = `Spectator links need Commander Table.exe (${room.error})`;
 });
 // ---------- chat and emotes between everyone at an online table (friends, spectators and you)

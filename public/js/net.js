@@ -28,7 +28,7 @@ export class Room {
   }
   close() { this.code = null; return post('/api/room/close', '').catch(() => {}); }
   // Join links: one per network address, plus the internet address once the tunnel is up
-  // (seat -1 is the spectators' link)
+  // (seat -1 is the spectators' link, seat -2 the delayed streamer view)
   links() {
     return this.seats.map(s => ({
       seat: s,
@@ -213,6 +213,8 @@ export class RemoteUI {
 
 // One seat's view of the table: everything public, plus that player's own hand
 export function snapshot(g, seat) {
+  // (seat -2 is the streamer view, item 142: every hand and face-down card, sent to it only after a delay)
+  const all = seat === -2;
   // (friends load images from Scryfall themselves: the host's image cache isn't reachable from their side)
   const card = (o, extra = {}) => ({
     iid: o.iid, name: o.card.name, img: unproxy(o.card.imgNormal || o.card.imgSmall || ''), art: unproxy(o.card.art || ''), text: o.card.fullText || o.card.text || '',
@@ -224,14 +226,14 @@ export function snapshot(g, seat) {
     pt: o.fx.type.creature ? `${g.power(o)}/${g.toughness(o)}` : null, damage: o.damage,
     zone: o.fx.type.creature ? 'creatures' : o.fx.type.land ? 'lands' : 'others',
     // (a face-down permanent's controller knows what it is; nobody else does)
-    ...(o.faceDown ? { faceDown: true, ...(o.controller === seat ? { peek: o.faceCard.name } : {}) } : {}),
+    ...(o.faceDown ? { faceDown: true, ...(o.controller === seat || all ? { peek: o.faceCard.name } : {}) } : {}),
   });
   return {
     seat, turn: g.turn, round: g.round, phase: g.phase, active: g.active, over: g.over, winner: g.winner?.idx ?? null, winners: (g.winners || []).map(w => w.idx), archenemy: g.archenemy,
     players: g.players.map(p => ({
       idx: p.idx, name: p.name, color: p.color, deckName: p.deckName, life: p.life, lost: p.lost, lossReason: p.lossReason,
       art: unproxy(p.command[0]?.card.art || p.art || ''),
-      hand: p.idx === seat ? p.hand.map(o => card(o)) : p.hand.length,
+      hand: p.idx === seat || all ? p.hand.map(o => card(o)) : p.hand.length,
       library: p.library.length, graveyard: p.graveyard.length, exile: p.exile.length,
       command: p.command.map(o => card(o, { tax: 2 * (p.castCount[o.iid] || 0) })),
       battlefield: p.battlefield.map(perm),

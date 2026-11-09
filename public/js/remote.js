@@ -32,8 +32,13 @@ $('btnTheme').addEventListener('click', () => { prefs.theme = document.documentE
 
 // ---------- joining
 $('joinName').value = store('ct.name') || '';
-// Seat -1 is a spectator: the whole table, no hands, no decisions
-const watching = seat === -1;
+// Seat -1 is a spectator: the whole table, no hands, no decisions. Seat -2 is the streamer view (item 142): every
+// hand, a minute or so late, without the chat and buttons
+const watching = seat < 0, streamer = seat === -2;
+if (streamer) {
+  document.body.classList.add('streamer');
+  store('ct.joined', `${code}/${seat}`);
+}
 if (watching) {
   document.querySelector('.topbar .tag').textContent = 'spectator';
   $('joinModal').querySelector('h2').textContent = 'Watch the game';
@@ -147,7 +152,7 @@ function render() {
     // Seen from your own seat: you at the bottom left, the next players clockwise from there
     const n = snap.players.length;
     table.dataset.n = n;
-    const pos = i => (watching ? i : n > 4 ? (i - seat + n) % n : [2, 0, 1, 3][(i - seat + n) % n] ?? i);
+    const pos = i => (seat < 0 ? i : n > 4 ? (i - seat + n) % n : [2, 0, 1, 3][(i - seat + n) % n] ?? i);
     table.innerHTML = snap.players.map(p => `<div class="board-slot ${p.idx === seat ? 'me' : ''}" data-slot="${p.idx}" style="order:${pos(p.idx)}"></div>`).join('');
     boardHtml.clear();
   }
@@ -156,7 +161,7 @@ function render() {
     const n = bf.filter(c => c.zone !== 'lands').length;
     const cw = n > 22 ? '44px' : n > 16 ? '50px' : n > 10 ? '58px' : '66px';
     const hand = Array.isArray(p.hand)
-      ? `<span class="zlabel">Your hand</span>${rowHtml(p.hand)}`
+      ? `<span class="zlabel">${p.idx === seat ? 'Your hand' : 'Hand'}</span>${rowHtml(p.hand)}`
       : `<span class="zlabel">Hand · ${p.hand}</span>${'<span class="back"></span>'.repeat(Math.min(p.hand, 15))}`;
     const chips = (p.roleChip || '') + (snap.archenemy === p.idx && !p.lost ? '<span class="polchip arch">🎯 Archenemy</span>' : '')
       + p.cmdDamage.map(c => `<span class="cmdchip ${c.n >= (snap.cmdLimit || 21) - 6 ? 'hot' : ''}" style="--cc:var(--bad)">⚔ ${esc(c.name.split(',')[0])} ${c.n}/${snap.cmdLimit || 21}</span>`).join('');
