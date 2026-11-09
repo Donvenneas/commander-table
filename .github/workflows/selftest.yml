@@ -25,6 +25,8 @@ jobs:
         run: node tests/typecheck.mjs
       - name: Golden card readings (effects parser over 3,500 saved cards)
         run: node tests/cards.mjs
+      - name: Golden games (rules 4 and 5 outcomes unchanged)
+        run: node tests/golden.mjs
 
   selftest:
     runs-on: ubuntu-latest

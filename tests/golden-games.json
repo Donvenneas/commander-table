@@ -1,0 +1,98 @@
+{
+ "rules 4 · seed 50000": {
+  "winner": "P1",
+  "round": 5,
+  "steps": 159,
+  "lines": 152,
+  "errors": 0,
+  "log": "c027cc25a40d796b"
+ },
+ "rules 4 · seed 50001": {
+  "winner": "P2",
+  "round": 16,
+  "steps": 469,
+  "lines": 508,
+  "errors": 0,
+  "log": "3318a0df3678a1fb"
+ },
+ "rules 4 · seed 50002": {
+  "winner": "P2",
+  "round": 19,
+  "steps": 633,
+  "lines": 755,
+  "errors": 0,
+  "log": "3261e00de392daec"
+ },
+ "rules 4 · seed 50003": {
+  "winner": "P4",
+  "round": 13,
+  "steps": 550,
+  "lines": 795,
+  "errors": 0,
+  "log": "453ba6af082df343"
+ },
+ "rules 4 · seed 50004": {
+  "winner": "P2",
+  "round": 11,
+  "steps": 389,
+  "lines": 444,
+  "errors": 0,
+  "log": "75725d0bf54bc208"
+ },
+ "rules 4 · seed 50005": {
+  "winner": "P3",
+  "round": 7,
+  "steps": 252,
+  "lines": 282,
+  "errors": 0,
+  "log": "a3caa5d71ff88e92"
+ },
+ "rules 5 · seed 50000": {
+  "winner": "P4",
+  "round": 8,
+  "steps": 289,
+  "lines": 328,
+  "errors": 0,
+  "log": "47a13838711fafee"
+ },
+ "rules 5 · seed 50001": {
+  "winner": "P2",
+  "round": 16,
+  "steps": 469,
+  "lines": 508,
+  "errors": 0,
+  "log": "3ab13a5400098259"
+ },
+ "rules 5 · seed 50002": {
+  "winner": "P1",
+  "round": 11,
+  "steps": 349,
+  "lines": 365,
+  "errors": 0,
+  "log": "6f8107162d1647ae"
+ },
+ "rules 5 · seed 50003": {
+  "winner": "P1",
+  "round": 13,
+  "steps": 434,
+  "lines": 556,
+  "errors": 0,
+  "log": "06b5637fd5f306a8"
+ },
+ "rules 5 · seed 50004": {
+  "winner": "P4",
+  "round": 10,
+  "steps": 453,
+  "lines": 570,
+  "errors": 0,
+  "log": "b299056440b448fb"
+ },
+ "rules 5 · seed 50005": {
+  "winner": "P3",
+  "round": 7,
+  "steps": 252,
+  "lines": 282,
+  "errors": 0,
+  "log": "a3caa5d71ff88e92"
+ }
+}

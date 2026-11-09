@@ -837,8 +837,12 @@ on top of the ones above:
   - Done: tests/cards-snapshot.json (3,500 cards, Scryfall fields normalize() reads; --fetch refreshes it) and
     tests/card-readings.json (type, what is understood, lines not read; --update accepts). CI runs it after the type
     check. Now 88.3% fully read. Checked that a changed reading fails with a +/- diff.
-- [ ] 173. Golden replays: saved replays from each version in tests/ that CI replays and checks for the same result,
+- [x] 173. Golden replays: saved replays from each version in tests/ that CI replays and checks for the same result,
   so outcome-changing edits are caught and replay versions are bumped on purpose.
+  - Done as golden games: tests/golden.mjs plays 12 AI games (the four built-in decks, fixed seeds) under rules 4 and
+    rules 5 and compares winner, rounds, steps and a log hash with tests/golden-games.json; card data is saved in
+    tests/golden-cards.json so it runs offline in CI. Replays saved from the app with your own answers need the browser
+    (HumanUI), so they aren't part of it. Recorded and re-run: 12/12 identical.
 - [ ] 174. Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI
   with a fixed seed list.
 - [ ] 175. Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.

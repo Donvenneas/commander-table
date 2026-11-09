@@ -33,6 +33,8 @@ passes with 0 simulator errors, and stop every `Commander Table` and `cloudflare
 
 Card readings: `node tests/cards.mjs` (CI runs it too) compares how the effects parser reads 3,500 saved cards with `tests/card-readings.json`; when a change to effects.js is meant to change readings, accept them with `node tests/cards.mjs --update` (and `--fetch` for a fresh card snapshot).
 
+Golden games: `node tests/golden.mjs` (CI runs it too) plays 12 AI games under rules 4 and 5 and compares results and log hashes with `tests/golden-games.json`. A rules 4 difference breaks old replays: gate new behaviour behind `this.rules >= 5` (or a new RULES version). Accept a deliberate change with `--update`.
+
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.
