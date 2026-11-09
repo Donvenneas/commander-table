@@ -19,15 +19,18 @@ function kingdomsWeight(g, me, q) {
   const assassinsLeft = g.players.some(r => r.role?.type === 'assassin' && !r.lost);
   // Whoever has been hurting the King draws the fire of everyone who needs the King alive
   const king = g.players.find(r => isKing(r) && !r.lost);
-  const guard = king && king !== q ? 1 + Math.min(2, (king.grudge[q.idx] || 0) / 10) : 1;
-  if (mt === 'king') return qt === 'knight' ? 0.1 : qt ? 1.5 : 1;
+  // (rules 5, item 115: the guard reacts sooner, the King hits back at whoever hurt him, and Assassins press the King
+  // a little less; with the cEDH decks Assassins had won 73% of games)
+  const r5 = g.rules >= 5;
+  const guard = king && king !== q ? 1 + Math.min(r5 ? 2.5 : 2, (king.grudge[q.idx] || 0) / (r5 ? 4 : 10)) : 1;
+  if (mt === 'king') return qt === 'knight' ? 0.1 : (qt ? 1.5 : 1) * (r5 ? 1 + Math.min(2, (me.grudge[q.idx] || 0) / 5) : 1);
   if (mt === 'knight') return qt === 'king' ? 0.05 : (qt === 'knight' ? 0.3 : qt ? 1.4 : 1) * guard;
-  if (mt === 'assassin') return qt === 'king' ? 1.8 : qt === 'assassin' ? 0.1 : qt === 'knight' ? 1.3 : qt === 'bandit' ? 0.9 : 0.7;
-  if (mt === 'bandit') return qt === 'bandit' ? 0.05 : qt === 'assassin' ? 1.5 : qt === 'king' ? (assassinsLeft ? 0.3 : 1.2) : assassinsLeft ? guard : 1;
+  if (mt === 'assassin') return qt === 'king' ? (r5 ? 0.8 : 1.8) : qt === 'assassin' ? 0.1 : qt === 'knight' ? 1.3 : qt === 'bandit' ? 0.9 : 0.7;
+  if (mt === 'bandit') return qt === 'bandit' ? 0.05 : qt === 'assassin' ? 1.5 : qt === 'king' ? (assassinsLeft ? (r5 ? 0.15 : 0.3) : 1.2) : assassinsLeft ? guard : 1;
   // Renegades: the Champion hunts the Challenger, Cultists spare Cultists, the rest wear down the leader
   if (me.role.id === 'champion' && g.kd?.challenger === q.idx) return 3;
   if (me.role.id === 'cultist' && q.role.up && q.role.id === 'cultist') return 0.1;
-  return isKing(q) ? (assassinsLeft ? 0.4 : 1) : (qt === 'assassin' ? 1.2 : 1) * (assassinsLeft ? guard : 1);
+  return isKing(q) ? (assassinsLeft ? (r5 ? 0.2 : 0.4) : 1) : (qt === 'assassin' ? 1.2 : 1) * (assassinsLeft ? guard : 1);
 }
 
 const KW_VALUE = {
@@ -531,7 +534,9 @@ export class Agent {
     if (combo.result === 'mana' && !g.manaOutlet(p)) return null;
     // Kingdoms: a combo that hits every opponent mustn't take down a secret ally (a face-down Knight's King),
     // nor end the game for the wrong side (a Bandit or Renegade killing the King while Assassins remain)
-    if (g.kingdoms && !this.human && ['damage', 'drain', 'attack', 'mill'].includes(combo.result) && g.opponents(p).some(q => kingdomsWeight(g, p, q) < 0.5)) return null;
+    // (rules 5, item 115: only a true ally holds a combo back. Before, Bandits and Renegades, who'd rather keep the King
+    // alive, never fired one, so with combo decks almost only Assassins could win by combo.)
+    if (g.kingdoms && !this.human && ['damage', 'drain', 'attack', 'mill'].includes(combo.result) && g.opponents(p).some(q => kingdomsWeight(g, p, q) < (g.rules >= 5 ? 0.12 : 0.5))) return null;
     return st;
   }
   readyCombos(g, p, phase) {

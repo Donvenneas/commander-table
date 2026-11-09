@@ -574,6 +574,11 @@ on top of the ones above:
     Champion scried 31 times; 0 errors, no rule broken).
 - [ ] 115. Kingdoms balance with fast decks: Assassins win 9 of 10 with the cEDH presets. Tune the King's guard and the
   Knights' protection until each team wins 30–60%.
+  - Done, partly (rules 5): tools/kingdoms-balance.mjs measures it in Node. Found: a combo that hits every opponent was
+    held back whenever any opponent had a weight under 0.5, so Bandits and Renegades (who spare the King) never fired
+    theirs; now only a true ally holds it back (under 0.12). The guard reacts after 4 damage to the King instead of 10,
+    the King hits back at whoever hurt him, and Assassins weigh the known King 0.8 instead of 1.8. On 100 fresh seeds:
+    Assassins 75% → 67%, the King's side 21% → 25%, Renegades 4% → 8%. Not yet in the 30–60% band.
 - [x] 116. Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0)
   and ship the small JSON files; improve the plain heuristic (removal, curve, two-color commitment) for unrated sets.
 
