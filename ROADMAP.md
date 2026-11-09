@@ -679,8 +679,13 @@ on top of the ones above:
     and saved in replay files, so the branch replays exactly). The branch replaces the game on the table: Save replay
     first to keep the original. Tested: an AI Standard game stepped back to turn 10, Amber taken over, the main-phase
     question came up for her.
-- [ ] 133. Save and resume: the game in progress is autosaved (setup + answers) so closing the app or a crash loses
+- [x] 133. Save and resume: the game in progress is autosaved (setup + answers) so closing the app or a crash loses
   nothing; Resume on the start menu.
+  - Done: the game in progress is saved in the browser profile (ct.autosave: the replay file plus how many steps
+    it got to) at every turn start and every answer; a finished game clears it. The start menu shows Resume with the
+    players, turn and time; it plays the game back quickly to that step and pauses, and your recorded answers carry it
+    there. Not for puzzles, lessons, campaigns, online or loaded-replay games. Like loading a replay file, resuming
+    puts the saved decks into that format's seats. Tested: a Commander game reloaded at turn 22 and resumed to turn 22.
 - [ ] 134. Readable big tables: layouts and card sizes for 5–9 seat Kingdoms tables on a 1080p screen.
 
 ### Online

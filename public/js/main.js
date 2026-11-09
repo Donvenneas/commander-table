@@ -410,6 +410,7 @@ function newGame(opts = {}) {
   game.chat = chatLog;
   game.players.forEach((p, i) => { p.art = deckArt(setup.seats[i].deck); if (setup.humans.includes(i) && avatarUrl()) p.avatar = avatarUrl(); });
   view = new TableView(game, els);
+  game.on('turn', () => autosave());
   fillLogSeats();
   // Ranked: no peeking at hands, no AI explanations (they reveal hands), no undo
   const locked = setup.ranked && !setup.progressed;
@@ -772,9 +773,8 @@ function deckText(deck) {
   if (!deck.commanders.length) return ['Deck', ...deck.cards.map(line), ...side, ...comp].join('\n');
   return ['Commander', ...deck.commanders.map(c => line({ card: c })), '', 'Deck', ...deck.cards.map(line), ...side, ...comp].join('\n');
 }
-$('btnSaveReplay').addEventListener('click', () => {
-  if (!setup) return;
-  download(`commander-replay-${stamp()}.json`, JSON.stringify({
+function replayData() {
+  return {
     app: 'commander-table', version: 2, seed: setup.seed, decisions: setup.decisions,
     ...(setup.remote.length ? { remoteDecisions: setup.remoteDecisions } : {}),
     learned: setup.learned,
@@ -789,8 +789,26 @@ $('btnSaveReplay').addEventListener('click', () => {
     // (version 5: which AI seats looked ahead)
     seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck), ...(s.lookahead ? { lookahead: true } : {}), ...(s.noise ? { noise: s.noise } : {}), ...(s.handicap ? { handicap: s.handicap } : {}) })),
     ...(setup.strength ? { strength: setup.strength } : {}),
-  }, null, 1));
+  };
+}
+$('btnSaveReplay').addEventListener('click', () => {
+  if (!setup) return;
+  download(`commander-replay-${stamp()}.json`, JSON.stringify(replayData(), null, 1));
 });
+// Save and resume (item 133): the game in progress is kept in the browser profile (as a replay plus how far it got)
+// at every turn and every answer; the start menu offers it back. Not for puzzles, lessons, campaigns or online games.
+const AUTOSAVE = 'ct.autosave';
+function autosave() {
+  if (!setup || !game || setup.puzzle || setup.customSeats || setup.remote.length || setup.loadedReplay) return;
+  if (game.over) { store(AUTOSAVE, null); return; }
+  try { store(AUTOSAVE, { ...replayData(), steps: game.steps, at: Date.now(), turn: game.turn, names: game.players.map(p => p.name) }); } catch { /* full: skip */ }
+}
+function showResume() {
+  const a = store(AUTOSAVE);
+  $('smResume').hidden = !a;
+  if (a) $('smResumeWhat').textContent = `${(a.names || []).join(', ')} · turn ${a.turn} · ${new Date(a.at).toLocaleString()}`;
+}
+showResume();
 $('btnExportLog').addEventListener('click', () => {
   if (!game) return;
   const tmp = document.createElement('div');
@@ -802,8 +820,10 @@ $('replayFile').addEventListener('change', async e => {
   const file = e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  try {
-    const data = JSON.parse(await file.text());
+  try { await loadReplayData(JSON.parse(await file.text())); } catch (err) { $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`; }
+});
+async function loadReplayData(data, { resume = false } = {}) {
+  {
     const rf = data.format && FORMATS[data.format] ? data.format : 'commander';
     if (data.app !== 'commander-table' || !Array.isArray(data.seats) || data.seats.length !== formatOf(rf).seats) throw new Error("That isn't a Commander Table replay file");
     // The replay's format decides the table (Commander replays from earlier versions have none)
@@ -818,11 +838,11 @@ $('replayFile').addEventListener('change', async e => {
     $('setup').hidden = true;
     newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
       // (replays saved before decks learned have no table, and are played without it)
-      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: true, lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
-  } catch (err) {
-    $('setupStatus').textContent = `Couldn't load the replay: ${err.message}`;
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: !resume,
+      // (resuming: played back quickly to where it was, then paused; your answers run out there and you're asked again)
+      ...(resume ? { skip: data.steps || 0, paused: true } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   }
-});
+}
 
 // Post-game report (item 124): life totals turn by turn, what each player did, the turn that decided it, the biggest hits
 function gameReport(g) {
@@ -852,6 +872,7 @@ function gameReport(g) {
     ${hits.length ? `<p class="muted">Biggest hits: ${hits.map(h => `${esc(h.src)} for ${h.n} to ${esc(g.players[h.to].name)} (turn ${h.turn})`).join('; ')}.</p>` : ''}</div>`;
 }
 function showResults() {
+  autosave();   // (a finished game is no longer offered to resume)
   const ranked = [...game.players].sort((a, b) => (a.place || 9) - (b.place || 9));
   $('resultsBody').innerHTML = `<h2>${game.winners?.length > 1 ? `🏆 ${esc(game.winners.map(w => w.name).join(', '))} win!` : game.winner ? `${esc(game.winner.name)} wins!` : 'Draw'}</h2>` + ranked.map(p => `
     <div class="standing" style="--pc:${p.color}">
@@ -2434,7 +2455,7 @@ function undo() {
 }
 // Every live answer in order ({ who: 'h' or a friend's seat, i: index in that record }), so undoing one
 // answer also drops everything anyone answered after it (those questions may not come up again)
-function noteAnswer(who, i) { (setup.order ||= []).push({ who, i }); }
+function noteAnswer(who, i) { (setup.order ||= []).push({ who, i }); autosave(); }
 function recordOf(who) { return who === 'h' ? setup.decisions : setup.remoteDecisions[who]; }
 function undoFrom(who, i) {
   const order = setup.order || [];
@@ -2894,6 +2915,13 @@ $('startMenu').addEventListener('click', e => {
   const toSetup = () => { hide(); $('setup').hidden = false; };
   switch (go) {
     case 'play': toSetup(); if (!prefs.toured) setTimeout(() => startTour(toured), 400); break;
+    case 'resume': {
+      const a = store(AUTOSAVE);
+      if (!a) { showResume(); break; }
+      hide();
+      loadReplayData(a, { resume: true }).catch(err => { $('setup').hidden = false; $('setupStatus').textContent = `Couldn't resume: ${err.message}`; });
+      break;
+    }
     case 'learn': $('btnLearn').click(); break;
     case 'story': $('btnStory').click(); break;
     case 'expedition': $('btnExpedition').click(); break;
