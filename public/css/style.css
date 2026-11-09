@@ -1171,3 +1171,6 @@ ul.whatsnew details p { margin: 2px 0 6px; }
 
 /* Coach hint in the action bar (item 168) */
 .coach-tip { display: inline-block; margin-top: 4px; font-size: .92em; opacity: .9; }
+
+/* Storage in Updates (item 179) */
+table.storage td { padding: 2px 8px; }

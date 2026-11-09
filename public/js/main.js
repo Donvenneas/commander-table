@@ -3534,7 +3534,7 @@ $('btnSetsCheck').addEventListener('click', async () => {
   $('setsBody').textContent = 'Asking Scryfall…';
   try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
 });
-$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); showImages(); });
+$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); showImages(); showStorage(); });
 // ---------- Report a problem (item 178): one file with what's needed to see the problem again (the game as a replay,
 // its log, the version, the browser and the last errors), with personal details taken out. It's saved to your
 // Downloads to share by hand; nothing is sent anywhere.
@@ -3650,6 +3650,38 @@ $('btnWhatsNew').addEventListener('click', () => showWhatsNew());
 $('btnWhatsNewClose').addEventListener('click', () => { $('whatsNewModal').hidden = true; });
 $('whatsNewSearch').addEventListener('input', renderWhatsNew);
 setTimeout(() => showWhatsNew(true), 1500);
+// ---------- Storage (item 179): how much each feature keeps in the browser profile, with clean-up buttons
+const STORAGE_GROUPS = [
+  { label: 'Card data caches (fetched again when needed)', keys: ['ct.otags2', 'ct.precons', 'ct.preconList', 'ct.rulings', 'ct.cedh', 'ct.sets', 'ct.i18nCards2', 'ct.cardsStaleBefore', 'ct.metaTrend'], cache: true },
+  { label: 'Unfinished game (Resume)', keys: ['ct.autosave'], cache: true },
+  { label: 'Deck library versions', keys: ['ct.libVersions'] },
+  { label: 'Deck learning and mastery', keys: ['ct.learn'] },
+  { label: 'Progress (ladder, challenges, badges, rivals, gauntlet, puzzle of the day)', keys: ['ct.ladder', 'ct.challenges', 'ct.badges', 'ct.rivals', 'ct.gauntlet', 'ct.daily'] },
+  { label: 'Game history', keys: ['ct.history'] },
+  { label: 'Modes in progress (expedition, story, lessons, tournaments)', keys: ['ct.expedition', 'ct.expeditionStats', 'ct.story', 'ct.tutorial', 'ct.cup', 'ct.cupDraft', 'ct.tourney', 'ct.cubes'] },
+  { label: 'Your collection', keys: ['ct.collection'] },
+];
+const DBS = [{ label: 'Card file (Updates › Card file)', name: 'ct-bulk' }, { label: 'Printings file', name: 'ct-prints' }];
+const kb = n => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+async function showStorage() {
+  const size = k => { try { const v = localStorage.getItem(k); return v ? (v.length + k.length) * 2 : 0; } catch { return 0; } };
+  let total = 0;
+  try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith('ct.')) total += size(k); } } catch { /* blocked */ }
+  const rows = STORAGE_GROUPS.map((g, i) => ({ g, i, n: g.keys.reduce((a, k) => a + size(k), 0) })).filter(r => r.n > 0);
+  const est = await navigator.storage?.estimate?.().catch(() => null);
+  $('storageBody').innerHTML = `<table class="storage"><tbody>${rows.map(r => `<tr><td>${esc(r.g.label)}</td><td class="num">${kb(r.n)}</td><td><button class="btn small ghost" data-clear="${r.i}">Clear</button></td></tr>`).join('')}
+    ${DBS.map(d => `<tr><td>${esc(d.label)}</td><td class="num">${esc((d.name === 'ct-bulk' ? bulkInfo() : printsInfo())?.count ? 'saved' : '–')}</td><td></td></tr>`).join('')}</tbody></table>
+    <p class="muted">Small saved data: ${kb(total)} of the browser's roughly 5 MB for it.${est ? ` Everything this game's pages keep (with the card files and images the browser holds): ${kb(est.usage || 0)}.` : ''}</p>`;
+}
+$('storageBody').addEventListener('click', e => {
+  const b = e.target.closest('[data-clear]');
+  if (!b) return;
+  const g = STORAGE_GROUPS[+b.dataset.clear];
+  if (!g.cache && !confirm(`Clear "${g.label}"? This can't be undone.`)) return;
+  for (const k of g.keys) store(k, null);
+  try { for (const k of g.keys) localStorage.removeItem(k); } catch { /* blocked */ }
+  showStorage();
+});
 // ---------- card images (item 158): the image folder's size and cap, and downloading every image a library deck uses
 async function showImages(msg = '') {
   try {
