@@ -552,7 +552,7 @@ export class TableView {
     const who = new Set([...e.html.matchAll(/data-p="(\d)"/g)].map(m => m[1]));
     if (e.p != null) who.add(String(e.p));
     div.dataset.seats = [...who].join(' ');
-    div.innerHTML = e.html + (e.rule ? `<a class="rule" data-rule="${e.rule}" title="Comprehensive Rules ${e.rule}">${e.rule}</a>` : '');
+    div.innerHTML = Rules.glossify(e.html) + (e.rule ? `<a class="rule" data-rule="${e.rule}" title="Comprehensive Rules ${e.rule}">${e.rule}</a>` : '');
     log.append(div);
     while (log.children.length > 2500) log.firstChild.remove();
     if (atBottom) log.scrollTop = log.scrollHeight;
@@ -675,7 +675,7 @@ export function installDetails(getObject, getView) {
     box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close">✕</button>
       <div class="cd-cols">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}
       <div class="cd-text"><h3>${esc(c.name)}</h3><div class="muted">${esc(c.typeLine || '')} ${c.manaCost ? symbolize(c.manaCost) : ''}</div>
-      <h4>Oracle text</h4>${lines.map(l => `<p>${symbolize(esc(l))}</p>`).join('') || '<p class="muted">(no text)</p>'}
+      <h4>Oracle text</h4>${lines.map(l => `<p>${Rules.glossify(symbolize(esc(l)))}</p>`).join('') || '<p class="muted">(no text)</p>'}
       <h4>How the simulator reads it</h4>${reads.length ? `<ul>${reads.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">Nothing beyond its type, power and toughness.</p>'}
       ${unread.size ? `<p class="cd-unread">⚠ Not simulated: ${[...unread].map(esc).join(' / ')}</p>` : ''}
       <h4>Rulings</h4><div class="cd-rulings muted">Loading…</div></div></div></div>`;
@@ -756,7 +756,7 @@ function previewHtml(o) {
     <div class="ptext">
       <h3><span>${esc(c.name)}</span><span>${symbolize(c.manaCost || '')}</span></h3>
       <div class="ptype">${esc(c.typeLine)}${pt ? ` · ${esc(pt)}` : ''}</div>
-      <div class="oracle">${symbolize(c.fullText || c.text || '')}</div>
+      <div class="oracle">${Rules.glossify(symbolize(c.fullText || c.text || ''))}</div>
       ${fx.length ? `<div class="sec"><h4>Simulator understands</h4><div class="fxl">${fx.map(esc).join('<br>')}</div></div>` : ''}
       ${o.fx.unread?.length ? `<div class="sec warn"><h4>⚠ Not simulated</h4><div class="fxl">${o.fx.unread.map(esc).join('<br>')}</div></div>` : ''}
       ${o.chosenType ? `<div class="sec"><h4>Chosen type</h4><div class="fxl">${esc(o.chosenType)}</div></div>` : ''}

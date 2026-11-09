@@ -3128,6 +3128,24 @@ function searchRules() {
     + (q && !rules.length && !glossary.length ? '<p class="muted">No matches.</p>' : '');
 }
 
+// Rules glossary (item 181): hover a keyword in the log or a card's text for its Comprehensive Rules entry
+{
+  const tip = document.createElement('div');
+  tip.className = 'kw-tooltip';
+  tip.hidden = true;
+  document.body.append(tip);
+  document.addEventListener('mouseover', e => {
+    const k = /** @type {HTMLElement | null} */ (/** @type {any} */ (e.target).closest?.('.kw-tip'));
+    if (!k) { tip.hidden = true; return; }
+    const r = Rules.get(k.dataset.kw), a = Rules.get(`${k.dataset.kw}a`);
+    if (!r) return;
+    tip.innerHTML = `<b>${esc(r.text)}</b> <span class="muted">${esc(k.dataset.kw)}</span><div>${esc((a?.text || '').slice(0, 420))}${(a?.text || '').length > 420 ? '…' : ''}</div>`;
+    const b = k.getBoundingClientRect();
+    tip.hidden = false;
+    tip.style.left = `${Math.max(8, Math.min(innerWidth - tip.offsetWidth - 8, b.left))}px`;
+    tip.style.top = `${b.bottom + 6 + tip.offsetHeight > innerHeight ? b.top - tip.offsetHeight - 6 : b.bottom + 6}px`;
+  });
+}
 Rules.load().then(() => {
   if (Rules.loaded) {
     $('rulesMeta').innerHTML = `${Rules.entries.length.toLocaleString()} rules and ${Rules.glossary.length} glossary terms${Rules.effective ? `, effective ${esc(Rules.effective)}` : ''}. ${Rules.source ? `<a href="${esc(Rules.source)}" target="_blank" rel="noopener">Source</a>` : ''}`;

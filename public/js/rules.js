@@ -69,6 +69,28 @@ export const Rules = {
     return { id: head.id, text: this.get(head.id + 'a')?.text || '' };
   },
 
+  // Rules glossary (item 181): every keyword ability (702.x) and keyword action (701.x) by name, longest first,
+  // and a regular expression that finds them in text
+  keywordIndex() {
+    if (this._kw) return this._kw;
+    // (everyday actions like "exile" or "draw" would mark half the log, so only the rarer keyword actions are kept)
+    const COMMON = /^(general|reserved|activate|attach|cast|counter|create|destroy|discard|double|exchange|exile|play|reveal|sacrifice|search|shuffle|tap and untap|vote|transform|convert|counter)$/i;
+    const list = this.entries.filter(e => /^70[12]\.\d+$/.test(e.id) && /^[A-Za-z][A-Za-z' -]{1,30}$/.test(e.text) && !COMMON.test(e.text.trim()) && !/^general$/i.test(e.text))
+      .map(e => ({ id: e.id, name: e.text.trim(), text: this.get(e.id + 'a')?.text || '' }))
+      .filter(k => k.text).sort((a, b) => b.name.length - a.name.length);
+    const byName = new Map(list.map(k => [k.name.toLowerCase(), k]));
+    const re = list.length ? new RegExp(`\\b(${list.map(k => k.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`, 'gi') : null;
+    this._kw = { list, byName, re };
+    return this._kw;
+  },
+  // HTML with each keyword wrapped for a hover tooltip (text outside tags only)
+  glossify(html) {
+    if (!this.loaded) return html;
+    const { re, byName } = this.keywordIndex();
+    if (!re) return html;
+    return String(html).split(/(<[^>]*>)/).map(part => (part.startsWith('<') ? part : part.replace(re, w => { const k = byName.get(w.toLowerCase()); return k ? `<span class="kw-tip" data-kw="${k.id}">${w}</span>` : w; }))).join('');
+  },
+
   search(q) {
     q = q.trim();
     if (!q) return { rules: [], glossary: [] };

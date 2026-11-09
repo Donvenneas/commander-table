@@ -853,7 +853,10 @@ on top of the ones above:
     Self-test: all 18 checks passed, 6/6 identical in 5.4 s.
 
 ### Help and packaging
-- [ ] 181. Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.
+- [x] 181. Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.
+  - Done: Rules.keywordIndex/glossify (702 keyword abilities and the rarer 701 actions, 242 names) mark keywords in
+    log lines, card previews and card details; one page tooltip shows the rule and its first subrule. Tested in the
+    browser (Flying, trample, scry, Deathtouch marked; Exile left plain; the tooltip shows 702.9).
 - [x] 182. "What's new" window after an update, built from this file's Done notes for the new VERSION.
   - Done: tools/whatsnew.mjs writes public/data/whatsnew.json (newest round's finished items, first sentence of each
     Done note, VERSION); the page shows it once when the version changed since the last start, and from Updates.

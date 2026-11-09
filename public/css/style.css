@@ -1151,3 +1151,8 @@ table.trend td { white-space: nowrap; }
 ul.whatsnew { padding-left: 18px; }
 ul.whatsnew li { margin: 4px 0; }
 ul.whatsnew details p { margin: 2px 0 6px; }
+
+/* Rules glossary tooltips (item 181) */
+.kw-tip { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
+.kw-tooltip { position: fixed; z-index: 9999; max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--panel, #1d2230); color: var(--text, #eee); border: 1px solid var(--line, rgba(127,127,127,.4)); box-shadow: 0 6px 20px rgba(0,0,0,.35); font-size: 12.5px; line-height: 1.4; pointer-events: none; }
+.kw-tooltip div { margin-top: 4px; }

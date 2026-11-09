@@ -486,7 +486,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
 ## What's in it
 
 - **Card art and data** come from Scryfall, matching the printing listed in each deck. Images load on demand and are kept for offline play.
-- **Rules**: the local server downloads the current Comprehensive Rules from magic.wizards.com, caches them in `cache/` and refreshes them weekly. The Rules tab searches them. Each rule number in the game log links to its rule, and card previews show the keyword rules.
+- **Rules**: the local server downloads the current Comprehensive Rules from magic.wizards.com, caches them in `cache/` and refreshes them weekly. The Rules tab searches them. Each rule number in the game log links to its rule, and card previews show the keyword rules. Keywords in the game log, card previews and card details (Flying, trample, scry, ward…) are underlined with dots: hover one for its rule. Everyday actions like exile or draw are left plain.
 - **Engine**: 40 life, command zone, commander tax, 21 commander damage, free first mulligan, the full turn structure, the stack and priority for spells and abilities, first strike and double strike, trample, deathtouch, lifelink, flying and reach, menace, vigilance, haste, hexproof, indestructible, prowess, state-based actions, the legend rule, extra turns and extra combats.
 - **Mana**: lands, mana rocks including Signets, rituals and Treasures, plus these ways to pay:
   - flashback, evoke, convoke and delve
