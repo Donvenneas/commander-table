@@ -926,6 +926,10 @@ async function nextMatchGame() {
       match.decks[i] = r.deck;
       match.swaps[i] = r.swaps;
       if (i === chooser) firstPlayer = r.goFirst ? i : (i + 1) % n;
+    } else if (setup.remote.includes(i) && deck.sideboard?.length && remoteUIs.get(i)) {
+      // (an online friend sideboards on their own page; no answer or a bad list keeps the deck)
+      const r = await remoteUIs.get(i).askSideboard(deck, formatOf(match.format).deck);
+      if (r) match.decks[i] = r;
     } else if (!setup.remote.includes(i) && deck.sideboard?.length) {
       const r = aiSideboard(deck, shown(i));
       match.decks[i] = { ...deck, cards: r.cards, sideboard: r.sideboard };

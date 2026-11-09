@@ -265,9 +265,37 @@ $('btnDealSend').addEventListener('click', () => {
 });
 
 // ---------- your decisions
+// Sideboarding between best-of-three games (item 135): two lists, click a card to move one copy across
+let sbDraft = null;
+function renderSideboard() {
+  const sb = question.sideboard;
+  if (!sbDraft || sbDraft.id !== question.id) sbDraft = { id: question.id, main: sb.main.map(x => [...x]), side: sb.side.map(x => [...x]) };
+  const count = rows => rows.reduce((a, [, n]) => a + n, 0);
+  const col = (rows, from) => rows.filter(([, n]) => n > 0).map(([name, n]) => `<button class="btn small sb-card" data-from="${from}" data-name="${esc(name)}">${n} ${esc(name)}</button>`).join('');
+  const short = count(sbDraft.main) < sb.min;
+  $('abText').innerHTML = `<b>Sideboard</b> for the next game: click a card to move one copy across. Deck ${count(sbDraft.main)}${short ? ` (at least ${sb.min})` : ''} · sideboard ${count(sbDraft.side)}
+    <div class="sb-cols"><div><b>Deck</b><div>${col(sbDraft.main, 'main')}</div></div><div><b>Sideboard</b><div>${col(sbDraft.side, 'side')}</div></div></div>`;
+  const btns = `<button class="btn primary" data-sb="play" ${short ? 'disabled' : ''}>Play these</button><button class="btn" data-sb="keep">Keep my deck</button>`;
+  $('abButtons').innerHTML = btns; $('abButtons').dataset.v = '';
+  $('actionBar').hidden = false;
+}
+document.addEventListener('click', e => {
+  const tg = /** @type {any} */ (e.target);
+  const c = tg.closest?.('.sb-card');
+  if (c && sbDraft) {
+    const from = c.dataset.from === 'main' ? sbDraft.main : sbDraft.side, to = c.dataset.from === 'main' ? sbDraft.side : sbDraft.main;
+    const row = from.find(([n]) => n === c.dataset.name);
+    if (row && row[1] > 0) { row[1]--; const t = to.find(([n]) => n === c.dataset.name); if (t) t[1]++; else to.push([c.dataset.name, 1]); }
+    renderSideboard();
+    return;
+  }
+  const b = tg.closest?.('[data-sb]');
+  if (b && sbDraft && question?.sideboard) answer(b.dataset.sb === 'play' ? { button: 0, sideboard: { main: sbDraft.main.filter(([, n]) => n > 0), side: sbDraft.side.filter(([, n]) => n > 0) } } : { button: 1 });
+});
 function renderQuestion() {
   document.querySelectorAll('.pickable').forEach(e => e.classList.remove('pickable'));
   if (!question || question.id === answered) { $('actionBar').hidden = true; return; }
+  if (question.sideboard) { if (sbDraft?.id !== question.id) renderSideboard(); return; }
   if (seenAt === 0) seenAt = Date.now();
   // The host sends bold text only; anything else is stripped
   const text = question.text.replace(/<(?!\/?b>)[^>]*>/g, '');

@@ -1082,3 +1082,7 @@ body.contrast .le { color: #fff; }
 
 /* "What if" seat picker on the timeline (item 132) */
 .takeover-menu { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+
+/* Friend page sideboarding (remote.js, item 135) */
+.sb-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; max-height: 40vh; overflow: auto; }
+.sb-cols .sb-card { display: block; width: 100%; text-align: left; margin: 2px 0; }

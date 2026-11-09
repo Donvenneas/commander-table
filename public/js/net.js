@@ -170,6 +170,31 @@ export class RemoteUI {
     if (ans.player != null) return { player: ans.player };
     return { button: buttons[ans.button]?.value ?? 'cancel' };
   }
+  // Best of three (item 135): the friend sideboards between games. Sends their deck and sideboard, waits for the lists
+  // back (the same cards in total, at least the minimum deck size), and returns them; null keeps the deck as it was.
+  async askSideboard(deck, minMain) {
+    if (this.offline || this.cancelled) return null;
+    const list = cards => cards.map(c => [c.card.name, c.qty]);
+    const id = `${this.seat}-sb-${++this.n}-${Date.now()}`;
+    const q = { id, text: '<b>Sideboard</b> for the next game: click a card to move one copy across.', buttons: [{ label: 'Play these', primary: true }, { label: 'Keep my deck', primary: false }], objs: [], players: [], timeout: 180, sideboard: { main: list(deck.cards), side: list(deck.sideboard || []), min: minMain } };
+    await this.room.ask(this.seat, q);
+    const t0 = Date.now();
+    let ans = null;
+    while (!this.cancelled && !this.offline && Date.now() - t0 < 180000) {
+      await new Promise(r => setTimeout(r, 400));
+      const a = await this.room.answer(this.seat);
+      if (a && a.id === id) { ans = a; break; }
+    }
+    await this.room.ask(this.seat, null);
+    if (!ans || ans.button !== 0 || !ans.sideboard) return null;
+    // (only the same cards, moved between the two lists)
+    const pool = new Map();
+    for (const c of [...deck.cards, ...(deck.sideboard || [])]) { const p = pool.get(c.card.name) || { card: c.card, n: 0 }; p.n += c.qty; pool.set(c.card.name, p); }
+    const take = (rows) => { const out = []; for (const [name, qty] of Array.isArray(rows) ? rows : []) { const p = pool.get(name); const k = Math.min(+qty || 0, p ? p.n : 0); if (!p || k <= 0) continue; p.n -= k; out.push({ card: p.card, qty: k }); } return out; };
+    const main = take(ans.sideboard.main), side = take(ans.sideboard.side);
+    if ([...pool.values()].some(p => p.n !== 0) || main.reduce((a, c) => a + c.qty, 0) < minMain) return null;
+    return { ...deck, cards: main, sideboard: side };
+  }
   aiPick(buttons) {
     const ai = buttons.findIndex(b => /AI/.test(b.label));
     const main = buttons.findIndex(b => b.primary);

@@ -693,10 +693,19 @@ on top of the ones above:
     the screen (clamp by width and height: 44–60 and 36–50 px). At 1920×1080 with 9 players: cards 44 px instead of
     36, boards with an inner scroll bar 5 of 9 instead of 7. Token piles (item 121) also save room. A first try that
     shrank cards by seat count made it worse and was dropped. Not done: a different layout for very full boards.
-- [ ] 135. Sideboard window on the friend page between best-of-three games (friends keep their deck today).
+- [x] 135. Sideboard window on the friend page between best-of-three games (friends keep their deck today).
+  - Done: between best-of-three games the host sends an online friend their deck and sideboard (RemoteUI.askSideboard);
+    the friend page shows both lists, a click moves one copy across, "Play these" or "Keep my deck". The host only
+    accepts the same cards in total and at least the format's deck size; no answer in 3 minutes keeps the deck.
+    Tested with server.py and a friend tab: Standard Bo3, the friend moved cards and game 2 started.
 - [ ] 136. Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel),
   then play the pod or one-on-one matches.
-- [ ] 137. Friends at 1v1 and Limited tables: test the friend page with two seats and fix what breaks (untested in 56–60).
+- [x] 137. Friends at 1v1 and Limited tables: test the friend page with two seats and fix what breaks (untested in 56–60).
+  - Done (tested, nothing needed fixing in the page): a Standard table with a friend seat played through server.py
+    with a friend tab: two boards, the friend's questions, the game to the end, and a best-of-three into game 2.
+    Limited uses the same two-seat path (not played separately). Found while testing: the Commander Table.exe in the
+    folder was older than the per-seat join keys (friend links read code=undefined); rebuilt. An old server.ps1 left
+    running by an earlier session (Nov 4) still holds port 8777 and answers with the old API; it was left alone.
 - [ ] 138. Tabletop with 3–4 friends tested and fixed (untested in item 76); save and load a tabletop.
 - [ ] 139. Deals proposed from the chat are recorded with the answers, so rewinds and saved replays include them.
 - [ ] 140. Resume a room after the host's app closes: reopen from the autosave (item 133) and friends rejoin with the
