@@ -135,6 +135,7 @@
         <button class="sm-btn" data-go="builder"><b>Deck builder</b><small>Every card on Scryfall</small></button>
         <button class="sm-btn" data-go="library"><b>Deck library</b><small>Your saved decks</small></button>
         <button class="sm-btn" data-go="progress"><b>Progress</b><small id="smProgress">Ladder, challenges, badges</small></button>
+        <button class="sm-btn" data-go="help"><b>Help</b><small>How everything works, with search</small></button>
         <button class="sm-btn" data-go="display"><b>Settings</b><small>Display, language, avatars</small></button>
         <button class="sm-btn" data-go="updates"><b>Updates</b><small id="smUpdates">New card sets, game updates</small></button>
       </div>
@@ -260,6 +261,14 @@
         <span id="batchStatus" class="muted"></span>
       </div>
       <div id="batchResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="helpModal" class="modal" hidden>
+    <div class="modal-card batch-card help-card">
+      <div class="modal-head"><div><h2>Help</h2><p class="muted">The game's manual (README.md in the game folder), in English. Search, or pick a section.</p></div><button class="btn ghost" id="btnHelpClose">Close</button></div>
+      <input id="helpSearch" class="input" placeholder="Search the help, e.g. friends, brackets, replay, deck library…" autocomplete="off">
+      <div class="help-cols"><nav id="helpToc" class="help-toc"></nav><div id="helpBody" class="help-body"></div></div>
     </div>
   </div>
 

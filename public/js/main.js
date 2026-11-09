@@ -3498,6 +3498,52 @@ $('btnSetsCheck').addEventListener('click', async () => {
   try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
 });
 $('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); showImages(); });
+// ---------- Help window (item 184): data/help.json (tools/help.mjs builds it from README.md), searchable
+let help = null;
+// (README's own Markdown: bold, code, links, lists and tables, enough for the manual)
+function mdToHtml(md) {
+  const inline = s => esc(s).replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  const out = [];
+  let list = null, table = null;
+  const flush = () => { if (list) { out.push(`<ul>${list.join('')}</ul>`); list = null; } if (table) { out.push(`<table class="help-table">${table.join('')}</table>`); table = null; } };
+  for (const raw of md.split('\n')) {
+    const line = raw.replace(/\s+$/, '');
+    const li = line.match(/^(\s*)[-*] (.+)$/);
+    if (/^\|/.test(line)) { if (list) flush(); if (/^\|[\s|:-]+\|$/.test(line)) continue; (table ||= []).push(`<tr>${line.split('|').slice(1, -1).map(c => `<td>${inline(c.trim())}</td>`).join('')}</tr>`); continue; }
+    if (li) { if (table) flush(); (list ||= []).push(`<li${li[1].length ? ' class="sub"' : ''}>${inline(li[2])}</li>`); continue; }
+    flush();
+    if (/^```/.test(line)) continue;
+    if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+  }
+  flush();
+  return out.join('');
+}
+function renderHelp(focus = null) {
+  const q = $('helpSearch').value.trim().toLowerCase();
+  const words = q.split(/\s+/).filter(Boolean);
+  const hits = help.sections.map((s, i) => ({ s, i, score: words.length ? words.reduce((a, w) => a + (s.title.toLowerCase().includes(w) ? 5 : 0) + (s.text.toLowerCase().split(w).length - 1), 0) : 1 }))
+    .filter(x => !words.length || words.every(w => `${x.s.title} ${x.s.text}`.toLowerCase().includes(w)));
+  if (words.length) hits.sort((a, b) => b.score - a.score);
+  $('helpToc').innerHTML = hits.map(x => `<button class="help-link ${x.s.parent ? 'sub' : ''}" data-h="${x.i}">${esc(x.s.title)}</button>`).join('') || '<p class="muted">Nothing found.</p>';
+  const show = focus ?? hits[0]?.i;
+  if (show == null) { $('helpBody').innerHTML = ''; return; }
+  const s = help.sections[show];
+  let html = mdToHtml(s.text);
+  // (search words are highlighted in the text, not inside tags)
+  if (words.length) html = html.split(/(<[^>]*>)/).map(p => (p.startsWith('<') ? p : words.reduce((t, w) => t.replace(new RegExp(`(${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'), '<mark>$1</mark>'), p))).join('');
+  $('helpBody').innerHTML = `<h3>${s.parent ? `<span class="muted">${esc(s.parent)} › </span>` : ''}${esc(s.title)}</h3>${html}`;
+  $('helpToc').querySelectorAll('.help-link').forEach(b => b.classList.toggle('active', +(/** @type {HTMLElement} */ (b)).dataset.h === show));
+  $('helpBody').scrollTop = 0;
+}
+async function openHelp() {
+  try { help ||= await (await fetch('data/help.json', { cache: 'no-store' })).json(); } catch { return; }
+  $('helpModal').hidden = false;
+  renderHelp();
+  setTimeout(() => $('helpSearch').focus(), 0);
+}
+$('btnHelpClose').addEventListener('click', () => { $('helpModal').hidden = true; });
+$('helpSearch').addEventListener('input', () => renderHelp());
+$('helpToc').addEventListener('click', e => { const b = e.target.closest('[data-h]'); if (b) renderHelp(+b.dataset.h); });
 // ---------- What's new (item 182): data/whatsnew.json (tools/whatsnew.mjs builds it from ROADMAP.md at release), shown
 // once after an update; Updates has a button for it too
 let whatsNew = null;
@@ -3659,6 +3705,7 @@ $('startMenu').addEventListener('click', e => {
     case 'builder': builder(0); break;
     case 'library': $('btnLibrary').click(); break;
     case 'progress': $('btnProgress').click(); break;
+    case 'help': openHelp(); break;
     case 'display': $('btnDisplay').click(); break;
     case 'updates': $('btnUpdates').click(); break;
     case 'tour': toSetup(); startTour(toured); break;

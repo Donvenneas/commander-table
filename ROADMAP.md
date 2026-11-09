@@ -863,7 +863,11 @@ on top of the ones above:
     make-shareable-zip.ps1 refreshes it when Node.js is there. Tested by setting an older seen version.
 - [ ] 183. Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks
   it and refuses a mismatch.
-- [ ] 184. Help window inside the app: README's sections with a search box, translated where item 129 covers them.
+- [x] 184. Help window inside the app: README's sections with a search box, translated where item 129 covers them.
+  - Done: tools/help.mjs builds public/data/help.json from README's sections (make-shareable-zip.ps1 refreshes it);
+    Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that
+    ranks sections and highlights the words. The manual itself stays in English: item 129 translated the interface,
+    not README. Tested: 25 sections, a search for "gauntlet" found Progress, the formats table renders.
 
 ## Notes from sessions
 

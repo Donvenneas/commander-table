@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 
 # (item 182) refresh the "What's new" list from ROADMAP.md when Node.js is available
-if (Get-Command node -ErrorAction SilentlyContinue) { Push-Location $PSScriptRoot; try { & node tools\whatsnew.mjs } finally { Pop-Location } }
+if (Get-Command node -ErrorAction SilentlyContinue) { Push-Location $PSScriptRoot; try { & node tools\whatsnew.mjs; & node tools\help.mjs } finally { Pop-Location } }
 
 $root = $PSScriptRoot
 $zip  = Join-Path (Split-Path $root -Parent) 'Commander Table (portable).zip'

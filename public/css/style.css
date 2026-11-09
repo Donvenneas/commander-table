@@ -1156,3 +1156,15 @@ ul.whatsnew details p { margin: 2px 0 6px; }
 .kw-tip { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
 .kw-tooltip { position: fixed; z-index: 9999; max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--panel, #1d2230); color: var(--text, #eee); border: 1px solid var(--line, rgba(127,127,127,.4)); box-shadow: 0 6px 20px rgba(0,0,0,.35); font-size: 12.5px; line-height: 1.4; pointer-events: none; }
 .kw-tooltip div { margin-top: 4px; }
+
+/* Help window (item 184) */
+.help-card { width: min(1000px, 96vw); }
+.help-cols { display: grid; grid-template-columns: 240px 1fr; gap: 12px; margin-top: 8px; height: min(70vh, 640px); }
+.help-toc { overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.help-link { text-align: left; background: none; border: 0; color: inherit; padding: 4px 6px; border-radius: 6px; cursor: pointer; font: inherit; }
+.help-link.sub { padding-left: 18px; font-size: .92em; }
+.help-link.active, .help-link:hover { background: var(--line, rgba(127,127,127,.2)); }
+.help-body { overflow: auto; padding-right: 6px; }
+.help-body li.sub { margin-left: 18px; }
+.help-table td { padding: 2px 8px; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); vertical-align: top; }
+@media (max-width: 700px) { .help-cols { grid-template-columns: 1fr; height: auto; } .help-toc { max-height: 30vh; } }
