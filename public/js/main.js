@@ -358,6 +358,8 @@ function newGame(opts = {}) {
       remoteDecisions: opts.remoteDecisions || {},
       // "What if" (item 132): seats you took over from a point of the game ({ seat, step }); kept in replays
       takeovers: opts.takeovers || [],
+      // Deals offered from the chat ({ step, from, to, kind, rounds }), offered again at that step on every rebuild
+      chatDeals: opts.chatDeals || [],
       replayOnly: !!opts.remoteDecisions,
       // Each deck's learned card bonuses as they were when the game started (replays use the same)
       learned: opts.learned || null,
@@ -424,6 +426,17 @@ function newGame(opts = {}) {
   $('tlUndo').hidden = !(setup.human >= 0) || !!locked;
   if (opts.skip) clock.skip = opts.skip;
   // (a seat taken over becomes yours at the step it was taken over, in this game and every rebuild of it)
+  if (setup.chatDeals?.length) {
+    const g = game, beat0 = g.beat.bind(g), done = new Set();
+    g.beat = async w => {
+      for (const d of setup.chatDeals) if (!done.has(d) && g.steps >= d.step) {
+        done.add(d);
+        g.pendingDeals.push({ from: d.from, to: d.to, kind: d.kind, rounds: d.rounds });
+        g.log(`${g.pn(g.players[d.from])} will offer ${g.pn(g.players[d.to])} a ${d.rounds === 0 ? 'rest-of-round' : `${d.rounds}-round`} deal at the start of the next turn`, { kind: 'politics', p: d.from });
+      }
+      return beat0(w);
+    };
+  }
   if (setup.takeovers?.length) {
     const g = game, beat0 = g.beat.bind(g), done = new Set();
     g.beat = async w => {
@@ -610,6 +623,8 @@ function queueDeal(from, to, kind, rounds = 2) {
   if (!game || !DEAL_KINDS.includes(kind) || from === to || !game.players[from] || !game.players[to]) return;
   rounds = Math.max(0, Math.min(5, Number.isFinite(+rounds) ? +rounds : 2));
   game.pendingDeals.push({ from, to, kind, rounds });
+  // (kept with the game at the step it was offered, so replays and rebuilds offer it again at the same moment: item 139)
+  if (!game.replayingDeals) (setup.chatDeals ||= []).push({ step: game.steps, from, to, kind, rounds });
   game.log(`${game.pn(game.players[from])} will offer ${game.pn(game.players[to])} a ${rounds === 0 ? 'rest-of-round' : `${rounds}-round`} deal at the start of the next turn`, { kind: 'politics', p: from });
 }
 $('btnDealOpen').addEventListener('click', () => {
@@ -784,6 +799,7 @@ function replayData() {
     // (version 4: the stops your seats played with, so your recorded answers line up again)
     stopOpts: setup.stopOpts,
     ...(setup.takeovers?.length ? { takeovers: setup.takeovers } : {}),
+    ...(setup.chatDeals?.length ? { chatDeals: setup.chatDeals } : {}),
     // (version 6: the engine's rules version)
     rules: setup.rules,
     // (version 5: which AI seats looked ahead)
@@ -840,7 +856,7 @@ async function loadReplayData(data, { resume = false } = {}) {
       // (replays saved before decks learned have no table, and are played without it)
       ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: !resume,
       // (resuming: played back quickly to where it was, then paused; your answers run out there and you're asked again)
-      ...(resume ? { skip: data.steps || 0, paused: true } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(resume ? { skip: data.steps || 0, paused: true } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.chatDeals) ? { chatDeals: data.chatDeals.filter(d => Number.isInteger(d?.step) && Number.isInteger(d?.from) && Number.isInteger(d?.to) && DEAL_KINDS.includes(d?.kind)).map(d => ({ step: d.step, from: d.from, to: d.to, kind: d.kind, rounds: Math.max(0, Math.min(5, +d.rounds || 0)) })) } : {}), ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   }
 }
 

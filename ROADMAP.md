@@ -707,7 +707,7 @@ on top of the ones above:
     folder was older than the per-seat join keys (friend links read code=undefined); rebuilt. An old server.ps1 left
     running by an earlier session (Nov 4) still holds port 8777 and answers with the old API; it was left alone.
 - [ ] 138. Tabletop with 3–4 friends tested and fixed (untested in item 76); save and load a tabletop.
-- [ ] 139. Deals proposed from the chat are recorded with the answers, so rewinds and saved replays include them.
+- [x] 139. Deals proposed from the chat are recorded with the answers, so rewinds and saved replays include them. Done: `setup.chatDeals` keeps each offer with the step it was made; rebuilds and loaded replays offer it again at that step.
 - [ ] 140. Resume a room after the host's app closes: reopen from the autosave (item 133) and friends rejoin with the
   same seat keys.
 - [ ] 141. Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.
