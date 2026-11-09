@@ -263,6 +263,14 @@
     </div>
   </div>
 
+  <div id="whatsNewModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head"><div><h2 id="whatsNewTitle">What's new</h2><p class="muted" id="whatsNewIntro"></p></div><button class="btn ghost" id="btnWhatsNewClose">Close</button></div>
+      <input id="whatsNewSearch" class="input" placeholder="Filter…" autocomplete="off">
+      <div id="whatsNewBody" class="batch-results"></div>
+    </div>
+  </div>
+
   <div id="collectionModal" class="modal" hidden>
     <div class="modal-card">
       <div class="modal-head">
@@ -471,7 +479,7 @@
       <h3>Card sets</h3>
       <p class="muted">Checks Scryfall for new and upcoming Magic sets (once a day when the game starts, and whenever you click). When a new set is out, saved card data is fetched again as decks need it (legalities and Standard rotation change), and the newest sets show up in Draft / Sealed and the Expedition.</p>
       <div id="setsBody" class="muted"></div>
-      <p><button class="btn" id="btnSetsCheck">Check for new sets</button> <label class="muted"><input type="checkbox" id="setsAuto" checked> Check once a day at startup</label></p>
+      <p><button class="btn" id="btnSetsCheck">Check for new sets</button> <button class="btn ghost" id="btnWhatsNew">What's new in this version</button> <label class="muted"><input type="checkbox" id="setsAuto" checked> Check once a day at startup</label></p>
       <h3>Card file</h3>
       <p class="muted">Keeps Scryfall's free card file (every card, about 25 MB to download, about 40 MB saved) in the game's browser data. Random decks, the deck builder and loading decks by card name then work without asking Scryfall card by card, and offline. When it's on, a newer file is fetched at most once a day at startup. Searches it can't answer (a set's cards, other printings) still ask Scryfall.</p>
       <div id="bulkBody" class="muted"></div>

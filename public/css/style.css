@@ -1146,3 +1146,8 @@ table.trend td { white-space: nowrap; }
 
 /* Gauntlet (item 162) */
 .gauntlet-list .gl-next { font-weight: 700; }
+
+/* What's new (item 182) */
+ul.whatsnew { padding-left: 18px; }
+ul.whatsnew li { margin: 4px 0; }
+ul.whatsnew details p { margin: 2px 0 6px; }

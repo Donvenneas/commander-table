@@ -3480,6 +3480,33 @@ $('btnSetsCheck').addEventListener('click', async () => {
   try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
 });
 $('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); showImages(); });
+// ---------- What's new (item 182): data/whatsnew.json (tools/whatsnew.mjs builds it from ROADMAP.md at release), shown
+// once after an update; Updates has a button for it too
+let whatsNew = null;
+function renderWhatsNew() {
+  const q = $('whatsNewSearch').value.trim().toLowerCase();
+  const items = whatsNew.items.filter(i => !q || `${i.title} ${i.done} ${i.section}`.toLowerCase().includes(q));
+  const sections = [...new Set(items.map(i => i.section))];
+  $('whatsNewBody').innerHTML = sections.map(s => `<h3>${esc(s || 'Other')}</h3><ul class="whatsnew">${items.filter(i => i.section === s).map(i => `<li><b>${esc(i.title)}</b>${i.done ? `<details><summary class="muted">How it works</summary><p class="muted">${esc(i.done)}</p></details>` : ''}</li>`).join('')}</ul>`).join('') || '<p class="muted">Nothing matches.</p>';
+}
+async function showWhatsNew(auto = false) {
+  try { whatsNew ||= await (await fetch('data/whatsnew.json', { cache: 'no-store' })).json(); } catch { return; }
+  if (!whatsNew?.items?.length) return;
+  if (auto) {
+    // (the first start only remembers the version; an update since the last start shows the window)
+    const seen = prefs.seenVersion;
+    prefs.seenVersion = whatsNew.version; store('ct.prefs', prefs);
+    if (!seen || seen === whatsNew.version) return;
+  }
+  $('whatsNewTitle').textContent = `What's new in ${whatsNew.version}`;
+  $('whatsNewIntro').textContent = `${whatsNew.round}: ${whatsNew.items.length} improvements. The full list with every detail is in ROADMAP.md in the game folder.`;
+  renderWhatsNew();
+  $('whatsNewModal').hidden = false;
+}
+$('btnWhatsNew').addEventListener('click', () => showWhatsNew());
+$('btnWhatsNewClose').addEventListener('click', () => { $('whatsNewModal').hidden = true; });
+$('whatsNewSearch').addEventListener('input', renderWhatsNew);
+setTimeout(() => showWhatsNew(true), 1500);
 // ---------- card images (item 158): the image folder's size and cap, and downloading every image a library deck uses
 async function showImages(msg = '') {
   try {

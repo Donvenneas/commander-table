@@ -852,7 +852,10 @@ on top of the ones above:
 
 ### Help and packaging
 - [ ] 181. Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.
-- [ ] 182. "What's new" window after an update, built from this file's Done notes for the new VERSION.
+- [x] 182. "What's new" window after an update, built from this file's Done notes for the new VERSION.
+  - Done: tools/whatsnew.mjs writes public/data/whatsnew.json (newest round's finished items, first sentence of each
+    Done note, VERSION); the page shows it once when the version changed since the last start, and from Updates.
+    make-shareable-zip.ps1 refreshes it when Node.js is there. Tested by setting an older seen version.
 - [ ] 183. Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks
   it and refuses a mismatch.
 - [ ] 184. Help window inside the app: README's sections with a search box, translated where item 129 covers them.
