@@ -991,8 +991,8 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 /* Kingdoms in the rules engine: 5 to 9 boards, role chips */
 .table[data-n="5"], .table[data-n="6"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr; }
 .table[data-n="7"], .table[data-n="8"], .table[data-n="9"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
-.table[data-n="5"] .board, .table[data-n="6"] .board { --cw: 44px !important; }
-.table[data-n="7"] .board, .table[data-n="8"] .board, .table[data-n="9"] .board { --cw: 36px !important; font-size: 11px; }
+.table[data-n="5"] .board, .table[data-n="6"] .board { --cw: clamp(44px, min(2.9vw, 5.2vh), 60px) !important; }
+.table[data-n="7"] .board, .table[data-n="8"] .board, .table[data-n="9"] .board { --cw: clamp(36px, min(2.3vw, 4.1vh), 50px) !important; font-size: 11px; }
 .table[data-n="7"] .board .avatar, .table[data-n="8"] .board .avatar, .table[data-n="9"] .board .avatar { width: 30px; height: 30px; }
 .role-chip { font-weight: 700; }
 .role-chip.t-king { background: rgba(245, 196, 66, .25); border-color: #f5c442; }

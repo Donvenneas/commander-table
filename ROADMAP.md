@@ -686,9 +686,13 @@ on top of the ones above:
     players, turn and time; it plays the game back quickly to that step and pauses, and your recorded answers carry it
     there. Not for puzzles, lessons, campaigns, online or loaded-replay games. Like loading a replay file, resuming
     puts the saved decks into that format's seats. Tested: a Commander game reloaded at turn 22 and resumed to turn 22.
-- [ ] 134. Readable big tables: layouts and card sizes for 5–9 seat Kingdoms tables on a 1080p screen.
+- [x] 134. Readable big tables: layouts and card sizes for 5–9 seat Kingdoms tables on a 1080p screen.
 
 ### Online
+  - Done, partly: 5–6 and 7–9 seat tables had fixed card sizes (44 and 36 px) whatever the screen; they now follow
+    the screen (clamp by width and height: 44–60 and 36–50 px). At 1920×1080 with 9 players: cards 44 px instead of
+    36, boards with an inner scroll bar 5 of 9 instead of 7. Token piles (item 121) also save room. A first try that
+    shrank cards by seat count made it worse and was dropped. Not done: a different layout for very full boards.
 - [ ] 135. Sideboard window on the friend page between best-of-three games (friends keep their deck today).
 - [ ] 136. Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel),
   then play the pod or one-on-one matches.
