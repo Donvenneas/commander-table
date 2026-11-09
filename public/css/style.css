@@ -1127,3 +1127,8 @@ table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
 /* Goldfish in the deck viewer (item 149) */
 .gf-row { display: flex; flex-wrap: wrap; gap: 4px; }
 .gf-card { width: 92px; border-radius: 5px; }
+
+/* Draw odds in the deck viewer (item 150) */
+table.odds { border-collapse: collapse; margin: 4px 0; }
+table.odds td, table.odds th { padding: 2px 8px; }
+#oddsWhat { max-width: 340px; }

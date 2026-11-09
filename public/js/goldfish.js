@@ -7,6 +7,19 @@ import { Game, Abort } from './engine.js';
 import { Agent, guessStyle } from './ai.js';
 import { makeRng, sleep } from './util.js';
 
+// Draw odds (item 150): the chance of at least k of K wanted cards among n cards seen from an N-card library
+// (hypergeometric)
+export function atLeast(N, K, n, k = 1) {
+  if (k <= 0) return 1;
+  n = Math.min(n, N);
+  const lnC = (a, b) => (b < 0 || b > a ? -Infinity : lnF(a) - lnF(b) - lnF(a - b));
+  let p = 0;
+  for (let i = k; i <= Math.min(K, n); i++) p += Math.exp(lnC(K, i) + lnC(N - K, n - i) - lnC(N, n));
+  return Math.min(1, p);
+}
+const lnFc = [0];
+function lnF(x) { for (let i = lnFc.length; i <= x; i++) lnFc[i] = lnFc[i - 1] + Math.log(i); return lnFc[x]; }
+
 const shuffle = (a, rng) => { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 
 // A shuffled library of the deck's cards (commanders stay out); returns a sampler with draw / mulligan

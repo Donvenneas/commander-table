@@ -1,7 +1,7 @@
 import { Game, Abort, RULES } from './engine.js';
 import { deckHealth, healthSuggestions, HEALTH_TEMPLATE } from './dechealth.js';
 import { preconList } from './precons.js';
-import { sampleHands, goldfishRuns } from './goldfish.js';
+import { sampleHands, goldfishRuns, atLeast } from './goldfish.js';
 import { importCollection, clearCollection, summary as collectionSummary, missingCards, hasCollection } from './collection.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
@@ -2515,6 +2515,7 @@ function showDeck(s) {
       <div><h3>Card types</h3><ul class="typelist">${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<li><span>${k}</span><b>${n}</b></li>`).join('')}</ul></div>
     </div>
     ${d.commanders.length ? '<h3>Deck health</h3><div id="deckHealth"><p><button class="btn small" id="btnDeckHealth">Check lands, ramp, card draw, removal and wipes</button> <span class="muted">Uses Scryfall card tags; each card is asked about once.</span></p></div>' : ''}
+    <h3>Draw odds</h3><div id="drawOdds"><p><select id="oddsWhat" class="input"></select> <label class="muted">at least <select id="oddsK" class="sbracket"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label></p><div id="oddsOut"></div></div>
     <h3>Goldfish</h3><div id="goldfish"><p><button class="btn small" id="btnSampleHand">Sample hand</button>
       <label class="muted">Solo runs <select id="gfRuns" class="sbracket"><option>100</option><option>250</option><option>1000</option></select></label> <button class="btn small" id="btnGoldfish">Run the AI pilot alone</button></p>
       <div id="gfHand"></div><div id="gfRunsOut"></div></div>
@@ -2538,6 +2539,46 @@ function showDeck(s) {
     } catch (err) { box.innerHTML = `<p class="muted">Couldn't compare: ${esc(err.message)}</p>`; }
   });
   $('btnCopyMissing')?.addEventListener('click', e => { navigator.clipboard?.writeText(missingCards(d).map(m => `${m.need - m.have} ${m.name}`).join('\n')).then(() => { /** @type {HTMLElement} */ (e.target).textContent = 'Copied'; }).catch(() => {}); });
+  // Draw odds (item 150): by turn N you have seen 7 + N cards (one fewer on the play in a duel, where the first
+  // player skips the first draw). Categories: lands, each card type, the deck health roles once checked, combo pieces.
+  const lib = d.cards.reduce((a, x) => a + x.qty, 0);
+  const oddsSets = () => {
+    const sets = [{ id: 'lands', label: 'Lands', n: d.cards.filter(x => x.card.fx.type.land).reduce((a, x) => a + x.qty, 0) }];
+    for (const t of ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker']) {
+      const n = d.cards.filter(x => !x.card.fx.type.land && x.card.fx.type[t]).reduce((a, x) => a + x.qty, 0);
+      if (n) sets.push({ id: t, label: t === 'sorcery' ? 'Sorceries' : `${t[0].toUpperCase() + t.slice(1)}s`, n });
+    }
+    // (the deck health roles, once Check has been run for this deck: they are kept per card)
+    const tags = store('ct.otags2') || {};
+    for (const [k, label] of [['ramp', 'Ramp'], ['draw', 'Card draw'], ['removal', 'Targeted removal'], ['wipe', 'Board wipes']]) {
+      const n = d.cards.filter(x => tags[x.card.name]?.tags.includes(k)).reduce((a, x) => a + x.qty, 0);
+      if (n) sets.push({ id: k, label: `${label} (from Deck health)`, n });
+    }
+    combos.forEach((c, i) => {
+      const n = d.cards.filter(x => c.pieces.some(p => p.toLowerCase() === x.card.name.toLowerCase())).reduce((a, x) => a + x.qty, 0);
+      if (n) sets.push({ id: `combo${i}`, label: `A piece of ${c.label}`, n });
+    });
+    return sets;
+  };
+  const sets = oddsSets();
+  if ($('oddsWhat')) {
+    $('oddsWhat').innerHTML = `<optgroup label="Groups">${sets.map((s, i) => `<option value="s${i}">${esc(s.label)} (${s.n})</option>`).join('')}</optgroup>
+      <optgroup label="One card">${[...d.cards].filter(x => !x.card.fx.type.land || !/\bbasic\b/i.test(x.card.typeLine || '')).sort((a, b) => a.card.name.localeCompare(b.card.name)).map(x => `<option value="c${esc(x.card.name)}">${esc(x.card.name)}${x.qty > 1 ? ` (${x.qty})` : ''}</option>`).join('')}</optgroup>`;
+    const drawOdds = () => {
+      const v = $('oddsWhat').value, k = +$('oddsK').value;
+      const K = v.startsWith('s') ? sets[+v.slice(1)].n : d.cards.find(x => x.card.name === v.slice(1))?.qty || 0;
+      const turns = [1, 2, 3, 4, 5, 6, 8, 10];
+      const pc = p => `${Math.round(p * 100)}%`;
+      $('oddsOut').innerHTML = `<table class="odds"><thead><tr><th>By turn</th>${turns.map(t => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>
+        <tr><td>On the draw</td>${turns.map(t => `<td class="num">${pc(atLeast(lib, K, 7 + t, k))}</td>`).join('')}</tr>
+        <tr><td class="muted">On the play (duel)</td>${turns.map(t => `<td class="num muted">${pc(atLeast(lib, K, 6 + t, k))}</td>`).join('')}</tr>
+        <tr><td class="muted">Opening hand</td><td class="num muted" colspan="${turns.length}" style="text-align:left">${pc(atLeast(lib, K, 7, k))} in the first 7 cards</td></tr></tbody></table>
+        <p class="muted">The chance of at least ${k} of these ${K} cards among the cards seen from the ${lib}-card library, without mulligans or extra draws.</p>`;
+    };
+    $('oddsWhat').addEventListener('change', drawOdds);
+    $('oddsK').addEventListener('change', drawOdds);
+    drawOdds();
+  }
   // Goldfish (item 149): sample hands, and the AI pilot playing the deck alone
   let sampler = null;
   const drawHand = () => {

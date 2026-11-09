@@ -761,7 +761,10 @@ on top of the ones above:
   - Done: goldfish.js + a Goldfish section in the deck viewer: sample hands (London mulligan, draws) and 100/250/1,000
     solo runs against a lands-only opponent (commander turn, first combo attempt, win turn, lands after three turns,
     mulligans). Fixed seeds, so results compare before and after an edit. Tested on a precon: 100 runs in about 2 s.
-- [ ] 150. Draw odds: chance of having a card or a category (ramp, a combo piece) by turn N, in the deck viewer.
+- [x] 150. Draw odds: chance of having a card or a category (ramp, a combo piece) by turn N, in the deck viewer.
+  - Done: hypergeometric odds (goldfish.js atLeast) for a group or one card, at least 1–5, turns 1–10 on the draw and on
+    the play. Groups: lands, card types, Deck health roles once checked, combo pieces. Checked: 1 card in 7 of 99 is
+    7.07%, and the at-exactly-k odds sum to 1.
 - [ ] 151. Combos one card away: Commander Spellbook's "almost included" results in the deck viewer and the builder.
 - [ ] 152. Bracket estimate refresh: follow the current official bracket rules (tutors, extra turns, Game Changers from
   Scryfall) and explain each difference from Spellbook's estimate.
