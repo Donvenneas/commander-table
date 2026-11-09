@@ -151,7 +151,11 @@ function Room-Call([string]$method, [string]$action, [int]$seat, [string]$code, 
       if (-not (Start-Lan)) { return @(500, '{"error":"Couldn''t open a port for other players (8800-8820 are busy)."}') }
       $Room.Code = ([Guid]::NewGuid().ToString('N').Substring(0, 6)).ToUpper()
       $Room.Seats = @{}; $Room.Chat.Clear(); $Room.Fails.Clear()
-      foreach ($part in $body.Split(',')) { $n = 0; if ([int]::TryParse($part.Trim(), [ref]$n)) { $Room.Seats[$n] = New-Seat } }
+      # ("seat" or "seat=KEY": a resumed game reopens its room with the same keys, so friends' links still work)
+      foreach ($part in $body.Split(',')) {
+        $bits = $part.Trim().Split('='); $n = 0
+        if ([int]::TryParse($bits[0], [ref]$n)) { $s = New-Seat; if ($bits.Count -gt 1 -and $bits[1] -cmatch '^[A-HJ-NP-Z2-9]{10}$') { $s.Key = $bits[1] }; $Room.Seats[$n] = $s }
+      }
       $keys = foreach ($k in $Room.Seats.Keys) { "$(JsStr "$k"):$(JsStr $Room.Seats[$k].Key)" }
       $ips = [Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not [Net.IPAddress]::IsLoopback($_) -and -not $_.ToString().StartsWith('169.254.') } | ForEach-Object { JsStr $_.ToString() }
       return @(200, "{`"code`":$(JsStr $Room.Code),`"keys`":{$($keys -join ',')},`"port`":$LanPort,`"ips`":[$($ips -join ',')]}")

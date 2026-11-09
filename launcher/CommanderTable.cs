@@ -781,7 +781,15 @@ static class CommanderTable
                     Seats = new Dictionary<int, Seat>();
                     Chat.Clear();
                     Fails.Clear();
-                    foreach (var part in body.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)) { int i; if (int.TryParse(part.Trim(), out i)) Seats[i] = new Seat(); }
+                    // ("seat" or "seat=KEY": a resumed game reopens its room with the same keys, so friends' links still work)
+                    foreach (var part in body.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var bits = part.Trim().Split('='); int i;
+                        if (!int.TryParse(bits[0], out i)) continue;
+                        var ns = new Seat();
+                        if (bits.Length > 1 && Regex.IsMatch(bits[1], "^[" + KeyChars + "]{10}$")) ns.Key = bits[1];
+                        Seats[i] = ns;
+                    }
                     var keys = new List<string>();
                     foreach (var kv in Seats) keys.Add(Js(kv.Key.ToString()) + ":" + Js(kv.Value.Key));
                     var ips = new List<string>();

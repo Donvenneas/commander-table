@@ -711,8 +711,11 @@ on top of the ones above:
     Save table writes the table to a file and Load table… carries on from it (Tabletop.save/load; friends rejoin with
     new links and their moves are accepted). Fixed: the friend page showed a Deal button at the tabletop.
 - [x] 139. Deals proposed from the chat are recorded with the answers, so rewinds and saved replays include them. Done: `setup.chatDeals` keeps each offer with the step it was made; rebuilds and loaded replays offer it again at that step.
-- [ ] 140. Resume a room after the host's app closes: reopen from the autosave (item 133) and friends rejoin with the
+- [x] 140. Resume a room after the host's app closes: reopen from the autosave (item 133) and friends rejoin with the
   same seat keys.
+  - Done: online games are autosaved too, with each friend seat's key; Resume reopens the room with those keys
+    (room/open now takes "seat=KEY" in all three servers). Tested with server.py restarted mid-game: the friend's same
+    link rejoined and play went on. server.ps1's open was checked with curl; the .exe was rebuilt but not run (port 8777 busy).
 - [ ] 141. Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.
 - [ ] 142. Streamer view: a spectator link with a delay (30 s–3 min) that shows every hand after the delay, in a clean
   layout for screen capture.

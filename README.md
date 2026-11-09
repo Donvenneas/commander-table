@@ -408,6 +408,8 @@ Every game is generated from a random seed, and any decisions you made are recor
 
 **Watch replay** on the results screen restarts the game from the beginning. **Load replay…** on the setup screen opens a saved file. It reloads the decks and plays the identical game, including your decisions if you played a seat. When a loaded replay runs out of recorded decisions, you continue playing live.
 
+**Resume:** the game in progress is saved in the browser profile at every turn and every answer. If the app closes or crashes, **Resume** on the start menu plays it back to where it was and pauses there. An online game reopens its room with the same friend links, so friends rejoin by opening their link again (internet links change when the tunnel restarts). Puzzles, lessons and campaigns aren't saved this way.
+
 **Share as web page** saves the whole game as one .html file that anyone can open in a browser and play back (play, pause, step, slider, speed, and the log), with nothing to install. Card images load from Scryfall when they're online. Deals offered from the chat are kept in replays and rewinds too.
 
 ## Puzzles

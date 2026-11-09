@@ -198,8 +198,13 @@ def room(method, action, seat, code, body, local):
             ROOM['chat'] = []
             ROOM['fails'] = []
             for part in body.split(','):
+                # ("seat" or "seat=KEY": a resumed game reopens its room with the same keys, so friends' links still work)
+                num, _, key = part.strip().partition('=')
                 try:
-                    ROOM['seats'][int(part.strip())] = Seat()
+                    seat = Seat()
+                    if len(key) == 10 and all(ch in KEY_CHARS for ch in key):
+                        seat.key = key
+                    ROOM['seats'][int(num)] = seat
                 except ValueError:
                     pass
             keys = {str(k): v.key for k, v in ROOM['seats'].items()}

@@ -13,10 +13,11 @@ export class Room {
   // Each seat has its own key, so changing the seat number in a link doesn't open another player's hand.
   joinCode(seat) { return `${this.keys[seat] || ''}-${seat + 1}`; }
   // Opens the room for the given seat numbers; returns false if this isn't running in Commander Table.exe
-  async open(seats) {
+  // keys: { seat: key } to reopen a room with the same join codes (a resumed game, item 140)
+  async open(seats, keys = null) {
     this.seats = seats;
     try {
-      const r = await post('/api/room/open', seats.join(','));
+      const r = await post('/api/room/open', seats.map(s => (keys?.[s] ? `${s}=${keys[s]}` : s)).join(','));
       if (!r.ok) throw new Error((await r.json()).error || r.status);
       Object.assign(this, await r.json());
       return true;

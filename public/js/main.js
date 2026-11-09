@@ -360,7 +360,9 @@ function newGame(opts = {}) {
       takeovers: opts.takeovers || [],
       // Deals offered from the chat ({ step, from, to, kind, rounds }), offered again at that step on every rebuild
       chatDeals: opts.chatDeals || [],
-      replayOnly: !!opts.remoteDecisions,
+      replayOnly: !!opts.remoteDecisions && !opts.resumeOnline,
+      // (a resumed online game reopens its room with the same seat keys, so friends' links still work: item 140)
+      roomKeys: opts.roomKeys || null,
       // Each deck's learned card bonuses as they were when the game started (replays use the same)
       learned: opts.learned || null,
       noLearning: !!opts.noLearning,
@@ -515,7 +517,7 @@ let pushView = () => {};
 async function openRoom(seatList = [...setup.remote, -1]) {
   const want = seatList.join(',');
   if (room.code && room.seats.join(',') === want) return true;
-  const ok = await room.open(seatList);
+  const ok = await room.open(seatList, setup?.roomKeys);
   if (ok) showInvite();
   return ok;
 }
@@ -815,9 +817,11 @@ $('btnSaveReplay').addEventListener('click', () => {
 // at every turn and every answer; the start menu offers it back. Not for puzzles, lessons, campaigns or online games.
 const AUTOSAVE = 'ct.autosave';
 function autosave() {
-  if (!setup || !game || setup.puzzle || setup.customSeats || setup.remote.length || setup.loadedReplay) return;
+  if (!setup || !game || setup.puzzle || setup.customSeats || setup.loadedReplay || setup.replayOnly) return;
   if (game.over) { store(AUTOSAVE, null); return; }
-  try { store(AUTOSAVE, { ...replayData(), steps: game.steps, at: Date.now(), turn: game.turn, names: game.players.map(p => p.name) }); } catch { /* full: skip */ }
+  // (online games keep the room's seat keys: resuming reopens the room and friends rejoin with the same links)
+  const online = setup.remote.length && room.code ? { roomKeys: Object.fromEntries(setup.remote.map(i => [i, room.keys[i]])) } : {};
+  try { store(AUTOSAVE, { ...replayData(), ...online, steps: game.steps, at: Date.now(), turn: game.turn, names: game.players.map(p => p.name) }); } catch { /* full: skip */ }
 }
 function showResume() {
   const a = store(AUTOSAVE);
@@ -856,7 +860,8 @@ async function loadReplayData(data, { resume = false } = {}) {
       // (replays saved before decks learned have no table, and are played without it)
       ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: !resume,
       // (resuming: played back quickly to where it was, then paused; your answers run out there and you're asked again)
-      ...(resume ? { skip: data.steps || 0, paused: true } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.chatDeals) ? { chatDeals: data.chatDeals.filter(d => Number.isInteger(d?.step) && Number.isInteger(d?.from) && Number.isInteger(d?.to) && DEAL_KINDS.includes(d?.kind)).map(d => ({ step: d.step, from: d.from, to: d.to, kind: d.kind, rounds: Math.max(0, Math.min(5, +d.rounds || 0)) })) } : {}), ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(resume ? { skip: data.steps || 0, paused: true } : {}),
+      ...(resume && data.remoteDecisions ? { resumeOnline: true, roomKeys: data.roomKeys && typeof data.roomKeys === 'object' ? data.roomKeys : null } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.chatDeals) ? { chatDeals: data.chatDeals.filter(d => Number.isInteger(d?.step) && Number.isInteger(d?.from) && Number.isInteger(d?.to) && DEAL_KINDS.includes(d?.kind)).map(d => ({ step: d.step, from: d.from, to: d.to, kind: d.kind, rounds: Math.max(0, Math.min(5, +d.rounds || 0)) })) } : {}), ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   }
 }
 
