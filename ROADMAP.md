@@ -866,6 +866,7 @@ on top of the ones above:
   with no change in behaviour, checked by the golden replays (item 173).
 - [ ] 177. CI on more systems: build the .exe and test it and server.ps1 on a Windows runner; run server.py's --check
   and the self-test on macOS and Ubuntu runners (closes item 52's "untested on a real Mac or Linux").
+- Done, not yet run: selftest.yml now runs server.py's --check and the self-test on Ubuntu and macOS (a matrix), and    a Windows job builds Commander Table.exe and runs the self-test against it and against server.ps1. Written and    checked by eye only: the branch isn't pushed, so GitHub hasn't run the new jobs. (server.py --check passes here.)
 - [x] 178. Local bug reports: "Report a problem" saves the replay, log, version and console errors into
   data\bugs\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.
   - Done as one JSON file saved to Downloads (no server change; a browser can't write a zip into data\): the replay
