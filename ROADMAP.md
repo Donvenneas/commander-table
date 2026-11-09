@@ -666,7 +666,12 @@ on top of the ones above:
     per line ("*tapped*" and "(+2)" for tapped cards and counters). Test it (plays it at once), Save as file, Copy a
     challenge link (opens the puzzle on any PC: item 77 had no button for this), or start From the current board. The
     draft is kept between visits. Tested: a board with a tapped Hill Giant and countered Grizzly Bears loaded and played.
-- [ ] 131. Rematch with changes: swap decks between seats, rotate seats or change one pilot, on the same seed.
+- [x] 131. Rematch with changes: swap decks between seats, rotate seats or change one pilot, on the same seed.
+  - Done: the results screen has "Rotate decks, same seed" (each deck moves one seat along, players and pilots stay)
+    and "Same seed, change setup…" (back to the setup screen; the next game started uses this seed). Hidden for
+    puzzles, custom seats and unfinished matches. Tested: a Standard game, rotated (the 60-card deck moved seats with
+    the same seed), played out and rotated back. Fixed on the way: the opening-hand question no longer offers
+    item 118's "Always" box.
 - [ ] 132. "What if" from the timeline: take over any seat from any point of a replay and play on; the branch is saved
   as its own replay.
 - [ ] 133. Save and resume: the game in progress is autosaved (setup + answers) so closing the app or a crash loses

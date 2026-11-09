@@ -72,7 +72,7 @@ export class HumanUI {
   autoKey(text, buttons, objs) {
     if (objs.length || buttons.length < 2 || buttons.length > 6) return null;
     const plain = text.replace(/<[^>]+>/g, '').replace(/\d+/g, '#').trim();
-    if (/main phase|Declare attackers|being attacked|Respond|which face|how do you want|choose X|Mulligan|keep this hand/i.test(plain)) return null;
+    if (/main phase|Declare attackers|being attacked|Respond|which face|how do you want|choose X|Mulligan|keep this hand|Opening hand|Keep it?/i.test(plain)) return null;
     return plain;
   }
   get replaying() { return this.pos < this.record.length; }

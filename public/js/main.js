@@ -324,7 +324,7 @@ function newGame(opts = {}) {
   clock = new Clock();
   if (!opts.replay || !setup) {
     setup = {
-      seed: opts.seed ?? Math.floor(Math.random() * 2 ** 32),
+      seed: opts.seed ?? takeNextSeed() ?? Math.floor(Math.random() * 2 ** 32),
       // A puzzle brings its own seats: you in seat 1, AI opponents in the rest
       puzzle: opts.puzzle || null,
       // Expedition fights bring their own seats ({ name, deck, style, bracket })
@@ -827,6 +827,7 @@ function showResults() {
   const more = setup.matchGame && match && !matchOver(match) && match.games.length === setup.matchGame;
   $('btnNextGame').hidden = !more;
   $('btnRematch').hidden = !!more;
+  $('btnRotateDecks').hidden = $('btnSameSeed').hidden = !!setup.puzzle || !!setup.customSeats || !!more;
   $('btnRematch').textContent = setup.matchGame && match ? 'New match' : setup.puzzle ? 'Try again' : 'Rematch';
   // Lessons, story chapters and expedition fights add their own next step
   $('resultsAfter').innerHTML = '';
@@ -1478,6 +1479,26 @@ $('btnRematch').addEventListener('click', () => {
   newGame();
 });
 $('btnNextGame').addEventListener('click', () => { if (match && !matchOver(match)) nextMatchGame(); });
+// Rematch with changes (item 131): the same seed with the decks rotated one seat along, or with any setup change
+let nextSeed = null;
+function takeNextSeed() { const s = nextSeed; nextSeed = null; return s; }
+$('btnRotateDecks').addEventListener('click', () => {
+  if (!setup || setup.puzzle || seats.some(s => !s.deck)) return;
+  $('results').hidden = true;
+  const decks = seats.map(s => { const a = /** @type {any} */ (s); return { deck: a.deck, source: a.source, rivalKey: a.rivalKey, rivalSource: a.rivalSource }; });
+  seats.forEach((s, i) => Object.assign(s, decks[(i + decks.length - 1) % decks.length]));
+  persist();
+  renderSeats();
+  if (match) match = newMatch();
+  newGame({ seed: setup.seed });
+});
+$('btnSameSeed').addEventListener('click', () => {
+  if (!setup) return;
+  nextSeed = setup.seed;
+  $('results').hidden = true;
+  $('setup').hidden = false;
+  $('setupStatus').textContent = `The next game uses the same seed (${setup.seed}): change seats, decks or pilots, then start.`;
+});
 // Format and match length on the setup screen
 $('formatSel').innerHTML = Object.entries(FORMATS).map(([k, f]) => `<option value="${k}">${esc(f.name)}${f.seats === 2 ? ' (1 v 1)' : ''}</option>`).join('');
 $('formatSel').addEventListener('change', e => setFormat(e.target.value));
