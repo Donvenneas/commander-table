@@ -318,6 +318,7 @@ static class CommanderTable
             }
             else if (path == "/api/fetch") Proxy(ctx);
             else if (path == "/api/img") CardImage(ctx);
+            else if (path == "/api/imgcache") ImageCacheInfo(ctx);
             else if (path == "/api/library") Library(ctx);
             else if (path == "/api/update") Update(ctx);
             else if (path == "/api/edhtop16" && req.HttpMethod == "POST")
@@ -586,16 +587,37 @@ static class CommanderTable
         }
         else Send(ctx, status, remoteType, body);
     }
+    // The image folder's cap: data\image-cache-mb.txt (set in the app), else 400 MB
+    static long ImageCap()
+    {
+        try { int mb; if (int.TryParse(File.ReadAllText(Path.Combine(DataDir, "image-cache-mb.txt")).Trim(), out mb)) return Math.Max(100, Math.Min(20000, mb)) * 1024L * 1024; } catch { }
+        return ImageCacheMax;
+    }
+    // GET: how much the image folder holds; POST (from the app only, X-Commander-Table: images) a new cap in MB
+    static void ImageCacheInfo(HttpListenerContext ctx)
+    {
+        var req = ctx.Request;
+        if (req.HttpMethod == "POST")
+        {
+            if (req.Headers["X-Commander-Table"] != "images") { SendText(ctx, 400, "Use the Updates window in the app."); return; }
+            int mb;
+            if (!int.TryParse(ReadBody(req.InputStream, req.ContentLength64).Trim(), out mb)) { SendText(ctx, 400, "The cap is a number of MB."); return; }
+            try { Directory.CreateDirectory(DataDir); File.WriteAllText(Path.Combine(DataDir, "image-cache-mb.txt"), Math.Max(100, Math.Min(20000, mb)).ToString()); } catch { }
+        }
+        long total = 0; int n = 0;
+        try { foreach (var f in new DirectoryInfo(Path.Combine(DataDir, "images")).GetFiles()) { total += f.Length; n++; } } catch { }
+        Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"files\":" + n + ",\"bytes\":" + total + ",\"capMB\":" + (ImageCap() / (1024 * 1024)) + "}"));
+    }
     static void TrimImages()
     {
         try
         {
             var files = new DirectoryInfo(Path.Combine(DataDir, "images")).GetFiles();
-            long total = 0;
+            long total = 0, cap = ImageCap();
             foreach (var f in files) total += f.Length;
-            if (total <= ImageCacheMax) return;
+            if (total <= cap) return;
             Array.Sort(files, (a, b) => a.LastWriteTimeUtc.CompareTo(b.LastWriteTimeUtc));
-            foreach (var f in files) { if (total <= ImageCacheMax * 0.8) break; total -= f.Length; try { f.Delete(); } catch { } }
+            foreach (var f in files) { if (total <= cap * 0.8) break; total -= f.Length; try { f.Delete(); } catch { } }
         }
         catch { }
     }

@@ -3397,7 +3397,52 @@ $('btnSetsCheck').addEventListener('click', async () => {
   $('setsBody').textContent = 'Asking Scryfall…';
   try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
 });
-$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); });
+$('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); showImages(); });
+// ---------- card images (item 158): the image folder's size and cap, and downloading every image a library deck uses
+async function showImages(msg = '') {
+  try {
+    const r = await (await fetch('/api/imgcache')).json();
+    $('imgBody').textContent = `${r.files.toLocaleString()} images, ${(r.bytes / 1048576).toFixed(0)} MB of ${r.capMB >= 1000 ? `${(r.capMB / 1000).toFixed(1)} GB` : `${r.capMB} MB`}.${msg ? ` ${msg}` : ''}`;
+    $('imgCap').value = String(r.capMB);
+    if (!$('imgCap').value) $('imgCap').insertAdjacentHTML('beforeend', `<option value="${r.capMB}" selected>${r.capMB} MB</option>`);
+  } catch { $('imgBody').textContent = 'Restart Commander Table to see the image folder here.'; }
+}
+$('imgCap').addEventListener('change', async e => {
+  await fetch('/api/imgcache', { method: 'POST', headers: { 'X-Commander-Table': 'images' }, body: /** @type {HTMLSelectElement} */ (e.target).value }).catch(() => {});
+  showImages('Cap changed.');
+});
+let imgStop = false;
+$('btnImgStop').addEventListener('click', () => { imgStop = true; });
+$('btnImgLibrary').addEventListener('click', async () => {
+  const btn = $('btnImgLibrary');
+  btn.disabled = true; $('btnImgStop').hidden = false; imgStop = false;
+  const say = t => { $('imgBody').textContent = t; };
+  try {
+    const decks = await listDecks();
+    const urls = new Set();
+    for (const [i, d] of decks.entries()) {
+      if (imgStop) break;
+      say(`Reading deck ${i + 1} of ${decks.length}: ${d.name}…`);
+      try {
+        const deck = await loadDeck(d.text, () => {}, { format: commandersOf(d.text).length ? 'commander' : formatKey });
+        for (const c of [...deck.commanders, ...deck.cards.map(x => x.card), ...(deck.sideboard || []).map(x => x.card)]) for (const u of [c.imgSmall, c.imgNormal, c.art, c.backNormal]) if (u && u.startsWith('/api/img?')) urls.add(u);
+      } catch { /* a deck that doesn't load is skipped */ }
+    }
+    const list = [...urls];
+    let done = 0, failed = 0;
+    const worker = async () => {
+      while (list.length && !imgStop) {
+        const u = list.shift();
+        try { const r = await fetch(u); if (!r.ok) failed++; await r.arrayBuffer(); } catch { failed++; }
+        done++;
+        if (done % 10 === 0) say(`Downloading images… ${done} of ${urls.size}`);
+      }
+    };
+    await Promise.all([worker(), worker(), worker(), worker()]);
+    showImages(imgStop ? `Stopped after ${done} of ${urls.size}.` : `Done: ${done} images for ${decks.length} deck${decks.length === 1 ? '' : 's'}${failed ? ` (${failed} failed)` : ''}.`);
+  } catch (err) { say(`Couldn't download: ${err.message}`); }
+  btn.disabled = false; $('btnImgStop').hidden = true;
+});
 
 // ---------- Scryfall's card file (bulk.js): off until downloaded here; then refreshed once a day at startup
 function showBulk(msg) {

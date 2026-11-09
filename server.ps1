@@ -104,6 +104,21 @@ $Rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 function New-SeatKey { $b = New-Object byte[] 10; $Rng.GetBytes($b); -join ($b | ForEach-Object { 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[$_ % 32] }) }
 function New-Seat { @{ State = 'null'; Question = 'null'; Answer = $null; Name = ''; Seen = $null; LastChat = [DateTime]::MinValue; UndoAsk = $null; UndoReply = $null; Deck = $null; Key = (New-SeatKey) } }
 function JsStr([string]$s) { if ($null -eq $s) { $s = '' }; '"' + ($s -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace "`t", ' ') + '"' }
+# The image folder's cap: data\image-cache-mb.txt (set in the app), else 400 MB; the oldest go when it's over
+$script:ImagesSaved = 0
+function Get-ImageCap {
+  $f = Join-Path $PSScriptRoot 'data\image-cache-mb.txt'; $mb = 0
+  if ((Test-Path $f) -and [int]::TryParse(([IO.File]::ReadAllText($f)).Trim(), [ref]$mb)) { return [long][Math]::Max(100, [Math]::Min(20000, $mb)) * 1MB }
+  return 400MB
+}
+function Trim-Images {
+  $dir = Join-Path $PSScriptRoot 'data\images'
+  if (-not (Test-Path $dir)) { return }
+  $files = @(Get-ChildItem -LiteralPath $dir -File | Sort-Object LastWriteTimeUtc)
+  $total = ($files | Measure-Object -Property Length -Sum).Sum; $cap = Get-ImageCap
+  if ($total -le $cap) { return }
+  foreach ($f in $files) { if ($total -le $cap * 0.8) { break }; $total -= $f.Length; try { Remove-Item -LiteralPath $f.FullName } catch { } }
+}
 function Start-Lan {
   if ($script:Lan) { return $true }
   foreach ($port in 8800..8820) {
@@ -350,6 +365,27 @@ try {
         $resp.Close()
         Send-Response $ctx $code 'application/json' $ms.ToArray()
       }
+      elseif ($path -eq '/api/imgcache') {
+        # GET: how much the image folder holds; POST (from the app only) a new cap in MB (same as the .exe)
+        $bad = $null
+        if ($req.HttpMethod -eq 'POST') {
+          $reader = New-Object IO.StreamReader($req.InputStream); $mb = 0
+          if ($req.Headers['X-Commander-Table'] -ne 'images') { $bad = 'Use the Updates window in the app.' }
+          elseif (-not [int]::TryParse($reader.ReadToEnd().Trim(), [ref]$mb)) { $bad = 'The cap is a number of MB.' }
+          else {
+            $dataDir = Join-Path $PSScriptRoot 'data'
+            if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory $dataDir | Out-Null }
+            [IO.File]::WriteAllText((Join-Path $dataDir 'image-cache-mb.txt'), [string][Math]::Max(100, [Math]::Min(20000, $mb)))
+          }
+        }
+        if ($bad) { Send-Text $ctx 400 $bad }
+        else {
+          $imgDir = Join-Path $PSScriptRoot 'data\images'
+          $files = if (Test-Path $imgDir) { @(Get-ChildItem -LiteralPath $imgDir -File) } else { @() }
+          $bytes = ($files | Measure-Object -Property Length -Sum).Sum; if (-not $bytes) { $bytes = 0 }
+          Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes("{`"files`":$($files.Count),`"bytes`":$bytes,`"capMB`":$([int]((Get-ImageCap) / 1MB))}"))
+        }
+      }
       elseif ($path -eq '/api/img') {
         # Card images from Scryfall, kept in data\images so the table has its art offline (same as the .exe)
         $target = $req.QueryString['u']
@@ -369,7 +405,7 @@ try {
           else {
             $r = Get-Remote $u.AbsoluteUri
             if ($r.Status -eq 200 -and $r.Body.Length) {
-              try { if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; [IO.File]::WriteAllBytes($file, $r.Body) } catch { }
+              try { if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; [IO.File]::WriteAllBytes($file, $r.Body); $script:ImagesSaved++; if ($script:ImagesSaved % 200 -eq 0) { Trim-Images } } catch { }
               Send-Response $ctx 200 $type $r.Body $keep
             } else { Send-Response $ctx $r.Status $r.Type $r.Body }
           }

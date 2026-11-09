@@ -86,6 +86,7 @@ For the official versions, use the project's GitHub releases address, which alwa
 - Searches it can't answer still go to Scryfall: search terms it doesn't know, and (unless you also have the printings file) a set's cards for Draft / Sealed and specific printings.
 
 **Printings file (optional):** **Download the printings file** in Updates saves Scryfall's file of every paper printing (about 80 MB to download, about 105,000 printings, roughly 40 MB once saved). With it, a set's booster cards for Draft / Sealed and searches by set (`e:`), collector number (`cn:`) or `is:booster` are answered on this PC too, so drafting works offline. It isn't refreshed by itself: download it again after a new set comes out.
+**Card images:** pictures are kept in dataimages after they're first shown, so the table has its art offline; the oldest go when the folder passes its cap. In Updates, **Cap** sets it (200 MB to 6 GB; 400 MB to start), and **Download images for my library** fetches every image the decks in your deck library use, with progress and **Stop**.
 - It has one printing per card, so searches that depend on rarity or paper availability can find slightly fewer cards than Scryfall would.
 - **Turn off and remove** in Updates deletes it.
 

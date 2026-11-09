@@ -8,6 +8,7 @@ The same endpoints as Commander Table.exe and server.ps1, using only Python's st
   * /api/edhtop16   EDHTop16's public GraphQL API (its registered queries only)
   * /api/rules      the Comprehensive Rules from Wizards of the Coast, cached for a week
   * /api/img        Scryfall card images, kept in data/images for offline play
+  * /api/imgcache   the image folder's size and its cap (data/image-cache-mb.txt; 400 MB unless changed)
   * /api/library    your deck library in data/decks
   * /api/update     updates, only when you ask, from an address you choose
   * /api/room/...   online seats for friends (on ports 8800-8820), plus the free Cloudflare tunnel
@@ -361,16 +362,32 @@ def card_image(url):
 _trim_count = [0]
 
 
+def image_cap():
+    """The image folder's cap in bytes: data/image-cache-mb.txt (set in the app), else 400 MB."""
+    try:
+        mb = int(open(os.path.join(DATA, 'image-cache-mb.txt'), encoding='utf-8').read().strip())
+        return max(100, min(20000, mb)) * 1024 * 1024
+    except (OSError, ValueError):
+        return IMAGE_CACHE_MAX
+
+
+def image_usage():
+    folder = os.path.join(DATA, 'images')
+    files = [os.path.join(folder, f) for f in os.listdir(folder)] if os.path.isdir(folder) else []
+    return len(files), sum(os.path.getsize(f) for f in files)
+
+
 def trim_images(folder):
     _trim_count[0] += 1
     if _trim_count[0] % 200:
         return
+    cap = image_cap()
     files = [os.path.join(folder, f) for f in os.listdir(folder)]
     total = sum(os.path.getsize(f) for f in files)
-    if total <= IMAGE_CACHE_MAX:
+    if total <= cap:
         return
     for f in sorted(files, key=os.path.getmtime):
-        if total <= IMAGE_CACHE_MAX * 0.8:
+        if total <= cap * 0.8:
             break
         total -= os.path.getsize(f)
         try:
@@ -528,6 +545,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/img':
                 status, ctype, body = card_image(q.get('u'))
                 return self.send(status, ctype, body, {'Cache-Control': 'public, max-age=2592000'} if status == 200 else None)
+            if path == '/api/imgcache':
+                # GET: how much the image folder holds; POST (from the app only) a new cap in MB
+                if self.command == 'POST':
+                    if self.headers.get('X-Commander-Table') != 'images':
+                        return self.text(400, 'Use the Updates window in the app.')
+                    try:
+                        mb = max(100, min(20000, int(self.body().strip())))
+                    except ValueError:
+                        return self.text(400, 'The cap is a number of MB.')
+                    os.makedirs(DATA, exist_ok=True)
+                    open(os.path.join(DATA, 'image-cache-mb.txt'), 'w', encoding='utf-8').write(str(mb))
+                n, size = image_usage()
+                return self.send(200, 'application/json', json.dumps({'files': n, 'bytes': size, 'capMB': image_cap() // (1024 * 1024)}))
             if path == '/api/library':
                 return self.library(q)
             if path == '/api/update':
