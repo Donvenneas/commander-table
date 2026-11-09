@@ -25,7 +25,7 @@ import { qrSvg } from './qr.js';
 import { recordGame, learnedSummary, learnedStyle, forgetDeck, learnAs, mastery, deckKey } from './learn.js';
 import { ladder, recordRanked, newSeason, rankOf, aiRating, PLACEMENT, challenges, recordChallenges, checkBadges, badges, BADGE_LIST } from './progress.js';
 import { CEDH_PRESETS } from './presets.js';
-import { BRACKETS, BRACKET_NOISE, estimateBracket } from './brackets.js';
+import { BRACKETS, BRACKET_NOISE, estimateBracket, bracketDifferences } from './brackets.js';
 // One choice for how well the AI seats play (setup screen): mistakes on purpose (noise) and look-ahead together.
 // 'auto' keeps the bracket's noise and the look-ahead switch. Ladder ratings go by strength when one is chosen.
 const STRENGTH = {
@@ -240,7 +240,7 @@ function deckSummary(d, i) {
   return `<span class="thumb" style="background-image:url('${deckArt(d)}')">${lv}</span>
     <span><b>${esc(d.deckName)}</b> · ${n} cards${side ? ` + ${side} sideboard` : ''} · plays ${esc(STYLES[guessStyle(d)])} · <span class="${cov.pct < 70 ? 'warn' : ''}" title="Share of non-basic cards the simulator understands at least part of">${cov.pct}% understood</span>
     ${cmdFormat ? `· <span class="bracket-chip b${est.bracket}" title="${esc(est.reasons.join(' · ') || 'No Game Changers, two-card combos, extra turns or mass land destruction')}">Bracket ${est.bracket}: ${BRACKETS[est.bracket].name}</span>` : ''}${cmdFormat && d.sbBracket ? `
-    <span class="bracket-chip sb ${d.sbBracket.about ? `b${d.sbBracket.about}` : 'b5'}" title="Commander Spellbook's estimate: ${esc(d.sbBracket.name)}${d.sbBracket.about ? `, roughly bracket ${d.sbBracket.about}` : ''} (${d.sbBracket.gameChangers} Game Changers, ${d.sbBracket.twoCard} two-card combos by its count)">Spellbook: ${esc(d.sbBracket.name)}</span>${d.sbBracket.banned?.length ? ` <span class="warn">Banned in Commander: ${d.sbBracket.banned.map(esc).join(', ')}</span>` : ''}` : ''}
+    <span class="bracket-chip sb ${d.sbBracket.about ? `b${d.sbBracket.about}` : 'b5'}" title="Commander Spellbook's estimate: ${esc(d.sbBracket.name)}${d.sbBracket.about ? `, roughly bracket ${d.sbBracket.about}` : ''} (${d.sbBracket.gameChangers} Game Changers, ${d.sbBracket.twoCard} two-card combos by its count)${esc(bracketDifferences(est, d.sbBracket).map(s => `\n• ${s}`).join(''))}">Spellbook: ${esc(d.sbBracket.name)}</span>${d.sbBracket.banned?.length ? ` <span class="warn">Banned in Commander: ${d.sbBracket.banned.map(esc).join(', ')}</span>` : ''}` : ''}
     <button class="btn small sview" data-i="${i}">View deck</button> <button class="btn small sedit" data-i="${i}">Edit</button> <button class="btn small sbuild" data-i="${i}" title="Open this deck in the full-screen deck builder">Builder</button>${over ? `<br><span class="warn">This deck plays at bracket ${est.bracket}, above the seat's bracket ${want}: ${esc(est.reasons[0] || '')}</span>` : ''}${combos.length ? `<br><span class="combos">${combos.length} combo${combos.length === 1 ? '' : 's'}: ${combos.slice(0, 5).map(c => esc(c.label)).join(', ')}${combos.length > 5 ? `, and ${combos.length - 5} more` : ''}</span>` : ''}${d.warnings.length ? `<br><span class="warn">${d.warnings.slice(0, 3).map(esc).join('<br>')}</span>` : ''}</span>`;
 }
 
@@ -2521,6 +2521,7 @@ function showDeck(s) {
       <div id="gfHand"></div><div id="gfRunsOut"></div></div>
     <h3>What the simulator understands: ${cov.pct}%</h3>
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
+    ${d.commanders.length ? (() => { const est = estimateBracket(d), diff = bracketDifferences(est, d.sbBracket); return `<h3>Bracket ${est.bracket}: ${BRACKETS[est.bracket].name}</h3><ul>${est.reasons.map(r => `<li>${esc(r)}</li>`).join('') || '<li>No Game Changers, two-card combos, extra turns or mass land destruction.</li>'}</ul>${d.sbBracket ? `<p>Commander Spellbook: <b>${esc(d.sbBracket.name)}</b>${d.sbBracket.about ? ` (about bracket ${d.sbBracket.about})` : ''}.${diff.length ? '' : ' The two agree.'}</p>${diff.length ? `<ul class="muted">${diff.slice(1).map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}` : ''}`; })() : ''}
     ${d.commanders.length ? '<h3>Combos one card away</h3><div id="almostCombos"><p><button class="btn small" id="btnAlmost">Ask Commander Spellbook</button> <span class="muted">Combos in your colors that need just one more card.</span></p></div>' : ''}
     ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
     ${tips || '<p class="muted">Run a batch with this deck seated to get card suggestions.</p>'}

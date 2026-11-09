@@ -768,8 +768,12 @@ on top of the ones above:
 - [x] 151. Combos one card away: Commander Spellbook's "almost included" results in the deck viewer and the builder.
   - Done: combos.js almostCombos (find-my-combos' almostIncluded, one missing card, by popularity) in the deck viewer
     (with Spellbook links) and the builder (click the missing card to search it). Tested on a precon in both.
-- [ ] 152. Bracket estimate refresh: follow the current official bracket rules (tutors, extra turns, Game Changers from
+- [x] 152. Bracket estimate refresh: follow the current official bracket rules (tutors, extra turns, Game Changers from
   Scryfall) and explain each difference from Spellbook's estimate.
+  - Done: late-game two-card combos (pieces over 6 mana together) are bracket 3, early ones 4; extra-turn chaining
+    (2+ cards) and tutors (counted, no limit) are listed; bracketDifferences explains a gap with Spellbook on the chip
+    and in a new Bracket section of the deck viewer. Changes the default AI noise for some unbracketed seats; noise
+    is saved in setups, so replays stay exact. Tested on a precon and two random decks.
 - [ ] 153. More exports: MTGO .dek, Arena text and a printable text checklist.
 - [ ] 154. "Fully simulated only" filter in the builder, so people can build decks the AI plays at full strength.
 - [ ] 155. EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.

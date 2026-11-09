@@ -336,6 +336,8 @@ The bracket shapes the deck when a seat is empty or set to `random`. Game Change
 
 Every loaded deck shows its **estimated bracket** next to its name. Hover it to see why: which Game Changers, two-card combos, extra turns or mass land destruction it contains. If a deck plays above the seat's bracket, you get a warning. Bracket 1 is about a casual theme, which can't be read from a list, so estimates start at 2.
 
+
+How the estimate reads the current bracket rules: up to three Game Changers is bracket 3, more is 4; a two-card combo is at least bracket 3, and an early one (its two pieces cost 6 mana or less together) is 4; two or more extra-turn cards count as able to chain (3), three or more as 4; mass land destruction is 4. Tutors no longer limit a bracket but are counted and listed. When the two estimates differ, hovering the Spellbook chip (or the **Bracket** section of the deck viewer) explains why: different Game Changer or combo counts, late-game combos, extra turns or land destruction that Spellbook doesn't weigh, or bracket 1 being about intent.
 Next to it, a dashed chip shows **Commander Spellbook's own estimate** (Exhibition, Core, Oddball, Powerful, Spicy or Ruthless; hover for its count of Game Changers and two-card combos). If Spellbook finds a card that's banned in Commander, the seat says which.
 
 **Deal a matched table** replaces all four decks with random decks of the table's bracket (bracket 3 if none is chosen) and loads them.
