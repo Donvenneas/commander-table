@@ -847,8 +847,10 @@ on top of the ones above:
   data\bugs\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.
 - [ ] 179. Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in
   Updates, with clean-up buttons.
-- [ ] 180. Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a
+- [x] 180. Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a
   different order, give identical logs (catches stray Math.random or Date).
+  - Done: a self-test row: 3 seeds with and without look-ahead seats, then again in the opposite order; logs compared.
+    Self-test: all 18 checks passed, 6/6 identical in 5.4 s.
 
 ### Help and packaging
 - [ ] 181. Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.

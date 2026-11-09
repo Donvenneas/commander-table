@@ -205,6 +205,26 @@ async function run() {
         `${d} decisions looked ahead, ${c} changed; ${same}/6 replayed exactly, ${untouched}/2 untouched when nothing changes; ${errs} simulator errors, ${e} look-ahead errors${e ? ` (${laStats.lastError})` : ''}${bad.length ? `, rules: ${bad[0].text}` : ''}; ${(ms / 12000).toFixed(2)} s per game`);
     } catch (e) { la(false, e.message); }
 
+    // Determinism (item 180): the same seeds played twice, in the opposite order and with or without look-ahead seats,
+    // must give identical logs; a stray Math.random, Date or leftover state between games shows up here
+    const det = row('games', 'Determinism: 3 seeds played twice in the opposite order, with and without look-ahead');
+    try {
+      const sig = g => g.logEntries.map(e => e.html).join('|');
+      const mk = (i, la) => new Game([0, 1, 2, 3].map(k => { const d = decks[(i + k) % 4]; return { playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent(styles[(i + 2 * k) % 5], { lookahead: la && k % 2 === 0 }), commanders: d.commanders, cards: d.cards }; }), { beat: async () => {} }, { seed: 940000 + i, noLearning: true });
+      const first = new Map();
+      const t2 = performance.now();
+      for (let i = 0; i < 3; i++) for (const la of [false, true]) { const g = mk(i, la); await g.run(); first.set(`${i}:${la}`, sig(g)); await new Promise(r => setTimeout(r, 0)); }
+      let same = 0;
+      const diff = [];
+      for (let i = 2; i >= 0; i--) for (const la of [true, false]) {
+        const g = mk(i, la);
+        await g.run();
+        if (sig(g) === first.get(`${i}:${la}`)) same++; else diff.push(`seed ${940000 + i}${la ? ' with look-ahead' : ''}`);
+        await new Promise(r => setTimeout(r, 0));
+      }
+      det(same === 6, `${same}/6 identical${diff.length ? `; differs: ${diff.join(', ')}` : ''}; ${((performance.now() - t2) / 1000).toFixed(1)} s`);
+    } catch (e) { det(false, e.message); }
+
     // Kingdoms (kingdomsPlay.js): AI bots at 5 to 9 seats, secret roles; every game must end on a role's Victory condition
     const kd = row('games', 'Kingdoms: 10 AI games, 5 to 9 players');
     try {
