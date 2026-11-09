@@ -1,4 +1,5 @@
 import { Game, Abort, RULES } from './engine.js';
+import { deckHealth, healthSuggestions, HEALTH_TEMPLATE } from './dechealth.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
@@ -2389,6 +2390,7 @@ function showDeck(s) {
       <div><h3>Color pips</h3>${Object.entries(pips).filter(([, n]) => n).map(([c, n]) => `<div class="pipbar"><span>${symbolize(`{${c}}`)}</span><div style="width:${Math.min(100, n * 2)}%"></div><b>${n}</b></div>`).join('') || '<p class="muted">Colorless</p>'}</div>
       <div><h3>Card types</h3><ul class="typelist">${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<li><span>${k}</span><b>${n}</b></li>`).join('')}</ul></div>
     </div>
+    ${d.commanders.length ? '<h3>Deck health</h3><div id="deckHealth"><p><button class="btn small" id="btnDeckHealth">Check lands, ramp, card draw, removal and wipes</button> <span class="muted">Uses Scryfall card tags; each card is asked about once.</span></p></div>' : ''}
     <h3>What the simulator understands: ${cov.pct}%</h3>
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
     ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
@@ -2406,6 +2408,21 @@ function showDeck(s) {
         ${r.missing.length ? `<p><b>Most of them play, and you don't:</b> ${r.missing.slice(0, 25).map(m => `${esc(m.name)} (${Math.round(m.share * 100)}%)`).join(', ')}</p>` : '<p>You play everything that at least half of them play.</p>'}
         ${r.unique.length ? `<p><b>Yours alone</b> (none of them play): ${r.unique.slice(0, 30).map(esc).join(', ')}</p>` : '<p>Every card you play shows up in at least one of their lists.</p>'}`;
     } catch (err) { box.innerHTML = `<p class="muted">Couldn't compare: ${esc(err.message)}</p>`; }
+  });
+  $('btnDeckHealth')?.addEventListener('click', async () => {
+    const box = $('deckHealth');
+    box.innerHTML = '<p class="muted">Checking…</p>';
+    try {
+      const h = await deckHealth(d, t => { box.innerHTML = `<p class="muted">${esc(t)}</p>`; });
+      const row = (k, t) => { const n = h.counts[k], ok = n >= t.min && n <= t.max; return `<tr class="${ok ? 'ok' : 'warn'}"><td>${t.label}</td><td class="num"><b>${n}</b></td><td class="muted">${t.min}–${t.max}</td><td>${ok ? '✔' : n < t.min ? 'low' : 'high'}</td><td class="muted small">${(h.tagged[k] || []).map(esc).join(', ')}</td></tr>`; };
+      box.innerHTML = `<table class="health"><tbody>${Object.entries(HEALTH_TEMPLATE).map(([k, t]) => row(k, t)).join('')}</tbody></table>
+        ${h.notes.length ? `<ul>${h.notes.map(n => `<li>${esc(n.text)}${HEALTH_TEMPLATE[n.k]?.tag && h.counts[n.k] < HEALTH_TEMPLATE[n.k].min ? ` <span class="health-sugg" data-k="${n.k}"></span>` : ''}</li>`).join('')}</ul>` : '<p>✔ Everything is inside the usual ranges.</p>'}
+        <p class="muted">Ranges are a common rule of thumb for 100-card Commander decks, not rules: fast combo decks run less of everything. Card roles come from Scryfall's community tags and can miss a card.</p>`;
+      for (const el of box.querySelectorAll('.health-sugg')) {
+        const list = await healthSuggestions(d, el.dataset.k);
+        if (list.length) el.innerHTML = `Popular in your colors: ${list.map(esc).join(', ')}.`;
+      }
+    } catch (err) { box.innerHTML = `<p class="muted">Couldn't check: ${esc(err.message)}</p>`; }
   });
   $('btnForgetDeck')?.addEventListener('click', () => { forgetDeck(learnAs(d)); showDeck(s); });
   $('deckModal').hidden = false;

@@ -736,8 +736,11 @@ on top of the ones above:
     advice covers what this PC can't see. LAN rows tested with server.py; the tunnel row not run.
 
 ### Decks and data
-- [ ] 145. Deck health: lands, curve and counts of ramp, card draw, removal and wipes against a Commander template
+- [x] 145. Deck health: lands, curve and counts of ramp, card draw, removal and wipes against a Commander template
   (Scryfall's `otag:` tags, fetched once and cached), with suggestions.
+  - Done: dechealth.js and a Deck health button in the deck viewer. Tags are asked only for the deck's own cards (20
+    names a search) and kept per card (ct.otags2). Ramp uses mana-rock/mana-dork/land-ramp/ritual: the broad ramp tag
+    counted Path to Exile and Sun Titan. Tested on random Commander decks in the browser (about 3 s the first time).
 - [ ] 146. Commander precons from MTGJSON's deck files (free, open license): browse by set and seat one in a click;
   cached for offline.
 - [ ] 147. Collection: import what you own (ManaBox, Deckbox or any CSV), mark owned cards in the builder, an "only

@@ -1100,3 +1100,10 @@ body.streamer .chatbox, body.streamer #btnAskUndo, body.streamer #btnTheme, body
 .cup-entrants td, .cup-standings td, .cup-standings th { padding: 3px 6px; }
 .cup-pod { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.25)); }
 .cup-champion { font-size: 1.2em; }
+
+/* Deck health in the deck viewer (item 145) */
+table.health { border-collapse: collapse; margin: 6px 0; }
+table.health td { padding: 2px 8px; vertical-align: top; }
+table.health tr.warn td:nth-child(4) { color: var(--bad, #c0392b); font-weight: 600; }
+table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
+.health-sugg { display: block; font-size: .9em; opacity: .85; }
