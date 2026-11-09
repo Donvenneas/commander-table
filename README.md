@@ -338,6 +338,7 @@ Next to it, a dashed chip shows **Commander Spellbook's own estimate** (Exhibiti
 **Deal a matched table** replaces all four decks with random decks of the table's bracket (bracket 3 if none is chosen) and loads them.
 
 ## cEDH meta data
+**Collection…** on the setup screen keeps the cards you own: paste or choose a ManaBox or Deckbox CSV export, any CSV with a name and a quantity column, or a list like `4 Lightning Bolt` (printings don't matter; tick **Add to the collection** to add a second export). The deck builder then marks cards you own with ✓ and has **Only cards I own**, the deck list shows ✓ or "need N" per card, and the deck viewer lists what a deck is missing with **Copy the list**. There are no prices, and nothing leaves this PC.
 
 **Commander precons…** on the setup screen lists every official preconstructed Commander deck (from MTGJSON's free deck files), by set and newest first, with a filter. Pick a seat number to put a deck in that seat (the table switches to Commander). The list is kept for a week and each deck once seated, so seated precons load offline. A precon can also be typed into a seat as `precon:` and its MTGJSON file name, like `precon:VirtueAndValor_WOC`.
 

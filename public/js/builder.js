@@ -6,6 +6,7 @@
 import { sf, normalize } from './scryfall.js';
 import { formatOf } from './formats.js';
 import { esc, symbolize } from './util.js';
+import { owned, hasCollection } from './collection.js';
 
 const TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'land', 'battle'];
 const typeOf = c => TYPES.find(t => new RegExp(`\\b${t}\\b`, 'i').test(c.typeLine)) || 'other';
@@ -31,6 +32,7 @@ function ensure() {
           <select id="bldType" class="input"><option value="">Any type</option>${TYPES.map(t => `<option value="${t}">${t[0].toUpperCase() + t.slice(1)}</option>`).join('')}</select>
           <select id="bldMv" class="input"><option value="">Any mana value</option>${[0, 1, 2, 3, 4, 5, 6].map(n => `<option value="${n}">MV ${n}${n === 6 ? '+' : ''}</option>`).join('')}</select>
           <label class="muted"><input type="checkbox" id="bldLegal" checked> <span id="bldLegalName">Legal only</span></label>
+          <label class="muted" id="bldOwnedWrap" title="Only cards in your collection (Collection… on the setup screen)"><input type="checkbox" id="bldOwned"> Only cards I own</label>
           <button class="btn small primary" id="bldGo">Search</button>
         </div>
         <div id="bldStatus" class="muted"></div>
@@ -65,6 +67,10 @@ export function openBuilder(opts) {
   $('bldLegalName').textContent = f.legal ? `Legal in ${f.name} only` : 'Legal only (any format)';
 
   const total = z => [...deck.values()].reduce((a, e) => a + e[z], 0);
+  // (your collection, item 147: owned cards are marked, and the search can show only those)
+  const coll = hasCollection();
+  $('bldOwnedWrap').hidden = !coll;
+  if (!coll) $('bldOwned').checked = false;
   function renderDeck() {
     const main = [...deck.values()].filter(e => e.main || e.cmd);
     // Mana curve of the nonland main-deck cards, and the type counts
@@ -81,7 +87,7 @@ export function openBuilder(opts) {
     const row = (e, z) => {
       const tooMany = !isBasic(e.card) && e.main + e.side > f.copies && f.copies < 99;
       return `<div class="bld-row ${tooMany ? 'warn' : ''}" draggable="true" data-name="${esc(e.card.name)}" data-zone="${z}">
-        <b>${e[z]}</b> <span class="bld-cn" title="${esc(e.card.typeLine)}">${esc(e.card.name)}</span> <span class="muted">${symbolize(esc(e.card.manaCost || ''))}</span>
+        <b>${e[z]}</b> <span class="bld-cn" title="${esc(e.card.typeLine)}">${esc(e.card.name)}</span>${coll && !isBasic(e.card) ? (owned(e.card.name) >= e.main + e.side + e.cmd ? ' <span class="own-mark" title="In your collection">✓</span>' : ` <span class="own-miss" title="Your collection has ${owned(e.card.name)}">need ${e.main + e.side + e.cmd - owned(e.card.name)}</span>`) : ''} <span class="muted">${symbolize(esc(e.card.manaCost || ''))}</span>
         <span class="bld-btns">${f.commander && z === 'main' && e[z] === 1 ? `<button class="btn small" data-do="cmd" title="Make it the commander">★</button>` : ''}${f.sideboard && z === 'main' ? '<button class="btn small" data-do="toSide" title="Move a copy to the sideboard">SB</button>' : ''}${z === 'side' ? '<button class="btn small" data-do="toMain" title="Move a copy to the deck">Deck</button>' : ''}
         <button class="btn small" data-do="minus">−</button><button class="btn small" data-do="plus">+</button></span></div>`;
     };
@@ -137,20 +143,33 @@ export function openBuilder(opts) {
     return parts.filter(Boolean).join(' ') + ' game:paper';
   };
   const show = (cards, append) => {
-    const html = cards.map(c => { found.set(c.id, c); return `<div class="bld-res" draggable="true" data-id="${c.id}" title="${esc(c.name)} · ${esc(c.typeLine)}">${c.imgSmall ? `<img src="${esc(c.imgSmall)}" alt="${esc(c.name)}" loading="lazy">` : `<span>${esc(c.name)}</span>`}</div>`; }).join('');
+    const html = cards.map(c => { found.set(c.id, c); const n = coll ? owned(c.name) : 0; return `<div class="bld-res" draggable="true" data-id="${c.id}" title="${esc(c.name)} · ${esc(c.typeLine)}${n ? ` · you own ${n}` : ''}">${c.imgSmall ? `<img src="${esc(c.imgSmall)}" alt="${esc(c.name)}" loading="lazy">` : `<span>${esc(c.name)}</span>`}${n ? `<span class="own-badge">✓${n > 1 ? n : ''}</span>` : ''}</div>`; }).join('');
     if (append) $('bldResults').insertAdjacentHTML('beforeend', html); else $('bldResults').innerHTML = html || '<p class="muted">No cards found.</p>';
   };
   async function search(more = false) {
     try {
       $('bldStatus').textContent = 'Searching Scryfall…';
-      const j = more && next ? await sf(next.replace('https://api.scryfall.com', '')) : await sf(`/cards/search?order=${f.commander ? 'edhrec' : 'name'}&q=${encodeURIComponent(query())}`);
+      let j = more && next ? await sf(next.replace('https://api.scryfall.com', '')) : await sf(`/cards/search?order=${f.commander ? 'edhrec' : 'name'}&q=${encodeURIComponent(query())}`);
       next = j.has_more ? j.next_page : null;
-      show(j.data.map(normalize), more);
-      $('bldStatus').textContent = `${j.total_cards} card${j.total_cards === 1 ? '' : 's'}${f.commander ? ', most played first' : ''}. Click a card to add a copy.`;
+      let cards = j.data.map(normalize);
+      // (only owned cards: Scryfall doesn't know the collection, so pages are filtered here, reading on for a few
+      // pages until there are enough)
+      if ($('bldOwned').checked) {
+        cards = cards.filter(c => owned(c.name));
+        for (let k = 0; k < 6 && cards.length < 30 && next; k++) {
+          $('bldStatus').textContent = 'Looking for cards you own…';
+          j = await sf(next.replace('https://api.scryfall.com', ''));
+          next = j.has_more ? j.next_page : null;
+          cards.push(...j.data.map(normalize).filter(c => owned(c.name)));
+        }
+      }
+      show(cards, more);
+      $('bldStatus').textContent = $('bldOwned').checked ? `${cards.length} cards you own shown${next ? ' (More results reads on)' : ''}. Click a card to add a copy.` : `${j.total_cards} card${j.total_cards === 1 ? '' : 's'}${f.commander ? ', most played first' : ''}. Click a card to add a copy.`;
       $('bldMore').hidden = !next;
     } catch (e) { $('bldStatus').textContent = /no cards/i.test(e.message) ? 'No cards match.' : `Search failed: ${e.message}`; if (!more) $('bldResults').innerHTML = ''; $('bldMore').hidden = true; }
   }
   $('bldGo').onclick = () => search();
+  $('bldOwned').onchange = () => search();
   $('bldMore').onclick = () => search(true);
   $('bldQuery').onkeydown = e => { e.stopPropagation(); if (e.key === 'Enter') search(); };
   $('bldResults').onclick = e => { const r = e.target.closest('.bld-res'); if (!r) return; const c = found.get(r.dataset.id); if (c) { add(c, 'main'); renderDeck(); } };

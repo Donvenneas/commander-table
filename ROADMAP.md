@@ -746,8 +746,11 @@ on top of the ones above:
   - Done: precons.js + "Commander precons…" on the setup screen (208 decks, by set, filter); a seat's source
     "precon:<file>" loads one. The list is kept a week, each deck once. Tested: Virtue and Valor seated and loaded
     (99 + commander, no warnings), and two full-speed games with four precons, 0 simulator errors.
-- [ ] 147. Collection: import what you own (ManaBox, Deckbox or any CSV), mark owned cards in the builder, an "only
+- [x] 147. Collection: import what you own (ManaBox, Deckbox or any CSV), mark owned cards in the builder, an "only
   cards I own" filter and a missing-cards list per deck. No prices.
+  - Done: collection.js + Collection… on the setup screen (replace or add); builder ✓ badges, "need N" rows and an
+    Only cards I own filter (Scryfall pages filtered here, reading up to 6 more pages); the deck viewer's missing list
+    with Copy. Tested with ManaBox and Deckbox style CSVs and a precon in the browser.
 - [ ] 148. Library folders and tags, search by commander, colors and bracket, notes per deck, and version history with
   a diff between versions.
 - [ ] 149. Goldfish: sample hands with mulligans, and solo runs of the AI pilot over 1,000 seeds giving the average turn

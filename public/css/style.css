@@ -1107,3 +1107,9 @@ table.health td { padding: 2px 8px; vertical-align: top; }
 table.health tr.warn td:nth-child(4) { color: var(--bad, #c0392b); font-weight: 600; }
 table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
 .health-sugg { display: block; font-size: .9em; opacity: .85; }
+
+/* Collection marks in the deck builder (item 147) */
+.bld-res { position: relative; }
+.own-badge { position: absolute; right: 4px; bottom: 4px; background: var(--good, #3a9a5b); color: #fff; border-radius: 8px; padding: 0 5px; font-size: 11px; font-weight: 700; }
+.own-mark { color: var(--good, #3a9a5b); }
+.own-miss { color: var(--bad, #c0392b); font-size: .85em; }

@@ -1,6 +1,7 @@
 import { Game, Abort, RULES } from './engine.js';
 import { deckHealth, healthSuggestions, HEALTH_TEMPLATE } from './dechealth.js';
 import { preconList } from './precons.js';
+import { importCollection, clearCollection, summary as collectionSummary, missingCards, hasCollection } from './collection.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
@@ -1576,6 +1577,24 @@ function seatMeta(i, src) {
   $('metaStatus').textContent = `${src.replace(/^edhtop16:/, '')} goes into ${seats[i].name}'s seat. Close this and click "Load decks".`;
 }
 $('btnMeta').addEventListener('click', () => { $('metaModal').hidden = false; renderMeta(); });
+// ---------- Collection (collection.js, item 147)
+function showCollection(msg = '') {
+  const s = collectionSummary();
+  $('collectionSummary').innerHTML = (s ? `<b>${s.total}</b> cards (${s.unique} different), imported ${new Date(s.at).toLocaleDateString()}.` : 'No collection yet.') + (msg ? ` <span class="muted">${esc(msg)}</span>` : '');
+  $('btnCollectionClear').hidden = !s;
+}
+$('btnCollection').addEventListener('click', () => { showCollection(); $('collectionModal').hidden = false; });
+$('btnCollectionClose').addEventListener('click', () => { $('collectionModal').hidden = true; });
+$('collectionFile').addEventListener('change', async e => { const f = /** @type {HTMLInputElement} */ (e.target).files?.[0]; if (f) $('collectionText').value = await f.text(); });
+$('btnCollectionImport').addEventListener('click', () => {
+  try {
+    const s = importCollection($('collectionText').value, { replace: !$('collectionAdd').checked });
+    $('collectionText').value = '';
+    showCollection(`Imported: ${s.total} cards.`);
+  } catch (err) { showCollection(err.message); }
+});
+$('btnCollectionClear').addEventListener('click', () => { if (confirm('Forget your collection?')) { clearCollection(); showCollection(); } });
+
 // ---------- Commander precons (precons.js, item 146): by set, newest first
 async function renderPrecons() {
   const q = $('preconSearch').value.trim().toLowerCase();
@@ -2428,6 +2447,7 @@ function showDeck(s) {
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
     ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
     ${tips || '<p class="muted">Run a batch with this deck seated to get card suggestions.</p>'}
+    ${hasCollection() ? (() => { const miss = missingCards(d); return `<h3>Collection</h3>${miss.length ? `<p>Missing ${miss.reduce((a, m) => a + m.need - m.have, 0)} cards (${miss.length} different): <button class="btn small" id="btnCopyMissing">Copy the list</button></p><p class="ignored">${miss.map(m => `${m.need - m.have} ${esc(m.name)}`).join(' · ')}</p>` : '<p>✔ You own every card in this deck.</p>'}`; })() : ''}
     ${masteryHtml(d)}
     ${learnedHtml(d)}
     <h3>Compared with tournament lists</h3>
@@ -2442,6 +2462,7 @@ function showDeck(s) {
         ${r.unique.length ? `<p><b>Yours alone</b> (none of them play): ${r.unique.slice(0, 30).map(esc).join(', ')}</p>` : '<p>Every card you play shows up in at least one of their lists.</p>'}`;
     } catch (err) { box.innerHTML = `<p class="muted">Couldn't compare: ${esc(err.message)}</p>`; }
   });
+  $('btnCopyMissing')?.addEventListener('click', e => { navigator.clipboard?.writeText(missingCards(d).map(m => `${m.need - m.have} ${m.name}`).join('\n')).then(() => { /** @type {HTMLElement} */ (e.target).textContent = 'Copied'; }).catch(() => {}); });
   $('btnDeckHealth')?.addEventListener('click', async () => {
     const box = $('deckHealth');
     box.innerHTML = '<p class="muted">Checking…</p>';

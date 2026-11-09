@@ -164,6 +164,7 @@
         <div class="setup-actions">
           <button class="btn ghost" id="btnAllRandom">Fill empty seats with random decks</button>
           <button class="btn ghost" id="btnCedh" title="Kinnan, Kess, Thrasios + Tymna and Heliod: fast mana, tutors, free counterspells and compact combos">Seat a cEDH table</button>
+          <button class="btn ghost" id="btnCollection" title="The cards you own: import a ManaBox or Deckbox export, then see what each deck is missing">Collection…</button>
           <button class="btn ghost" id="btnPrecons" title="The official preconstructed Commander decks, from MTGJSON">Commander precons…</button>
           <button class="btn ghost" id="btnMeta" title="Real tournament decks from EDHTop16 and archetypes from the cEDH Decklist Database">Browse the cEDH meta…</button>
           <label class="table-bracket">Bracket for every seat <select id="tableBracket" class="sbracket"></select></label>
@@ -259,6 +260,23 @@
         <span id="batchStatus" class="muted"></span>
       </div>
       <div id="batchResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="collectionModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2>Your collection</h2>
+          <p class="muted">Import the cards you own: a ManaBox or Deckbox CSV export, any CSV with a name and a quantity column, or a list like <code>4 Lightning Bolt</code>. Printings don't matter. The deck builder then marks cards you own (and can show only those), and the deck viewer lists what a deck is missing. Nothing leaves this PC.</p>
+        </div>
+        <button class="btn ghost" id="btnCollectionClose">Close</button>
+      </div>
+      <p id="collectionSummary"></p>
+      <textarea id="collectionText" class="input" rows="8" spellcheck="false" placeholder="Paste an export here, or choose a file"></textarea>
+      <div class="batch-controls"><input type="file" id="collectionFile" accept=".csv,.txt,text/csv,text/plain">
+        <label class="muted"><input type="checkbox" id="collectionAdd"> Add to the collection (instead of replacing it)</label>
+        <button class="btn primary" id="btnCollectionImport">Import</button><button class="btn ghost" id="btnCollectionClear">Forget the collection</button></div>
     </div>
   </div>
 
