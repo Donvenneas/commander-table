@@ -832,8 +832,11 @@ on top of the ones above:
   for the same seeds.
 - [ ] 171. Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the
   hottest paths (abilitiesOf, statics, cloneGame).
-- [ ] 172. Golden card readings: tests/cards.mjs runs the effects parser over a saved snapshot of the 3,500 cards and
+- [x] 172. Golden card readings: tests/cards.mjs runs the effects parser over a saved snapshot of the 3,500 cards and
   fails when a card's reading changes without the snapshot being updated on purpose.
+  - Done: tests/cards-snapshot.json (3,500 cards, Scryfall fields normalize() reads; --fetch refreshes it) and
+    tests/card-readings.json (type, what is understood, lines not read; --update accepts). CI runs it after the type
+    check. Now 88.3% fully read. Checked that a changed reading fails with a +/- diff.
 - [ ] 173. Golden replays: saved replays from each version in tests/ that CI replays and checks for the same result,
   so outcome-changing edits are caught and replay versions are bumped on purpose.
 - [ ] 174. Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI

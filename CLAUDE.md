@@ -31,6 +31,8 @@ Use the `test-commander-table` project skill (`.claude/skills/test-commander-tab
 `Commander Table.exe --no-window`, open http://localhost:8777/selftest.html?run in the browser pane, make sure every check
 passes with 0 simulator errors, and stop every `Commander Table` and `cloudflared` process you started.
 
+Card readings: `node tests/cards.mjs` (CI runs it too) compares how the effects parser reads 3,500 saved cards with `tests/card-readings.json`; when a change to effects.js is meant to change readings, accept them with `node tests/cards.mjs --update` (and `--fetch` for a fresh card snapshot).
+
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.
