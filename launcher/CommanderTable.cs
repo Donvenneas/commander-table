@@ -814,6 +814,15 @@ static class CommanderTable
                     r.Body = "{\"status\":" + Js(TunnelStatus) + ",\"url\":" + Js(TunnelUrl) + ",\"error\":" + Js(TunnelError) + "}";
                     return r;
                 }
+                // (hand a seat to someone else: a new key, so the old link stops working)
+                case "rekey":
+                {
+                    Seat s;
+                    if (!Seats.TryGetValue(seat, out s)) { r.Status = 404; r.Body = "{\"error\":\"No such seat.\"}"; return r; }
+                    s.Key = SeatKey(); s.Name = ""; s.Seen = DateTime.MinValue; s.Answer = null;
+                    r.Body = "{\"key\":" + Js(s.Key) + "}";
+                    return r;
+                }
                 case "state": { Seat s; if (Seats.TryGetValue(seat, out s)) s.State = body; return r; }
                 case "deck": { Seat s; if (Seats.TryGetValue(seat, out s) && s.Deck != null) { r.Type = "text/plain; charset=utf-8"; r.Body = s.Deck; s.Deck = null; } else r.Body = ""; return r; }
                 case "undoack": { Seat s; if (Seats.TryGetValue(seat, out s)) { s.UndoAsk = DateTime.MinValue; s.UndoReply = body == "yes" ? "allowed" : "declined"; } return r; }

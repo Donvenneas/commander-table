@@ -61,6 +61,13 @@ export class Room {
   undoAck(seat, allowed) { return post(`/api/room/undoack?seat=${seat}`, allowed ? 'yes' : 'no').catch(() => {}); }
   // Seconds since a friend's page last checked in (-1: never joined)
   seen(seat) { return this.presence?.[seat]?.seen ?? -1; }
+  // Hand a seat to someone else (item 141): the seat gets a new key; the old link stops working
+  async rekey(seat) {
+    const r = await post(`/api/room/rekey?seat=${seat}`, '');
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || String(r.status));
+    this.keys[seat] = (await r.json()).key;
+    return this.keys[seat];
+  }
   state(seat, snap) { return post(`/api/room/state?seat=${seat}`, snap).catch(() => {}); }
   ask(seat, q) { return post(`/api/room/ask?seat=${seat}`, q).catch(() => {}); }
   async answer(seat) { try { return await (await fetch(`/api/room/answer?seat=${seat}`)).json(); } catch { return null; } }

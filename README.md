@@ -362,6 +362,7 @@ Friends can each take a seat from their own computer, tablet or phone, with noth
 - **Turn clock:** in the Invite panel, **Turn clock** gives each friend a time bank instead of a fixed time per decision: **Relaxed** adds 3 minutes at the start of each of their turns (up to 15), **Tournament** 2 minutes (up to 10). It counts down while they decide and shows on their board for everyone. When it runs dry the AI decides for them until their next turn. While a friend is deciding, their board shows a **Nudge** button: their page beeps, flashes and shows "The host nudged you" until they answer.
 - **Undo for friends:** a friend can click **Undo my last decision**. You get **Allow** / **No** on the timeline; allowing it rebuilds the game without that answer (and anything anyone decided after it), and they're asked again.
 - **Deals:** friends have the same **🤝 Deal** button in their chat box.
+- **Hand a seat to someone else:** in **Invite**, **New link for someone else** gives a friend's seat a new link and join code. The old ones stop working; the AI plays the seat until the new person joins.
 
 Good to know:
 - The first time you host, Windows may ask whether to allow Commander Table through the firewall. Allow it on **private networks**, or friends' links won't load.

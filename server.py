@@ -218,6 +218,13 @@ def room(method, action, seat, code, body, local):
             if method == 'POST':
                 start_tunnel()
             return 200, json.dumps({'status': TUNNEL['status'], 'url': TUNNEL['url'], 'error': TUNNEL['error']})
+        if action == 'rekey':
+            # (hand a seat to someone else: a new key, so the old link stops working)
+            s = ROOM['seats'].get(seat)
+            if not s:
+                return 404, '{"error":"No such seat."}'
+            s.key, s.name, s.seen, s.answer = seat_key(), '', 0.0, None
+            return 200, json.dumps({'key': s.key})
         if action == 'state':
             if seat in ROOM['seats']:
                 ROOM['seats'][seat].state = body or 'null'

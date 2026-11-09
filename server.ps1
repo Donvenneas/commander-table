@@ -162,6 +162,8 @@ function Room-Call([string]$method, [string]$action, [int]$seat, [string]$code, 
     }
     'close' { $Room.Code = $null; $Room.Seats = @{}; $Room.Chat.Clear(); return @(200, '{}') }
     'tunnel' { if ($method -eq 'POST') { Start-Tunnel }; Update-Tunnel; return @(200, "{`"status`":$(JsStr $Tunnel.Status),`"url`":$(JsStr $Tunnel.Url),`"error`":$(JsStr $Tunnel.Error)}") }
+    # (hand a seat to someone else: a new key, so the old link stops working)
+    'rekey' { $s = $Room.Seats[$seat]; if (-not $s) { return @(404, '{"error":"No such seat."}') }; $s.Key = New-SeatKey; $s.Name = ''; $s.Seen = $null; $s.Answer = $null; return @(200, "{`"key`":$(JsStr $s.Key)}") }
     'state' { if ($Room.Seats[$seat]) { $Room.Seats[$seat].State = if ($body) { $body } else { 'null' } }; return @(200, '{}') }
     'ask' { if ($Room.Seats[$seat]) { $Room.Seats[$seat].Question = if ($body) { $body } else { 'null' }; $Room.Seats[$seat].Answer = $null }; return @(200, '{}') }
     'deck' { $s = $Room.Seats[$seat]; if ($s -and $null -ne $s.Deck) { $d = $s.Deck; $s.Deck = $null; return @(200, $d) }; return @(200, '') }

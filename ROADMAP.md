@@ -716,7 +716,9 @@ on top of the ones above:
   - Done: online games are autosaved too, with each friend seat's key; Resume reopens the room with those keys
     (room/open now takes "seat=KEY" in all three servers). Tested with server.py restarted mid-game: the friend's same
     link rejoined and play went on. server.ps1's open was checked with curl; the .exe was rebuilt but not run (port 8777 busy).
-- [ ] 141. Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.
+- [x] 141. Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.
+  - Done: "New link for someone else" in Invite (room/rekey in all three servers). Tested with server.py: the old link
+    was refused, the new one joined the seat mid-game; server.ps1's rekey checked with curl; the .exe rebuilt, not run.
 - [ ] 142. Streamer view: a spectator link with a delay (30 s–3 min) that shows every hand after the delay, in a clean
   layout for screen capture.
 - [ ] 143. Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.

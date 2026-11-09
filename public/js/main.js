@@ -555,6 +555,7 @@ function showInvite() {
       </div>
       ${internet ? link(internet, 'Internet') : ''}
       ${urls.map(u => link(u, 'Home network')).join('') || (internet ? '' : '<p class="warn">No network address found. Is this PC connected to a network?</p>')}
+      ${lobbyOpen ? '' : `<button class="btn small ghost" data-rekey="${seat}" title="Give this seat to someone else: a new link and code; the old ones stop working">New link for someone else</button>`}
     </div>`).join('');
   $('btnInternet')?.addEventListener('click', async e => {
     e.target.disabled = true;
@@ -569,7 +570,21 @@ function showInvite() {
   });
   $('inviteModal').hidden = false;
 }
-$('inviteBody').addEventListener('click', e => {
+$('inviteBody').addEventListener('click', async e => {
+  // Hand a seat to someone else (item 141): new key; the game goes on, the AI plays the seat until they join
+  const rk = e.target.closest('[data-rekey]');
+  if (rk) {
+    const s = +rk.dataset.rekey;
+    if (!confirm('Give this seat a new link? The old link and code stop working, and whoever opens the new one plays this seat.')) return;
+    try {
+      await room.rekey(s);
+      const name = (tabletopInvite ? seats : setup?.seats)?.[s]?.name || `Seat ${s + 1}`;
+      game?.log(`${name}'s seat has a new link; the AI plays it until someone joins`, { kind: 'minor' });
+      autosave();
+      showInvite();
+    } catch (err) { alert(`Couldn't change the link: ${err.message}`); }
+    return;
+  }
   const b = e.target.closest('[data-copy]');
   if (!b) return;
   navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = 'Copied'; setTimeout(() => { b.textContent = 'Copy'; }, 1500); }).catch(() => b.previousElementSibling.select());
