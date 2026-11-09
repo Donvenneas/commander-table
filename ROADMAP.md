@@ -805,7 +805,10 @@ on top of the ones above:
 - [ ] 159. Two-Headed Giant: shared 30 life, shared turns and team combat, with AI teammates that plan together.
 - [ ] 160. Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each
   turn, the planar die, AI that plays both sides.
-- [ ] 161. Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.
+- [x] 161. Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.
+  - Done: two formats (formats.js), random Duel Commander decks from legal:duel (randomVariant), and 1v1 Commander
+    taking any Commander deck. Tested: random decks of 100 with no warnings, three games each at full speed (0 errors),
+    and a 1v1 Commander game started from the setup screen.
 - [ ] 162. Gauntlet: beat a chain of rivals in a row (EDHTop16 top 8, a cube's AI decks or the library); one loss ends
   it; best run shown in Progress.
 - [ ] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs

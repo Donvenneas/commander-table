@@ -139,11 +139,14 @@ Like any website you visit, these services see your internet address, but no acc
 | Brawl | 4 | exactly 60, one of each, Brawl-legal; a legendary creature or planeswalker as commander | 25 | no commander damage |
 | Pauper Commander | 4 | exactly 100, one of each, commons; an uncommon creature as commander | 30 | 16 commander damage |
 | Oathbreaker | 4 | exactly 60, one of each; a planeswalker (the oathbreaker) and an instant or sorcery (its signature spell) | 20 | no commander damage |
+| Duel Commander | 2 | exactly 100, one of each, a commander; its own ban list (Scryfall's `legal:duel`) | 20 | 21 commander damage, best of three offered |
+| 1v1 Commander | 2 | exactly 100, one of each, a commander (Commander's ban list) | 40 | 21 commander damage, best of three offered |
 | Limited (draft or sealed) | 2 | at least 40, from a draft or sealed pool | 20 | the rest of the pool is the sideboard |
 
 - **Oathbreaker:** put the planeswalker and the signature spell under the `Commander` heading. The signature spell can only be cast while its oathbreaker is on the battlefield. Like the oathbreaker, it goes back to the command zone, and each costs {2} more for every earlier cast from there.
 - **Pauper Commander:** the commander is checked by its own rule (an uncommon creature), since Scryfall lists uncommons as not legal in the format.
-- Brawl, Pauper Commander and Oathbreaker have no brackets or EDHTop16 decks. An empty seat gets a random deck for the variant, built from Scryfall's most-played cards that are legal in it.
+- Brawl, Pauper Commander, Oathbreaker and Duel Commander have no brackets or EDHTop16 decks. An empty seat gets a random deck for the variant, built from Scryfall's most-played cards that are legal in it.
+- **1v1 Commander** uses ordinary Commander decks, so random decks by bracket, EDHTop16 lists and precons all work there.
 - **Limited:** an empty seat gets a random sealed deck: six packs of a recent set, built into 40 cards.
 
 - Each format keeps its own deck links and lists, so switching back and forth doesn't lose them.

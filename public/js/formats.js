@@ -22,6 +22,10 @@ export const FORMATS = {
   // Commander variants (multiplayer). cmdRule: what may be the commander (see commanderOk)
   brawl: { name: 'Brawl', life: 25, seats: 4, deck: 60, exact: true, copies: 1, commander: true, cmdDamage: 0, freeMull: true, legal: 'brawl', sideboard: 0, bo3: false, cmdRule: 'brawl', lands: 24, about: '60-card singleton with Standard cards, a legendary creature or planeswalker as commander, 25 life, no commander damage' },
   paupercommander: { name: 'Pauper Commander', life: 30, seats: 4, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 16, freeMull: true, legal: 'paupercommander', sideboard: 0, bo3: false, cmdRule: 'uncommon', rarity: ['common'], lands: 37, about: 'Commons only, an uncommon creature as commander, 30 life, 16 commander damage' },
+  // One-on-one Commander (item 161): Duel Commander (its own ban list on Scryfall as legal:duel, 20 life) and plain
+  // Commander rules for two players at 40 life
+  duel: { name: 'Duel Commander', life: 20, seats: 2, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 21, freeMull: true, legal: 'duel', sideboard: 0, bo3: true, lands: 37, about: '100-card singleton with a commander, one on one, 20 life, its own ban list' },
+  commander1v1: { name: '1v1 Commander', life: 40, seats: 2, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 21, freeMull: true, legal: 'commander', sideboard: 0, bo3: true, lands: 37, about: 'Commander rules for two players: 100-card singleton, 40 life, one on one' },
   oathbreaker: { name: 'Oathbreaker', life: 20, seats: 4, deck: 60, exact: true, copies: 1, commander: true, cmdDamage: 0, freeMull: true, legal: 'oathbreaker', sideboard: 0, bo3: false, cmdRule: 'oathbreaker', signature: true, lands: 20, about: 'A planeswalker (the oathbreaker) and an instant or sorcery (its signature spell) in the command zone, 60 cards, 20 life' },
   // Manual tables (manual.js): no rules engine, no AI. Players do everything by hand. seats is the default
   // table size; the setup screen picks 2–9 (Kingdoms 5–9). anyDeck: Commander lists and 60-card lists both load.

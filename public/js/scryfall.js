@@ -211,14 +211,15 @@ export async function randomDeck(onStatus, bracket = null, { combosIn, budget = 
 // Pauper Commander (an uncommon creature and commons, 100 cards) or Oathbreaker (a planeswalker plus
 // an instant or sorcery as its signature spell, 60 cards). The most-played legal cards in its colors.
 export async function randomVariant(onStatus, key, { combosIn } = {}) {
-  const f = { brawl: { legal: 'brawl', deck: 60, lands: 24 }, paupercommander: { legal: 'paupercommander', deck: 100, lands: 37 }, oathbreaker: { legal: 'oathbreaker', deck: 60, lands: 20 } }[key];
-  const label = { brawl: 'Brawl', paupercommander: 'Pauper Commander', oathbreaker: 'Oathbreaker' }[key];
+  const f = { brawl: { legal: 'brawl', deck: 60, lands: 24 }, paupercommander: { legal: 'paupercommander', deck: 100, lands: 37 }, oathbreaker: { legal: 'oathbreaker', deck: 60, lands: 20 }, duel: { legal: 'duel', deck: 100, lands: 37 } }[key];
+  const label = { brawl: 'Brawl', paupercommander: 'Pauper Commander', oathbreaker: 'Oathbreaker', duel: 'Duel Commander' }[key];
   onStatus?.(`Picking a random ${key === 'oathbreaker' ? 'oathbreaker' : 'commander'}…`);
   const cmdQuery = {
     brawl: 'legal:brawl game:paper -is:digital t:legendary (t:creature or t:planeswalker)',
     // (Scryfall lists uncommon commanders as not legal in Pauper Commander, so no legality term here)
     paupercommander: 't:creature r:uncommon game:paper -is:digital -t:token',
     oathbreaker: 'legal:oathbreaker game:paper -is:digital t:planeswalker',
+    duel: 'legal:duel game:paper -is:digital t:legendary t:creature',
   }[key];
   const cmd = await sf('/cards/random?q=' + encodeURIComponent(cmdQuery));
   const ci = cmd.color_identity.join('').toLowerCase() || 'c';
