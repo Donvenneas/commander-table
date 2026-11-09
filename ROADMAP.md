@@ -866,8 +866,12 @@ on top of the ones above:
   with no change in behaviour, checked by the golden replays (item 173).
 - [ ] 177. CI on more systems: build the .exe and test it and server.ps1 on a Windows runner; run server.py's --check
   and the self-test on macOS and Ubuntu runners (closes item 52's "untested on a real Mac or Linux").
-- [ ] 178. Local bug reports: "Report a problem" saves the replay, log, version and console errors into
-  data\bugs\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.
+- [x] 178. Local bug reports: "Report a problem" saves the replay, log, version and console errors into
+  databugs<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.
+  - Done as one JSON file saved to Downloads (no server change; a browser can't write a zip into data): the replay
+    with seat numbers for names, the last 400 log lines, version, browser, screen, the last 40 errors and warnings
+    (kept from page load) and a note. Paths, emails and IP addresses are masked. Tested: a test error's path, email and
+    IP came out masked.
 - [ ] 179. Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in
   Updates, with clean-up buttons.
 - [x] 180. Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a

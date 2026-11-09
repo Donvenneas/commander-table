@@ -3535,6 +3535,48 @@ $('btnSetsCheck').addEventListener('click', async () => {
   try { const r = await checkSets(); $('setsBody').innerHTML = setsHtml(r); refreshSetLists(); renderMenu(r); } catch (err) { $('setsBody').textContent = `Couldn't reach Scryfall: ${err.message}`; }
 });
 $('btnUpdates').addEventListener('click', () => { $('setsBody').innerHTML = setsHtml(null); showBulk(); showPrints(); showImages(); });
+// ---------- Report a problem (item 178): one file with what's needed to see the problem again (the game as a replay,
+// its log, the version, the browser and the last errors), with personal details taken out. It's saved to your
+// Downloads to share by hand; nothing is sent anywhere.
+const recentErrors = [];
+{
+  const keep = t => { recentErrors.push({ at: new Date().toISOString(), text: String(t).slice(0, 600) }); if (recentErrors.length > 40) recentErrors.shift(); };
+  addEventListener('error', e => keep(`${e.message} (${(e.filename || '').replace(/^.*\/js\//, 'js/')}:${e.lineno})`));
+  addEventListener('unhandledrejection', e => keep(`Unhandled: ${e.reason?.stack || e.reason}`));
+  const ce = console.error.bind(console), cw = console.warn.bind(console);
+  console.error = (...a) => { keep(a.map(x => x?.stack || x).join(' ')); ce(...a); };
+  console.warn = (...a) => { keep(`warning: ${a.map(x => x?.stack || x).join(' ')}`); cw(...a); };
+}
+// (anything that looks like a home folder, a user or computer name in a path, an email or an IP address)
+const scrub = s => String(s)
+  .replace(/[A-Za-z]:\\(?:Users|Documents and Settings)\\[^\\/"'\s]+/gi, 'C:\\Users\\<user>')
+  .replace(/\/(?:home|Users)\/[^/"'\s]+/g, '/home/<user>')
+  .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '<email>')
+  .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '<ip>');
+async function saveReport() {
+  const note = prompt('What went wrong? (optional: a sentence helps, and it goes in the report)') ?? null;
+  if (note === null) return;
+  let version = '';
+  try { version = (await (await fetch('/api/update')).json()).version; } catch { /* no server */ }
+  const replay = setup && game ? replayData() : null;
+  // (player names become seat numbers; deck lists stay, they're needed to replay the game)
+  if (replay) replay.seats = replay.seats.map((s, i) => ({ ...s, name: `Player ${i + 1}` }));
+  const names = game ? game.players.map(p => p.name) : [];
+  const plain = h => { let t = String(h).replace(/<[^>]+>/g, ''); names.forEach((n, i) => { if (n) t = t.split(n).join(`Player ${i + 1}`); }); return t; };
+  const report = {
+    app: 'commander-table-report', made: new Date().toISOString(), version, note: scrub(note),
+    browser: navigator.userAgent.replace(/\(([^)]*)\)/, (m, inner) => `(${inner.split(';')[0]})`),
+    screen: `${innerWidth}x${innerHeight}`, format: setup?.format || formatKey,
+    turn: game ? `turn ${game.turn}, step ${game.steps}` : 'no game',
+    errors: recentErrors.map(e => ({ ...e, text: scrub(e.text) })),
+    log: game ? game.logEntries.slice(-400).map(e => scrub(plain(e.html))) : [],
+    replay: replay ? JSON.parse(scrub(JSON.stringify(replay))) : null,
+  };
+  download(`commander-table-report-${stamp()}.json`, JSON.stringify(report, null, 1));
+  alert('The report is in your Downloads folder. Nothing was sent anywhere: share it by hand if you want to.');
+}
+$('btnReport').addEventListener('click', saveReport);
+
 // ---------- Help window (item 184): data/help.json (tools/help.mjs builds it from README.md), searchable
 let help = null;
 // (README's own Markdown: bold, code, links, lists and tables, enough for the manual)
@@ -3743,6 +3785,7 @@ $('startMenu').addEventListener('click', e => {
     case 'library': $('btnLibrary').click(); break;
     case 'progress': $('btnProgress').click(); break;
     case 'help': openHelp(); break;
+    case 'report': saveReport(); break;
     case 'display': $('btnDisplay').click(); break;
     case 'updates': $('btnUpdates').click(); break;
     case 'tour': toSetup(); startTour(toured); break;
