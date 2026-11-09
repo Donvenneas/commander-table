@@ -23,6 +23,7 @@
       <button id="btnDecks" class="btn ghost">Decks</button>
       <button id="btnBatch" class="btn ghost" title="Run many games at full speed and compare the decks">Batch</button>
       <button id="btnTourney" class="btn ghost" title="Pit more than four decks against each other in pods">Tournament</button>
+      <button id="btnCup" class="btn ghost" title="A tournament for you and friends (Swiss or single elimination), with AI players to fill the field">Friend tournament</button>
       <button id="btnTheme" class="btn ghost" title="Switch between dark and light">☀</button>
       <button id="btnDisplay" class="btn ghost" title="Board background, colors for color blindness, larger text">Display</button>
       <button id="btnHistory" class="btn ghost" title="Results of every game you've played">History</button>
@@ -573,6 +574,19 @@
         </div>
       </div>
       <div id="tourneyResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="cupModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Friend tournament</h2>
+          <p class="muted">4 to 16 players: you, friends online and AI decks, in the table's format. Pods are a table's worth of players; a short pod gets AI fill-ins, who score nothing. Pods with people are played at this table one at a time (friends get an invite link each match); pods of AI players are played at full speed.</p>
+        </div>
+        <button class="btn ghost" id="btnCupClose">Close</button>
+      </div>
+      <div id="cupBody"></div>
     </div>
   </div>
 

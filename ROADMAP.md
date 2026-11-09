@@ -723,7 +723,12 @@ on top of the ones above:
   layout for screen capture.
   - Done: seat -2 in every room; the host samples the whole table every 2 s and sends it only after the delay. Tested
     with server.py: both hands shown, chat and buttons hidden, a chat line appeared 31 s later at the 30 s setting.
-- [ ] 143. Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.
+- [x] 143. Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.
+  - Done: Friend tournament (friendcup.js + a window on the table): entrants played by you, friends or the AI; Swiss or
+    single elimination; AI fill-ins for short pods; pods with people played at the table (friends get links per match),
+    AI pods at full speed; standings with Copy. Tested: the pairing logic on 4 shapes in Node, and a 5-player Swiss
+    Standard event in the browser (AI pods, my pod at the table, round 2 paired by points). A friend seat in a cup game
+    uses the normal online seat path but wasn't played separately.
 - [x] 144. Connection check for friends: a page on the host that tests the port and the tunnel from outside the PC and
   says what to fix (firewall, router, tunnel down).
   - Done: "Check the connection" in Invite: the server, each LAN address and port, the tunnel URL through Cloudflare,

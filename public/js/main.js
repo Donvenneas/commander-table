@@ -1,4 +1,5 @@
 import { Game, Abort, RULES } from './engine.js';
+import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
 import { sf, fetchCollection } from './scryfall.js';
@@ -2502,6 +2503,120 @@ async function runTourney() {
     $('btnTourneyRun').disabled = false;
     $('btnTourneyStop').hidden = true;
   }
+}
+
+// ---------- Friend tournaments (item 143; friendcup.js keeps the pairings and results)
+const CUP = 'ct.cup';
+let cupDraft = store('ct.cupDraft') || [{ name: 'You', kind: 'you', source: '' }, { name: 'Friend 1', kind: 'friend', source: 'random' }, { name: 'AI 1', kind: 'ai', source: 'random' }, { name: 'AI 2', kind: 'ai', source: 'random' }];
+const CUP_KINDS = { you: 'You (this PC)', friend: 'A friend online', ai: 'AI' };
+function openCup() { if (game && !clock.paused) togglePlay(); $('cupModal').hidden = false; renderCup(); }
+$('btnCup').addEventListener('click', openCup);
+$('btnCupClose').addEventListener('click', () => { $('cupModal').hidden = true; });
+function renderCup(msg = '') {
+  const cup = store(CUP);
+  if (!cup) {
+    const f = fmt();
+    $('cupBody').innerHTML = `<table class="cup-entrants"><thead><tr><th>Player</th><th>Who plays</th><th>Deck (link, list name or <code>random</code>)</th><th></th></tr></thead><tbody>
+      ${cupDraft.map((e, i) => `<tr data-i="${i}"><td><input class="input" data-f="name" maxlength="24" value="${esc(e.name)}"></td>
+        <td><select class="input" data-f="kind">${Object.entries(CUP_KINDS).map(([k, l]) => `<option value="${k}" ${e.kind === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
+        <td><input class="input" data-f="source" value="${esc(e.source)}" placeholder="random"></td><td><button class="btn small ghost" data-cup="del" data-i="${i}">✕</button></td></tr>`).join('')}
+      </tbody></table>
+      <div class="batch-controls"><button class="btn small" data-cup="add" ${cupDraft.length >= 16 ? 'disabled' : ''}>Add player</button>
+        <label>Kind <select id="cupMode" class="input"><option value="swiss">Swiss</option><option value="elim">Single elimination</option></select></label>
+        <label>Rounds (Swiss) <select id="cupRounds" class="input"><option>3</option><option>4</option><option>5</option></select></label>
+        <button class="btn primary" data-cup="start" ${f.manual ? 'disabled' : ''}>Start</button></div>
+      <p class="muted">${f.manual ? 'Choose a rules-engine format on the setup screen first (not the manual tabletop).' : `Format: ${esc(f.name)}, pods of ${f.seats}.`} ${esc(msg)}</p>`;
+    return;
+  }
+  const name = ei => (ei < 0 ? '<i>AI fill-in</i>' : esc(cup.entrants[ei].name));
+  const people = p => p.seats.some(ei => ei >= 0 && cup.entrants[ei].kind !== 'ai');
+  const pods = cup.pods.map((p, k) => `<div class="cup-pod">${p.seats.map((ei, i) => `<span>${p.places ? `<b>${p.places[i]}.</b> ` : ''}${name(ei)}</span>`).join(' · ')}
+    ${p.places ? '<span class="muted">done</span>' : `<button class="btn small ${people(p) ? 'primary' : ''}" data-cup="play" data-k="${k}">${people(p) ? 'Play at the table' : 'Play at full speed'}</button>`}</div>`).join('');
+  const rows = standings(cup).map((e, i) => `<tr class="${e.out ? 'muted' : ''}"><td class="num">${i + 1}</td><td>${esc(e.name)}</td><td>${CUP_KINDS[e.kind]}</td><td class="num">${e.points}</td><td class="num">${e.wins}</td><td class="num">${e.games}</td><td>${e.out ? 'out' : ''}</td></tr>`).join('');
+  $('cupBody').innerHTML = `${cup.done ? `<p class="cup-champion">🏆 <b>${esc(cup.entrants[cup.champion]?.name || '')}</b> wins the tournament.</p>` : `<h3>Round ${cup.round}${cup.mode === 'swiss' ? ` of ${cup.rounds}` : ''}</h3>${pods}`}
+    <div class="batch-controls">${!cup.done && cup.pods.some(p => !p.places && !people(p)) ? '<button class="btn small" data-cup="sim">Play all AI pods</button>' : ''}
+      ${!cup.done && roundDone(cup) ? '<button class="btn primary" data-cup="next">Next round</button>' : ''}
+      <button class="btn small" data-cup="copy">Copy standings</button><button class="btn small ghost" data-cup="end">${cup.done ? 'New tournament' : 'End the tournament'}</button></div>
+    <table class="cup-standings"><thead><tr><th class="num">#</th><th>Player</th><th>Plays</th><th class="num">Points</th><th class="num">Wins</th><th class="num">Games</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    <p class="muted">${esc(msg)} Points: 3 for first, then ${fmt().seats > 2 ? '2, 1, 0' : '0'} by place.</p>`;
+}
+$('cupBody').addEventListener('input', e => {
+  const tr = e.target.closest('tr[data-i]'), f = e.target.dataset?.f;
+  if (!tr || !f) return;
+  cupDraft[+tr.dataset.i][f] = /** @type {HTMLInputElement} */ (e.target).value;
+  store('ct.cupDraft', cupDraft);
+});
+$('cupBody').addEventListener('click', async e => {
+  const b = e.target.closest('[data-cup]');
+  if (!b) return;
+  const act = b.dataset.cup;
+  if (act === 'add') { cupDraft.push({ name: `AI ${cupDraft.length}`, kind: 'ai', source: 'random' }); store('ct.cupDraft', cupDraft); renderCup(); return; }
+  if (act === 'del') { cupDraft.splice(+b.dataset.i, 1); store('ct.cupDraft', cupDraft); renderCup(); return; }
+  if (act === 'start') {
+    const entrants = cupDraft.map(x => ({ name: x.name.trim() || 'Player', kind: CUP_KINDS[x.kind] ? x.kind : 'ai', source: x.source.trim() || 'random' }));
+    if (entrants.length < 4 || entrants.length > 16) { renderCup('A tournament needs 4 to 16 players.'); return; }
+    const cup = newCup({ entrants, mode: $('cupMode').value, rounds: +$('cupRounds').value, pod: fmt().seats, format: formatKey });
+    store(CUP, pairRound(cup));
+    renderCup();
+    return;
+  }
+  const cup = store(CUP);
+  if (!cup) return;
+  if (act === 'end') { if (cup.done || confirm('End this tournament? Its results are dropped.')) { store(CUP, null); renderCup(); } return; }
+  if (act === 'copy') { navigator.clipboard?.writeText(standingsText(cup)).then(() => { b.textContent = 'Copied'; }).catch(() => {}); return; }
+  if (act === 'next') { store(CUP, pairRound(cup)); renderCup(); return; }
+  if (act === 'sim' || act === 'play') {
+    $('cupBody').querySelectorAll('button').forEach(x => { x.disabled = true; });
+    try {
+      const people = p => p.seats.some(ei => ei >= 0 && cup.entrants[ei].kind !== 'ai');
+      const ks = act === 'play' ? [+b.dataset.k] : cup.pods.map((p, k) => k).filter(k => !cup.pods[k].places && !people(cup.pods[k]));
+      for (const k of ks) await playCupPod(k);
+    } catch (err) { renderCup(`Couldn't play the pod: ${err.message}`); return; }
+    renderCup();
+  }
+});
+async function cupDecks(cup, pod, say) {
+  const decks = [];
+  for (const [i, ei] of pod.seats.entries()) {
+    const src = ei < 0 ? 'random' : cup.entrants[ei].source;
+    say(`Loading deck ${i + 1} of ${pod.seats.length}…`);
+    decks.push(await loadDeck(src, m => say(`Deck ${i + 1}: ${m}`), { format: cup.format }));
+  }
+  return decks;
+}
+async function playCupPod(k) {
+  const cup = store(CUP), pod = cup.pods[k];
+  const say = t => { const m = $('cupBody').querySelector('.muted:last-child'); if (m) m.textContent = t; };
+  if (cup.format !== formatKey) setFormat(cup.format, { quiet: true });
+  const decks = await cupDecks(cup, pod, say);
+  const seatName = (ei, i) => (ei < 0 ? `AI fill-in ${i + 1}` : cup.entrants[ei].name);
+  const record = g => {
+    const c = store(CUP);
+    if (!c || c.round !== cup.round) return;
+    recordPod(c, k, g.players.map(p => (g.winner === p ? 1 : p.place || 2)), g.players.map(p => p.life));
+    store(CUP, c);
+  };
+  const people = pod.seats.some(ei => ei >= 0 && cup.entrants[ei].kind !== 'ai');
+  if (!people) {
+    // (AI players only: at full speed, off screen)
+    const g = new Game(decks.map((d, i) => ({ playerName: seatName(pod.seats[i], i), deckName: d.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(d)), commanders: d.commanders, learnAs: learnAs(d), cards: d.cards })), { beat: async () => {} }, { format: cup.format });
+    await g.run();
+    record(g);
+    return;
+  }
+  $('cupModal').hidden = true;
+  $('setup').hidden = true;
+  $('startMenu').hidden = true;
+  match = null;
+  newGame({
+    customSeats: pod.seats.map((ei, i) => ({ name: seatName(ei, i), deck: decks[i], style: ei >= 0 && cup.entrants[ei].kind === 'you' ? 'human' : ei >= 0 && cup.entrants[ei].kind === 'friend' ? 'remote' : guessStyle(decks[i]) })),
+    format: cup.format,
+    after: g => {
+      record(g);
+      const c = store(CUP);
+      return { html: `Tournament, round ${cup.round}: <b>${esc(g.winner?.name || 'nobody')}</b> wins the pod.${c?.done ? ` 🏆 ${esc(c.entrants[c.champion]?.name || '')} wins the tournament.` : ''}`, buttons: [{ label: 'Back to the tournament', primary: true, fn: openCup }], noRematch: true };
+    },
+  });
 }
 
 function renderTourney(decks) {

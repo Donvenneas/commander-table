@@ -455,6 +455,11 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
 - Each pod plays one to five games.
 - Standings rank decks by points per game: 3 for first, 2 for second, 1 for third.
 
+**Friend tournament** is a tournament for people: 4 to 16 players, each played by you (this PC), a friend online, or the AI, with any deck (a link, a list name or `random`). Pick **Swiss** (3 to 5 rounds, players on the same points meet) or **Single elimination** (the pod winner goes on).
+- Pods are a table's worth of players in the table's format; a short pod gets AI fill-ins, who score nothing and never go on.
+- **Play at the table** plays a pod with people in it (friends get an invite link for each match); **Play at full speed** plays a pod of AI players off screen.
+- Points: 3 for first, then 2, 1, 0 by place in a four-player pod (0 for losing a duel). **Copy standings** copies them as text for your chat. The tournament is kept until you end it.
+
 ## What's in it
 
 - **Card art and data** come from Scryfall, matching the printing listed in each deck. Images load on demand and are kept for offline play.

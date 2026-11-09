@@ -1094,3 +1094,9 @@ body.streamer .chatbox, body.streamer #btnAskUndo, body.streamer #btnTheme, body
 .conn-check { margin: 8px 0; }
 .cc-row.ok { color: var(--good, #3a9a5b); }
 .cc-row.bad { color: var(--bad, #c0392b); }
+
+/* Friend tournaments (item 143) */
+.cup-entrants, .cup-standings { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.cup-entrants td, .cup-standings td, .cup-standings th { padding: 3px 6px; }
+.cup-pod { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.25)); }
+.cup-champion { font-size: 1.2em; }
