@@ -2,6 +2,7 @@ import { Game, Abort, RULES } from './engine.js';
 import { deckHealth, healthSuggestions, HEALTH_TEMPLATE } from './dechealth.js';
 import { preconList } from './precons.js';
 import { sampleHands, goldfishRuns, atLeast } from './goldfish.js';
+import { dekXml, arenaText, checklistText } from './deckexport.js';
 import { importCollection, clearCollection, summary as collectionSummary, missingCards, hasCollection } from './collection.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
@@ -2515,6 +2516,7 @@ function showDeck(s) {
       <div><h3>Card types</h3><ul class="typelist">${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<li><span>${k}</span><b>${n}</b></li>`).join('')}</ul></div>
     </div>
     ${d.commanders.length ? '<h3>Deck health</h3><div id="deckHealth"><p><button class="btn small" id="btnDeckHealth">Check lands, ramp, card draw, removal and wipes</button> <span class="muted">Uses Scryfall card tags; each card is asked about once.</span></p></div>' : ''}
+    <p class="deck-exports"><span class="muted">Export:</span> <button class="btn small" data-exp="dek" title="An MTGO deck file (cards matched by name)">MTGO .dek</button><button class="btn small" data-exp="arena" title="Copy the list in MTG Arena's import format">Arena text</button><button class="btn small" data-exp="check" title="A checklist by card type with set and number, to print or tick off">Checklist</button></p>
     <h3>Draw odds</h3><div id="drawOdds"><p><select id="oddsWhat" class="input"></select> <label class="muted">at least <select id="oddsK" class="sbracket"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label></p><div id="oddsOut"></div></div>
     <h3>Goldfish</h3><div id="goldfish"><p><button class="btn small" id="btnSampleHand">Sample hand</button>
       <label class="muted">Solo runs <select id="gfRuns" class="sbracket"><option>100</option><option>250</option><option>1000</option></select></label> <button class="btn small" id="btnGoldfish">Run the AI pilot alone</button></p>
@@ -2541,6 +2543,15 @@ function showDeck(s) {
     } catch (err) { box.innerHTML = `<p class="muted">Couldn't compare: ${esc(err.message)}</p>`; }
   });
   $('btnCopyMissing')?.addEventListener('click', e => { navigator.clipboard?.writeText(missingCards(d).map(m => `${m.need - m.have} ${m.name}`).join('\n')).then(() => { /** @type {HTMLElement} */ (e.target).textContent = 'Copied'; }).catch(() => {}); });
+  // More exports (item 153)
+  $('deckBody').querySelector('.deck-exports')?.addEventListener('click', async e => {
+    const b = e.target.closest('[data-exp]');
+    if (!b) return;
+    const file = (d.deckName || 'deck').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'deck';
+    if (b.dataset.exp === 'dek') download(`${file}.dek`, dekXml(d), 'application/xml');
+    else if (b.dataset.exp === 'check') download(`${file}-checklist.txt`, checklistText(d), 'text/plain');
+    else { try { await navigator.clipboard.writeText(arenaText(d)); b.textContent = 'Copied'; } catch { download(`${file}-arena.txt`, arenaText(d), 'text/plain'); } }
+  });
   // Draw odds (item 150): by turn N you have seen 7 + N cards (one fewer on the play in a duel, where the first
   // player skips the first draw). Categories: lands, each card type, the deck health roles once checked, combo pieces.
   const lib = d.cards.reduce((a, x) => a + x.qty, 0);

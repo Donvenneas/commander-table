@@ -774,7 +774,9 @@ on top of the ones above:
     (2+ cards) and tutors (counted, no limit) are listed; bracketDifferences explains a gap with Spellbook on the chip
     and in a new Bracket section of the deck viewer. Changes the default AI noise for some unbracketed seats; noise
     is saved in setups, so replays stay exact. Tested on a precon and two random decks.
-- [ ] 153. More exports: MTGO .dek, Arena text and a printable text checklist.
+- [x] 153. More exports: MTGO .dek, Arena text and a printable text checklist.
+  - Done: deckexport.js + Export buttons in the deck viewer. Checked on a precon: the .dek parses as XML with the
+    commander in the sideboard, the Arena text reads back as 100 cards with the commander, the checklist groups by type.
 - [ ] 154. "Fully simulated only" filter in the builder, so people can build decks the AI plays at full strength.
 - [ ] 155. EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.
 - [ ] 156. More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish,

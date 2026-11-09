@@ -237,6 +237,7 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
 **Goldfish** (deck viewer): **Sample hand** deals 7 from a shuffled deck, with **Mulligan** (a fresh 7; put one card per mulligan on the bottom), **Draw** and **New hand**. **Run the AI pilot alone** plays the deck 100, 250 or 1,000 times against an opponent who only plays lands, up to its tenth turn, and reports the average turn the commander is cast, a combo is started and the game is won, lands after three turns and mulligans per game. The seeds are the same every time, so you can compare a deck before and after a change.
 **Draw odds** (deck viewer): pick a group (lands, a card type, a Deck health role once checked, or the pieces of a combo) or one card, and how many you want; a table shows the chance of having at least that many by turns 1 to 10, on the draw and on the play, and in the opening hand.
 **Combos one card away** (deck viewer and deck builder, Commander decks): asks Commander Spellbook for combos in your colors that need just one more card, most popular first, with what each makes and a link to its details. In the builder, click the missing card to search for it.
+**Export** (deck viewer): **MTGO .dek** saves a Magic Online deck file (cards matched by name; a commander goes in the sideboard, as MTGO expects), **Arena text** copies the list in MTG Arena's import format (names only, so Arena picks its own printings), and **Checklist** saves a text checklist by card type with each card's set and number, to print or tick off while pulling cards.
 
 ## Decks
 
