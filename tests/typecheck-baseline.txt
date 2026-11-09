@@ -33,7 +33,6 @@ public/js/human.js TS2416 Property 'chooseDiscard' in type 'HumanAgent' is not a
 public/js/human.js TS2416 Property 'combatResponse' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.
 public/js/human.js TS2416 Property 'combatTrick' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.
 public/js/human.js TS2416 Property 'considerDeal' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.
-public/js/human.js TS2416 Property 'declareBlockers' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.
 public/js/human.js TS2416 Property 'keepHand' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.
 public/js/human.js TS2416 Property 'respond' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.
 public/js/human.js TS2416 Property 'respondToLoop' in type 'HumanAgent' is not assignable to the same property in base type 'Agent'.

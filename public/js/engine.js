@@ -172,7 +172,24 @@ export class Game {
   setPhase(ph) { this.phase = ph; for (const p of this.players) p.pool = (p.pool || []).length && p.battlefield.some(o => o.fx.keepRed) ? p.pool.filter(u => u.colors.length === 1 && u.colors[0] === 'R') : []; this.emit('update'); }
 
   // ---------- characteristics
-  attachments(o) { const r = []; for (const q of this.players) for (const a of q.battlefield) if (a.attachedTo === o) r.push(a); return r; }
+  attachments(o) {
+    // (while the AI plans combat the board doesn't change: who is attached to what is worked out once)
+    const ev = this._ev;
+    if (ev) {
+      if (!ev.att) { ev.att = new Map(); for (const q of this.players) for (const a of q.battlefield) if (a.attachedTo) { const l = ev.att.get(a.attachedTo); if (l) l.push(a); else ev.att.set(a.attachedTo, [a]); } }
+      const l = ev.att.get(o);
+      return l ? l.slice() : [];
+    }
+    const r = []; for (const q of this.players) for (const a of q.battlefield) if (a.attachedTo === o) r.push(a); return r;
+  }
+  // Speed (item 171): f runs with a read-only cache of board facts that many checks repeat (attachments, keyword-
+  // removing effects). Only for planning code that doesn't change the board, and doesn't wait (no await) inside.
+  withEvalCache(f) {
+    if (this._ev) return f();
+    this._ev = { att: null, memo: new Map(), p: new Map(), t: new Map(), kw: new Map() };
+    try { return f(); } finally { this._ev = null; }
+  }
+  evalMemo(key, f) { const ev = this._ev; if (!ev) return f(); if (!ev.memo.has(key)) ev.memo.set(key, f()); return ev.memo.get(key); }
   anthemApplies(s, o) {
     const an = s.fx.anthem;
     if (!o.fx.type.creature || (an.other && s === o)) return false;
@@ -241,16 +258,28 @@ export class Game {
     for (const a of this.attachments(o)) if (a.fx.attachSet && (a.ts ?? 0) > ts) { best = a.fx.attachSet; ts = a.ts ?? 0; }
     return best;
   }
-  power(o) { const st = this.setLayer(o); if (st) return st.p + o.counters + o.tempP + this.bonus(o).p; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.pDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.pDyn) ?? basePT(o.card.power) : basePT(o.card.power)) + o.counters + o.tempP + this.bonus(o).p; }
-  toughness(o) { const st = this.setLayer(o); if (st) return st.t + o.counters + o.tempT + this.bonus(o).t; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.tDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.tDyn) ?? basePT(o.card.toughness) : basePT(o.card.toughness)) + o.counters + o.tempT + this.bonus(o).t; }
+  // (while the AI plans combat, power, toughness and keywords are worked out once per object: item 171)
+  power(o) { const ev = this._ev; if (!ev) return this.powerNow(o); let v = ev.p.get(o); if (v === undefined) { v = this.powerNow(o); ev.p.set(o, v); } return v; }
+  toughness(o) { const ev = this._ev; if (!ev) return this.toughnessNow(o); let v = ev.t.get(o); if (v === undefined) { v = this.toughnessNow(o); ev.t.set(o, v); } return v; }
   has(o, kw) {
+    const ev = this._ev;
+    if (!ev) return this.hasNow(o, kw);
+    let m = ev.kw.get(o);
+    if (!m) { m = new Map(); ev.kw.set(o, m); }
+    let v = m.get(kw);
+    if (v === undefined) { v = this.hasNow(o, kw); m.set(kw, v); }
+    return v;
+  }
+  powerNow(o) { const st = this.setLayer(o); if (st) return st.p + o.counters + o.tempP + this.bonus(o).p; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.pDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.pDyn) ?? basePT(o.card.power) : basePT(o.card.power)) + o.counters + o.tempP + this.bonus(o).p; }
+  toughnessNow(o) { const st = this.setLayer(o); if (st) return st.t + o.counters + o.tempT + this.bonus(o).t; return (o.zone === 'battlefield' && (o.fx.ptDyn || o.fx.tDyn) ? this.dynPT(o, o.fx.ptDyn || o.fx.tDyn) ?? basePT(o.card.toughness) : basePT(o.card.toughness)) + o.counters + o.tempT + this.bonus(o).t; }
+  hasNow(o, kw) {
     // Shadowspear, Arcane Lighthouse: hexproof and indestructible are switched off this turn
     if (o.stripped?.turn === this.turn && o.stripped.kws.includes(kw)) return false;
     // Archetype of Imagination / Endurance / Aggression: opponents' creatures lose the keyword
-    if ((kw === 'flying' || kw === 'hexproof' || kw === 'trample') && o.zone === 'battlefield' && o.fx.type.creature && this.opponents(this.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppLoseKw === kw))) return false;
+    if ((kw === 'flying' || kw === 'hexproof' || kw === 'trample') && o.zone === 'battlefield' && o.fx.type.creature && this.evalMemo(`lose:${o.controller}:${kw}`, () => this.opponents(this.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppLoseKw === kw)))) return false;
     if (o.tempKw?.has(kw) || o.permKw?.has(kw) || (kw === 'menace' && o.suspected)) return true;
     // Oviya: creatures attacking one of its controller's opponents have trample
-    if (kw === 'trample' && o.attacking != null && o.zone === 'battlefield' && this.alive().some(q => q.idx !== o.attacking && q.battlefield.some(s => s.fx.attackTrample) && this.opponents(q).some(x => x.idx === o.attacking))) return true;
+    if (kw === 'trample' && o.attacking != null && o.zone === 'battlefield' && this.evalMemo(`oviya:${o.attacking}`, () => this.alive().some(q => q.idx !== o.attacking && q.battlefield.some(s => s.fx.attackTrample) && this.opponents(q).some(x => x.idx === o.attacking)))) return true;
     // Stinkweed Imp: creatures it deals combat damage to are destroyed (deathtouch does the same in combat)
     if (kw === 'deathtouch' && o.fx.combatKill && o.zone === 'battlefield') return true;
     // (an aura that makes it lose all abilities leaves only what's granted)

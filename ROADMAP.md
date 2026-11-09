@@ -830,8 +830,13 @@ on top of the ones above:
 - [ ] 169. Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.
 - [ ] 170. Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker
   for the same seeds.
-- [ ] 171. Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the
+- [x] 171. Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the
   hottest paths (abilitiesOf, statics, cloneGame).
+  - Done: profiled in Node: the combat planner spent most of its time in attachments(), has(), power() and toughness().
+    Game.withEvalCache gives the planner a read-only memo of those (the board doesn't change while it plans).
+    Self-test: 50 games 13.9 s → 6.5 s and look-ahead 0.69 → 0.34 s a game, with the same results (13.0 rounds, 53
+    combos; golden games identical). abilitiesOf and cloneGame were under 3% each and left as they are. New
+    self-test row: Speed (10 fixed seeds, games and steps a second).
 - [x] 172. Golden card readings: tests/cards.mjs runs the effects parser over a saved snapshot of the 3,500 cards and
   fails when a card's reading changes without the snapshot being updated on purpose.
   - Done: tests/cards-snapshot.json (3,500 cards, Scryfall fields normalize() reads; --fetch refreshes it) and

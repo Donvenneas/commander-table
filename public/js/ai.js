@@ -1780,7 +1780,7 @@ export class Agent {
     // AI strength: a handicapped pilot sometimes uses the old rule-of-thumb attacks instead of the combat simulation
     if (this.handicap && g.rand() < this.handicap) return this.declareAttackersHeuristic ? this.declareAttackersHeuristic(g, p) : [];
     try {
-      const { attacks, gain } = bestAttacks(g, p, this, { style: this.style, noise: this.noise || 0 });
+      const { attacks, gain } = g.withEvalCache(() => bestAttacks(g, p, this, { style: this.style, noise: this.noise || 0 }));
       if (attacks.length) {
         const targets = [...new Set(attacks.map(x => g.players[x.target].name))];
         this.explain(g, p, `attacks ${targets.join(' and ')} with ${attacks.length} creature${attacks.length === 1 ? '' : 's'}: the combat simulation expects ${gain.toFixed(1)} value after the defenders' best blocks and the backswing`);
@@ -1793,7 +1793,7 @@ export class Agent {
   }
   declareBlockers(g, q, attackers) {
     try {
-      const { blocks } = bestBlocks(g, q, attackers, this);
+      const { blocks } = g.withEvalCache(() => bestBlocks(g, q, attackers, this));
       if ((this.noise && g.rand() < this.noise * 0.5) || (this.handicap && g.rand() < this.handicap)) return this.declareBlockersHeuristic(g, q, attackers);
       const kept = q.battlefield.filter(o => o.fx.type.creature && !o.tapped && (this.pieceWorth(g, q, o) || o.isCommander) && !blocks.some(x => x.b === o));
       if (blocks.length || kept.length) this.explain(g, q, `${blocks.length ? `blocks with ${blocks.map(x => x.b.card.name).join(', ')}` : 'takes the hit'}${kept.length ? `; keeps ${kept.map(o => o.card.name).join(', ')} out of combat` : ''} (best result of the block search)`);

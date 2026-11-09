@@ -205,6 +205,20 @@ async function run() {
         `${d} decisions looked ahead, ${c} changed; ${same}/6 replayed exactly, ${untouched}/2 untouched when nothing changes; ${errs} simulator errors, ${e} look-ahead errors${e ? ` (${laStats.lastError})` : ''}${bad.length ? `, rules: ${bad[0].text}` : ''}; ${(ms / 12000).toFixed(2)} s per game`);
     } catch (e) { la(false, e.message); }
 
+    // Speed (item 171): 10 games on fixed seeds, as games and engine steps per second (a slowdown shows up here)
+    const sp = row('games', 'Speed: 10 games on fixed seeds');
+    try {
+      const t3 = performance.now();
+      let steps = 0;
+      for (let i = 0; i < 10; i++) {
+        const g = new Game([0, 1, 2, 3].map(k => { const d = decks[(i + k) % 4]; return { playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent(styles[(i + k) % 5]), commanders: d.commanders, cards: d.cards }; }), { beat: async () => {} }, { seed: 950000 + i, noLearning: true });
+        await g.run();
+        steps += g.steps;
+      }
+      const s = (performance.now() - t3) / 1000;
+      sp(true, `${(10 / s).toFixed(1)} games a second, ${Math.round(steps / s).toLocaleString()} steps a second (${s.toFixed(1)} s)`);
+    } catch (e) { sp(false, e.message); }
+
     // Determinism (item 180): the same seeds played twice, in the opposite order and with or without look-ahead seats,
     // must give identical logs; a stray Math.random, Date or leftover state between games shows up here
     const det = row('games', 'Determinism: 3 seeds played twice in the opposite order, with and without look-ahead');
