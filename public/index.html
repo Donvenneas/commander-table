@@ -476,6 +476,10 @@
       <p class="muted">Keeps Scryfall's free card file (every card, about 25 MB to download, about 40 MB saved) in the game's browser data. Random decks, the deck builder and loading decks by card name then work without asking Scryfall card by card, and offline. When it's on, a newer file is fetched at most once a day at startup. Searches it can't answer (a set's cards, other printings) still ask Scryfall.</p>
       <div id="bulkBody" class="muted"></div>
       <p><button class="btn" id="btnBulk">Download the card file</button> <button class="btn ghost" id="btnBulkOff" hidden>Turn off and remove</button></p>
+      <h3>Printings file</h3>
+      <p class="muted">Optional and larger: Scryfall's file of every paper printing (about 80 MB to download and about 105,000 printings; the browser keeps it compressed, roughly 40 MB). With it, a set's cards for Draft / Sealed and searches by set or collector number work without Scryfall too. It isn't refreshed by itself: download it again after a new set comes out.</p>
+      <div id="printsBody" class="muted"></div>
+      <p><button class="btn" id="btnPrints">Download the printings file</button> <button class="btn ghost" id="btnPrintsOff" hidden>Turn off and remove</button></p>
       <div class="modal-foot">
         <button class="btn" id="btnUpdCheck">Download and check</button>
         <button class="btn primary" id="btnUpdApply" hidden>Install</button>

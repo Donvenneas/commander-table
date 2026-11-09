@@ -83,7 +83,9 @@ For the official versions, use the project's GitHub releases address, which alwa
 **Card file (optional):** **Download the card file** in Updates saves Scryfall's free bulk card file (every card, about 25 MB to download) in the game's browser data.
 - Random decks of every kind, the deck builder's searches and decks loaded by card name then come from this PC: a random Commander deck takes about a tenth of a second instead of two, and works offline.
 - While it's on, a newer file is fetched at most once a day when the game starts (only if Scryfall has published one).
-- Searches it can't answer still go to Scryfall: a set's cards for Draft / Sealed, specific printings, and search terms it doesn't know.
+- Searches it can't answer still go to Scryfall: search terms it doesn't know, and (unless you also have the printings file) a set's cards for Draft / Sealed and specific printings.
+
+**Printings file (optional):** **Download the printings file** in Updates saves Scryfall's file of every paper printing (about 80 MB to download, about 105,000 printings, roughly 40 MB once saved). With it, a set's booster cards for Draft / Sealed and searches by set (`e:`), collector number (`cn:`) or `is:booster` are answered on this PC too, so drafting works offline. It isn't refreshed by itself: download it again after a new set comes out.
 - It has one printing per card, so searches that depend on rarity or paper availability can find slightly fewer cards than Scryfall would.
 - **Turn off and remove** in Updates deletes it.
 

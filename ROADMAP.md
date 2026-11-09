@@ -789,8 +789,11 @@ on top of the ones above:
   - Done: Archidekt folders (robots.txt allows them; the folder API goes through the existing proxy, no server change):
     Import an Archidekt folder… in the library, with subfolders, saving each chosen deck into a library folder.
     TappedOut and MTGGoldfish deck links already loaded (earlier rounds). Tested with a public folder (saved, then deleted).
-- [ ] 157. Printings offline: the optional "Default Cards" bulk file so set searches for Draft / Sealed and printings
+- [x] 157. Printings offline: the optional "Default Cards" bulk file so set searches for Draft / Sealed and printings
   work without Scryfall (item 81 still sends e: and is:booster there).
+  - Done: bulk.js downloadPrints/loadPrints/removePrints (paper printings, kept in a separate IndexedDB) and set,
+    cn and is:booster terms plus order=set and unique=cards/prints in the local search. Tested: a 104,682-printing
+    download in 55 s; e:fdn is:booster answered locally with the same 271 cards in the same order as Scryfall.
 - [ ] 158. "Download images for my library": fetch every image for library decks into data\images with progress, and
   let the 400 MB cap be changed.
 
