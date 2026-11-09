@@ -1168,3 +1168,6 @@ ul.whatsnew details p { margin: 2px 0 6px; }
 .help-body li.sub { margin-left: 18px; }
 .help-table td { padding: 2px 8px; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); vertical-align: top; }
 @media (max-width: 700px) { .help-cols { grid-template-columns: 1fr; height: auto; } .help-toc { max-height: 30vh; } }
+
+/* Coach hint in the action bar (item 168) */
+.coach-tip { display: inline-block; margin-top: 4px; font-size: .92em; opacity: .9; }

@@ -823,8 +823,11 @@ on top of the ones above:
   No entry fees.
 - [ ] 167. More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress
   toward each unlock.
-- [ ] 168. Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in
+- [x] 168. Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in
   Ranked.
+  - Done: a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate
+    random stream and adds its reason to the main-phase prompt. Off in Ranked and puzzles. Tested: shown in a
+    Standard game; in Node a game with the coach asked at many points came out identical to one without.
 
 ### Speed, testing and tooling
 - [ ] 169. Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.

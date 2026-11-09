@@ -5,7 +5,7 @@ import { Agent } from './ai.js';
 import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
 import { needsTarget, costText } from './effects.js';
-import { esc } from './util.js';
+import { esc, makeRng } from './util.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
 const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx.kw.has('flash')
@@ -245,6 +245,22 @@ export class HumanAgent extends Agent {
     this.stops = opts.stops || {}; this.full = !!opts.full; this.orderTriggersOn = opts.orderTriggers !== false;
     // Main-phase actions, for spotting a loop you've played twice (the loop shortcut)
     this.acts = [];
+    // Coach hints in the main phase (item 168; set by the page)
+    this.coach = false;
+  }
+
+  // Coach (item 168): what a plain AI of the same style would do here, and why. It runs on a random stream of its
+  // own, so asking never changes the game (or a replay of it).
+  coachNote(g, p, phase, canLand) {
+    const rand = g.rand;
+    g.rand = makeRng(((g.turn + 1) * 7919 + g.steps) >>> 0);
+    try {
+      const ai = new Agent(this.style);
+      const pick = /** @type {any} */ (ai.bestPlay(g, p, phase));
+      // ("casts X" → "would cast X")
+      const what = pick?.why ? pick.why.replace(/^goes\b/, 'go').replace(/^(\w+?)s\b/, '$1') : pick ? 'go for its combo' : canLand ? 'play a land and pass' : 'pass';
+      return `<br><span class="coach-tip">💡 Coach: the AI would ${esc(what)}.</span>`;
+    } catch { return ''; } finally { g.rand = rand; }
   }
 
   // Walking Ballista and friends: remove +1/+1 counters to deal 1 damage each (any target, one at a time)
@@ -536,7 +552,7 @@ export class HumanAgent extends Agent {
       // (how many plays are still open, so a pass is never by accident)
       const drops = g.landDrops(p) - p.landsPlayed;
       const playable = objs.filter(o => !manaSrcs.includes(o) || abilities.includes(o) || vehicles.includes(o)).length;
-      const r = await this.ui.ask(`<b>Your ${phase === 'main1' ? 'first' : 'second'} main phase.</b> Click a highlighted card to play or use it, or a land or mana source to tap it for mana.${this.poolNote(g, p)}${drops > 1 && lands.length ? ` You have ${drops} land drops left.` : ''}${fromGy ? ' (Open your graveyard, or press G, to use the cards there.)' : ''}${top && g.topPlayable(p, top) ? ` Top of your library: ${g.cn(top)}.` : ''}`, {
+      const r = await this.ui.ask(`<b>Your ${phase === 'main1' ? 'first' : 'second'} main phase.</b> Click a highlighted card to play or use it, or a land or mana source to tap it for mana.${this.poolNote(g, p)}${drops > 1 && lands.length ? ` You have ${drops} land drops left.` : ''}${fromGy ? ' (Open your graveyard, or press G, to use the cards there.)' : ''}${top && g.topPlayable(p, top) ? ` Top of your library: ${g.cn(top)}.` : ''}${this.coach && !this.ui.replaying ? this.coachNote(g, p, phase, drops > 0 && lands.length > 0) : ''}`, {
         objs,
         buttons: [
           ...combos.map(c => ({ label: `Combo: ${c.combo.label}`, value: { combo: c.combo }, primary: true })),

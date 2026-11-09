@@ -407,7 +407,7 @@ function newGame(opts = {}) {
   }));
   const gameSeats = setup.seats.map((s, i) => ({
     playerName: s.name, deckName: s.deck.deckName, color: s.color, commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards, companion: s.deck.companion || null,
-    agent: setup.humans.includes(i) ? new HumanAgent(guessStyle(s.deck), hotseat ? new SeatUI(humanUI, i, setup.seats.map(x => x.name)) : humanUI, setup.stopOpts)
+    agent: setup.humans.includes(i) ? withCoach(new HumanAgent(guessStyle(s.deck), hotseat ? new SeatUI(humanUI, i, setup.seats.map(x => x.name)) : humanUI, setup.stopOpts))
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
       : Object.assign(new Agent(s.style, { noise: s.noise ?? (BRACKET_NOISE[s.bracket] || 0), lookahead: s.lookahead }), s.handicap ? { handicap: s.handicap } : {}),
   }));
@@ -1534,6 +1534,10 @@ $('rankedSel').checked = !!prefs.ranked;
 // AI look-ahead (lookahead.js): on unless switched off; saved with each game so replays stay exact
 $('lookaheadSel').checked = prefs.lookahead !== false;
 $('aiStrength').value = STRENGTH[prefs.aiStrength] ? prefs.aiStrength : 'auto';
+// Coach (item 168): off in Ranked and puzzles; only for seats played on this PC
+$('coachOn').checked = !!prefs.coach;
+$('coachOn').addEventListener('change', e => { prefs.coach = /** @type {HTMLInputElement} */ (e.target).checked; store('ct.prefs', prefs); if (game) for (const p of game.players) if (p.agent.human && p.agent.ui === humanUI || p.agent.ui instanceof SeatUI) p.agent.coach = prefs.coach && !setup.ranked && !setup.puzzle; });
+function withCoach(a) { a.coach = !!prefs.coach && !setup.ranked && !setup.puzzle; return a; }
 $('aiStrength').addEventListener('change', e => { prefs.aiStrength = e.target.value; store('ct.prefs', prefs); $('lookaheadSel').disabled = e.target.value !== 'auto'; });
 $('lookaheadSel').disabled = $('aiStrength').value !== 'auto';
 $('lookaheadSel').addEventListener('change', e => { prefs.lookahead = e.target.checked; store('ct.prefs', prefs); });

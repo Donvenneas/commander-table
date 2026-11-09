@@ -289,6 +289,7 @@ To swap two seats, drag one seat's ⠿ grip onto another seat.
 
 ## Playing a seat yourself
 
+**Coach** (a checkbox on the setup screen): in your main phase the action bar adds what the AI would play there, in your deck's style, and why it chose that ("💡 Coach: the AI would cast Green Sun's Zenith"). Asking never changes the game or its replay. It's off in Ranked games and puzzles.
 In a seat's style menu, choose **You play this seat**. Your hand is shown face up, and an action bar at the bottom asks for each decision:
 
 - whether to keep your opening hand, and which cards to put back after a mulligan
