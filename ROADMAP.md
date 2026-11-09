@@ -751,8 +751,11 @@ on top of the ones above:
   - Done: collection.js + Collection… on the setup screen (replace or add); builder ✓ badges, "need N" rows and an
     Only cards I own filter (Scryfall pages filtered here, reading up to 6 more pages); the deck viewer's missing list
     with Copy. Tested with ManaBox and Deckbox style CSVs and a precon in the browser.
-- [ ] 148. Library folders and tags, search by commander, colors and bracket, notes per deck, and version history with
+- [x] 148. Library folders and tags, search by commander, colors and bracket, notes per deck, and version history with
   a diff between versions.
+  - Done: folder, tags, colors, bracket and notes in each list's About section (loaders skip it; no server change);
+    folder filter and multi-word search; Info panel with "Work out colors and bracket"; every save keeps the replaced
+    list (last 10, in the browser profile) with Show changes and Restore. Tested with a throwaway deck, then deleted.
 - [ ] 149. Goldfish: sample hands with mulligans, and solo runs of the AI pilot over 1,000 seeds giving the average turn
   the commander comes down and the combo is assembled.
 - [ ] 150. Draw odds: chance of having a card or a category (ramp, a combo piece) by turn N, in the deck viewer.

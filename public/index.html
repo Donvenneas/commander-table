@@ -578,7 +578,8 @@
         <div><h2>Deck library</h2><p class="muted">Decks saved in this game folder (data\decks), so they come along when the folder is copied to another PC.</p></div>
         <button class="btn ghost" id="btnLibraryClose">Close</button>
       </div>
-      <div class="meta-tools"><input id="librarySearch" class="input" placeholder="Filter…" autocomplete="off">
+      <div class="meta-tools"><input id="librarySearch" class="input" placeholder="Search name, commander, tags, notes, colors (wub), bracket (b3) or a card…" autocomplete="off">
+        <select id="libFolder" class="sbracket"><option value="">All folders</option></select>
         <label class="muted">Games per pairing <select id="gridGames" class="sbracket"><option>2</option><option selected>4</option><option>10</option></select></label>
         <button class="btn" id="btnGrid" title="Every deck shown plays every other one head to head (up to 8 decks)">Matchup grid</button>
         <span id="libraryStatus" class="muted"></span></div>

@@ -6,7 +6,7 @@ import { newCup, pairRound, recordPod, roundDone, standings, standingsText } fro
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
 import { sf, fetchCollection } from './scryfall.js';
-import { listDecks, saveDeck, deleteDeck } from './library.js';
+import { listDecks, saveDeck, deleteDeck, deckMeta, withMeta, commandersOf, versions, diffLists } from './library.js';
 import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.js';
 import { startTour } from './tour.js';
 import { buildReplayHtml } from './replayexport.js';
@@ -2326,14 +2326,78 @@ let libraryDecks = [];
 async function renderLibrary() {
   const body = $('libraryBody');
   try { libraryDecks = await listDecks(); } catch (err) { $('libraryStatus').textContent = err.message; return; }
+  // Folders, tags, notes, colors and bracket (item 148) come from each list's About section
+  for (const d of libraryDecks) { d.meta = deckMeta(d.text); d.cmdrs = commandersOf(d.text); }
+  const folders = [...new Set(libraryDecks.map(d => d.meta.folder).filter(Boolean))].sort();
+  const fsel = $('libFolder'), keep = fsel.value;
+  fsel.innerHTML = `<option value="">All folders</option>${folders.map(f => `<option value="${esc(f)}" ${f === keep ? 'selected' : ''}>${esc(f)}</option>`).join('')}<option value="-" ${keep === '-' ? 'selected' : ''}>No folder</option>`;
   const q = $('librarySearch').value.trim().toLowerCase();
-  const rows = libraryDecks.filter(d => !q || `${d.name} ${d.text}`.toLowerCase().includes(q));
+  // (search: name, commander, tags, notes, folder, colors like "wub", "bracket 3" or "b3", or any card)
+  const hay = d => `${d.name} ${d.cmdrs.join(' ')} ${d.meta.tags.join(' ')} ${d.meta.notes} ${d.meta.folder} ${d.meta.colors.toLowerCase()} ${d.meta.bracket ? `bracket ${d.meta.bracket} b${d.meta.bracket}` : ''} ${d.text}`.toLowerCase();
+  const rows = libraryDecks.filter(d => (!fsel.value || (fsel.value === '-' ? !d.meta.folder : d.meta.folder === fsel.value)) && (!q || q.split(/\s+/).every(w => hay(d).includes(w) || sameColors(w, d.meta.colors))));
   $('libraryStatus').textContent = `${libraryDecks.length} saved deck${libraryDecks.length === 1 ? '' : 's'}`;
-  body.innerHTML = rows.length ? `<table><thead><tr><th>Deck</th><th class="num">Cards</th><th>Saved</th><th>Load into seat</th><th></th></tr></thead><tbody>
-    ${rows.map(d => `<tr><td>${esc(d.name)}</td><td class="num">${parseText(d.text).entries.filter(e => !e.side).reduce((a, e) => a + e.qty, 0)}</td><td>${esc(new Date(d.modified).toLocaleDateString())}</td>
+  body.innerHTML = rows.length ? `<table class="libtable"><thead><tr><th>Deck</th><th>Folder</th><th>Commander</th><th>Colors</th><th class="num">Bracket</th><th class="num">Cards</th><th>Saved</th><th>Load into seat</th><th></th></tr></thead><tbody>
+    ${rows.map(d => `<tr data-name="${esc(d.name)}"><td><b>${esc(d.name)}</b>${d.meta.tags.map(t => ` <span class="libtag">${esc(t)}</span>`).join('')}${d.meta.notes ? `<div class="muted small">${esc(d.meta.notes)}</div>` : ''}</td>
+      <td>${esc(d.meta.folder)}</td><td>${esc(d.cmdrs.join(' + '))}</td><td>${d.meta.colors ? symbolize([...d.meta.colors].map(x => `{${x}}`).join('')) : ''}</td><td class="num">${d.meta.bracket || ''}</td>
+      <td class="num">${parseText(d.text).entries.filter(e => !e.side).reduce((a, e) => a + e.qty, 0)}</td><td>${esc(new Date(d.modified).toLocaleDateString())}</td>
       <td class="seatpicks">${seats.map((s, i) => `<button class="btn small libseat" data-name="${esc(d.name)}" data-seat="${i}" style="--pc:${s.color}">${i + 1}</button>`).join('')}</td>
-      <td><button class="btn small ghost libdel" data-name="${esc(d.name)}">Delete</button></td></tr>`).join('')}</tbody></table>`
+      <td class="libacts"><button class="btn small libinfo" data-name="${esc(d.name)}">Info</button><button class="btn small libhist" data-name="${esc(d.name)}" title="Earlier versions saved on this PC">History (${versions(d.name).length})</button><button class="btn small ghost libdel" data-name="${esc(d.name)}">Delete</button></td></tr>`).join('')}</tbody></table>`
     : `<p class="muted">${libraryDecks.length ? 'No decks match.' : 'No saved decks yet. Use "Edit" on a loaded seat, then "Save to library".'}</p>`;
+}
+// (colors in any order: "gw" finds a WG deck)
+const sameColors = (w, colors) => /^[wubrgc]{1,5}$/.test(w) && !!colors && [...w].sort().join('') === [...colors.toLowerCase()].sort().join('');
+// The Info panel under a library row: folder, tags, bracket, notes, and colors and bracket worked out from the cards
+function libPanel(tr, html) {
+  tr.parentElement.querySelectorAll('.libpanel').forEach(x => x.remove());
+  tr.insertAdjacentHTML('afterend', `<tr class="libpanel"><td colspan="9">${html}</td></tr>`);
+  return tr.nextElementSibling;
+}
+function libInfo(tr, d) {
+  const m = d.meta;
+  const p = libPanel(tr, `<div class="libinfo-form">
+    <label>Folder <input class="input" data-m="folder" value="${esc(m.folder)}" list="libFolders" maxlength="40"></label>
+    <label>Tags <input class="input" data-m="tags" value="${esc(m.tags.join(', '))}" placeholder="tokens, budget" maxlength="120"></label>
+    <label>Colors <input class="input" data-m="colors" value="${esc(m.colors)}" placeholder="WUBRG" maxlength="5"></label>
+    <label>Bracket <select class="input" data-m="bracket"><option value="">–</option>${[1, 2, 3, 4, 5].map(b => `<option ${m.bracket === b ? 'selected' : ''}>${b}</option>`).join('')}</select></label>
+    <label class="wide">Notes <input class="input" data-m="notes" value="${esc(m.notes)}" maxlength="300"></label>
+    <div><button class="btn small" data-li="auto">Work out colors and bracket</button> <button class="btn small primary" data-li="save">Save</button> <span class="muted" data-li="msg"></span></div>
+    <datalist id="libFolders">${[...new Set(libraryDecks.map(x => x.meta.folder).filter(Boolean))].map(f => `<option value="${esc(f)}">`).join('')}</datalist></div>`);
+  const val = k => /** @type {HTMLInputElement} */ (p.querySelector(`[data-m="${k}"]`)).value;
+  const say = t => { p.querySelector('[data-li="msg"]').textContent = t; };
+  p.querySelector('[data-li="auto"]').addEventListener('click', async () => {
+    try {
+      say('Loading the deck…');
+      const deck = await loadDeck(d.text, t => say(t), { format: d.cmdrs.length ? 'commander' : formatKey });
+      const ids = new Set([...deck.commanders, ...deck.cards.map(c => c.card)].flatMap(c => c.colorIdentity || []));
+      /** @type {HTMLInputElement} */ (p.querySelector('[data-m="colors"]')).value = 'WUBRG'.split('').filter(c => ids.has(c)).join('');
+      if (deck.commanders.length) /** @type {HTMLSelectElement} */ (p.querySelector('[data-m="bracket"]')).value = String(estimateBracket(deck).bracket);
+      say('Filled in: check and Save.');
+    } catch (err) { say(`Couldn't load it: ${err.message}`); }
+  });
+  p.querySelector('[data-li="save"]').addEventListener('click', async () => {
+    const meta = { folder: val('folder').trim(), tags: val('tags').split(',').map(t => t.trim()).filter(Boolean), colors: val('colors').toUpperCase().replace(/[^WUBRGC]/g, ''), bracket: +val('bracket') || null, notes: val('notes').trim() };
+    try { await saveDeck(d.name, withMeta(d.text, meta), { previous: d.text }); renderLibrary(); } catch (err) { say(`Couldn't save: ${err.message}`); }
+  });
+}
+function libHistory(tr, d) {
+  const vs = versions(d.name);
+  const summary = text => { const ch = diffLists(text, d.text); const add = ch.reduce((a, x) => a + Math.max(0, x.to - x.from), 0), cut = ch.reduce((a, x) => a + Math.max(0, x.from - x.to), 0); return `+${add} −${cut}`; };
+  const p = libPanel(tr, vs.length ? `<p class="muted">Earlier versions of this deck saved on this PC (newest first), compared with the current list.</p>${vs.map((v, i) => `<div class="libver"><span>${esc(new Date(v.at).toLocaleString())}</span> <span class="muted">${summary(v.text)} since then</span>
+      <button class="btn small" data-v="${i}" data-vact="diff">Show changes</button><button class="btn small ghost" data-v="${i}" data-vact="restore">Restore</button><div class="libdiff" hidden></div></div>`).join('')}`
+    : '<p class="muted">No earlier versions yet: each save from now on keeps the list it replaces (the last 10, on this PC).</p>');
+  p.addEventListener('click', async e => {
+    const b = e.target.closest('[data-vact]');
+    if (!b) return;
+    const v = vs[+b.dataset.v];
+    if (b.dataset.vact === 'diff') {
+      const box = b.parentElement.querySelector('.libdiff');
+      const ch = diffLists(v.text, d.text);
+      box.innerHTML = ch.length ? ch.map(x => `<div class="${x.to > x.from ? 'add' : 'cut'}">${x.to > x.from ? '+' : '−'}${Math.abs(x.to - x.from)} ${esc(x.name)}</div>`).join('') : '<span class="muted">Same cards (only the name or info changed).</span>';
+      box.hidden = !box.hidden;
+    } else if (confirm(`Restore the version from ${new Date(v.at).toLocaleString()}? The current list is kept as a version.`)) {
+      try { await saveDeck(d.name, v.text, { previous: d.text }); renderLibrary(); } catch (err) { $('libraryStatus').textContent = err.message; }
+    }
+  });
 }
 // Matchup grid: the decks shown play each other head to head at full speed; each cell is the row deck's win rate
 let gridStop = false;
@@ -2388,8 +2452,15 @@ $('btnGrid').addEventListener('click', async () => {
 $('btnLibrary').addEventListener('click', () => { $('libraryModal').hidden = false; renderLibrary(); });
 $('btnLibraryClose').addEventListener('click', () => { $('libraryModal').hidden = true; });
 $('librarySearch').addEventListener('input', renderLibrary);
+$('libFolder').addEventListener('change', renderLibrary);
 $('libraryBody').addEventListener('click', async e => {
   const seat = e.target.closest('.libseat'), del = e.target.closest('.libdel');
+  const info = e.target.closest('.libinfo, .libhist');
+  if (info) {
+    const d = libraryDecks.find(x => x.name === info.dataset.name), tr = info.closest('tr');
+    if (d) (info.classList.contains('libinfo') ? libInfo : libHistory)(tr, d);
+    return;
+  }
   if (seat) {
     const d = libraryDecks.find(x => x.name === seat.dataset.name);
     Object.assign(seats[+seat.dataset.seat], { source: d.text, deck: null });

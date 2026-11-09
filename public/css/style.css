@@ -1113,3 +1113,13 @@ table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
 .own-badge { position: absolute; right: 4px; bottom: 4px; background: var(--good, #3a9a5b); color: #fff; border-radius: 8px; padding: 0 5px; font-size: 11px; font-weight: 700; }
 .own-mark { color: var(--good, #3a9a5b); }
 .own-miss { color: var(--bad, #c0392b); font-size: .85em; }
+
+/* Deck library folders, tags, info and history (item 148) */
+.libtag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--line, rgba(127,127,127,.2)); margin-left: 4px; }
+.libacts { white-space: nowrap; }
+.libinfo-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.libinfo-form label { display: flex; flex-direction: column; font-size: 12px; }
+.libinfo-form label.wide { flex: 1 1 100%; }
+.libver { padding: 4px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); }
+.libdiff .add { color: var(--good, #3a9a5b); }
+.libdiff .cut { color: var(--bad, #c0392b); }
