@@ -777,7 +777,9 @@ on top of the ones above:
 - [x] 153. More exports: MTGO .dek, Arena text and a printable text checklist.
   - Done: deckexport.js + Export buttons in the deck viewer. Checked on a precon: the .dek parses as XML with the
     commander in the sideboard, the Arena text reads back as 100 cards with the commander, the checklist groups by type.
-- [ ] 154. "Fully simulated only" filter in the builder, so people can build decks the AI plays at full strength.
+- [x] 154. "Fully simulated only" filter in the builder, so people can build decks the AI plays at full strength.
+  - Done: a builder checkbox (effects.js ignoredText per result, reading on like the owned filter) and a ⚠ badge on
+    partly simulated results. Tested: o:"exchange life totals" showed 7 cards with 5 ⚠, and 2 with the filter on.
 - [ ] 155. EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.
 - [ ] 156. More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish,
   Archidekt folders).

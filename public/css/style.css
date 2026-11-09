@@ -1136,3 +1136,6 @@ table.odds td, table.odds th { padding: 2px 8px; }
 /* Combos one card away in the builder (item 151) */
 .bld-almost { margin: 6px 0; }
 .bld-almost ul { margin: 4px 0; padding-left: 16px; font-size: 12px; }
+
+/* Partly simulated cards in the builder (item 154) */
+.sim-badge { position: absolute; left: 4px; top: 4px; background: rgba(0,0,0,.65); color: #ffcc4d; border-radius: 8px; padding: 0 4px; font-size: 11px; }
