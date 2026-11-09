@@ -481,10 +481,18 @@ try {
             if ($r.Status -ne 200) { Send-Text $ctx 502 "The update address answered HTTP $($r.Status)." }
             elseif ($r.Body.Length -lt 4 -or $r.Body[0] -ne 80 -or $r.Body[1] -ne 75) { Send-Text $ctx 400 "That address didn't give a .zip file." }
             else {
-              [IO.File]::WriteAllBytes($zipFile, $r.Body)
-              $info = & $inspect $zipFile
-              if ($info.Error) { Remove-Item -LiteralPath $zipFile; Send-Text $ctx 400 $info.Error }
-              else { Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ version = $info.Version; current = $local; files = $info.Count; size = $r.Body.Length } -Compress))) }
+              # (item 183) the zip's SHA-256, checked against a published "<address>.sha256" when there is one
+              $digest = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($r.Body)) -replace '-', '').ToLower()
+              $s = Get-Remote ($u.AbsoluteUri + '.sha256')
+              $published = ''
+              if ($s.Status -eq 200 -and ([Text.Encoding]::UTF8.GetString($s.Body) -match '\b([0-9a-fA-F]{64})\b')) { $published = $Matches[1].ToLower() }
+              if ($published -and $published -ne $digest) { Send-Text $ctx 400 "The download doesn't match its published checksum (SHA-256 $($digest.Substring(0, 16))…, expected $($published.Substring(0, 16))…). Nothing was installed." }
+              else {
+                [IO.File]::WriteAllBytes($zipFile, $r.Body)
+                $info = & $inspect $zipFile
+                if ($info.Error) { Remove-Item -LiteralPath $zipFile; Send-Text $ctx 400 $info.Error }
+                else { Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ version = $info.Version; current = $local; files = $info.Count; size = $r.Body.Length; sha256 = $digest; verified = [bool]$published } -Compress))) }
+              }
             }
           }
         } elseif ($req.QueryString['step'] -eq 'apply') {

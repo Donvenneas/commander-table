@@ -464,11 +464,19 @@ static class CommanderTable
                 var body = GetRemote(u.AbsoluteUri, out status, out type);
                 if (status != 200) { SendText(ctx, 502, "The update address answered HTTP " + status + "."); return; }
                 if (body.Length < 4 || body[0] != 'P' || body[1] != 'K') { SendText(ctx, 400, "That address didn't give a .zip file."); return; }
+                // (item 183) the zip's SHA-256, checked against a published "<address>.sha256" when there is one
+                string digest;
+                using (var sha = System.Security.Cryptography.SHA256.Create()) digest = BitConverter.ToString(sha.ComputeHash(body)).Replace("-", "").ToLowerInvariant();
+                int sStatus; string sType;
+                var sBody = GetRemote(u.AbsoluteUri + ".sha256", out sStatus, out sType);
+                var sm = sStatus == 200 ? Regex.Match(Encoding.UTF8.GetString(sBody), @"\b[0-9a-fA-F]{64}\b") : Match.Empty;
+                var published = sm.Success ? sm.Value.ToLowerInvariant() : "";
+                if (published.Length > 0 && published != digest) { SendText(ctx, 400, "The download doesn't match its published checksum (SHA-256 " + digest.Substring(0, 16) + "…, expected " + published.Substring(0, 16) + "…). Nothing was installed."); return; }
                 File.WriteAllBytes(zipFile, body);
                 string prefix, version; int count;
                 var err = InspectUpdate(zipFile, out prefix, out version, out count);
                 if (err != null) { File.Delete(zipFile); SendText(ctx, 400, err); return; }
-                Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"version\":" + Js(version) + ",\"current\":" + Js(LocalVersion()) + ",\"files\":" + count + ",\"size\":" + body.Length + "}"));
+                Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"version\":" + Js(version) + ",\"current\":" + Js(LocalVersion()) + ",\"files\":" + count + ",\"size\":" + body.Length + ",\"sha256\":" + Js(digest) + ",\"verified\":" + (published.Length > 0 ? "true" : "false") + "}"));
                 return;
             }
             if (step == "apply")

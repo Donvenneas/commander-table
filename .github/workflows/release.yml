@@ -38,10 +38,13 @@ jobs:
         run: |
           powershell -ExecutionPolicy Bypass -File make-shareable-zip.ps1
           Move-Item -LiteralPath '..\Commander Table (portable).zip' -Destination '..\commander-table.zip'
+          # (item 183) the zip's SHA-256, published next to it; the Updates window checks downloads against it
+          $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath '..\commander-table.zip').Hash.ToLower()
+          Set-Content -LiteralPath '..\commander-table.zip.sha256' -Value "$hash  commander-table.zip" -Encoding ascii -NoNewline
 
       - name: Publish the release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME commander-table.zip --repo $env:GITHUB_REPOSITORY --title "Commander Table $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes
+          gh release create $env:GITHUB_REF_NAME commander-table.zip commander-table.zip.sha256 --repo $env:GITHUB_REPOSITORY --title "Commander Table $($env:GITHUB_REF_NAME.TrimStart('v'))" --generate-notes

@@ -65,7 +65,7 @@ After a deck has been loaded once, it loads without an internet connection:
 ## Updates
 
 **Updates…** on the setup screen installs a newer version from an address you choose, such as a GitHub release's download link for a zip of this folder. Nothing is checked or installed by itself.
-1. Paste the https address and click **Download and check**. It shows the version in the zip (from its `VERSION` file) and how many files it has.
+1. Paste the https address and click **Download and check**. It shows the version in the zip (from its `VERSION` file) and how many files it has. It also shows the zip's SHA-256: when a checksum is published next to it (`<address>.sha256`, as every GitHub release of this game has from 1.18.0), the download must match it or nothing is installed.
 2. **Install** copies the files over this folder. The `data` folder is never touched, and every file it replaces is backed up to `data\update\backup-<date>` first.
 3. Restart Commander Table to finish.
 

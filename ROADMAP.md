@@ -884,8 +884,12 @@ on top of the ones above:
   - Done: tools/whatsnew.mjs writes public/data/whatsnew.json (newest round's finished items, first sentence of each
     Done note, VERSION); the page shows it once when the version changed since the last start, and from Updates.
     make-shareable-zip.ps1 refreshes it when Node.js is there. Tested by setting an older seen version.
-- [ ] 183. Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks
+- [x] 183. Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks
   it and refuses a mismatch.
+  - Done: release.yml attaches commander-table.zip.sha256; the update check in all three servers hashes the download,
+    fetches <address>.sha256 and refuses a mismatch (nothing saved); Updates shows the hash and whether it matched.
+    Tested server.py's check with a stubbed download (match, mismatch refused, none published); server.ps1 parses and
+    the .exe builds, but neither was run against a real address.
 - [x] 184. Help window inside the app: README's sections with a search box, translated where item 129 covers them.
   - Done: tools/help.mjs builds public/data/help.json from README's sections (make-shareable-zip.ps1 refreshes it);
     Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that

@@ -645,13 +645,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self.text(502, f'The update address answered HTTP {status}.')
                 if body[:2] != b'PK':
                     return self.text(400, "That address didn't give a .zip file.")
+                # (item 183) the zip's SHA-256, checked against a published "<address>.sha256" when there is one
+                digest = hashlib.sha256(body).hexdigest()
+                s_status, _, s_body = get_remote(url + '.sha256', timeout=30)
+                published = re.search(r'\b[0-9a-fA-F]{64}\b', s_body.decode('utf-8', 'replace')).group(0).lower() if s_status == 200 and re.search(r'\b[0-9a-fA-F]{64}\b', s_body.decode('utf-8', 'replace')) else ''
+                if published and published != digest:
+                    return self.text(400, f"The download doesn't match its published checksum (SHA-256 {digest[:16]}…, expected {published[:16]}…). Nothing was installed.")
                 open(zip_file, 'wb').write(body)
                 try:
                     _, version, count = inspect_update(zip_file)
                 except ValueError:
                     os.remove(zip_file)
                     raise
-                return self.send(200, 'application/json', json.dumps({'version': version, 'current': local_version(), 'files': count, 'size': len(body)}))
+                return self.send(200, 'application/json', json.dumps({'version': version, 'current': local_version(), 'files': count, 'size': len(body), 'sha256': digest, 'verified': bool(published)}))
             if step == 'apply':
                 if not os.path.exists(zip_file):
                     return self.text(400, 'Check for an update first.')

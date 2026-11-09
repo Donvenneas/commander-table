@@ -1236,7 +1236,7 @@ $('btnUpdCheck').addEventListener('click', async () => {
     if (!r.ok) throw new Error(await r.text());
     const j = await r.json();
     const same = j.version === j.current;
-    $('updStatus').textContent = `Found version ${j.version} (${j.files} files, ${(j.size / 1048576).toFixed(1)} MB). You have ${j.current}.${same ? ' It is the same version; installing only replaces files that differ.' : ''}`;
+    $('updStatus').textContent = `Found version ${j.version} (${j.files} files, ${(j.size / 1048576).toFixed(1)} MB). You have ${j.current}.${same ? ' It is the same version; installing only replaces files that differ.' : ''}${j.sha256 ? ` SHA-256 ${j.sha256.slice(0, 16)}…: ${j.verified ? '✔ matches the checksum published with it.' : 'no checksum is published at that address, so it could not be checked.'}` : ''}`;
     $('btnUpdApply').hidden = false;
   } catch (err) { $('updStatus').textContent = `Couldn't use that address: ${err.message}`; }
   $('btnUpdCheck').disabled = false;
