@@ -1089,3 +1089,8 @@ body.contrast .le { color: #fff; }
 
 /* Streamer view on the friend page (item 142): just the table, for screen capture */
 body.streamer .chatbox, body.streamer #btnAskUndo, body.streamer #btnTheme, body.streamer #actionBar, body.streamer #joinModal { display: none !important; }
+
+/* Connection check in Invite (item 144) */
+.conn-check { margin: 8px 0; }
+.cc-row.ok { color: var(--good, #3a9a5b); }
+.cc-row.bad { color: var(--bad, #c0392b); }

@@ -364,6 +364,7 @@ Friends can each take a seat from their own computer, tablet or phone, with noth
 - **Deals:** friends have the same **🤝 Deal** button in their chat box.
 - **Hand a seat to someone else:** in **Invite**, **New link for someone else** gives a friend's seat a new link and join code. The old ones stop working; the AI plays the seat until the new person joins.
 - **Streamer view:** **Invite** (or **Spectators**) also has a streamer link: every hand and face-down card, shown 30 seconds to 3 minutes late (**Delay**), with the chat and buttons hidden for screen capture. Keep it to yourself; players watching your stream only see the table after the delay.
+- **Check the connection** (in **Invite**) tests each friend address from this PC and the internet link through Cloudflare, says who has joined, and says what to fix when something fails (Windows Firewall, a Public network, guest Wi-Fi, a tunnel that went down). It can't see your router or a friend's device, so try your link on your own phone too.
 
 Good to know:
 - The first time you host, Windows may ask whether to allow Commander Table through the firewall. Allow it on **private networks**, or friends' links won't load.

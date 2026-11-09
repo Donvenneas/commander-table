@@ -543,6 +543,7 @@ function showInvite() {
         : `<button class="btn primary" id="btnInternet">Play over the internet</button>
            <span class="muted" id="internetStatus">Home-network links work on the same Wi-Fi. For friends anywhere, this starts a free Cloudflare tunnel (no account needed). The first time, Commander Table downloads Cloudflare's official tunnel tool (about 60 MB).</span>`}
     </div>
+    <div class="conn-check"><button class="btn small" id="btnConnCheck">Check the connection</button> <span id="connCheck" class="muted">Tests each friend address from this PC, and the internet link through Cloudflare.</span></div>
     <label class="decision-time">Time for each decision
       <select id="decisionTime" class="input">${[30, 60, 120, 300, 600].map(s => `<option value="${s}" ${(prefs.decisionTime || 120) === s ? 'selected' : ''}>${s < 120 ? `${s} seconds` : `${s / 60} minutes`}</option>`).join('')}</select>
       <span class="muted">After this, the AI decides for them.</span></label>
@@ -575,6 +576,7 @@ function showInvite() {
       ${urls.map(u => link(u, 'Home network')).join('') || (internet ? '' : '<p class="warn">No network address found. Is this PC connected to a network?</p>')}
       ${lobbyOpen ? '' : `<button class="btn small ghost" data-rekey="${seat}" title="Give this seat to someone else: a new link and code; the old ones stop working">New link for someone else</button>`}
     </div>`).join('');
+  $('btnConnCheck')?.addEventListener('click', connectionCheck);
   $('streamDelay')?.addEventListener('change', e => { prefs.streamDelay = +(/** @type {HTMLSelectElement} */ (e.target).value) || 60; store('ct.prefs', prefs); streamQ = []; });
   $('btnInternet')?.addEventListener('click', async e => {
     e.target.disabled = true;
@@ -588,6 +590,30 @@ function showInvite() {
     }
   });
   $('inviteModal').hidden = false;
+}
+// Connection check (item 144): can the friends' addresses be reached, and what to fix when they can't. A check from
+// this PC can't see the router or another device's firewall, so the advice says what to try for each case.
+async function connectionCheck() {
+  const out = $('connCheck');
+  out.innerHTML = 'Checking…';
+  const reach = async (url, ms = 6000) => {
+    const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
+    try { await fetch(url, { mode: 'no-cors', cache: 'no-store', signal: ctl.signal }); return true; } catch { return false; } finally { clearTimeout(t); }
+  };
+  const rows = [];
+  const add = (ok, what, fix = '') => rows.push(`<div class="cc-row ${ok ? 'ok' : 'bad'}">${ok ? '✔' : '✘'} ${what}${!ok && fix ? `<div class="muted small">${fix}</div>` : ''}</div>`);
+  add(await reach('/api/room/status'), 'Commander Table is running on this PC', 'Start Commander Table again.');
+  if (!room.code) add(false, 'No room is open', 'Seat a friend (A friend plays this seat) or press Spectators first.');
+  else {
+    if (!room.ips.length) add(false, 'No home-network address', 'This PC isn\'t on a network: connect to Wi-Fi or a cable.');
+    for (const ip of room.ips) add(await reach(`http://${ip}:${room.port}/play.html`), `Friends' port answers at ${ip}:${room.port}`, 'Something on this PC blocks it: allow Commander Table (or Python / PowerShell) through Windows Firewall for private networks.');
+    if (room.ips.length) rows.push('<div class="muted small">If friends on the same Wi-Fi still can\'t open the link: check the network is set to Private in Windows, that their device isn\'t on a guest network (guest Wi-Fi keeps devices apart), and try the link on your own phone.</div>');
+    if (room.tunnelUrl) add(await reach(`${room.tunnelUrl}/play.html`, 12000), 'The internet link works through Cloudflare', 'The tunnel is down: close this window and press Play over the internet again (the address changes). A school or work network may block it.');
+    else rows.push('<div class="muted small">Internet play is off. For friends elsewhere, press Play over the internet: no router setup needed.</div>');
+    const seenRows = room.seats.filter(s => s >= 0).map(s => { const n = room.seen(s); return `${esc((setup?.seats || seats)[s]?.name || `Seat ${s + 1}`)}: ${n < 0 ? 'hasn\'t joined' : n > 12 ? `last seen ${n} s ago` : 'connected'}`; });
+    if (seenRows.length) rows.push(`<div class="muted small">${seenRows.join(' · ')}</div>`);
+  }
+  out.innerHTML = rows.join('');
 }
 $('inviteBody').addEventListener('click', async e => {
   // Hand a seat to someone else (item 141): new key; the game goes on, the AI plays the seat until they join

@@ -724,8 +724,11 @@ on top of the ones above:
   - Done: seat -2 in every room; the host samples the whole table every 2 s and sends it only after the delay. Tested
     with server.py: both hands shown, chat and buttons hidden, a chat line appeared 31 s later at the 30 s setting.
 - [ ] 143. Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.
-- [ ] 144. Connection check for friends: a page on the host that tests the port and the tunnel from outside the PC and
+- [x] 144. Connection check for friends: a page on the host that tests the port and the tunnel from outside the PC and
   says what to fix (firewall, router, tunnel down).
+  - Done: "Check the connection" in Invite: the server, each LAN address and port, the tunnel URL through Cloudflare,
+    who has joined, with a fix for each failure. A true outside-the-PC port test would need an outside service, so the
+    advice covers what this PC can't see. LAN rows tested with server.py; the tunnel row not run.
 
 ### Decks and data
 - [ ] 145. Deck health: lands, curve and counts of ramp, card draw, removal and wipes against a Commander template
