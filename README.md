@@ -339,6 +339,8 @@ Next to it, a dashed chip shows **Commander Spellbook's own estimate** (Exhibiti
 
 ## cEDH meta data
 
+**Commander precons…** on the setup screen lists every official preconstructed Commander deck (from MTGJSON's free deck files), by set and newest first, with a filter. Pick a seat number to put a deck in that seat (the table switches to Commander). The list is kept for a week and each deck once seated, so seated precons load offline. A precon can also be typed into a seat as `precon:` and its MTGJSON file name, like `precon:VirtueAndValor_WOC`.
+
 **Browse the cEDH meta…** on the setup screen has two tabs:
 
 - **EDHTop16: top commanders**: the most-played commanders in tournaments, with meta share, win rate, top-cut rate and number of entries. Filter by time period (last month to all time, or since the last ban), minimum event size (16 to 128 players) and exact color identity. **Seat the top 4 meta decks** fills the table using the same filters.

@@ -4,6 +4,7 @@ import { formatOf, checkDeck, commanderOk } from './formats.js';
 import { randomSealed } from './limited.js';
 import { metaDeck, decklistByLink } from './cedhdata.js';
 import { combosIn } from './combos.js';
+import { preconText } from './precons.js';
 
 async function proxied(url, as = 'json') {
   const r = await fetch('/api/fetch?url=' + encodeURIComponent(url));
@@ -243,6 +244,12 @@ export async function loadDeck(source, onStatus, { bracket = null, budget = 'any
   // cEDH: "edhtop16" or "cedh" (a random meta deck), "edhtop16:Commander Name", or an EDHTop16 / TopDeck.gg decklist link
   if (/^(edhtop16|cedh)$/i.test(s)) return fromEdhtop16(null, onStatus);
   if ((m = s.match(/^edhtop16:\s*(.+)$/i))) return fromEdhtop16(m[1].trim(), onStatus);
+  // An official Commander precon from MTGJSON (item 146): "precon:<file name>"
+  if ((m = s.match(/^precon:\s*([\w-]+)$/i))) {
+    onStatus?.('Downloading the precon from MTGJSON…');
+    const p = await preconText(m[1]);
+    return { ...(await resolve(parseText(p.text), onStatus, format)), deckName: p.name };
+  }
   if ((m = s.match(/(?:edhtop16\.com\/tournament|topdeck\.gg\/deck)\/([\w-]+)\/(?:decklist\/)?([\w-]+)/i))) {
     onStatus?.('Downloading the tournament decklist from EDHTop16…');
     const { text, name } = await decklistByLink(m[1], m[2]);

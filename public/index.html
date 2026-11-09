@@ -164,6 +164,7 @@
         <div class="setup-actions">
           <button class="btn ghost" id="btnAllRandom">Fill empty seats with random decks</button>
           <button class="btn ghost" id="btnCedh" title="Kinnan, Kess, Thrasios + Tymna and Heliod: fast mana, tutors, free counterspells and compact combos">Seat a cEDH table</button>
+          <button class="btn ghost" id="btnPrecons" title="The official preconstructed Commander decks, from MTGJSON">Commander precons…</button>
           <button class="btn ghost" id="btnMeta" title="Real tournament decks from EDHTop16 and archetypes from the cEDH Decklist Database">Browse the cEDH meta…</button>
           <label class="table-bracket">Bracket for every seat <select id="tableBracket" class="sbracket"></select></label>
           <label class="table-bracket" title="What random decks may use (by rarity and the Reserved List; no prices)">Random decks <select id="budgetMode" class="sbracket"><option value="any">Any cards</option><option value="noRL">No Reserved List</option><option value="pauper">Commons and uncommons</option></select></label>
@@ -258,6 +259,20 @@
         <span id="batchStatus" class="muted"></span>
       </div>
       <div id="batchResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="preconModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Commander precons</h2>
+          <p class="muted">Every official preconstructed Commander deck, from <a href="https://mtgjson.com/" target="_blank" rel="noopener">MTGJSON</a>'s free deck files. Pick a seat number to put a deck in that seat; a deck seated once also loads offline.</p>
+        </div>
+        <button class="btn ghost" id="btnPreconClose">Close</button>
+      </div>
+      <div class="meta-tools"><input id="preconSearch" class="input" placeholder="Filter by deck name, set code or year…" autocomplete="off"> <span id="preconStatus" class="muted"></span></div>
+      <div id="preconBody" class="batch-results"></div>
     </div>
   </div>
 

@@ -1,5 +1,6 @@
 import { Game, Abort, RULES } from './engine.js';
 import { deckHealth, healthSuggestions, HEALTH_TEMPLATE } from './dechealth.js';
+import { preconList } from './precons.js';
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText } from './decks.js';
@@ -1575,6 +1576,38 @@ function seatMeta(i, src) {
   $('metaStatus').textContent = `${src.replace(/^edhtop16:/, '')} goes into ${seats[i].name}'s seat. Close this and click "Load decks".`;
 }
 $('btnMeta').addEventListener('click', () => { $('metaModal').hidden = false; renderMeta(); });
+// ---------- Commander precons (precons.js, item 146): by set, newest first
+async function renderPrecons() {
+  const q = $('preconSearch').value.trim().toLowerCase();
+  $('preconStatus').textContent = 'Loading…';
+  try {
+    const list = await preconList();
+    const rows = list.filter(d => !q || `${d.name} ${d.code} ${d.released}`.toLowerCase().includes(q));
+    const sets = [...new Set(rows.map(d => d.code))];
+    $('preconBody').innerHTML = sets.map(code => {
+      const ds = rows.filter(d => d.code === code);
+      return `<h3>${esc(code)} <span class="muted">${esc(ds[0].released.slice(0, 7))}</span></h3>${ds.map(d => `<div class="ddb-row"><div class="ddb-main"><b>${esc(d.name)}</b></div><div class="seatpicks">${seats.map((s, i) => `<button class="btn small preconseat" style="--pc:${s.color}" data-src="precon:${esc(d.file)}" data-name="${esc(d.name)}" data-seat="${i}" title="Put it in ${esc(s.name)}'s seat">${i + 1}</button>`).join('')}</div></div>`).join('')}`;
+    }).join('') || '<p class="muted">No decks match.</p>';
+    $('preconStatus').textContent = `${list.length} Commander precons${q ? `, ${rows.length} shown` : ''}`;
+  } catch (e) { $('preconStatus').textContent = `Couldn't load the list from MTGJSON: ${e.message}`; }
+}
+$('btnPrecons').addEventListener('click', () => {
+  // (precons are Commander decks: the table switches to Commander, as the cEDH meta browser does)
+  if (formatKey !== 'commander') setFormat('commander');
+  $('preconModal').hidden = false;
+  renderPrecons();
+});
+$('btnPreconClose').addEventListener('click', () => { $('preconModal').hidden = true; });
+$('preconSearch').addEventListener('input', () => renderPrecons());
+$('preconBody').addEventListener('click', e => {
+  const b = e.target.closest('.preconseat');
+  if (!b) return;
+  const i = +b.dataset.seat;
+  Object.assign(seats[i], { source: b.dataset.src, deck: null, bracket: null });
+  persist();
+  renderSeats();
+  $('preconStatus').textContent = `${b.dataset.name} goes into ${seats[i].name}'s seat. Close this and click "Load decks".`;
+});
 $('btnMetaClose').addEventListener('click', () => { $('metaModal').hidden = true; });
 document.querySelectorAll('.meta-tabs button').forEach(b => b.addEventListener('click', () => {
   metaTab = b.dataset.mt;
