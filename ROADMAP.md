@@ -344,7 +344,7 @@ on top of the ones above:
     New engine RULES = 5 (Game opts.rules, saved in setup and replays; replays without it play as rules 4 with X = 0).
     Tested: 30 games with Crypt Rats, Cinder Elemental and Kessig Wolf Run (116 activations with X, 0 errors, no rule
     broken); self-test. Not done: "spend only black mana on X".
-- [ ] 86. Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents,
+- [x] 86. Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents,
   turning face up as a special action; hidden from opponents on the table, in friends' snapshots and in replays shared
   as web pages.
   - Done: effects.js reads "morph/megamorph/disguise {cost}" (fx.morph), "when ~ is turned face up" (fx.turnedUp) and
@@ -358,7 +358,7 @@ on top of the ones above:
     controller sees the name). Shared web-page replays only carry names, so they show "Face-down creature".
     Tested: 12 + 8 games with a morph/manifest deck (17 face-down casts, 23 turned up, megamorph, triggers, cloak,
     manifest dread, 0 errors, no rule broken) and 3 games with a scripted human seat (5 cast face down, 3 turned up).
-- [ ] 87. Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back
+- [x] 87. Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back
   face as a land (the AI counts those as lands for mulligans and land drops).
   - Done: scryfall.js normalize keeps the second face of adventure, modal_dfc and split cards (card.altFace, with
     its own fx) and card.layout. engine.js useFace/mainFace swap the card's face on the stack and battlefield
@@ -436,7 +436,7 @@ on top of the ones above:
     Phandelver first (the Mad Mage late); human seats choose. Board chips: 🏰 room, ⚑ Initiative, ☀/☾.
     Not done: "if you've completed a dungeon" conditions. Tested: 12 games with a venture/initiative/werewolf deck
     (539 ventures, 85 dungeons completed, 84 initiative changes, 12 nights and days, 0 errors) + 8 rules-watched.
-- [ ] 95. Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special
+- [x] 95. Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special
   action and check the deck-building condition when the deck loads (a warning in formats.js).
   - Done: decks.js keeps the companion (a "Companion" heading in pasted lists, Moxfield's companions board,
     Archidekt's Companion category, or a companion in a 60-card sideboard) as deck.companion, outside the deck; saved
@@ -446,7 +446,7 @@ on top of the ones above:
     it's outside the commander's colors. AI pays when the card scores (more with a small hand); human seats get a
     "Companion: … to hand ({3})" button; boards show 🐾 and the companion's name. Tested: a Commander and a Modern
     list with Lurrus (both warnings right; 30 + 20 games with the companion put into hand, 0 errors).
-- [ ] 96. Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses
+- [x] 96. Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses
   (903.9; the AI usually moves it, a human seat is asked). Check partner, Friends forever, Choose a Background and
   Doctor's companion pairings at load.
   - Done: (rules 5) a commander put into a graveyard or exile now really goes there (so "dies" and "put into a
@@ -476,7 +476,7 @@ on top of the ones above:
     library", suspect. Now 76.4% (1,405), none lost. Biggest families left: collect evidence (6), Season "pawprint"
     modes (5), expend, royal role tokens, "when ~ dies, put its counters on…". Tested: 16 + 16 Limited games (tuck,
     enlist, suspect fire; 0 errors, no rule broken).
-- [ ] 99. Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with
+- [x] 99. Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with
   a puzzle each; fix what they show.
   - Done: Sagas and Classes already worked (39 chapters, 103 level-ups in the test). Battles were missing: cards keep
     Scryfall's defense; a battle enters with defense counters and its controller picks a protector (the AI: the
@@ -511,7 +511,7 @@ on top of the ones above:
     every variant (39–41 against 400/3, the same as 400/3 against itself) and 16 cEDH games differed in one game,
     4% faster. Budget size makes no measurable difference, so the defaults stay. (An earlier 41–79 reading came from
     the test seating better decks with one side, not from the budget; tools/tune.mjs rotates decks to avoid that.)
-- [ ] 104. X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards)
+- [x] 104. X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards)
   rather than the most mana available.
   - Done: (rules 5) Game.cast asks the caster for X. AI chooseSpellX: permanents (Hydras, counters) take all the
     mana; other spells try X = 1…30 valued with that X less 0.15 a mana, so burn stops at the X that kills its
