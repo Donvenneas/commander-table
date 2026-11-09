@@ -874,7 +874,10 @@ on top of the ones above:
     IP came out masked.
 - [ ] 179. Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in
   Updates, with clean-up buttons.
-- Done, partly: Updates has a Storage panel (each feature's size in the browser profile, the card files, the total    the browser reports) with Clear buttons (caches at once, your own records after a question). Tested: the card    caches (238 KB) cleared. Not done: moving the large keys to IndexedDB, which would make every `store()` reader    async; none is near the limit yet (256 KB of about 5 MB in the test profile).
+  - Done, partly: Updates has a Storage panel (each feature's size in the browser profile, the card files, the total
+    the browser reports) with Clear buttons (caches at once, your own records after a question). Tested: the card
+    caches (238 KB) cleared. Not done: moving the large keys to IndexedDB, which would make every `store()` reader
+    async; none is near the limit yet (256 KB of about 5 MB in the test profile).
 - [x] 180. Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a
   different order, give identical logs (catches stray Math.random or Date).
   - Done: a self-test row: 3 seeds with and without look-ahead seats, then again in the opposite order; logs compared.
