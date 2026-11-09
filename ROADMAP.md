@@ -794,9 +794,9 @@ on top of the ones above:
   - Done: bulk.js downloadPrints/loadPrints/removePrints (paper printings, kept in a separate IndexedDB) and set,
     cn and is:booster terms plus order=set and unique=cards/prints in the local search. Tested: a 104,682-printing
     download in 55 s; e:fdn is:booster answered locally with the same 271 cards in the same order as Scryfall.
-- [x] 158. "Download images for my library": fetch every image for library decks into dataimages with progress, and
+- [x] 158. "Download images for my library": fetch every image for library decks into data\images with progress, and
   let the 400 MB cap be changed.
-  - Done: /api/imgcache (folder size and cap, kept in dataimage-cache-mb.txt) in all three servers; server.ps1 now trims
+  - Done: /api/imgcache (folder size and cap, kept in data\image-cache-mb.txt) in all three servers; server.ps1 now trims
     the folder too. Updates has a Cap select and the download button (4 at a time, Stop). Tested on server.py (cap
     set and read back, bad input refused, a temporary library deck's 21 images fetched) and server.ps1 with curl;
     the .exe rebuilt but not run (port 8777 busy).
