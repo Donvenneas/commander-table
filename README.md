@@ -452,6 +452,7 @@ Every game is generated from a random seed, and any decisions you made are recor
 
 **Draft / Sealed…** opens packs from a real set (any set code; the Commander Legends sets work best for pods) or from a cube. Set packs match the real boosters, using MTGJSON's booster contents: the set's play or draft booster slots (commons, uncommons, rare or mythic, wildcard, foil and so on) and how often each card turns up. For example, Commander Legends packs have 20 cards with two legends.
 - Foils are normal copies of their card. Basic lands, and guest cards from other sets, are left out.
+- **Limited ladder and leagues:** seat a one-on-one deck (**Put in seats**) and play seat 1 yourself: every match against the other drafters' decks counts for a Limited rating (Elo, from 1500) and for this draft's league, played until 7 match wins (🏆) or 3 losses. **Next league opponent** on the results screen seats the next drafter's deck. Progress › Ladder shows the rating and past leagues. There are no entry fees: a new draft starts a new league.
 - In a Commander pod, a pack without a legendary creature gets one in place of a common, so every pool has commanders.
 - A set's booster contents are saved after the first load, so drafts work offline. They're refreshed after 30 days.
 - Sets MTGJSON has no booster contents for use a fixed pack: a rare or mythic, a legendary card, three uncommons and nine commons.

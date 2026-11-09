@@ -828,8 +828,12 @@ on top of the ones above:
     fixed seeds) and keeps it only when an AI pilot wins from it on three shuffles: 91 of 120 games (71 combo wins,
     20 damage). The Puzzles window shows the day's puzzle with a streak. Tested: today's opened with all 4 boards
     and no missing cards.
-- [ ] 166. Limited ladder: Elo from draft and sealed results, and a league record per draft (best of seven wins).
+- [x] 166. Limited ladder: Elo from draft and sealed results, and a league record per draft (best of seven wins).
   No entry fees.
+  - Done: seating a one-on-one Limited deck starts a league for that pool (the other three drafters' decks in turn,
+    until 7 match wins or 3 losses); each decided match counts once for a Limited Elo rating; the results screen shows
+    the record and "Next league opponent"; Progress › Ladder lists the rating and past leagues. Tested with a sealed
+    FDN pool: a loss counted (0–1, 1480), the next opponent was seated and its match started.
 - [ ] 167. More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress
   toward each unlock.
 - [x] 168. Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in

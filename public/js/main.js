@@ -479,6 +479,12 @@ function newGame(opts = {}) {
       match.games.push({ winner: w, seed: setup.seed, firstPlayer: setup.firstPlayer, revealed: game.players.map((p, i) => revealedCards(game, i).cards) });
       if (w != null) match.wins[w]++;
     }
+    // Limited league (item 166): counted once, when the match (or a single game) is decided
+    if (!setup.leagueDone && leagueMatch() && (!setup.matchGame || !match || matchOver(match))) {
+      setup.leagueDone = true;
+      const won = setup.matchGame && match ? match.wins[0] > match.wins[1] : game.winner === game.players[0];
+      setup.leagueResult = recordLeague(won);
+    }
     // Your progress (ladder, challenges, badges, rival records): once per game, when you played a seat
     if (!setup.progressed && !setup.loadedReplay && !setup.puzzle && setup.humans.length === 1 && !setup.remote.length) {
       setup.progressed = true;
@@ -968,7 +974,8 @@ function showResults() {
       <div class="meta"><b>${esc(p.name)}</b> — ${esc(p.deckName)}<br>
         ${p.lost ? esc(p.lossReason) : `${p.life} life remaining`} · ${p.stats.spells} spells cast · ${p.stats.damage} damage dealt${p.stats.combos ? ` · ${p.stats.combos} combo${p.stats.combos === 1 ? '' : 's'}` : ''}</div>
     </div>`).join('') + `<p class="muted">${game.turn} turns over ${game.round} rounds.</p>` + gameReport(game) + matchSummary()
-    + (setup.progressNote?.lines.length ? `<div class="match-box">${setup.progressNote.lines.join('<br>')}</div>` : '');
+    + (setup.progressNote?.lines.length ? `<div class="match-box">${setup.progressNote.lines.join('<br>')}</div>` : '')
+    + (setup.leagueResult ? `<div class="match-box">Limited league: <b>${setup.leagueResult.wins}–${setup.leagueResult.losses}</b>${setup.leagueResult.over ? (setup.leagueResult.wins >= 7 ? ' 🏆 seven wins: the league is complete.' : ' — three losses end this league. Draft again for a new one.') : ''} · rating ${setup.leagueResult.rating} (${setup.leagueResult.delta >= 0 ? '+' : ''}${setup.leagueResult.delta})${!setup.leagueResult.over ? ' <button class="btn small primary" id="btnLeagueNext">Next league opponent</button>' : ''}</div>` : '');
   // In an unfinished match the next step is the next game, not a rematch
   const more = setup.matchGame && match && !matchOver(match) && match.games.length === setup.matchGame;
   $('btnNextGame').hidden = !more;
@@ -988,6 +995,15 @@ function showResults() {
     // (an expedition fight can't be replayed for another result)
     if (ar.noRematch) $('btnRematch').hidden = true;
   }
+  $('btnLeagueNext')?.addEventListener('click', () => {
+    const c = limLadder().current;
+    if (!c) return;
+    seats[1].source = c.rivals[c.next]; seats[1].deck = null;
+    persist(); renderSeats();
+    $('results').hidden = true;
+    match = null;
+    loadAll();
+  });
   $('results').hidden = false;
 }
 // Between games of a match: the loser of the last game chooses who goes first (a drawn game: the same
@@ -1359,6 +1375,46 @@ let progressTab = 'ladder';
 $('btnProgress').addEventListener('click', () => { renderProgress(); $('progressModal').hidden = false; });
 $('btnProgressClose').addEventListener('click', () => { $('progressModal').hidden = true; });
 document.querySelectorAll('.prog-tab').forEach(b => b.addEventListener('click', () => { progressTab = b.dataset.tab; renderProgress(); }));
+// ---------- Limited ladder and leagues (item 166): an Elo rating from Draft / Sealed matches against the AI drafters'
+// decks, and a record per draft, played until 7 match wins or 3 losses. No entry fees: a new draft starts a new league.
+const LIMLAD = 'ct.limLadder';
+const limLadder = () => store(LIMLAD) || { rating: 1500, games: 0, peak: 1500, leagues: [], current: null };
+function startLeague(label, mine, rivals, first) {
+  const l = limLadder();
+  if (l.current && (l.current.wins || l.current.losses)) l.leagues.unshift({ ...l.current, rivals: undefined, mine: undefined, done: true, at: Date.now() });
+  l.leagues = l.leagues.slice(0, 30);
+  l.current = { id: Date.now(), label, mine, rivals, next: Math.max(0, rivals.indexOf(first)), wins: 0, losses: 0, record: [] };
+  store(LIMLAD, l);
+}
+// (a league match is one where you play seat 1 with this draft's deck against its current rival, in Limited)
+function leagueMatch() {
+  const l = limLadder(), c = l.current;
+  if (!c || !setup || setup.format !== 'limited' || setup.humans.length !== 1 || setup.human !== 0 || setup.loadedReplay) return null;
+  const src = s => (s.source || '').trim();
+  return src(seats[0]) === c.mine.trim() && src(seats[1]) === c.rivals[c.next]?.trim() ? c : null;
+}
+function recordLeague(won) {
+  const l = limLadder(), c = l.current;
+  if (!c) return null;
+  // Elo against an AI drafter rated 1500
+  const exp = 1 / (1 + 10 ** ((1500 - l.rating) / 400)), k = l.games < 10 ? 40 : 24;
+  const delta = Math.round(k * ((won ? 1 : 0) - exp));
+  l.rating += delta; l.games++; l.peak = Math.max(l.peak, l.rating);
+  if (won) c.wins++; else c.losses++;
+  c.record.push(won ? 'W' : 'L');
+  c.next = (c.next + 1) % c.rivals.length;
+  const over = c.wins >= 7 || c.losses >= 3;
+  if (over) { l.leagues.unshift({ id: c.id, label: c.label, wins: c.wins, losses: c.losses, record: c.record, done: true, at: Date.now() }); l.current = null; }
+  store(LIMLAD, l);
+  return { delta, rating: l.rating, wins: c.wins, losses: c.losses, over };
+}
+function limLadderHtml() {
+  const l = limLadder();
+  if (!l.games && !l.current) return '<h3>Limited</h3><p class="muted">Draft or seal a pool and play it one on one (Draft / Sealed → Put in seats, then play seat 1 yourself): each match against the other drafters\' decks counts for a Limited rating and the draft\'s league, played until 7 match wins or 3 losses.</p>';
+  const c = l.current;
+  return `<h3>Limited</h3><p>Rating <b>${l.rating}</b> (peak ${l.peak}) after ${l.games} match${l.games === 1 ? '' : 'es'}.${c ? ` Current league: <b>${esc(c.label)}</b> ${c.wins}–${c.losses} ${c.record.join('')}` : ''}</p>
+    ${l.leagues.length ? `<ul>${l.leagues.slice(0, 10).map(x => `<li>${esc(x.label)}: ${x.wins}–${x.losses}${x.wins >= 7 ? ' 🏆' : ''} <span class="muted">${esc(new Date(x.at).toLocaleDateString())}</span></li>`).join('')}</ul>` : ''}`;
+}
 function ladderHtml(withButton = true) {
   const l = ladder();
   const rows = Object.entries(l.formats).sort((a, b) => b[1].games - a[1].games);
@@ -1368,6 +1424,7 @@ function ladderHtml(withButton = true) {
         <td>${f.history.slice(0, 10).map(x => `<span class="${x.won ? 'good' : 'bad'}" title="${esc(new Date(x.at).toLocaleString())}">${x.delta >= 0 ? '+' : ''}${x.delta}</span>`).join(' ')}</td></tr>`; }).join('')}</tbody></table>`
       : '<p class="muted">No ranked games yet. Tick <b>Ranked</b> on the setup screen, choose "You play this seat" for one seat, and play.</p>'}
     <p class="muted">Ranked games are scored against the AI pilots (Elo, a rating per format, starting at 1500). In Commander, a pilot's rating follows its seat's bracket (bracket 1 = 1200 up to 5 = 1800); in other formats it's 1500. The first ${PLACEMENT} games place you; then Bronze, Silver, Gold, Platinum and Diamond have divisions III, II and I, and Mythic is 1900 and up. In ranked games undo, rewinding, Reveal hands and Explain are off.</p>
+    ${limLadderHtml()}
     ${l.past.length ? `<h3>Past seasons</h3><ul>${l.past.map(s => `<li>Season ${s.season}: ${Object.entries(s.formats).map(([k, f]) => `${esc(formatOf(k).name)} ${esc(f.rank)} (peak ${f.peak})`).join(' · ') || 'no games'}</li>`).join('')}</ul>` : ''}
     ${withButton ? '<p><button class="btn small" id="btnNewSeason" title="Ratings move halfway back to 1500 and placement starts over; this season is kept in Past seasons">Start a new season</button></p>' : ''}`;
 }
@@ -2451,6 +2508,8 @@ $('btnLimSeat').addEventListener('click', () => {
     const rivals = LIM.pools.slice(1).map(p => ({ p, d: buildLimited(p) })).map(x => ({ ...x, v: x.d.cards.reduce((a, c) => a + (c.fx.type.land ? 0 : 1), 0) }));
     const rival = rivals.sort((a, b) => b.v - a.v)[0];
     Object.assign(seats[1], { source: limitedText(rival.d, rival.p, `${label} ${rival.d.colors.join('')} (AI)`), deck: null, style: ['human', 'remote'].includes(seats[1].style) ? seats[1].style : 'auto' });
+    // A league for this pool (item 166): the other drafters' decks in turn, until 7 match wins or 3 losses
+    startLeague(label, seats[0].source, rivals.map(x => limitedText(x.d, x.p, `${label} ${x.d.colors.join('')} (AI)`)), seats[1].source);
     persist();
     renderSeats();
     $('limitedModal').hidden = true;
