@@ -1143,3 +1143,6 @@ table.odds td, table.odds th { padding: 2px 8px; }
 /* EDHTop16 trends (item 155) */
 table.trend .spark { color: var(--accent, #3bb6f2); vertical-align: middle; }
 table.trend td { white-space: nowrap; }
+
+/* Gauntlet (item 162) */
+.gauntlet-list .gl-next { font-weight: 700; }

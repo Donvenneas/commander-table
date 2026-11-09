@@ -1388,7 +1388,89 @@ function renderProgress() {
     const got = badges();
     body.innerHTML = `<div class="badge-grid">${BADGE_LIST.map(b => `<div class="badge ${got[b.id] ? 'got' : ''}"><div class="badge-medal">${got[b.id] ? '🏅' : '🔒'}</div><b>${esc(b.name)}</b><span class="muted">${esc(b.text)}</span>${got[b.id] ? `<small class="muted">${esc(new Date(got[b.id]).toLocaleDateString())}</small>` : ''}</div>`).join('')}</div>
       <p class="muted">${Object.keys(got).length} of ${BADGE_LIST.length} earned. Badges are only for show.</p>`;
-  } else renderRivals();
+  } else if (progressTab === 'gauntlet') renderGauntlet();
+  else renderRivals();
+}
+
+// ---------- Gauntlet (item 162): beat a chain of rivals one on one with your deck; one loss ends the run.
+// Rivals come from the EDHTop16 top 8 (1v1 Commander), your library, or random decks of the table's format.
+const GAUNTLET = 'ct.gauntlet';
+function renderGauntlet(msg = '') {
+  const g = store(GAUNTLET) || { best: {}, run: null };
+  const body = $('progressBody');
+  const best = Object.entries(g.best || {}).map(([k, v]) => `<li>${esc(GAUNTLET_FROM[k] || k)}: ${v.wins} win${v.wins === 1 ? '' : 's'} in a row${v.cleared ? ' (cleared)' : ''} <span class="muted">${esc(new Date(v.at).toLocaleDateString())}</span></li>`).join('');
+  const run = g.run;
+  body.innerHTML = run ? `<h3>${esc(GAUNTLET_FROM[run.from])}: rival ${run.beaten + 1} of ${run.rivals.length}</h3>
+      <p>Your deck: <b>${esc(run.mine.name)}</b> · ${esc(formatOf(run.format).name)} · ${run.beaten} beaten so far.</p>
+      <ol class="gauntlet-list">${run.rivals.map((r, i) => `<li class="${i < run.beaten ? 'ch-done' : i === run.beaten ? 'gl-next' : 'muted'}">${i < run.beaten ? '✔ ' : ''}${esc(r.name)}</li>`).join('')}</ol>
+      <p><button class="btn primary" data-gl="fight">Fight ${esc(run.rivals[run.beaten].name)}</button> <button class="btn ghost" data-gl="quit">Give up the run</button></p>`
+    : `<p>Beat a chain of rivals one on one with the deck in seat 1; one loss ends the run. Your best run from each pool is kept.</p>
+      <p><label>Rivals <select id="glFrom" class="sbracket">${Object.entries(GAUNTLET_FROM).map(([k, l]) => `<option value="${k}">${esc(l)}</option>`).join('')}</select></label>
+        <button class="btn primary" data-gl="start">Start a run</button></p>`;
+  body.innerHTML += `${best ? `<h3>Best runs</h3><ul>${best}</ul>` : ''}${msg ? `<p class="muted">${esc(msg)}</p>` : ''}`;
+  body.querySelector('[data-gl="start"]')?.addEventListener('click', () => startGauntlet(/** @type {HTMLSelectElement} */ ($('glFrom')).value));
+  body.querySelector('[data-gl="quit"]')?.addEventListener('click', () => { if (confirm('Give up this run? It counts as it stands.')) { endGauntlet(false); renderGauntlet(); } });
+  body.querySelector('[data-gl="fight"]')?.addEventListener('click', fightGauntlet);
+}
+const GAUNTLET_FROM = { meta: 'EDHTop16 top 8 (1v1 Commander)', library: 'Your deck library', random: 'Random decks of the table\'s format' };
+async function startGauntlet(from) {
+  const say = t => renderGauntlet(t);
+  const mine = seats[0];
+  if (!mine.source.trim()) { say('Put your deck in seat 1 first (any source but an empty seat).'); return; }
+  let rivals = [], format = formatKey;
+  try {
+    if (from === 'meta') { rivals = (await topCommanders({ count: 8 })).slice(0, 8).map(c => ({ name: c.name, source: `edhtop16:${c.name}` })); format = 'commander1v1'; }
+    else if (from === 'library') {
+      const own = mine.source.trim();
+      rivals = (await listDecks()).filter(d => d.text.trim() !== own).sort(() => Math.random() - 0.5).slice(0, 8).map(d => ({ name: d.name, source: d.text }));
+      if (rivals.length < 3) { say('The gauntlet needs at least three other decks in your library.'); return; }
+    } else rivals = Array.from({ length: 6 }, (_, i) => ({ name: `Random rival ${i + 1}`, source: 'random' }));
+  } catch (err) { say(`Couldn't gather rivals: ${err.message}`); return; }
+  // (commander decks fight at the 1v1 Commander table; a four-player format becomes 1v1 Commander)
+  if (formatOf(format).seats !== 2) format = formatOf(format).commander ? 'commander1v1' : 'standard';
+  const g = store(GAUNTLET) || { best: {} };
+  g.run = { from, format, rivals, beaten: 0, mine: { name: mine.deck?.deckName || mine.name, source: mine.source } };
+  store(GAUNTLET, g);
+  renderGauntlet();
+}
+function endGauntlet(cleared) {
+  const g = store(GAUNTLET);
+  if (!g?.run) return;
+  const b = g.best[g.run.from];
+  if (!b || g.run.beaten > b.wins || (cleared && !b.cleared)) g.best[g.run.from] = { wins: g.run.beaten, cleared, at: Date.now() };
+  g.run = null;
+  store(GAUNTLET, g);
+}
+async function fightGauntlet() {
+  const g = store(GAUNTLET), run = g?.run;
+  if (!run) return;
+  const rival = run.rivals[run.beaten];
+  renderGauntlet(`Loading ${rival.name}…`);
+  try {
+    const mine = await loadDeck(run.mine.source, () => {}, { format: run.format });
+    const theirs = await loadDeck(rival.source, () => {}, { format: run.format });
+    $('progressModal').hidden = true; $('setup').hidden = true; $('startMenu').hidden = true;
+    match = null;
+    newGame({
+      customSeats: [{ name: 'You', deck: mine, style: 'human' }, { name: rival.name === `Random rival ${run.beaten + 1}` ? theirs.deckName : rival.name, deck: theirs, style: guessStyle(theirs) }],
+      format: run.format,
+      after: game => {
+        const won = game.winner === game.players[0];
+        const cur = store(GAUNTLET);
+        // (counted once: a rewound or replayed game doesn't count again)
+        if (cur?.run && cur.run.beaten === run.beaten && cur.run.from === run.from) {
+          if (won) { cur.run.beaten++; store(GAUNTLET, cur); if (cur.run.beaten >= cur.run.rivals.length) endGauntlet(true); }
+          else endGauntlet(false);
+        }
+        const after = store(GAUNTLET);
+        const open = () => { progressTab = 'gauntlet'; renderProgress(); $('progressModal').hidden = false; };
+        return {
+          html: won ? (after?.run ? `✔ <b>${esc(rival.name)} beaten.</b> ${after.run.beaten} in a row; next: ${esc(after.run.rivals[after.run.beaten].name)}.` : '🏆 <b>Gauntlet cleared!</b> Every rival beaten.') : `<b>The run ends</b> after ${run.beaten} win${run.beaten === 1 ? '' : 's'}.`,
+          buttons: [{ label: 'Back to the gauntlet', primary: true, fn: open }], noRematch: true,
+        };
+      },
+    });
+  } catch (err) { renderGauntlet(`Couldn't start the fight: ${err.message}`); }
 }
 
 // Rivals: named AI decks to play against, each with a strength tier and your record against it

@@ -809,8 +809,11 @@ on top of the ones above:
   - Done: two formats (formats.js), random Duel Commander decks from legal:duel (randomVariant), and 1v1 Commander
     taking any Commander deck. Tested: random decks of 100 with no warnings, three games each at full speed (0 errors),
     and a 1v1 Commander game started from the setup screen.
-- [ ] 162. Gauntlet: beat a chain of rivals in a row (EDHTop16 top 8, a cube's AI decks or the library); one loss ends
+- [x] 162. Gauntlet: beat a chain of rivals in a row (EDHTop16 top 8, a cube's AI decks or the library); one loss ends
   it; best run shown in Progress.
+  - Done: a Gauntlet tab in Progress: pools EDHTop16 top 8 (1v1 Commander), your library, or random decks of the
+    format (cube decks left out: the cube's AI decks are built per draft); one-on-one fights with your seat-1 deck,
+    a result counted once, best run per pool. Tested a random-pool run in Standard to a loss (run ended, best kept).
 - [ ] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs
   shareable as a code.
 - [ ] 164. Story: four more chapters of The Lantern Road, balanced like the first four.
