@@ -1,5 +1,5 @@
 {
- "version": "1.18.0",
+ "version": "1.19.0",
  "round": "Round 5",
  "items": [
   {
@@ -75,6 +75,12 @@
    "done": "Sagas and Classes already worked (39 chapters, 103 level-ups in the test)."
   },
   {
+   "n": 102,
+   "section": "AI",
+   "title": "Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation; tuned with the matchup grid in Commander pods.",
+   "done": "lookahead.js lookAheadAttacks."
+  },
+  {
    "n": 103,
    "section": "AI",
    "title": "Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in steps, not ms, so replays stay exact.",
@@ -93,10 +99,28 @@
    "done": "the block search now counts damage aimed at our planeswalkers as loyalty lost (the walker's full worth when it would hit 0) instead of life, so blocks protect walkers worth keeping."
   },
   {
+   "n": 106,
+   "section": "AI",
+   "title": "Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.",
+   "done": "\"spells you control can't be countered this turn\" is now read (Veil of Summer, Autumn's Veil; before, Veil was only \"draw a card\" and Autumn's Veil a static that did nothing on an instant)."
+  },
+  {
    "n": 107,
    "section": "AI",
    "title": "Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs; the AI values its own graveyard as a resource and graveyard hate by what it stops.",
    "done": "Agent.graveyardPlan values a card in its own graveyard (flashback, escape, unearth, embalm, eternalize, jump-start; big creatures when a reanimation spell is in hand or out; anything with Underworld Breach)."
+  },
+  {
+   "n": 108,
+   "section": "AI",
+   "title": "Threat assessment learned from batch games: which public board states lead to a win next round, used to pick the archenemy instead of fixed weights (frozen into the setup like learn.js data).",
+   "done": "threat.js."
+  },
+  {
+   "n": 109,
+   "section": "AI",
+   "title": "Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block) kept in learn.js and frozen into each game's setup.",
+   "done": "the engine notes for each person seat (HumanAgent, by seat name) the turns they end with 2+ mana open and cards in hand, whether that mana is used before their next turn and whether on a counterspell, the combats they could block in, their "
   },
   {
    "n": 110,
@@ -249,6 +273,12 @@
    "done": "between best-of-three games the host sends an online friend their deck and sideboard (RemoteUI.askSideboard); the friend page shows both lists, a click moves one copy across, \"Play these\" or \"Keep my deck\"."
   },
   {
+   "n": 136,
+   "section": "Online",
+   "title": "Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel), then play the pod or one-on-one matches.",
+   "done": "with the lobby open, Draft / Sealed counts the friend seats among seats 2–4."
+  },
+  {
    "n": 137,
    "section": "Online",
    "title": "Friends at 1v1 and Limited tables: test the friend page with two seats and fix what breaks (untested in 56–60).",
@@ -381,6 +411,18 @@
    "done": "/api/imgcache (folder size and cap, kept in data\\image-cache-mb.txt) in all three servers; server.ps1 now trims the folder too."
   },
   {
+   "n": 159,
+   "section": "Modes and progression",
+   "title": "Two-Headed Giant: shared 30 life, shared turns and team combat, with AI teammates that plan together.",
+   "done": "format twohg (formats.js; random decks from Standard's pool)."
+  },
+  {
+   "n": 160,
+   "section": "Modes and progression",
+   "title": "Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each turn, the planar die, AI that plays both sides.",
+   "done": "planar.js and two formats."
+  },
+  {
    "n": 161,
    "section": "Modes and progression",
    "title": "Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.",
@@ -429,6 +471,12 @@
    "done": "a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate random stream and adds its reason to the main-phase prompt."
   },
   {
+   "n": 169,
+   "section": "Speed, testing and tooling",
+   "title": "Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.",
+   "done": "the live table stays in the page (the board, prompts, undo and replays all read the game object directly, so moving it to a worker would mean rebuilding the whole table around messages)."
+  },
+  {
    "n": 170,
    "section": "Speed, testing and tooling",
    "title": "Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker for the same seeds.",
@@ -469,6 +517,12 @@
    "section": "Speed, testing and tooling",
    "title": "Local bug reports: \"Report a problem\" saves the replay, log, version and console errors into data\\bugs\\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.",
    "done": "the replay with seat numbers for names, the last 400 log lines, version, browser, screen, the last 40 errors and warnings (kept from page load) and a note."
+  },
+  {
+   "n": 179,
+   "section": "Speed, testing and tooling",
+   "title": "Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in Updates, with clean-up buttons.",
+   "done": "util.js keeps 14 large keys (the unfinished game, history, deck learning, library versions, learned threat and people, the collection, card caches, scheme and plane cards) in IndexedDB."
   },
   {
    "n": 180,
