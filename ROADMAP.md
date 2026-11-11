@@ -878,6 +878,10 @@ on top of the ones above:
 - [ ] 169. Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.
 - [ ] 170. Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker
   for the same seeds.
+  - Done, partly: batch runs play on every core (batchworker.js, a module worker per core; each loads the decks from
+    their card lists and plays a list of fixed seeds with the learned tables taken at the start). Batch has Cores and
+    Seed controls. Tested: 25 cEDH games with seed 12345 gave identical results on 1 core (6.9 s) and on 15 workers
+    (0.76 s). Not done: the matchup grid and the AI tournament still play on the page.
 - [x] 171. Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the
   hottest paths (abilitiesOf, statics, cloneGame).
   - Done: profiled in Node: the combat planner spent most of its time in attachments(), has(), power() and toughness().

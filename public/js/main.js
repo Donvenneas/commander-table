@@ -23,7 +23,7 @@ import { Room, RemoteUI, snapshot, TURN_CLOCKS } from './net.js';
 // (a friend's time bank counts down on their board while they decide)
 setInterval(() => { if (view && game && !game.over && [...remoteUIs.values()].some(u => u.waiting && u.clockMode !== 'off')) view.render(); }, 1000);
 import { qrSvg } from './qr.js';
-import { recordGame, learnedSummary, learnedStyle, forgetDeck, learnAs, mastery, deckKey } from './learn.js';
+import { recordGame, learnedSummary, learnedStyle, forgetDeck, learnAs, mastery, deckKey, learnedBonus } from './learn.js';
 import { ladder, recordRanked, newSeason, rankOf, aiRating, PLACEMENT, challenges, recordChallenges, checkBadges, badges, BADGE_LIST } from './progress.js';
 import { CEDH_PRESETS } from './presets.js';
 import { BRACKETS, BRACKET_NOISE, estimateBracket, bracketDifferences } from './brackets.js';
@@ -1927,9 +1927,9 @@ $('btnBatchTune').addEventListener('click', () => runBatch(true));
 const seatStyle = s => (['auto', 'human', 'remote'].includes(s.style) ? learnedStyle(learnAs(s.deck)) || guessStyle(s.deck) : s.style);
 
 // One game at full speed (AI pilots in every seat); null if the run was stopped
-async function quickGame(styles) {
+async function quickGame(styles, seed = undefined) {
   const fast = { beat: async () => { if (batchStop) throw new Abort(); } };
-  const g = new Game(seats.map((s, i) => ({ playerName: s.name || 'Player', deckName: s.deck.deckName, color: s.color, agent: new Agent(styles[i]), commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards })), fast, { format: formatKey });
+  const g = new Game(seats.map((s, i) => ({ playerName: s.name || 'Player', deckName: s.deck.deckName, color: s.color, agent: new Agent(styles[i]), commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards })), fast, { format: formatKey, ...(seed != null ? { seed } : {}) });
   await g.run();
   if (g.over) recordGame(g);
   return g.over ? g : null;
@@ -2001,18 +2001,52 @@ function renderTune(wins, per, styles, partial) {
   });
 }
 
+// Batch games on every CPU core (item 170): batchworker.js plays a list of seeds per worker; each game depends only on
+// its seed and the learned tables taken at the start, so the totals are the same with any number of cores
+async function workerGames(seeds, styles, onGame) {
+  const cores = +$('batchCores').value || Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1));
+  const tableMsg = { kind: 'table', format: formatKey, seats: seats.map(s => ({ name: s.name || 'Player', color: s.color, text: deckText(s.deck), learned: learnedBonus(learnAs(s.deck)) })) };
+  const queue = seeds.map((seed, k) => ({ seed, k }));
+  const results = new Array(seeds.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(cores, seeds.length) }, () => new Worker(new URL('./batchworker.js', import.meta.url), { type: 'module' }));
+  try {
+    await Promise.all(workers.map(w => new Promise((resolve, reject) => {
+      let job = null;
+      const give = () => {
+        if (batchStop || !queue.length) { resolve(); return; }
+        job = queue.shift();
+        w.postMessage({ kind: 'play', seed: job.seed, styles });
+      };
+      w.onmessage = ({ data }) => {
+        if (data.kind === 'ready') give();
+        else if (data.kind === 'result') {
+          results[job.k] = data;
+          // (results are counted in seed order, so the running totals don't depend on which core finished first)
+          while (results[next]) { onGame(results[next]); next++; }
+          give();
+        } else if (data.kind === 'error') reject(new Error(data.message));
+      };
+      w.onerror = e => reject(new Error(e.message || 'the worker failed'));
+      w.postMessage(tableMsg);
+    })));
+  } finally { workers.forEach(w => w.terminate()); }
+}
+// A worker's summary of a game, shaped like a game for the tally and for deck learning
+function gameFromSummary(r) {
+  const players = r.players.map((p, i) => ({ ...p, idx: i, castNames: new Set(p.castNames), learnAs: learnAs(seats[i].deck), commanders: seats[i].deck.commanders, command: [] }));
+  return { over: r.over, round: r.round, winReason: r.winReason, winner: r.winner != null ? players[r.winner] : null, players, comboLog: r.comboLog, errors: r.errors, logEntries: [] };
+}
 async function plainBatch(n, status) {
   const stats = seats.map(s => ({ seat: s, wins: 0, place: 0, comboWins: 0, combos: 0, damage: 0, interaction: 0, styles: {}, cards: new Map() }));
   const reasons = {}, losses = {};
   // cEDH-style statistics: when games end, how much interaction gets cast, which combos land
   const meta = { winRounds: [], interaction: 0, combos: {} };
   let rounds = 0, played = 0, errors = 0;
-  for (let k = 0; k < n && !batchStop; k++) {
-    const g = await quickGame(seats.map(seatStyle));
-    if (!g) break;
+  const tally = g => {
     played++;
     rounds += g.round;
-    if (g.logEntries.some(e => e.html.startsWith('Simulator error'))) errors++;
+    if (g.errors ?? g.logEntries.some(e => e.html.startsWith('Simulator error'))) errors++;
     const why = g.winReason || 'draw';
     reasons[why] = (reasons[why] || 0) + 1;
     if (g.winner) meta.winRounds.push(g.round);
@@ -2046,6 +2080,19 @@ async function plainBatch(n, status) {
     $('batchBar').style.width = `${(played / n) * 100}%`;
     status(`${played} / ${n} games`);
     if (played % 2 === 0 || played === n) renderBatch(stats, reasons, losses, played, rounds, errors, meta);
+  };
+  const seed0 = $('batchSeed').value.trim() ? (+$('batchSeed').value >>> 0) : Math.floor(Math.random() * 2 ** 31);
+  const seeds = Array.from({ length: n }, (_, k) => (seed0 + k * 7919) >>> 0);
+  let viaWorkers = typeof Worker === 'function';
+  if (viaWorkers) {
+    try { await workerGames(seeds, seats.map(seatStyle), r => { if (!r.over) return; const g = gameFromSummary(r); recordGame(g); tally(g); }); }
+    catch (e) { console.warn('batch workers failed, playing here instead', e); viaWorkers = false; }
+  }
+  // (no workers, or they failed: the same seeds on this page)
+  if (!viaWorkers) for (let k = played; k < n && !batchStop; k++) {
+    const g = await quickGame(seats.map(seatStyle), seeds[k]);
+    if (!g) break;
+    tally(g);
     await sleep(0);
   }
   renderBatch(stats, reasons, losses, played, rounds, errors, meta);

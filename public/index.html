@@ -256,6 +256,8 @@
       </div>
       <div class="batch-controls">
         <label>Games <select id="batchCount"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
+        <label title="Games are played on this many CPU cores at once. The same seed gives the same results whatever the number">Cores <select id="batchCores"><option value="0">All</option><option>1</option><option>2</option><option>4</option></select></label>
+        <label title="Leave empty for new games each time; the same number repeats a batch exactly">Seed <input id="batchSeed" class="input" inputmode="numeric" size="8" placeholder="any"></label>
         <button class="btn primary" id="btnBatchRun">Run</button>
         <button class="btn" id="btnBatchTune" title="Every seat tries every play style; the report suggests the best one">Tune styles</button>
         <button class="btn ghost" id="btnBatchStop" hidden>Stop</button>
