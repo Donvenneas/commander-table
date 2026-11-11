@@ -1,5 +1,5 @@
 {
- "version": "1.17.0",
+ "version": "1.18.0",
  "round": "Round 5",
  "items": [
   {
@@ -7,6 +7,18 @@
    "section": "Rules engine and card coverage",
    "title": "X in activated ability costs (\"{X}, {T}: …\"): read X in parseCostText, the AI picks X by value, a human seat gets a number prompt. The biggest missing engine piece in item 82's notes.",
    "done": "the cost and effects were already read, but every X was played as 0."
+  },
+  {
+   "n": 86,
+   "section": "Rules engine and card coverage",
+   "title": "Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents, turning face up as a special action; hidden from opponents on the table, in friends' snapshots and in replays shared as web pages.",
+   "done": "effects.js reads \"morph/megamorph/disguise {cost}\" (fx.morph), \"when ~ is turned face up\" (fx.turnedUp) and manifest / manifest dread / cloak effects."
+  },
+  {
+   "n": 87,
+   "section": "Rules engine and card coverage",
+   "title": "Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back face as a land (the AI counts those as lands for mulligans and land drops).",
+   "done": "scryfall.js normalize keeps the second face of adventure, modal_dfc and split cards (card.altFace, with its own fx) and card.layout."
   },
   {
    "n": 88,
@@ -45,10 +57,40 @@
    "done": "public/js/dungeons.js has the four dungeons as room maps; each room's ability is read by parseEffects (Twisted Caverns' \"can't attack\" isn't read and does nothing)."
   },
   {
+   "n": 95,
+   "section": "Rules engine and card coverage",
+   "title": "Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special action and check the deck-building condition when the deck loads (a warning in formats.js).",
+   "done": "decks.js keeps the companion (a \"Companion\" heading in pasted lists, Moxfield's companions board, Archidekt's Companion category, or a companion in a 60-card sideboard) as deck.companion, outside the deck; saved deck text (replays, challeng"
+  },
+  {
+   "n": 96,
+   "section": "Rules engine and card coverage",
+   "title": "Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses (903.9; the AI usually moves it, a human seat is asked). Check partner, Friends forever, Choose a Background and Doctor's companion pairings at load.",
+   "done": "(rules 5) a commander put into a graveyard or exile now really goes there (so \"dies\" and \"put into a graveyard\" triggers see it) and its owner chooses at the next state-based check (Game.commanderChoices, 903.9a); to a hand or library it's "
+  },
+  {
+   "n": 99,
+   "section": "Rules engine and card coverage",
+   "title": "Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with a puzzle each; fix what they show.",
+   "done": "Sagas and Classes already worked (39 chapters, 103 level-ups in the test)."
+  },
+  {
    "n": 103,
    "section": "AI",
    "title": "Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in steps, not ms, so replays stay exact.",
    "done": "lookahead.js budgetFor (per decision; agent.budget overrides it)."
+  },
+  {
+   "n": 104,
+   "section": "AI",
+   "title": "X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards) rather than the most mana available.",
+   "done": "(rules 5) Game.cast asks the caster for X."
+  },
+  {
+   "n": 110,
+   "section": "AI",
+   "title": "Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan pieces, fast mana) and how those games went, and nudges planScore.",
+   "done": "the engine notes each kept seven's lands; learn.js keeps results per land count and adds them to the learned table (under \"#hands\", so it's saved with each game and replays stay exact)."
   },
   {
    "n": 111,
@@ -339,10 +381,88 @@
    "done": "a Gauntlet tab in Progress: pools EDHTop16 top 8 (1v1 Commander), your library, or random decks of the format (cube decks left out: the cube's AI decks are built per draft); one-on-one fights with your seat-1 deck, a result counted once, be"
   },
   {
+   "n": 165,
+   "section": "Modes and progression",
+   "title": "Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the engine to have a solution and picked by date.",
+   "done": "tools/dailypuzzles.mjs saves the board at the winner's last first main phase in AI games (the cEDH decks, fixed seeds) and keeps it only when an AI pilot wins from it on three shuffles: 91 of 120 games (71 combo wins, 20 damage)."
+  },
+  {
+   "n": 166,
+   "section": "Modes and progression",
+   "title": "Limited ladder: Elo from draft and sealed results, and a league record per draft (best of seven wins). No entry fees.",
+   "done": "seating a one-on-one Limited deck starts a league for that pool (the other three drafters' decks in turn, until 7 match wins or 3 losses); each decided match counts once for a Limited Elo rating; the results screen shows the record and \"Nex"
+  },
+  {
+   "n": 167,
+   "section": "Modes and progression",
+   "title": "More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress toward each unlock.",
+   "done": "six badges (puzzle of the day x2, Gauntlet x2, Limited league, friend tournament), two original SVG avatars and two CSS card backs, and an Unlocks tab in Progress with a progress bar per locked item (badges report their own progress)."
+  },
+  {
+   "n": 168,
+   "section": "Modes and progression",
+   "title": "Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in Ranked.",
+   "done": "a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate random stream and adds its reason to the main-phase prompt."
+  },
+  {
+   "n": 171,
+   "section": "Speed, testing and tooling",
+   "title": "Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the hottest paths (abilitiesOf, statics, cloneGame).",
+   "done": "profiled in Node: the combat planner spent most of its time in attachments(), has(), power() and toughness()."
+  },
+  {
+   "n": 172,
+   "section": "Speed, testing and tooling",
+   "title": "Golden card readings: tests/cards.mjs runs the effects parser over a saved snapshot of the 3,500 cards and fails when a card's reading changes without the snapshot being updated on purpose.",
+   "done": "tests/cards-snapshot.json (3,500 cards, Scryfall fields normalize() reads; --fetch refreshes it) and tests/card-readings.json (type, what is understood, lines not read; --update accepts)."
+  },
+  {
+   "n": 173,
+   "section": "Speed, testing and tooling",
+   "title": "Golden replays: saved replays from each version in tests/ that CI replays and checks for the same result, so outcome-changing edits are caught and replay versions are bumped on purpose.",
+   "done": "tests/golden.mjs plays 12 AI games (the four built-in decks, fixed seeds) under rules 4 and rules 5 and compares winner, rounds, steps and a log hash with tests/golden-games.json; card data is saved in tests/golden-cards.json so it runs off"
+  },
+  {
+   "n": 174,
+   "section": "Speed, testing and tooling",
+   "title": "Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI with a fixed seed list.",
+   "done": "tests/fuzz.mjs (random Commander decks from the card snapshot; seat 1 is a HumanAgent whose UI answers at random; 12 fixed seeds in CI, more with --games/--seed)."
+  },
+  {
+   "n": 178,
+   "section": "Speed, testing and tooling",
+   "title": "Local bug reports: \"Report a problem\" saves the replay, log, version and console errors into data\\bugs\\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.",
+   "done": "the replay with seat numbers for names, the last 400 log lines, version, browser, screen, the last 40 errors and warnings (kept from page load) and a note."
+  },
+  {
+   "n": 180,
+   "section": "Speed, testing and tooling",
+   "title": "Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a different order, give identical logs (catches stray Math.random or Date).",
+   "done": "a self-test row: 3 seeds with and without look-ahead seats, then again in the opposite order; logs compared."
+  },
+  {
+   "n": 181,
+   "section": "Help and packaging",
+   "title": "Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.",
+   "done": "Rules.keywordIndex/glossify (702 keyword abilities and the rarer 701 actions, 242 names) mark keywords in log lines, card previews and card details; one page tooltip shows the rule and its first subrule."
+  },
+  {
    "n": 182,
    "section": "Help and packaging",
    "title": "\"What's new\" window after an update, built from this file's Done notes for the new VERSION.",
    "done": "tools/whatsnew.mjs writes public/data/whatsnew.json (newest round's finished items, first sentence of each Done note, VERSION); the page shows it once when the version changed since the last start, and from Updates."
+  },
+  {
+   "n": 183,
+   "section": "Help and packaging",
+   "title": "Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks it and refuses a mismatch.",
+   "done": "release.yml attaches commander-table.zip.sha256; the update check in all three servers hashes the download, fetches <address>.sha256 and refuses a mismatch (nothing saved); Updates shows the hash and whether it matched."
+  },
+  {
+   "n": 184,
+   "section": "Help and packaging",
+   "title": "Help window inside the app: README's sections with a search box, translated where item 129 covers them.",
+   "done": "tools/help.mjs builds public/data/help.json from README's sections (make-shareable-zip.ps1 refreshes it); Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that ranks sections and high"
   }
  ]
 }
