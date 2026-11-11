@@ -888,8 +888,8 @@ on top of the ones above:
     die once at the start of their first main phase (planeswalk 1 in 6, chaos 1 in 6); "when you planeswalk to",
     chaos (both wordings) and upkeep abilities are played, the rest of a plane is named in the log as not played.
     The pick is saved in the setup and in replays (planar), and the decks are shuffled with the game's seed. Tested in
-    Node with fetched cards: 12 Archenemy games with four creature decks rotated (archenemy won 2; 60 schemes set in
-    motion, 10 of them read; 0 errors, no rule broken) and 12 Planechase games with the cEDH decks (66 planeswalks, 71
+    Node with fetched cards: 12 Archenemy games with four creature decks rotated (archenemy won 2; 110 schemes set in
+    motion, 60 of them read; 0 errors, no rule broken) and 12 Planechase games with the cEDH decks (66 planeswalks, 71
     chaos rolls, 21 chaos abilities played; 0 errors, no rule broken). Not done: ongoing schemes, plane statics, more
     paid rolls of the die, batch runs (they play these formats without the scheme or plane deck).
 - [x] 161. Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.
