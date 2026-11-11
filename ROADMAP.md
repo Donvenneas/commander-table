@@ -1014,12 +1014,20 @@ on top of the ones above:
     with seat numbers for names, the last 400 log lines, version, browser, screen, the last 40 errors and warnings
     (kept from page load) and a note. Paths, emails and IP addresses are masked. Tested: a test error's path, email and
     IP came out masked.
-- [ ] 179. Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in
+- [x] 179. Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in
   Updates, with clean-up buttons.
   - Done, partly: Updates has a Storage panel (each feature's size in the browser profile, the card files, the total
     the browser reports) with Clear buttons (caches at once, your own records after a question). Tested: the card
     caches (238 KB) cleared. Not done: moving the large keys to IndexedDB, which would make every `store()` reader
     async; none is near the limit yet (256 KB of about 5 MB in the test profile).
+  - Done (the move): util.js keeps 14 large keys (the unfinished game, history, deck learning, library versions, learned
+    threat and people, the collection, card caches, scheme and plane cards) in IndexedDB. They are read once when the
+    page starts (util.js waits for it with a top-level await, so every module finds them loaded) and kept in memory as
+    JSON text, so store() stays synchronous and every reader is unchanged; writes go to memory at once, to IndexedDB in
+    the background, and to the game's other tabs (BroadcastChannel). The first start moves the keys over and removes
+    them from localStorage only once IndexedDB has them. Without IndexedDB (Node, workers, a blocked browser)
+    everything stays in localStorage. Storage in Updates shows both. Tested in the browser: 5 keys moved, a write
+    survived a reload, Resume and history still found, self-test unchanged.
 - [x] 180. Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a
   different order, give identical logs (catches stray Math.random or Date).
   - Done: a self-test row: 3 seeds with and without look-ahead seats, then again in the opposite order; logs compared.

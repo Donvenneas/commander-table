@@ -1,5 +1,5 @@
 // Help, What's new, Storage and card images windows (split out of main.js, Round 5 item 176)
-import { esc, store } from './util.js';
+import { esc, store, storeSize, storeWhere, storeIsBig } from './util.js';
 import { prefs } from './prefs.js';
 import { loadDeck } from './decks.js';
 import { listDecks, commandersOf } from './library.js';
@@ -96,14 +96,15 @@ const STORAGE_GROUPS = [
 const DBS = [{ label: 'Card file (Updates › Card file)', name: 'ct-bulk' }, { label: 'Printings file', name: 'ct-prints' }];
 const kb = n => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 export async function showStorage() {
-  const size = k => { try { const v = localStorage.getItem(k); return v ? (v.length + k.length) * 2 : 0; } catch { return 0; } };
+  const size = storeSize;
   let total = 0;
   try { for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); if (k?.startsWith('ct.')) total += size(k); } } catch { /* blocked */ }
+  const big = [...new Set(STORAGE_GROUPS.flatMap(g => g.keys))].filter(storeIsBig).reduce((a, k) => a + size(k), 0);
   const rows = STORAGE_GROUPS.map((g, i) => ({ g, i, n: g.keys.reduce((a, k) => a + size(k), 0) })).filter(r => r.n > 0);
   const est = await navigator.storage?.estimate?.().catch(() => null);
   $('storageBody').innerHTML = `<table class="storage"><tbody>${rows.map(r => `<tr><td>${esc(r.g.label)}</td><td class="num">${kb(r.n)}</td><td><button class="btn small ghost" data-clear="${r.i}">Clear</button></td></tr>`).join('')}
     ${DBS.map(d => `<tr><td>${esc(d.label)}</td><td class="num">${esc((d.name === 'ct-bulk' ? bulkInfo() : printsInfo())?.count ? 'saved' : '–')}</td><td></td></tr>`).join('')}</tbody></table>
-    <p class="muted">Small saved data: ${kb(total)} of the browser's roughly 5 MB for it.${est ? ` Everything this game's pages keep (with the card files and images the browser holds): ${kb(est.usage || 0)}.` : ''}</p>`;
+    <p class="muted">Small saved data: ${kb(total)} of the browser's roughly 5 MB for it${storeWhere() === 'IndexedDB' ? `; the larger records (history, deck learning, the unfinished game, card caches) are in IndexedDB, which has far more room: ${kb(big)}` : ''}.${est ? ` Everything this game's pages keep (with the card files and images the browser holds): ${kb(est.usage || 0)}.` : ''}</p>`;
 }
 $('storageBody').addEventListener('click', e => {
   const b = e.target.closest('[data-clear]');
