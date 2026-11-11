@@ -8,7 +8,7 @@ import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing } from './kingdomsPlay.js';
-import { lookAheadPlay, lookAheadRespond } from './lookahead.js';
+import { lookAheadPlay, lookAheadRespond, lookAheadAttacks } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
@@ -87,7 +87,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -1870,7 +1870,19 @@ export class Agent {
   }
 
   // Attacks and blocks are planned by simulation (combatai.js); the older rule-of-thumb versions remain as a fallback
+  /** @returns {any} */
   declareAttackers(g, p) {
+    // (a look-ahead copy playing one candidate attack, item 102)
+    if (this.forcedAttacks) {
+      const f = this.forcedAttacks;
+      this.forcedAttacks = null;
+      return f.map(x => ({ o: p.battlefield.find(o => o.iid === x.iid), target: x.target, ...(x.obj != null ? { obj: g.objects.get(x.obj) } : {}) })).filter(x => x.o);
+    }
+    const usual = this.declareAttackersPlan(g, p);
+    if (this.lookahead && !this.noLaAttack && !g.sim && g.rules >= 5) return lookAheadAttacks(this, g, p, usual);
+    return usual;
+  }
+  declareAttackersPlan(g, p) {
     // AI strength: a handicapped pilot sometimes uses the old rule-of-thumb attacks instead of the combat simulation
     if (this.handicap && g.rand() < this.handicap) return this.declareAttackersHeuristic ? this.declareAttackersHeuristic(g, p) : [];
     try {

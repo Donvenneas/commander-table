@@ -302,3 +302,67 @@ export async function lookAheadRespond(agent, g, q, item, isCounter) {
   agent.explain(g, q, `looks ahead: countering ${item.o.card.name} leaves a better position (${res[1].toFixed(1)}) than letting it resolve (${res[0].toFixed(1)})`);
   return counter;
 }
+
+// ---------- attacks (item 102)
+// A look-ahead pilot's attack is checked by whole-turn rollouts: the combat planner's attack, no attack, and every
+// ready creature at the opponent with the least life are each played on a copy of the game (the combat again from the
+// start, the second main phase, the end step), then each opponent plays a whole turn of their own. The planner's
+// attack stays unless another scores better by item 83's margin. Shares the decisions-a-turn budget.
+async function simulateAttack(agent, g, p, plan, seed, oppIdx) {
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps * 2);
+  determinize(ng, p.idx, ng.rand);
+  const cp = ng.players[p.idx];
+  cp.agent.forcedAttacks = plan;
+  await ng.combat(cp);
+  cp.agent.forcedAttacks = null;
+  if (!ng.over && !cp.lost) {
+    ng.setPhase('main2');
+    await cp.agent.mainPhase(ng, cp, 'main2');
+    if (!ng.over && !cp.lost) await ng.endSteps(cp);
+  }
+  for (const q of ng.order(p.idx)) {
+    if (ng.over || cp.lost) break;
+    if (q === cp || q.lost) continue;
+    ng.active = q.idx;
+    await ng.takeTurn(q);
+  }
+  return { score: positionScore(cp.agent, ng, cp, oppIdx), steps: ng.steps };
+}
+export async function lookAheadAttacks(agent, g, p, usual) {
+  if (g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05 || g.stack.length) return usual;
+  const ready = p.battlefield.filter(o => g.canAttack(o) && g.power(o) > 0);
+  const opps = g.opponents(p);
+  if (!ready.length || !opps.length) return usual;
+  if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return usual;
+  const key = plan => plan.map(x => `${x.o.iid}>${x.target}`).sort().join(',');
+  const low = [...opps].sort((a, b) => a.life - b.life)[0];
+  const cands = [usual, [], ready.map(o => ({ o, target: low.idx }))];
+  const seen = new Set();
+  const plans = cands.filter(c => { const k = key(c); if (seen.has(k)) return false; seen.add(k); return true; });
+  if (plans.length < 2) return usual;
+  agent.laCount++;
+  laStats.decisions++;
+  const seed = (Math.imul(g.seed ^ 0x2545f491, 31) + g.steps * 977 + g.turn * 131 + p.idx) >>> 0;
+  const oppIdx = opps.map(q => q.idx);
+  const res = [];
+  for (const plan of plans) {
+    try {
+      laStats.sims++;
+      const r = await simulateAttack(agent, g, p, plan.map(x => ({ iid: x.o.iid, target: x.target, obj: x.obj?.iid })), seed, oppIdx);
+      laStats.steps += r.steps;
+      res.push({ plan, score: r.score });
+    } catch (e) {
+      if (e.name === 'OverBudget') laStats.dropped++;
+      else { laStats.errors++; laStats.lastError = `${e.message} ${(e.stack || '').split('\n')[1] || ''}`; }
+      return usual;
+    }
+  }
+  const base = res[0];
+  const top = res.reduce((a, b) => (b.score > a.score ? b : a));
+  if (top === base || top.score < base.score + LOOKAHEAD.margin) return usual;
+  laStats.changed++;
+  const what = top.plan.length ? `attacking ${g.players[top.plan[0].target].name} with everything` : 'not attacking';
+  agent.explain(g, p, `looks ahead: ${what} leaves a better position after everyone's next turn (${top.score.toFixed(1)}) than the planned attack (${base.score.toFixed(1)})`);
+  return top.plan;
+}

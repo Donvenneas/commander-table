@@ -511,8 +511,15 @@ on top of the ones above:
     40 games (about 6 counter-or-not decisions a game, a quarter of them changed; 0 errors, no rule broken). Rules-5
     golden games re-recorded (2 of 6 changed), rules 4 identical. tools/tune.mjs now prints look-ahead counts. Not
     done: removal in response and end-of-turn plays.
-- [ ] 102. Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation;
+- [x] 102. Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation;
   tuned with the matchup grid in Commander pods.
+  - Done for attacks (rules 5): lookahead.js lookAheadAttacks. A look-ahead pilot's attack from the combat planner is
+    checked against no attack and an all-in attack on the opponent with the least life: each is played on a copy of
+    the game (that combat, the second main phase, the end step), then every opponent plays a whole turn; the
+    planner's attack stays unless another wins by item 83's margin. Blocks keep the block search (item 105 already
+    added walker-aware blocks; a block look-ahead would need the attacker's turn to be resumable mid-combat). Head to
+    head in four-player creature pods (tools/tune.mjs, four 60-card decks), look-ahead pilots with it against
+    look-ahead pilots without: 22–18 over 40 games; with the cEDH decks 5–5 over 10. 0 errors, no rule broken.
 - [x] 103. Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in
   steps, not ms, so replays stay exact.
   - Done, as a finding: lookahead.js budgetFor (per decision; agent.budget overrides it). Tried 600 steps and 5–6

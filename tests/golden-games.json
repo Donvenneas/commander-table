@@ -64,12 +64,12 @@
   "log": "3ab13a5400098259"
  },
  "rules 5 · seed 50002": {
-  "winner": "P2",
-  "round": 10,
-  "steps": 321,
-  "lines": 328,
+  "winner": "P1",
+  "round": 13,
+  "steps": 440,
+  "lines": 510,
   "errors": 0,
-  "log": "b351c9c407b58cd0"
+  "log": "1ecccd0a3a10002b"
  },
  "rules 5 · seed 50003": {
   "winner": "P1",
@@ -80,12 +80,12 @@
   "log": "06b5637fd5f306a8"
  },
  "rules 5 · seed 50004": {
-  "winner": "P3",
-  "round": 9,
-  "steps": 357,
-  "lines": 420,
+  "winner": "P4",
+  "round": 15,
+  "steps": 523,
+  "lines": 626,
   "errors": 0,
-  "log": "fc2ef17e746cbe51"
+  "log": "a3b96a5f21d8e840"
  },
  "rules 5 · seed 50005": {
   "winner": "P3",
