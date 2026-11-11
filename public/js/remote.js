@@ -300,10 +300,26 @@ document.addEventListener('click', e => {
   const b = tg.closest?.('[data-sb]');
   if (b && sbDraft && question?.sideboard) answer(b.dataset.sb === 'play' ? { button: 0, sideboard: { main: sbDraft.main.filter(([, n]) => n > 0), side: sbDraft.side.filter(([, n]) => n > 0) } } : { button: 1 });
 });
+// Drafting with friends (item 136): the pack in front of you; click a card to pick it
+let draftShown = null;
+function renderDraftPick() {
+  const d = question.draft;
+  draftShown = question.id;
+  $('abText').innerHTML = `${question.text.replace(/<(?!\/?b>)[^>]*>/g, '')} <span class="muted">(${d.picks.length} picked so far)</span>
+    <div class="lim-grid draft-pack">${d.pack.map(c => `<div class="lim-card" data-pick="${esc(c.name)}" title="${esc(c.name)}">${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
+    ${d.picks.length ? `<p class="muted">Your picks: ${d.picks.map(esc).join(', ')}</p>` : ''}`;
+  $('abButtons').innerHTML = ''; $('abButtons').dataset.v = '';
+  $('actionBar').hidden = false;
+}
+document.addEventListener('click', e => {
+  const c = /** @type {any} */ (e.target).closest?.('[data-pick]');
+  if (c && question?.draft && question.id !== answered) answer({ draftPick: c.dataset.pick });
+});
 function renderQuestion() {
   document.querySelectorAll('.pickable').forEach(e => e.classList.remove('pickable'));
   if (!question || question.id === answered) { $('actionBar').hidden = true; return; }
   if (question.sideboard) { if (sbDraft?.id !== question.id) renderSideboard(); return; }
+  if (question.draft) { if (draftShown !== question.id) renderDraftPick(); return; }
   if (seenAt === 0) seenAt = Date.now();
   // The host sends bold text only; anything else is stripped
   const text = question.text.replace(/<(?!\/?b>)[^>]*>/g, '');

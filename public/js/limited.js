@@ -215,7 +215,10 @@ export function cubeNames(text) {
 
 // Draft: three rounds of packs passed left, right, left. pickFor(seat, pack, picks) chooses for a person
 // (it can be async); the AI picks for everyone else.
+// humanSeat: the seat a person picks for, or (item 136, drafting with friends) a test for the seats people pick for;
+// everyone picks from their pack at the same time, and the AI drafters straight away
 export async function runDraft(pool, players, seed, humanSeat, pickFor, onStatus, packFn = makePack) {
+  const asks = typeof humanSeat === 'function' ? humanSeat : s => s === humanSeat;
   const rand = makeRng(seed);
   const picks = Array.from({ length: players }, () => []);
   for (let round = 0; round < 3; round++) {
@@ -224,10 +227,10 @@ export async function runDraft(pool, players, seed, humanSeat, pickFor, onStatus
     const dir = round % 2 ? -1 : 1;
     while (packs.some(p => p.length)) {
       onStatus?.(`Pack ${round + 1}, pick ${picks[0].length % size + 1}`);
+      const chosen = await Promise.all(packs.map((pack, s) => (!pack.length ? null : asks(s) ? pickFor(s, pack, picks[s]) : aiPick(pack, picks[s]))));
       for (let s = 0; s < players; s++) {
-        const pack = packs[s];
-        if (!pack.length) continue;
-        const c = s === humanSeat ? await pickFor(s, pack, picks[s]) : aiPick(pack, picks[s]);
+        const pack = packs[s], c = chosen[s] && pack.includes(chosen[s]) ? chosen[s] : pack.length ? aiPick(pack, picks[s]) : null;
+        if (!c) continue;
         pack.splice(pack.indexOf(c), 1);
         picks[s].push(c);
       }

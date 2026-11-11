@@ -764,8 +764,16 @@ on top of the ones above:
     the friend page shows both lists, a click moves one copy across, "Play these" or "Keep my deck". The host only
     accepts the same cards in total and at least the format's deck size; no answer in 3 minutes keeps the deck.
     Tested with server.py and a friend tab: Standard Bo3, the friend moved cards and game 2 started.
-- [ ] 136. Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel),
+- [x] 136. Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel),
   then play the pod or one-on-one matches.
+  - Done: with the lobby open, Draft / Sealed counts the friend seats among seats 2–4. runDraft lets everyone pick from
+    their pack at once (the host on the setup screen, each friend on their own page through the room's ask/answer
+    channel: net.js askDraftPick, a card grid on the friend page), the AI drafters straight away; a friend who doesn't
+    answer in 90 seconds gets the AI drafter's pick. Sealed gives friends their own pools. One on one: a friend in
+    seat 2 plays the pool they drafted (built automatically; they sideboard between best-of-three games with item
+    135's window); a pod: every seat gets its own drafter's deck, friends included. No server change (answers pass
+    through as sent). Tested with server.py and a friend tab: an FDN draft, the friend's picks arrived (pack 2 had
+    13 cards), 42 picks each, the friend's pool went to seat 2 under their name.
 - [x] 137. Friends at 1v1 and Limited tables: test the friend page with two seats and fix what breaks (untested in 56–60).
   - Done (tested, nothing needed fixing in the page): a Standard table with a friend seat played through server.py
     with a friend tab: two boards, the friend's questions, the game to the end, and a best-of-three into game 2.

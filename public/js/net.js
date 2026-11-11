@@ -212,6 +212,25 @@ export class RemoteUI {
   }
 }
 
+// Drafting with friends (item 136): a friend's pick from a pack over the room channel. Returns the card, or null when
+// they don't answer in time (the AI drafter picks for them then).
+let draftN = 0;
+export async function askDraftPick(room, seat, pack, picks, label, timeout = 90) {
+  const id = `${seat}-draft-${++draftN}-${Date.now()}`;
+  const q = { id, text: `<b>${label}</b>: pick a card. The rest of the pack goes to the next player.`, buttons: [], objs: [], players: [], timeout,
+    draft: { pack: pack.map(c => ({ name: c.name, img: unproxy(c.imgNormal || c.imgSmall || '') })), picks: picks.map(c => c.name) } };
+  await room.ask(seat, q);
+  const t0 = Date.now();
+  let ans = null;
+  while (Date.now() - t0 < timeout * 1000) {
+    await new Promise(r => setTimeout(r, 400));
+    const a = await room.answer(seat);
+    if (a && a.id === id) { ans = a; break; }
+  }
+  await room.ask(seat, null);
+  return ans ? pack.find(c => c.name === ans.draftPick) || null : null;
+}
+
 // One seat's view of the table: everything public, plus that player's own hand
 export function snapshot(g, seat) {
   // (seat -2 is the streamer view, item 142: every hand and face-down card, sent to it only after a delay)

@@ -1181,3 +1181,4 @@ table.storage td { padding: 2px 8px; }
 .unlock-row.got { opacity: 1; }
 .unlock-av { width: 48px; height: 48px; border-radius: 50%; }
 .unlock-back { display: inline-block; width: 36px; height: 50px; border-radius: 4px; flex: none; }
+.draft-pack { max-height: 60vh; overflow: auto; margin: 8px 0; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }

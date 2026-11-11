@@ -20,7 +20,7 @@ import { coverage } from './effects.js';
 import { TableView, installPreview, installDetails, Sound } from './ui.js';
 import { Music } from './music.js';
 import { HumanAgent, HumanUI, SeatUI } from './human.js';
-import { Room, RemoteUI, snapshot, TURN_CLOCKS } from './net.js';
+import { Room, RemoteUI, snapshot, TURN_CLOCKS, askDraftPick } from './net.js';
 // (a friend's time bank counts down on their board while they decide)
 setInterval(() => { if (view && game && !game.over && [...remoteUIs.values()].some(u => u.waiting && u.clockMode !== 'off')) view.render(); }, 1000);
 import { qrSvg } from './qr.js';
@@ -2405,7 +2405,7 @@ $('btnSavePuzzle').addEventListener('click', () => {
 // ---------- draft and sealed pods
 // duel: one on one, best of three (Limited format: 40 cards, 20 life, the rest of the pool as sideboard);
 // otherwise a four-player Commander pod. Packs come from a set (Scryfall) or from a saved cube.
-const LIM = { pool: [], pools: [], chosen: new Set(), commander: null, colors: null, set: '', label: '', duel: true };
+const LIM = { pool: [], pools: [], chosen: new Set(), commander: null, colors: null, set: '', label: '', duel: true, /** @type {number[]} */ friends: [] };
 $('limSet').innerHTML = SUGGESTED_SETS.map(([c, n]) => `<option value="${c}">${esc(n)} (${c.toUpperCase()})</option>`).join('');
 $('btnLimited').addEventListener('click', () => { renderCubes(); $('limitedModal').hidden = false; });
 $('btnLimitedClose').addEventListener('click', () => { $('limitedModal').hidden = true; });
@@ -2472,6 +2472,8 @@ $('btnLimitedGo').addEventListener('click', async () => {
   const mode = document.querySelector('input[name="limMode"]:checked').value;
   const fromCube = document.querySelector('input[name="limSource"]:checked').value === 'cube';
   LIM.duel = document.querySelector('input[name="limPlay"]:checked').value === 'duel';
+  // Friends in the lobby draft in the same pod (item 136): the seats after yours that a friend plays online
+  LIM.friends = lobbyOpen && room.code ? room.seats.filter(i => i > 0 && i < 4 && seats[i]?.style === 'remote') : [];
   const say = t => { $('limStatus').textContent = t; };
   $('btnLimitedGo').disabled = true;
   $('limitedFoot').hidden = true;
@@ -2505,13 +2507,17 @@ $('btnLimitedGo').addEventListener('click', async () => {
     if (mode === 'sealed') {
       LIM.pools = sealedPools(pool, 4, seed, packFn);
     } else {
-      // You pick by clicking a card in each pack; the AI drafters pick for the other three seats
-      LIM.pools = await runDraft(pool, 4, seed, 0, (seat, pack, picks) => new Promise(res => {
+      // You pick by clicking a card in each pack; friends in the lobby pick on their own page (item 136); the AI drafters
+      // pick for the other seats
+      const friends = LIM.friends;
+      const hostPick = (seat, pack, picks) => new Promise(res => {
         say(`Pick a card (${picks.length} picked so far)`);
         $('limitedBody').innerHTML = `<p class="muted">Click the card you want. The rest of the pack goes to the next player.</p><div class="lim-grid">${pack.map(c => limCard(c)).join('')}</div>
           ${picks.length ? `<p class="muted">Your picks: ${picks.map(c => esc(c.name)).join(', ')}</p>` : ''}`;
         $('limitedBody').onclick = e => { const el = e.target.closest('.lim-card'); if (!el) return; $('limitedBody').onclick = null; res(pack.find(c => c.name === el.dataset.name)); };
-      }), say, packFn);
+      });
+      LIM.pools = await runDraft(pool, 4, seed, s => s === 0 || friends.includes(s), (seat, pack, picks) => (seat === 0 ? hostPick(seat, pack, picks)
+        : askDraftPick(room, seat, pack, picks, `${LIM.label} draft, pick ${picks.length + 1}`)), say, packFn);
     }
     LIM.pool = LIM.pools[0];
     if (LIM.duel) {
@@ -2596,14 +2602,16 @@ $('btnLimSeat').addEventListener('click', () => {
     seats[0].source = limitedText({ cards, colors }, LIM.pool, `${label} ${colors.join('')}`);
     seats[0].deck = null;
     const rivals = LIM.pools.slice(1).map(p => ({ p, d: buildLimited(p) })).map(x => ({ ...x, v: x.d.cards.reduce((a, c) => a + (c.fx.type.land ? 0 : 1), 0) }));
-    const rival = rivals.sort((a, b) => b.v - a.v)[0];
-    Object.assign(seats[1], { source: limitedText(rival.d, rival.p, `${label} ${rival.d.colors.join('')} (AI)`), deck: null, style: ['human', 'remote'].includes(seats[1].style) ? seats[1].style : 'auto' });
+    // (a friend who drafted in seat 2 plays their own pool, auto-built; they can sideboard between games)
+    const friend = LIM.friends?.includes(1);
+    const rival = friend ? rivals[0] : rivals.sort((a, b) => b.v - a.v)[0];
+    Object.assign(seats[1], { source: limitedText(rival.d, rival.p, `${label} ${rival.d.colors.join('')} (${friend ? seats[1].name || 'friend' : 'AI'})`), deck: null, style: ['human', 'remote'].includes(seats[1].style) ? seats[1].style : 'auto' });
     // A league for this pool (item 166): the other drafters' decks in turn, until 7 match wins or 3 losses
     startLeague(label, seats[0].source, rivals.map(x => limitedText(x.d, x.p, `${label} ${x.d.colors.join('')} (AI)`)), seats[1].source);
     persist();
     renderSeats();
     $('limitedModal').hidden = true;
-    $('setupStatus').textContent = `Your ${label} deck is in seat 1 and an AI drafter's deck from the same packs in seat 2, best of three with your pools as sideboards. Set seat 1 to "You play this seat" to play it, then click "Load decks & shuffle up".`;
+    $('setupStatus').textContent = `Your ${label} deck is in seat 1 and ${friend ? `${seats[1].name}'s own draft (built automatically; they can sideboard between games)` : 'an AI drafter\'s deck from the same packs'} in seat 2, best of three with your pools as sideboards. Set seat 1 to "You play this seat" to play it, then click "Load decks & shuffle up".`;
     return;
   }
   if (!LIM.commander) return;
@@ -2619,7 +2627,7 @@ $('btnLimSeat').addEventListener('click', () => {
   persist();
   renderSeats();
   $('limitedModal').hidden = true;
-  $('setupStatus').textContent = `Your ${label} deck is in seat 1 and three AI decks from the same packs in the others. Set seat 1 to "You play this seat" if you want to play it, then click "Load decks & shuffle up".`;
+  $('setupStatus').textContent = `Your ${label} deck is in seat 1 and the other drafters' decks from the same packs in the others${LIM.friends?.length ? ' (friends play the pools they drafted, built automatically)' : ''}. Set seat 1 to "You play this seat" if you want to play it, then click "Load decks & shuffle up".`;
 });
 
 // ---------- deck library (data\decks)

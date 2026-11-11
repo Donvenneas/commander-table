@@ -488,6 +488,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
 
 **Batch** plays 10 to 250 games at full speed with the seated decks. They run on every CPU core at once, as do the matchup grid and the tournament (**Cores** sets how many for a batch; 25 four-player games took under a second on a 16-core PC instead of 7 seconds on one), and the same **Seed** repeats a batch exactly, whatever the number of cores.
 - **Run** reports each deck's wins, win rate, average place, combo wins and damage per game; game speed (average and median winning round, share of wins by round 4) and interaction spells per game; each combo's attempts, how often it landed and how often it won; how games were won and how players were eliminated; and per-card performance.
+- **Draft and sealed with friends:** open the lobby with friend seats, then open Draft / Sealed. Friends in seats 2–4 pick from their packs on their own page while you pick on yours (a friend who doesn't pick in 90 seconds gets the AI's pick), and they play the pools they drafted: one on one in seat 2, or in the pod.
 - **Tune styles** has every seat try all four play styles and suggests the best one for each deck. Decks also learn their best style on their own: once one style clearly wins more (12+ games), **Auto** plays it.
 
 **Matchup grid** in the deck library plays the decks shown (up to 8) head to head, 2, 4 or 10 games per pairing, and shows a win-rate table.
