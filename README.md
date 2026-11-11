@@ -145,10 +145,15 @@ Like any website you visit, these services see your internet address, but no acc
 | Duel Commander | 2 | exactly 100, one of each, a commander; its own ban list (Scryfall's `legal:duel`) | 20 | 21 commander damage, best of three offered |
 | 1v1 Commander | 2 | exactly 100, one of each, a commander (Commander's ban list) | 40 | 21 commander damage, best of three offered |
 | Two-Headed Giant | 4 (two teams) | at least 60, up to 4 of each (random decks from Standard) | 30 per team | shared life and 15 poison per team, teammates block for each other |
+| Archenemy | 4 (one against three) | at least 60, up to 4 of each (random decks from Standard) | 40 for the archenemy, 20 for the others | a deck of 20 schemes from Scryfall |
+| Planechase (Commander) | 4 | Commander decks | 40 | a deck of 10 planes from Scryfall and the planar die |
 | Limited (draft or sealed) | 2 | at least 40, from a draft or sealed pool | 20 | the rest of the pool is the sideboard |
 
 - **Oathbreaker:** put the planeswalker and the signature spell under the `Commander` heading. The signature spell can only be cast while its oathbreaker is on the battlefield. Like the oathbreaker, it goes back to the command zone, and each costs {2} more for every earlier cast from there.
 - **Two-Headed Giant:** seats 1 and 2 are one team, seats 3 and 4 the other. Each team shares one life total (30) and one poison count (15 loses). Teammates take their turns one after the other as the team's turn (the team going first skips its first draw), never attack or target each other with the AI's choices, and both can block an attack on either of them. When one teammate loses, so does the other.
+- **Archenemy:** seat 1 is the archenemy, with 40 life and a deck of 20 schemes picked from Scryfall's scheme cards (ongoing schemes left out). At the start of each of its first main phases the top scheme is set in motion and goes to the bottom. The other three are a team: they never attack or target each other, block for each other, and win together when the archenemy is out.
+- **Planechase:** a Commander table with a deck of 10 planes from Scryfall. One plane is face up; at the start of each player's first main phase they roll the planar die once: planeswalk (1 in 6), chaos (1 in 6) or a blank. Abilities on planeswalking, on chaos and at the beginning of upkeep are played (upkeep ones at the start of the first main phase); statics and other abilities aren't yet, and the log says which text on each card wasn't played.
+- Scheme and plane cards are fetched from Scryfall once and kept; each table's pick is saved with the game, so replays play the same cards.
 - **Pauper Commander:** the commander is checked by its own rule (an uncommon creature), since Scryfall lists uncommons as not legal in the format.
 - Brawl, Pauper Commander, Oathbreaker and Duel Commander have no brackets or EDHTop16 decks. An empty seat gets a random deck for the variant, built from Scryfall's most-played cards that are legal in it.
 - **1v1 Commander** uses ordinary Commander decks, so random decks by bracket, EDHTop16 lists and precons all work there.

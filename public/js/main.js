@@ -8,6 +8,7 @@ import { newCup, pairRound, recordPod, roundDone, standings, standingsText } fro
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText, archidektFolder, archidektDeckText } from './decks.js';
 import { sf, fetchCollection } from './scryfall.js';
+import { planarCards } from './planar.js';
 import { listDecks, saveDeck, deleteDeck, deckMeta, withMeta, commandersOf, versions, diffLists } from './library.js';
 import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.js';
 import { startTour } from './tour.js';
@@ -301,6 +302,11 @@ async function loadAll() {
   // A manual format plays at the tabletop (no rules engine, no AI)
   if (tableManual()) return startTabletop();
   if (fmt().roles && (seats.length < 5 || seats.length > 9)) { $('setupStatus').textContent = 'Kingdoms needs 5 to 9 players: choose the number of players above.'; return; }
+  // Archenemy and Planechase: the scheme or plane cards for this table (item 160)
+  if (fmt().planar) {
+    try { planarSet = await planarCards(fmt().planar, msg => { $('setupStatus').textContent = msg; }); $('setupStatus').textContent = ''; }
+    catch (e) { $('setupStatus').textContent = `Couldn't fetch the ${fmt().planar === 'archenemy' ? 'scheme' : 'plane'} cards: ${e.message}`; return; }
+  }
   $('setup').hidden = true;
   // Best of three: a new match with these decks
   match = fmt().bo3 && +prefs.bestOf === 3 ? newMatch() : null;
@@ -311,6 +317,9 @@ async function loadAll() {
 // decks: each seat's current deck and sideboard (sideboarding between games changes them);
 // games: who won each game; the winner of the match is the first to two wins
 let match = null;
+// The scheme or plane cards picked for an Archenemy or Planechase table (item 160)
+/** @type {any} */
+let planarSet = null;
 function newMatch() {
   return { format: formatKey, decks: seats.map(s => s.deck), originals: seats.map(s => s.deck), games: [], wins: seats.map(() => 0), firstPlayer: null, swaps: seats.map(() => []) };
 }
@@ -354,6 +363,8 @@ function newGame(opts = {}) {
       rules: opts.rules ?? RULES,
       // Kingdoms: the secret roles, dealt from the game's seed (so replays deal the same)
       roles: opts.roles || null,
+      // Archenemy and Planechase: the scheme or plane cards (item 160; a loaded replay brings its own)
+      planar: opts.planar || (formatOf(opts.format || formatKey).planar && !opts.puzzle ? planarSet : null),
       // Which game of a best-of-three match this is (1–3), if any
       matchGame: !opts.puzzle && !opts.customSeats && match && !opts.loadedReplay ? match.games.length + 1 : null,
       // Extra starting life per seat, a coach panel (lessons), and what happens after the game
@@ -413,7 +424,7 @@ function newGame(opts = {}) {
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
       : Object.assign(new Agent(s.style, { noise: s.noise ?? (BRACKET_NOISE[s.bracket] || 0), lookahead: s.lookahead }), s.handicap ? { handicap: s.handicap } : {}),
   }));
-  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules });
+  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules, planar: setup.planar });
   setup.learned ||= game.players.map(p => p.learned);
   // (item 109: what the AI remembers about the people at the table)
   for (const p of game.players) {
@@ -885,6 +896,7 @@ function replayData() {
     ...(setup.chatDeals?.length ? { chatDeals: setup.chatDeals } : {}),
     // (version 6: the engine's rules version)
     rules: setup.rules,
+    ...(setup.planar ? { planar: setup.planar } : {}),
     // (version 5: which AI seats looked ahead)
     seats: setup.seats.map(s => ({ name: s.name, color: s.color, style: s.style, deckName: s.deck.deckName, deck: deckText(s.deck), ...(s.lookahead ? { lookahead: true } : {}), ...(s.noise ? { noise: s.noise } : {}), ...(s.handicap ? { handicap: s.handicap } : {}) })),
     ...(setup.strength ? { strength: setup.strength } : {}),
@@ -942,7 +954,7 @@ async function loadReplayData(data, { resume = false } = {}) {
       ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: !resume,
       // (resuming: played back quickly to where it was, then paused; your answers run out there and you're asked again)
       ...(resume ? { skip: data.steps || 0, paused: true } : {}),
-      ...(resume && data.remoteDecisions ? { resumeOnline: true, roomKeys: data.roomKeys && typeof data.roomKeys === 'object' ? data.roomKeys : null } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(Array.isArray(data.chatDeals) ? { chatDeals: data.chatDeals.filter(d => Number.isInteger(d?.step) && Number.isInteger(d?.from) && Number.isInteger(d?.to) && DEAL_KINDS.includes(d?.kind)).map(d => ({ step: d.step, from: d.from, to: d.to, kind: d.kind, rounds: Math.max(0, Math.min(5, +d.rounds || 0)) })) } : {}), ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
+      ...(resume && data.remoteDecisions ? { resumeOnline: true, roomKeys: data.roomKeys && typeof data.roomKeys === 'object' ? data.roomKeys : null } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(data.planar?.cards ? { planar: data.planar } : {}), ...(Array.isArray(data.chatDeals) ? { chatDeals: data.chatDeals.filter(d => Number.isInteger(d?.step) && Number.isInteger(d?.from) && Number.isInteger(d?.to) && DEAL_KINDS.includes(d?.kind)).map(d => ({ step: d.step, from: d.from, to: d.to, kind: d.kind, rounds: Math.max(0, Math.min(5, +d.rounds || 0)) })) } : {}), ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
   }
 }
 

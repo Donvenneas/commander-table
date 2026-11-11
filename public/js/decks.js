@@ -248,7 +248,7 @@ export async function loadDeck(source, onStatus, { bracket = null, budget = 'any
   if (!f.commander) return loadConstructed(s, onStatus, format);
   // Brawl, Pauper Commander, Oathbreaker: random decks for the variant (no brackets or EDHTop16 lists).
   // (Kingdoms decks are plain Commander decks.)
-  if (format !== 'commander' && format !== 'commander1v1' && !f.roles) {
+  if (format !== 'commander' && format !== 'commander1v1' && !f.roles && !f.planar) {
     if (!s || s.toLowerCase() === 'random') return { ...(await randomVariant(onStatus, format, { combosIn })), format };
     if (/^(edhtop16|cedh)$|^edhtop16:|edhtop16\.com|topdeck\.gg/i.test(s)) throw new Error(`EDHTop16 decks are Commander decks. Switch the format to Commander to use them.`);
   }

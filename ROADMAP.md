@@ -878,8 +878,20 @@ on top of the ones above:
     rather than one merged turn (a merged untap, draw and combat would need the turn structure rebuilt). Tested: 20
     games with four creature decks through tools/tune.mjs (team against team, 10–10, 0 errors, no rule broken) and a
     logged game (shared life to 0 eliminated both, the other team won together, teammates blocked for each other).
-- [ ] 160. Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each
+- [x] 160. Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each
   turn, the planar die, AI that plays both sides.
+  - Done: planar.js and two formats. Archenemy: seat 1 has 40 life and a deck of 20 schemes (Scryfall t:scheme, no
+    ongoing ones); at the start of its first main phase each turn the top scheme's "set in motion" ability goes on the
+    stack (targets chosen by its pilot, AI or person) and the scheme goes to the bottom. The others are a team
+    (Game.teams, as in item 159: never opponents of each other, block for each other, win together when the archenemy
+    is out; but each loses on their own). Planechase (Commander): 10 planes, one face up; each player rolls the planar
+    die once at the start of their first main phase (planeswalk 1 in 6, chaos 1 in 6); "when you planeswalk to",
+    chaos (both wordings) and upkeep abilities are played, the rest of a plane is named in the log as not played.
+    The pick is saved in the setup and in replays (planar), and the decks are shuffled with the game's seed. Tested in
+    Node with fetched cards: 12 Archenemy games with four creature decks rotated (archenemy won 2; 60 schemes set in
+    motion, 10 of them read; 0 errors, no rule broken) and 12 Planechase games with the cEDH decks (66 planeswalks, 71
+    chaos rolls, 21 chaos abilities played; 0 errors, no rule broken). Not done: ongoing schemes, plane statics, more
+    paid rolls of the die, batch runs (they play these formats without the scheme or plane deck).
 - [x] 161. Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.
   - Done: two formats (formats.js), random Duel Commander decks from legal:duel (randomVariant), and 1v1 Commander
     taking any Commander deck. Tested: random decks of 100 with no warnings, three games each at full speed (0 errors),

@@ -31,6 +31,9 @@ export const FORMATS = {
   // their turns back to back as the team's turn and block for each other. Constructed cards (Standard's pool for
   // random decks).
   twohg: { name: 'Two-Headed Giant', life: 30, seats: 4, deck: 60, copies: 4, commander: false, cmdDamage: 0, freeMull: true, legal: 'standard', sideboard: 0, bo3: false, teams: true, poison: 15, about: 'Two teams of two: each team shares 30 life and its turn, and blocks together; 60-card decks' },
+  // Archenemy and Planechase (item 160, planar.js): scheme and plane cards from Scryfall
+  archenemy: { name: 'Archenemy', life: 20, seats: 4, deck: 60, copies: 4, commander: false, cmdDamage: 0, freeMull: true, legal: 'standard', sideboard: 0, bo3: false, planar: 'archenemy', about: 'Seat 1 is the archenemy: 40 life and a deck of schemes, one set in motion each turn, against the other three as a team; 60-card decks' },
+  planechase: { name: 'Planechase (Commander)', life: 40, seats: 4, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 21, freeMull: true, legal: 'commander', sideboard: 0, bo3: false, planar: 'planechase', about: 'Commander on a deck of planes: everyone rolls the planar die once a turn (planeswalk, chaos or nothing)' },
   // Manual tables (manual.js): no rules engine, no AI. Players do everything by hand. seats is the default
   // table size; the setup screen picks 2–9 (Kingdoms 5–9). anyDeck: Commander lists and 60-card lists both load.
   manual: { name: 'Manual tabletop (2–9 players)', life: 40, seats: 4, minSeats: 2, maxSeats: 9, deck: 0, copies: 99, commander: true, anyDeck: true, cmdDamage: 21, freeMull: true, legal: null, sideboard: 0, bo3: false, manual: true, about: 'Fully manual: nothing is automated, every move is yours. Any decks, house rules, cards the engine can\'t read' },

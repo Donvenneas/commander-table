@@ -4,6 +4,7 @@ import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './comb
 import { shuffle, esc, makeRng } from './util.js';
 import { learnedBonus, learnedPerson } from './learn.js';
 import { threatFeatures, threatMult } from './threat.js';
+import { setupPlanar, planarStartLog, planarMain } from './planar.js';
 import { formatOf } from './formats.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
@@ -126,6 +127,9 @@ export class Game {
       // (a team's turn starts with its first seat)
       if (this.firstPlayer != null) this.firstPlayer -= this.firstPlayer % 2;
     }
+    // Archenemy and Planechase (item 160): the scheme or planar deck from the setup
+    /** @type {any} */ this.planar = null;
+    if (opts.planar && this.format.planar) setupPlanar(this, opts.planar);
     // Extra starting life per seat (campaign fights: difficulty, rest stops, bosses)
     if (opts.lifeBonus) opts.lifeBonus.forEach((b, i) => { if (this.players[i] && b) this.players[i].life += b; });
     // Kingdoms: the King reveals, starts with 10 extra life and takes the first turn
@@ -1752,7 +1756,7 @@ export class Game {
     if (this.kingdoms) { K.onEliminated(this, q); return; }
     // Two-Headed Giant: a team loses together (810.8a), and the team left standing wins together
     if (this.teams) {
-      const mate = this.teammate(q);
+      const mate = this.format.teams ? this.teammate(q) : null;
       if (mate) this.lose(mate, reason, '810.8a');
       const left = this.alive();
       if (left.length && !this.over && left.every(r => r.team === left[0].team)) {
@@ -5114,7 +5118,7 @@ export class Game {
   async setup() {
     if (this.format.signature) this.log(`Oathbreaker: each player starts at ${this.startLife} life with their oathbreaker and signature spell in the command zone`, { rule: '903.7', kind: 'turn' });
     else if (this.format.commander) this.log(`${this.formatKey === 'commander' ? 'Each player' : `${esc(this.format.name)}: each player`} starts at ${this.startLife} life with their commander in the command zone`, { rule: '903.7', kind: 'turn' });
-    else if (this.teams) this.log(`${esc(this.format.name)}: each team starts at ${this.startLife} life, shared by both players`, { rule: '810.9', kind: 'turn' });
+    else if (this.teams && this.format.teams) this.log(`${esc(this.format.name)}: each team starts at ${this.startLife} life, shared by both players`, { rule: '810.9', kind: 'turn' });
     else this.log(`${esc(this.format.name)}: each player starts at ${this.startLife} life`, { rule: '103.4', kind: 'turn' });
     for (const p of this.players) {
       shuffle(p.library, this.rand);
@@ -5136,7 +5140,8 @@ export class Game {
     // Who goes first: in best of three the last game's loser chose; otherwise random (drawn here, after
     // the mulligans, so replays saved by earlier versions still play out the same)
     this.active = this.firstPlayer != null && this.players[this.firstPlayer] ? this.firstPlayer : Math.floor(this.rand() * this.players.length);
-    if (this.teams) {
+    planarStartLog(this);
+    if (this.teams && this.format.teams) {
       this.active -= this.active % 2;
       this.firstTeam = this.players[this.active].team;
       this.log(`Two-Headed Giant: ${this.pn(this.players[0])} and ${this.pn(this.players[1])} share ${this.startLife} life against ${this.pn(this.players[2])} and ${this.pn(this.players[3])}`, { rule: '810.1', kind: 'turn' });
@@ -5277,6 +5282,7 @@ export class Game {
     await this.sba();
     if (this.over || p.lost) return;
     if (this.kingdoms) { await K.aiAnnounce(this, p); if (this.over || p.lost) return; }
+    if (this.planar) { await planarMain(this, p); if (this.over || p.lost) return; }
     await p.agent.mainPhase(this, p, 'main1');
     if (this.over || p.lost) return;
     return this.restOfTurn(p);
