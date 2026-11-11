@@ -502,6 +502,15 @@ on top of the ones above:
 ### AI
 - [ ] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
   copied game and step budget as item 83.
+  - Done, partly (counter or not; rules 5): lookahead.js lookAheadRespond. When a look-ahead pilot could counter a
+    spell, both answers are played on a copy of the game (the counterspell with everyone's chance to fight back, or
+    the spell resolving: cast again for free on the copy while that pilot lets it through), then the rest of the
+    active player's turn and each opponent's next combat; the other answer wins only by item 83's margin. Combo
+    pieces are always countered; counter wars and abilities keep the usual answer. It shares the decisions-a-turn
+    budget. Head to head with the cEDH decks, look-ahead pilots with it against look-ahead pilots without: 23–17 over
+    40 games (about 6 counter-or-not decisions a game, a quarter of them changed; 0 errors, no rule broken). Rules-5
+    golden games re-recorded (2 of 6 changed), rules 4 identical. tools/tune.mjs now prints look-ahead counts. Not
+    done: removal in response and end-of-turn plays.
 - [ ] 102. Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation;
   tuned with the matchup grid in Commander pods.
 - [x] 103. Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in

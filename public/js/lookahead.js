@@ -213,3 +213,92 @@ export async function lookAheadPlay(agent, g, p, phase) {
     },
   };
 }
+
+// ---------- instant speed: counter or let it resolve (item 101)
+// When a pilot with look-ahead could counter a spell, both answers are tried on a copy of the game: the counterspell
+// (with everyone's chance to fight back) or the spell resolving, then the rest of the active player's turn and each
+// opponent's next combat. The usual answer stays unless the other one scores better by the same margin as main-phase
+// look-ahead. A combo piece is always countered; counter wars and abilities keep the usual answer.
+// (the spell resolving is played on the copy by casting it again without paying, from its caster's hand)
+async function simulateRespond(agent, g, q, item, counter, seed, oppIdx) {
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps);
+  determinize(ng, q.idx, ng.rand);
+  const at = g.stack.indexOf(item);
+  const ci = ng.stack[at];
+  const cq = ng.players[q.idx];
+  if (!ci || !cq) return null;
+  const caster = ci.p;
+  if (counter) {
+    const card = cq.hand.find(o => o.iid === counter.card.iid);
+    if (!card) return null;
+    await ng.doResponse(cq, { kind: 'cast', card, targets: card.fx.spell.map(e => (e.k === 'counter' ? { spell: ci } : null)) }, ci);
+  }
+  ng.stack.splice(ng.stack.indexOf(ci), 1);
+  if (ci.countered) ng.move(ci.o, 'graveyard');
+  else if (!ng.over) {
+    // (the copy's pilot for q lets it through this time)
+    ng.laHold = { q: q.idx, iid: ci.o.iid };
+    ci.o.zone = 'hand';
+    caster.hand.push(ci.o);
+    await ng.cast(caster, ci.o, { mode: { alt: 'free' }, targets: ci.targets, x: ci.x, response: ci.response });
+    ng.laHold = null;
+  }
+  // The rest of the active player's turn, then each opponent's next combat (as for main-phase look-ahead)
+  const ap = ng.players[ng.active];
+  const phase = ng.phase;
+  if (!ng.over && !cq.lost && ap && !ap.lost && !ng.stack.length) {
+    if ((phase === 'main1' || phase === 'main2') && ap.agent) await ap.agent.mainPhase(ng, ap, phase);
+    if (!ng.over && !ap.lost) {
+      if (phase === 'main1') await ng.restOfTurn(ap);
+      else if (phase === 'main2') await ng.endSteps(ap);
+    }
+  }
+  for (const r of ng.order(ng.active)) {
+    if (ng.over || cq.lost) break;
+    if (r.idx === ng.active || r.lost || r === cq) continue;
+    ng.turn++;
+    ng.active = r.idx;
+    for (const o of r.battlefield) { o.tapped = false; o.sick = false; }
+    await ng.combat(r);
+  }
+  return { score: positionScore(cq.agent, ng, cq, oppIdx), steps: ng.steps };
+}
+
+export async function lookAheadRespond(agent, g, q, item, isCounter) {
+  const usual = agent.respond(g, q, item);
+  if (g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05 || item.ability || item.loopStart || item.countered) return usual;
+  if (usual && !(usual.kind === 'cast' && isCounter(usual.card))) return usual;
+  if (!usual && (item.p === q || item.targets.some(t => t?.spell))) return null;
+  if (item.o.fx.uncounterable || item.uncounterable || agent.comboSpell(g, item)) return usual;
+  const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && agent.fits(o, item.o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
+  if (!usable.length) return usual;
+  if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return usual;
+  agent.laCount++;
+  laStats.decisions++;
+  const counter = usual || { kind: 'cast', card: usable[0], targets: usable[0].fx.spell.map(e => (e.k === 'counter' ? { spell: item } : null)) };
+  const seed = (Math.imul(g.seed ^ 0x7f4a7c15, 31) + g.steps * 977 + g.turn * 131 + q.idx) >>> 0;
+  const oppIdx = g.opponents(q).map(r => r.idx);
+  const res = [];
+  for (const c of [usual, usual ? null : counter]) {
+    try {
+      laStats.sims++;
+      const r = await simulateRespond(agent, g, q, item, c, seed, oppIdx);
+      if (!r) { laStats.dropped++; return usual; }
+      laStats.steps += r.steps;
+      res.push(r.score);
+    } catch (e) {
+      if (e.name === 'OverBudget') laStats.dropped++;
+      else { laStats.errors++; laStats.lastError = `${e.message} ${(e.stack || '').split('\n')[1] || ''}`; }
+      return usual;
+    }
+  }
+  if (res[1] < res[0] + LOOKAHEAD.margin) return usual;
+  laStats.changed++;
+  if (usual) {
+    agent.explain(g, q, `looks ahead: letting ${item.o.card.name} resolve leaves a better position (${res[1].toFixed(1)}) than countering it (${res[0].toFixed(1)})`);
+    return null;
+  }
+  agent.explain(g, q, `looks ahead: countering ${item.o.card.name} leaves a better position (${res[1].toFixed(1)}) than letting it resolve (${res[0].toFixed(1)})`);
+  return counter;
+}

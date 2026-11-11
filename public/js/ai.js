@@ -8,7 +8,7 @@ import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing } from './kingdomsPlay.js';
-import { lookAheadPlay } from './lookahead.js';
+import { lookAheadPlay, lookAheadRespond } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
@@ -87,7 +87,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -1631,8 +1631,17 @@ export class Agent {
 
   // ---------- priority: responding to a spell on the stack
   /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
+  // What the engine asks (item 101: with look-ahead on, a counter-or-not choice is checked on a copy of the game first)
+  /** @returns {any} */
+  respondAt(g, q, item) {
+    if (this.lookahead && !this.noLaRespond && !g.sim && g.rules >= 5) return lookAheadRespond(this, g, q, item, isCounter);
+    return this.respond(g, q, item);
+  }
+  /** @returns {any} */
   respond(g, q, item) {
     if (item.p === q) return null;
+    // (a look-ahead copy trying "let it resolve": this pilot lets that spell through)
+    if (g.laHold && g.laHold.q === q.idx && g.laHold.iid === item.o.iid) return null;
     // A combo loop is about to start: kill one of its pieces now if there's no Stifle
     if (item.loopStart) {
       const r = this.counterResponse(g, q, item) || this.instantAnswer(g, q, item.p.battlefield.filter(o => this.comboDanger(g, o) >= 5 || o === item.o));

@@ -48,6 +48,7 @@ export class Game {
     /** @type {any[] | undefined} */ this.endSac = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
     this.explain = false;
+    /** look-ahead copies: a spell one seat lets through (lookahead.js, item 101) @type {{q: number, iid: number} | null} */ this.laHold = null;
     // The format's rules (formats.js): starting life, commander damage, the free mulligan
     this.formatKey = opts.format || 'commander';
     // Kingdoms (kingdomsPlay.js): secret roles decide who wins
@@ -3594,7 +3595,7 @@ export class Game {
         // (Kingdoms: the Wizard may Announce to exile the spell)
         const wiz = this.kingdoms ? K.aiWizard(this, q, item) : null;
         if (wiz) { await K.announce(this, q, wiz); acted = true; break; }
-        const r = await q.agent.respond(this, q, item);
+        const r = await (q.agent.respondAt ? q.agent.respondAt(this, q, item) : q.agent.respond(this, q, item));
         if (r?.announce) { await K.announce(this, q, { item }); acted = true; break; }
         if (r) acted = await this.doResponse(q, r, item);
         if (acted) break;
