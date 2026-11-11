@@ -144,9 +144,11 @@ Like any website you visit, these services see your internet address, but no acc
 | Oathbreaker | 4 | exactly 60, one of each; a planeswalker (the oathbreaker) and an instant or sorcery (its signature spell) | 20 | no commander damage |
 | Duel Commander | 2 | exactly 100, one of each, a commander; its own ban list (Scryfall's `legal:duel`) | 20 | 21 commander damage, best of three offered |
 | 1v1 Commander | 2 | exactly 100, one of each, a commander (Commander's ban list) | 40 | 21 commander damage, best of three offered |
+| Two-Headed Giant | 4 (two teams) | at least 60, up to 4 of each (random decks from Standard) | 30 per team | shared life and 15 poison per team, teammates block for each other |
 | Limited (draft or sealed) | 2 | at least 40, from a draft or sealed pool | 20 | the rest of the pool is the sideboard |
 
 - **Oathbreaker:** put the planeswalker and the signature spell under the `Commander` heading. The signature spell can only be cast while its oathbreaker is on the battlefield. Like the oathbreaker, it goes back to the command zone, and each costs {2} more for every earlier cast from there.
+- **Two-Headed Giant:** seats 1 and 2 are one team, seats 3 and 4 the other. Each team shares one life total (30) and one poison count (15 loses). Teammates take their turns one after the other as the team's turn (the team going first skips its first draw), never attack or target each other with the AI's choices, and both can block an attack on either of them. When one teammate loses, so does the other.
 - **Pauper Commander:** the commander is checked by its own rule (an uncommon creature), since Scryfall lists uncommons as not legal in the format.
 - Brawl, Pauper Commander, Oathbreaker and Duel Commander have no brackets or EDHTop16 decks. An empty seat gets a random deck for the variant, built from Scryfall's most-played cards that are legal in it.
 - **1v1 Commander** uses ordinary Commander decks, so random decks by bracket, EDHTop16 lists and precons all work there.

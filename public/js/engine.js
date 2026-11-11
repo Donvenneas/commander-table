@@ -120,6 +120,12 @@ export class Game {
       // (win-the-game combos do nothing in Kingdoms)
       if (this.kingdoms) p.combos = p.combos.filter(c => c.result !== 'win');
     });
+    /** Two-Headed Giant teams (item 159) @type {number[][] | null} */ this.teams = null; /** @type {number[] | null} */ this.firstTeam = null;
+    if (this.format.teams && this.players.length === 4) {
+      this.linkTeams();
+      // (a team's turn starts with its first seat)
+      if (this.firstPlayer != null) this.firstPlayer -= this.firstPlayer % 2;
+    }
     // Extra starting life per seat (campaign fights: difficulty, rest stops, bosses)
     if (opts.lifeBonus) opts.lifeBonus.forEach((b, i) => { if (this.players[i] && b) this.players[i].life += b; });
     // Kingdoms: the King reveals, starts with 10 extra life and takes the first turn
@@ -183,7 +189,21 @@ export class Game {
   }
 
   alive() { return this.players.filter(p => !p.lost); }
-  opponents(p) { return this.players.filter(q => q !== p && !q.lost && !(this.kingdoms && K.teammates(p, q))); }
+  opponents(p) { return this.players.filter(q => q !== p && !q.lost && !(this.kingdoms && K.teammates(p, q)) && !(this.teams && p.team === q.team)); }
+  // Two-Headed Giant (item 159): seats 1–2 and 3–4 are teams sharing one life total and one poison count (each
+  // member's life and poison read and write the team's). Look-ahead copies link their teams again (lookahead.js).
+  linkTeams() {
+    this.teams = [[0, 1], [2, 3]];
+    for (const t of this.teams) {
+      const share = { life: this.players[t[0]].life, poison: this.players[t[0]].poison };
+      for (const i of t) {
+        const p = this.players[i];
+        p.team = t;
+        for (const k of /** @type {const} */ (['life', 'poison'])) Object.defineProperty(p, k, { get: () => share[k], set: v => { share[k] = v; }, enumerable: true, configurable: true });
+      }
+    }
+  }
+  /** @param {any} p */ teammate(p) { return this.teams ? this.players.find(q => q !== p && q.team === p.team && !q.lost) || null : null; }
   order(from) { const n = this.players.length; return Array.from({ length: n }, (_, k) => this.players[(from + k) % n]); }
   // Mana empties between steps (Leyline Tyrant, Ashling: red mana stays)
   setPhase(ph) { this.phase = ph; for (const p of this.players) p.pool = (p.pool || []).length && p.battlefield.some(o => o.fx.keepRed) ? p.pool.filter(u => u.colors.length === 1 && u.colors[0] === 'R') : []; this.emit('update'); }
@@ -1619,7 +1639,7 @@ export class Game {
           continue;
         }
         if (q.drewFromEmpty) { this.lose(q, 'drew from an empty library', '704.5b'); again = true; continue; }
-        if (q.poison >= 10) { this.lose(q, 'ten poison counters', '704.5c'); again = true; continue; }
+        if (q.poison >= (this.format.poison || 10)) { this.lose(q, `${this.format.poison || 'ten'} poison counters`, '704.5c'); again = true; continue; }
         if (this.format.cmdDamage) for (const [iid, n] of Object.entries(q.cmdDamage)) if (n >= this.format.cmdDamage) {
           const src = this.objects.get(+iid);
           this.lose(q, `${this.format.cmdDamage} combat damage from ${src.card.name}`, '903.10a'); again = true; break;
@@ -1730,6 +1750,17 @@ export class Game {
     // A monarch who leaves the game passes the title to the active player (or the next one) (724.4)
     if (this.monarch === q.idx) { const n = this.players[this.active].lost ? this.players[this.nextAlive(this.active)] : this.players[this.active]; this.monarch = null; if (!n.lost) this.setMonarch(n, `${q.name} left the game`); }
     if (this.kingdoms) { K.onEliminated(this, q); return; }
+    // Two-Headed Giant: a team loses together (810.8a), and the team left standing wins together
+    if (this.teams) {
+      const mate = this.teammate(q);
+      if (mate) this.lose(mate, reason, '810.8a');
+      const left = this.alive();
+      if (left.length && !this.over && left.every(r => r.team === left[0].team)) {
+        this.log(`🏆 ${left.map(r => this.pn(r)).join(' and ')} win as a team`, { kind: 'win' });
+        this.finish(left[0], 'the other team is out', left);
+      }
+      return;
+    }
     if (this.alive().length <= 1) this.finish(this.alive()[0], this.winNote || 'last player standing');
   }
   /** @param {any} winner @param {string} why @param {any[] | null} [team] */
@@ -4681,7 +4712,7 @@ export class Game {
     if (this.over || p.lost) return;
     // Kingdoms: the Knight in Shining Armor made this player skip their next combat
     if (p.skipCombat) { p.skipCombat = false; this.log(`${this.pn(p)} skips this combat`, { kind: 'minor', rule: 'Kingdoms' }); return; }
-    let decl = (await p.agent.declareAttackers(this, p)).filter(d => this.canAttack(d.o) && d.target !== p.idx && !this.players[d.target].lost && (!this.kingdoms || !K.teammates(p, this.players[d.target])));
+    let decl = (await p.agent.declareAttackers(this, p)).filter(d => this.canAttack(d.o) && d.target !== p.idx && !this.players[d.target].lost && (!this.kingdoms || !K.teammates(p, this.players[d.target])) && !(this.teams && this.players[d.target].team === p.team));
     // (an attack on a battle or planeswalker is an attack on its protector or controller: d.obj is the permanent)
     for (const d of decl) if (d.obj && !this.attackable(p, d.obj)) d.obj = null;
     if (this.rules >= 5 && p.agent.battleAttacks) p.agent.battleAttacks(this, p, decl);
@@ -4768,6 +4799,16 @@ export class Game {
         used.add(b); b.blocking = a.iid; a.blockedBy.push(b);
         // (item 109: a chump block — the blocker dies and the attacker lives)
         if (q.tells && !this.sim) { q.tells.blocks++; if (this.toughness(b) - b.damage <= this.power(a) && this.power(b) < this.toughness(a) - a.damage) q.tells.chumps++; }
+      }
+      // Two-Headed Giant: the defender's teammate blocks too, among the attackers still unblocked (810.7)
+      const mate = this.teammate(q);
+      const free = mate ? mine.filter(a => !a.blockedBy.length) : [];
+      if (mate && free.length && mate.battlefield.some(o => o.fx.type.creature && !o.tapped)) {
+        for (const { b, a } of await mate.agent.declareBlockers(this, mate, free)) {
+          if (used.has(b) || b.controller !== mate.idx || !free.includes(a) || !this.canBlock(b, a)) continue;
+          if (this.alive().reduce((s, x) => s + x.battlefield.filter(o => o.blocking != null).length, 0) >= cap) break;
+          used.add(b); b.blocking = a.iid; a.blockedBy.push(b);
+        }
       }
       if (q.tells && !this.sim && q.battlefield.some(o => o.fx.type.creature && !o.tapped)) q.tells.faced++;
       for (const a of mine) {
@@ -5073,6 +5114,7 @@ export class Game {
   async setup() {
     if (this.format.signature) this.log(`Oathbreaker: each player starts at ${this.startLife} life with their oathbreaker and signature spell in the command zone`, { rule: '903.7', kind: 'turn' });
     else if (this.format.commander) this.log(`${this.formatKey === 'commander' ? 'Each player' : `${esc(this.format.name)}: each player`} starts at ${this.startLife} life with their commander in the command zone`, { rule: '903.7', kind: 'turn' });
+    else if (this.teams) this.log(`${esc(this.format.name)}: each team starts at ${this.startLife} life, shared by both players`, { rule: '810.9', kind: 'turn' });
     else this.log(`${esc(this.format.name)}: each player starts at ${this.startLife} life`, { rule: '103.4', kind: 'turn' });
     for (const p of this.players) {
       shuffle(p.library, this.rand);
@@ -5094,6 +5136,11 @@ export class Game {
     // Who goes first: in best of three the last game's loser chose; otherwise random (drawn here, after
     // the mulligans, so replays saved by earlier versions still play out the same)
     this.active = this.firstPlayer != null && this.players[this.firstPlayer] ? this.firstPlayer : Math.floor(this.rand() * this.players.length);
+    if (this.teams) {
+      this.active -= this.active % 2;
+      this.firstTeam = this.players[this.active].team;
+      this.log(`Two-Headed Giant: ${this.pn(this.players[0])} and ${this.pn(this.players[1])} share ${this.startLife} life against ${this.pn(this.players[2])} and ${this.pn(this.players[3])}`, { rule: '810.1', kind: 'turn' });
+    }
     this.round = 1;
     // Leylines start on the battlefield
     for (const p of this.players) for (const o of p.hand.filter(x => x.fx.leyline)) {
@@ -5215,6 +5262,8 @@ export class Game {
     // In a two-player game the player who goes first skips the draw of their first turn (103.8a);
     // multiplayer games (Commander pods) don't
     else if (this.turn === 1 && this.players.length === 2) this.log(`${this.pn(p)} goes first and skips the first draw`, { rule: '103.8a', kind: 'minor' });
+    // (Two-Headed Giant: the team that goes first skips its first draw, 810.4c)
+    else if (this.teams && this.turn <= 2 && this.firstTeam === p.team) this.log(`${this.pn(p)}'s team goes first and skips the first draw`, { rule: '103.8a', kind: 'minor' });
     else this.draw(p, 1);
     await this.sba();
     await this.beat(0.4);

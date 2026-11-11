@@ -62,6 +62,8 @@ export function cloneGame(g, seed, budget = LOOKAHEAD.steps) {
     clock: { beat: async () => { if (ng.steps > budget) throw new OverBudget(); } },
   });
   ng.log = () => {};
+  // (Two-Headed Giant: the copied teammates share their life again)
+  if (g.teams) ng.linkTeams();
   return ng;
 }
 

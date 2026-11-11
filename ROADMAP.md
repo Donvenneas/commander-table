@@ -868,7 +868,16 @@ on top of the ones above:
     the .exe rebuilt but not run (port 8777 busy).
 
 ### Modes and progression
-- [ ] 159. Two-Headed Giant: shared 30 life, shared turns and team combat, with AI teammates that plan together.
+- [x] 159. Two-Headed Giant: shared 30 life, shared turns and team combat, with AI teammates that plan together.
+  - Done: format twohg (formats.js; random decks from Standard's pool). Seats 1–2 and 3–4 are teams (Game.linkTeams:
+    each member's life and poison read and write the team's, so lifelink, "each opponent" damage and life costs all
+    hit the shared total; look-ahead copies link again). 15 poison loses; a player losing takes the teammate out too
+    (810.8a) and the team left wins together (g.winners). Teammates are never opponents (no attacks, targets, deals or
+    threat on each other), the team that goes first skips its first draw, and the defender's teammate blocks too,
+    among the attackers still unblocked (810.7). Turns: teammates take theirs back to back as the team's turn
+    rather than one merged turn (a merged untap, draw and combat would need the turn structure rebuilt). Tested: 20
+    games with four creature decks through tools/tune.mjs (team against team, 10–10, 0 errors, no rule broken) and a
+    logged game (shared life to 0 eliminated both, the other team won together, teammates blocked for each other).
 - [ ] 160. Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each
   turn, the planar die, AI that plays both sides.
 - [x] 161. Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.
