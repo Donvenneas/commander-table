@@ -87,6 +87,18 @@
    "done": "(rules 5) Game.cast asks the caster for X."
   },
   {
+   "n": 105,
+   "section": "AI",
+   "title": "Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when that's worth more than face damage.",
+   "done": "the block search now counts damage aimed at our planeswalkers as loyalty lost (the walker's full worth when it would hit 0) instead of life, so blocks protect walkers worth keeping."
+  },
+  {
+   "n": 107,
+   "section": "AI",
+   "title": "Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs; the AI values its own graveyard as a resource and graveyard hate by what it stops.",
+   "done": "Agent.graveyardPlan values a card in its own graveyard (flashback, escape, unearth, embalm, eternalize, jump-start; big creatures when a reanimation spell is in hand or out; anything with Underworld Breach)."
+  },
+  {
    "n": 110,
    "section": "AI",
    "title": "Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan pieces, fast mana) and how those games went, and nudges planScore.",
@@ -381,6 +393,18 @@
    "done": "a Gauntlet tab in Progress: pools EDHTop16 top 8 (1v1 Commander), your library, or random decks of the format (cube decks left out: the cube's AI decks are built per draft); one-on-one fights with your seat-1 deck, a result counted once, be"
   },
   {
+   "n": 163,
+   "section": "Modes and progression",
+   "title": "Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs shareable as a code.",
+   "done": "four more events (8), three run modifiers of our own (Glass cannon, Laden pack, Forced march), a fourth act (The Starlit Peak, the Star Herald) for new runs, and run codes (set, difficulty, modifier, seed) that replay the same road."
+  },
+  {
+   "n": 164,
+   "section": "Modes and progression",
+   "title": "Story: four more chapters of The Lantern Road, balanced like the first four.",
+   "done": "chapters V–VIII (The Glass Desert, Under the Wolf Moon, The Clockwork Tide, The Last Lantern), original text and boards."
+  },
+  {
    "n": 165,
    "section": "Modes and progression",
    "title": "Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the engine to have a solution and picked by date.",
@@ -405,6 +429,12 @@
    "done": "a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate random stream and adds its reason to the main-phase prompt."
   },
   {
+   "n": 170,
+   "section": "Speed, testing and tooling",
+   "title": "Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker for the same seeds.",
+   "done": "batch runs, the matchup grid and the AI tournament play on every core (batchworker.js, a module worker per core; each loads the decks from their card lists and plays a list of fixed seeds with the learned tables taken at the start)."
+  },
+  {
    "n": 171,
    "section": "Speed, testing and tooling",
    "title": "Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the hottest paths (abilitiesOf, statics, cloneGame).",
@@ -427,6 +457,12 @@
    "section": "Speed, testing and tooling",
    "title": "Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI with a fixed seed list.",
    "done": "tests/fuzz.mjs (random Commander decks from the card snapshot; seat 1 is a HumanAgent whose UI answers at random; 12 fixed seeds in CI, more with --games/--seed)."
+  },
+  {
+   "n": 175,
+   "section": "Speed, testing and tooling",
+   "title": "Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.",
+   "done": "105 → 0 findings."
   },
   {
    "n": 178,
