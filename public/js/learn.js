@@ -3,6 +3,7 @@
 // average get a small bonus when its AI pilot chooses what to cast, and cards seen mostly in losses a penalty.
 // Stored in the browser profile, which lives in the game folder's data/ when started from Commander Table.exe.
 import { store } from './util.js';
+import { recordThreat, learnedThreat } from './threat.js';
 
 const KEY = 'ct.learn';
 // (kept for deck mastery too, so more than before)
@@ -50,6 +51,8 @@ export function recordGame(g) {
       if (won) h[1]++;
     }
   }
+  // Learned threat (item 108): the round-by-round board notes, for every deck alike
+  recordThreat(g);
   // Keep the most recently played decks only
   const keys = Object.keys(all);
   if (keys.length > MAX_DECKS) keys.sort((a, b) => all[a].at - all[b].at).slice(0, keys.length - MAX_DECKS).forEach(k => delete all[k]);
@@ -60,7 +63,9 @@ export function recordGame(g) {
 // It's a plain object so a game can keep it in its setup: replays then play exactly the same.
 export function learnedBonus(commanders) {
   const d = load()[deckKey(commanders)];
-  if (!d || d.games < MIN_GAMES) return null;
+  // (the learned threat table, item 108, goes with every deck's table, even one with too little history of its own)
+  const threat = learnedThreat();
+  if (!d || d.games < MIN_GAMES) return threat ? { '#threat': threat } : null;
   const base = d.wins / d.games;
   const out = {};
   for (const [name, c] of Object.entries(d.cards)) {
@@ -75,6 +80,7 @@ export function learnedBonus(commanders) {
   const hands = {};
   for (const [n, h] of Object.entries(d.hands || {})) if (h[0] >= 6) hands[n] = Math.round(((h[1] + base * 4) / (h[0] + 4) - base) * 100) / 100;
   if (Object.keys(hands).length) out['#hands'] = hands;
+  if (threat) out['#threat'] = threat;
   return out;
 }
 
@@ -98,7 +104,7 @@ export function learnedSummary(commanders) {
   const d = load()[deckKey(commanders)];
   if (!d) return null;
   const bonus = learnedBonus(commanders) || {};
-  const ranked = Object.entries(bonus).sort((a, b) => b[1] - a[1]);
+  const ranked = Object.entries(bonus).filter(([k]) => !k.startsWith('#')).sort((a, b) => b[1] - a[1]);
   const styles = Object.entries(d.styles || {}).map(([s, [n, w]]) => ({ style: s, games: n, wins: w })).sort((a, b) => b.games - a.games);
   return { games: d.games, wins: d.wins, best: ranked.slice(0, 5), worst: ranked.slice(-5).reverse().filter(x => x[1] < 0), styles, style: learnedStyle(commanders) };
 }

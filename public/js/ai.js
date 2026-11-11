@@ -10,6 +10,7 @@ import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing } from './kingdomsPlay.js';
 import { lookAheadPlay, lookAheadRespond, lookAheadAttacks } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
+import { threatMult } from './threat.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
 function kingdomsWeight(g, me, q) {
@@ -87,7 +88,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -170,6 +171,9 @@ export class Agent {
     for (const o of q.battlefield) v += o.fx.type.land ? 0.3 : this.value(g, o) + this.comboDanger(g, o) * 0.8;
     v += q.hand.length * 0.4;
     if (q.life <= 10 * (g.startLife || 40) / 40) v *= 0.8;
+    // (rules 5, item 108: boards like this one win soon more or less often than their value says)
+    const T = g.rules >= 5 && !this.noThreatTable ? this.learned?.['#threat'] : null;
+    if (T) v *= threatMult(T, g, q);
     return (v + (me.grudge[q.idx] || 0) * 0.25) * this.politicalWeight(g, me, q);
   }
 

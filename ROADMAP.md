@@ -568,8 +568,18 @@ on top of the ones above:
     to decking), and graveyard hate is scored by what each opponent's plan loses. Head to head with the built-in cEDH
     decks against the same pilots without it (noGyPlan): 20–20 over 40 games, as expected for decks that rarely
     discard or self-mill; golden games identical, 52 fuzz games clean.
-- [ ] 108. Threat assessment learned from batch games: which public board states lead to a win next round, used to
+- [x] 108. Threat assessment learned from batch games: which public board states lead to a win next round, used to
   pick the archenemy instead of fixed weights (frozen into the setup like learn.js data).
+  - Done (rules 5): threat.js. At the start of each round of a 3+ player game the engine notes each player's public
+    board as seven coarse features (creature power, life share, other permanents, lands, hand size, combo pieces out,
+    commander out); recordGame marks each note by whether that player won within two rounds and keeps counts in
+    ct.threat (worker games send their notes too). After 30 games each feature value gets a log ratio of its win-soon
+    rate against the average; the table travels in every seat's learned table ('#threat'), so replays stay exact.
+    Agent.threat (threat ranks: removal, Silence and attack targets) and the engine's archenemy pick are scaled by
+    it (×0.4–2.5). tools/threatlearn.mjs learns a table in Node and plays pilots with it against pilots without:
+    the learned tables read as expected (big power, many lands and permanents and a small hand mean a win is near),
+    and they reorder about 15% of threat rankings, but the results were even (40–40 over 80 games in creature pods
+    and with the cEDH decks): no measurable gain yet. Storage in Updates lists and clears it.
 - [ ] 109. Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block)
   kept in learn.js and frozen into each game's setup.
 - [x] 110. Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan

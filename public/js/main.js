@@ -2033,7 +2033,7 @@ async function runOnCores(jobs, onResult, { cores = 0, stop = () => false } = {}
 // A worker's summary of a game, shaped like a game for the tallies and for deck learning
 function gameFromSummary(r, decks) {
   const players = r.players.map((p, i) => ({ ...p, idx: i, castNames: new Set(p.castNames), learnAs: learnAs(decks[i]), commanders: decks[i].commanders, command: [] }));
-  return { over: r.over, round: r.round, winReason: r.winReason, winner: r.winner != null ? players[r.winner] : null, players, comboLog: r.comboLog, errors: r.errors, logEntries: [] };
+  return { over: r.over, round: r.round, winReason: r.winReason, winner: r.winner != null ? players[r.winner] : null, players, comboLog: r.comboLog, errors: r.errors, logEntries: [], threatLog: r.threatLog || [] };
 }
 async function plainBatch(n, status) {
   const stats = seats.map(s => ({ seat: s, wins: 0, place: 0, comboWins: 0, combos: 0, damage: 0, interaction: 0, styles: {}, cards: new Map() }));
@@ -3843,6 +3843,7 @@ const STORAGE_GROUPS = [
   { label: 'Unfinished game (Resume)', keys: ['ct.autosave'], cache: true },
   { label: 'Deck library versions', keys: ['ct.libVersions'] },
   { label: 'Deck learning and mastery', keys: ['ct.learn'] },
+  { label: 'Learned threat (who is about to win)', keys: ['ct.threat'] },
   { label: 'Progress (ladder, challenges, badges, rivals, gauntlet, puzzle of the day)', keys: ['ct.ladder', 'ct.challenges', 'ct.badges', 'ct.rivals', 'ct.gauntlet', 'ct.daily'] },
   { label: 'Game history', keys: ['ct.history'] },
   { label: 'Modes in progress (expedition, story, lessons, tournaments)', keys: ['ct.expedition', 'ct.expeditionStats', 'ct.story', 'ct.tutorial', 'ct.cup', 'ct.cupDraft', 'ct.tourney', 'ct.cubes'] },

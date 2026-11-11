@@ -23,6 +23,7 @@ self.onmessage = async ({ data }) => {
     self.postMessage({
       kind: 'result', id: data.id, seed: data.seed, over: g.over, round: g.round, winReason: g.winReason || '', winner: g.winner ? g.winner.idx : null,
       errors: g.logEntries.filter(e => e.html.startsWith('Simulator error')).length,
+      threatLog: g.threatLog,
       comboLog: g.comboLog.map(c => ({ label: c.label, landed: !!c.landed, p: c.p })),
       players: g.players.map(p => ({ place: p.place, lost: !!p.lost, lossReason: p.lossReason || '', style: p.style, stats: { combos: p.stats.combos, damage: p.stats.damage, interaction: p.stats.interaction || 0, spells: p.stats.spells || 0 }, castNames: [...(p.castNames || [])], keptHand: p.keptHand || null })),
     });

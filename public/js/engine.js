@@ -3,6 +3,7 @@ import { analyzeCard, needsTarget, condText } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import { learnedBonus } from './learn.js';
+import { threatFeatures, threatMult } from './threat.js';
 import { formatOf } from './formats.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
@@ -48,6 +49,8 @@ export class Game {
     /** @type {any[] | undefined} */ this.endSac = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
     this.explain = false;
+    /** a look-ahead copy (lookahead.js) */ this.sim = false;
+    /** each player's public board at the start of each round (threat.js, item 108) @type {{round: number, idx: number, f: Record<string, number>}[]} */ this.threatLog = [];
     /** look-ahead copies: a spell one seat lets through (lookahead.js, item 101) @type {{q: number, iid: number} | null} */ this.laHold = null;
     // The format's rules (formats.js): starting life, commander damage, the free mulligan
     this.formatKey = opts.format || 'commander';
@@ -4947,7 +4950,9 @@ export class Game {
     this.deals = this.deals.filter(d => !d.broken && d.until >= this.round);
     const alive = this.alive();
     if (alive.length < 3) { this.archenemy = null; return; }
-    const ranked = alive.map(q => [q, this.tablePower(q)]).sort((a, b) => b[1] - a[1]);
+    // (rules 5, item 108: scaled by what finished games say about boards like theirs, when there's a learned table)
+    const T = this.rules >= 5 ? this.players.find(q => q.learned?.['#threat'])?.learned['#threat'] : null;
+    const ranked = alive.map(q => [q, this.tablePower(q) * (T ? threatMult(T, this, q) : 1)]).sort((a, b) => b[1] - a[1]);
     const [lead, lv] = ranked[0];
     const next = ranked[1][1];
     // Hysteresis: it takes a clear lead to become the archenemy, and a real fall to stop being one
@@ -5036,6 +5041,8 @@ export class Game {
         this.active = this.nextAlive(this.active);
         if (this.active <= prev) {
           this.round++;
+          // (learned threat, item 108: every player's public board at the start of each round, for learn.js)
+          if (this.rules >= 5 && !this.sim && this.players.length >= 3) for (const q of this.alive()) this.threatLog.push({ round: this.round, idx: q.idx, f: threatFeatures(this, q) });
           if (this.round > this.maxRounds) {
             const best = [...this.alive()].sort((a, b) => b.life - a.life)[0];
             this.log(`Round limit (${this.maxRounds}) reached — highest life total wins`, { kind: 'turn' });
