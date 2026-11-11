@@ -103,7 +103,22 @@ const cmdCost = total => (total >= 21 ? 1000 : total >= 14 ? (total - 13) * 3 : 
 // ---------- blocks
 function defenderScore(g, q, agent, plan, nextHit) {
   const r = simulate(g, plan);
-  let s = -lifeCost(g, q, r.toPlayer.get(q.idx) || 0, nextHit, agent.combatTune?.life ?? LIFE_K);
+  // Attacks on our planeswalkers (rules 5, item 105): that damage takes loyalty, not life; a walker brought to 0 is
+  // lost, so blocks protect walkers worth keeping
+  let walkerCost = 0, offWalkers = 0;
+  if (g.rules >= 5) {
+    const onWalker = new Map();
+    for (const { a } of plan) {
+      const w = a.attackingObj;
+      if (!w || w.zone !== 'battlefield' || w.controller !== q.idx || !w.fx.type.planeswalker) continue;
+      const d = r.byAttacker.get(a) || 0;
+      if (!d) continue;
+      onWalker.set(w, (onWalker.get(w) || 0) + d);
+      offWalkers += d;
+    }
+    for (const [w, d] of onWalker) walkerCost += d >= (w.loyalty || 0) ? keyValue(agent, g, w) : keyValue(agent, g, w) * 0.5 * (d / Math.max(1, w.loyalty));
+  }
+  let s = -lifeCost(g, q, Math.max(0, (r.toPlayer.get(q.idx) || 0) - offWalkers), nextHit, agent.combatTune?.life ?? LIFE_K) - walkerCost;
   s -= cmdCost(r.cmd.get(q.idx) || 0);
   for (const o of r.dead) {
     if (o.controller === q.idx) s -= keyValue(agent, g, o);

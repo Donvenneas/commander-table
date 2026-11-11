@@ -518,7 +518,7 @@ on top of the ones above:
     target and the rest of the mana stays free. An AI pilot no longer casts an X spell with X = 0 (one cast Banefire
     for 0 before). Human seats pick X from buttons. Head to head with the same deck, seats alternating, against
     pilots that always use all the mana: 26–14 over 40 games, no X = 0 casts.
-- [ ] 105. Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when
+- [x] 105. Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when
   that's worth more than face damage.
   - Done, partly: creatures can now attack planeswalkers (item 99's attack-a-permanent: decl.obj, combat damage
     removes loyalty). The AI sends the smallest set of attackers already going at a walker's controller that kills
@@ -527,6 +527,9 @@ on top of the ones above:
     creatures are selected (tested: 44 attacks by a scripted human seat). Not done: blocks that protect our own
     walkers (blocks treat an attack on a walker like one on us). Head to head in a
     walker-heavy pod, seats alternating, against the same pilots without it: 23–17 over 40 games, no rule broken.
+  - Done (rules 5): the block search now counts damage aimed at our planeswalkers as loyalty lost (the walker's full
+    worth when it would hit 0) instead of life, so blocks protect walkers worth keeping. Golden games identical, fuzz
+    games clean; not measured head to head.
 - [ ] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
   combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.
   - Done, partly: the caster already fought back over its own spells, and Silence-before-combo was already there
