@@ -840,7 +840,10 @@ on top of the ones above:
     a result counted once, best run per pool. Tested a random-pool run in Standard to a loss (run ended, best kept).
 - [ ] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs
   shareable as a code.
-- [ ] 164. Story: four more chapters of The Lantern Road, balanced like the first four.
+- [x] 164. Story: four more chapters of The Lantern Road, balanced like the first four.
+  - Done: chapters V–VIII (The Glass Desert, Under the Wolf Moon, The Clockwork Tide, The Last Lantern), original
+    text and boards. tools/storybalance.mjs plays each chapter with an AI in your seat: chapters I–IV win 37–80%, the new
+    ones 43–53% after tuning (30 games each, 0 errors). Tested: chapter V opens after IV and starts with every card.
 - [x] 165. Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the
   engine to have a solution and picked by date.
   - Done: tools/dailypuzzles.mjs saves the board at the winner's last first main phase in AI games (the cEDH decks,

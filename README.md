@@ -171,7 +171,7 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
 ## More ways to play
 
 - **Learn to play:** seven short lessons for people new to Magic, one turn each: lands and mana, attacking, blockers, removal, combat tricks, your commander, and a final exam. A coach panel beside the table explains each step (× hides it). Finished lessons get a ✔, and the results offer the next lesson.
-- **Story:** *The Lantern Road*, an original story in four chapters. Each chapter is a line of story, then a whole one-on-one game from a special starting board (your opponent may already have creatures out, or creatures in the graveyard). Win a chapter to open the next.
+- **Story:** *The Lantern Road*, an original story in eight chapters (part two, chapters V–VIII, continues past the Storm Regent's pass). Each chapter is a line of story, then a whole one-on-one game from a special starting board (your opponent may already have creatures out, or creatures in the graveyard). Win a chapter to open the next.
 - **Expedition:** a solo roguelike. Pick a set and a difficulty, and you set out with 16 of that set's commons and uncommons in two colors (lands are added for every fight).
   - Each of three acts is four steps and a boss. At every step you choose one of two roads: a **duel** (a rival with a deck from three packs), an **elite rival** (six packs, a rare as the reward), an **event** (a smith's rare, a shrine to leave cards behind, a healer, a stranger's trade) or a **rest stop** (+3 life next fight, or thin your deck).
   - Every fight is a real one-on-one game. Win and you choose one of three cards for your deck; lose and the expedition is over.
