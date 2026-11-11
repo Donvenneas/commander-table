@@ -30,6 +30,8 @@ jobs:
         run: node tests/golden.mjs
       - name: Fuzz games (random answers to every prompt, rules watcher)
         run: node tests/fuzz.mjs
+      - name: Hidden information (AI decisions with opponents' hidden cards scrambled)
+        run: node tests/hidden.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

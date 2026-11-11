@@ -488,7 +488,7 @@ on top of the ones above:
     door" triggers), relocked when it leaves; AI and human seats unlock. Board badge ⛨ shows defense. Tested with set
     games instead of shipped puzzles: 24 games with Rooms, Sieges, Sagas and Classes (18 unlocks, 8 Sieges flipped,
     0 errors, no rule broken). Human seats can attack battles from the attack prompt (added with item 105).
-- [ ] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops
+- [x] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops
   per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).
   - Done, partly: watchGame now wraps Game.cast and Game.playLand: a player's own cast of a spell without flash
     (or flash granted, or a combat-only timing) must happen in their main phase with an empty stack, a land play too,
@@ -498,6 +498,14 @@ on top of the ones above:
     Not done: mana spent against cost (payments go through one planner already), and an automatic
     hidden-information check (a read of ai.js found its hand reads are of the deciding player's own hand; the
     look-ahead copy already redeals opponents' hands; a checker that proves it in every decision isn't built).
+  - Done (the rest): mana against cost — watchGame totals the mana units committed while a spell from hand or the
+    command zone is cast for its mana cost and reports a cast that paid less than its cost after reductions and taxes
+    ("mana" findings; alternative and free casts, unbounded mana and Phyrexian pips left out). A planted bug that
+    dropped one mana from each payment gave 19 findings in one game; 40 fuzz, 40 cEDH and 20 Two-Headed Giant games
+    gave none. Hidden information — tests/hidden.mjs (in CI) asks every AI decision again (main-phase plays, attacks,
+    blocks, responses) with each opponent's hand and library scrambled, on the same random stream, and fails if one
+    changes: 24 games, 14,102 decisions, 0 changed. A planted pilot that peeked at an opponent's hand was caught
+    (235 of 1,007 plays changed).
 
 ### AI
 - [ ] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

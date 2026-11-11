@@ -37,6 +37,8 @@ Golden games: `node tests/golden.mjs` (CI runs it too) plays 12 AI games under r
 
 Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for more) plays random decks with one seat answering every prompt at random, under the rules watcher.
 
+Hidden information: `node tests/hidden.mjs` (CI runs it too) asks every AI decision again with the opponents' hands and libraries scrambled and fails if one changes (an AI must never read hidden cards).
+
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). The baseline is empty now, and engine.js, effects.js and the engine's section modules must also pass `--strictNullChecks`. It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.

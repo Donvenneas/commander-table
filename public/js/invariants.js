@@ -84,11 +84,32 @@ export function watchGame(g) {
     || p.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature));
   const sorceryTime = p => g.active === p.idx && (g.phase === 'main1' || g.phase === 'main2') && !g.stack.length;
   const cast = g.cast.bind(g), playLand = g.playLand.bind(g);
+  // Mana (601.2f–h): a spell cast from hand for its mana cost must have had at least that cost paid (after
+  // reductions and taxes, commander tax included), counted as the mana units its payments used. Alternative and free
+  // casts, unbounded mana and the copies effects cast are left out.
+  const commit = g.commitPayment.bind(g);
+  /** @type {{ o: any, spent: number } | null} */
+  let paying = null;
+  g.commitPayment = (p, plan) => {
+    if (paying && g.payingFor?.o === paying.o && !plan.free) paying.spent += plan.used?.size || 0;
+    if (paying && plan.free) paying.spent = Infinity;
+    return commit(p, plan);
+  };
   g.cast = async (p, o, choice = {}) => {
     const check = !choice.mode && !choice.response && !choice.combo && !instantish(p, o) && !sorceryTime(p);
     const name = o.card.name;
-    const r = await cast(p, o, choice);
+    // (worked out before the cast: the cost as it stands now)
+    const mode = (o.zone === 'hand' || o.zone === 'command') && !o.fx.type.land ? choice.mode || g.castMode(p, o) : null;
+    const plain = mode && !mode.alt && !g.infinite(p) && o.card.manaCost;
+    const { c, extra } = plain ? g.costOf(p, o) : { c: null, extra: 0 };
+    const need = c ? c.generic + c.pips.filter(x => !/\/P|^P$/i.test(String(x))).length + (extra || 0) : 0;
+    const outer = paying;
+    if (plain) paying = { o, spent: 0 };
+    const mine = paying;
+    let r;
+    try { r = await cast(p, o, choice); } finally { if (plain) paying = outer; }
     if (r && check) bad('timing', `${p.name} cast ${name} (no flash) outside their main phase or with a spell on the stack`);
+    if (r && plain && mine && mine.spent < need && !o.castFrom?.startsWith?.('x')) bad('mana', `${p.name} cast ${name} paying ${mine.spent} mana for a cost of ${need}`);
     return r;
   };
   g.playLand = async (p, o) => {
