@@ -42,7 +42,7 @@ for (const l of fresh) console.log(`::error::${l}`);
 
 // Strict null checks for the rules engine and the card reader (item 175): these two files must have no finding at all
 // with --strictNullChecks (the other files are checked without it).
-const STRICT = ['public/js/engine.js', 'public/js/effects.js'];
+const STRICT = ['public/js/engine.js', 'public/js/effects.js', 'public/js/combat.js', 'public/js/mana.js', 'public/js/resolve.js', 'public/js/zones.js', 'public/js/triggers.js'];
 let strictOut = '';
 try {
   strictOut = execSync('npx -y -p typescript@5.6.3 tsc -p jsconfig.json --pretty false --strictNullChecks', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true });
