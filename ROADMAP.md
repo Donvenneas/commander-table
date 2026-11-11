@@ -946,7 +946,14 @@ on top of the ones above:
     Standard game; in Node a game with the coach asked at many points came out identical to one without.
 
 ### Speed, testing and tooling
-- [ ] 169. Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.
+- [x] 169. Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.
+  - Done another way: the live table stays in the page (the board, prompts, undo and replays all read the game object
+    directly, so moving it to a worker would mean rebuilding the whole table around messages). What froze it was
+    look-ahead, whose simulated steps never gave the browser a turn: now every 25 simulated steps in a page hand it a
+    moment (a MessageChannel message, not in Node or workers). Measured in the browser on two cEDH games with four
+    look-ahead seats: long tasks (over 50 ms) 13 → 0, the longest 98 ms → none; same winners and steps, self-test
+    19/19 (look-ahead replays exact), golden games identical. Batch, grid and tournament games already run in
+    workers (item 170).
 - [x] 170. Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker
   for the same seeds.
   - Done: batch runs, the matchup grid and the AI tournament play on every core (batchworker.js, a module worker per core; each loads the decks from

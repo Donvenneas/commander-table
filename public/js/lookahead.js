@@ -24,6 +24,9 @@ export const LOOKAHEAD = {
   oppTurns: false, // play the opponents' whole next turns, not just their combats  // ignore alternatives that only change the order of the same plays
 };
 
+// A short pause for the page (a message to ourselves runs sooner than setTimeout's 4 ms floor); not in Node or workers
+const YIELD = typeof window !== 'undefined' && typeof MessageChannel === 'function';
+const yieldToPage = () => new Promise(res => { const ch = new MessageChannel(); ch.port1.onmessage = () => res(undefined); ch.port2.postMessage(0); });
 class OverBudget extends Error { constructor() { super('look-ahead budget'); this.name = 'OverBudget'; } }
 
 // ---------- copying a game
@@ -59,7 +62,9 @@ export function cloneGame(g, seed, budget = LOOKAHEAD.steps) {
   Object.assign(ng, {
     format: g.format, puzzle: g.puzzle, handlers: {}, logEntries: [], comboLog: [], explain: false, sim: true,
     rand: makeRng(seed), steps: 0,
-    clock: { beat: async () => { if (ng.steps > budget) throw new OverBudget(); } },
+    // (in a page, every 25 simulated steps hand the browser a moment so the table stays smooth while the AI thinks,
+    // item 169; the steps and the result are the same either way)
+    clock: { beat: async () => { if (ng.steps > budget) throw new OverBudget(); if (YIELD && ng.steps % 25 === 0) await yieldToPage(); } },
   });
   ng.log = () => {};
   // (Two-Headed Giant: the copied teammates share their life again)
