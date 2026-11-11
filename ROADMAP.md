@@ -537,8 +537,14 @@ on top of the ones above:
     was stopping something it wants stopped (Agent.wantCountered, shared with ordinary counters). 80 cEDH games: 7
     such joins (P3 Dispels the Flusterstorm protecting Exquisite Blood), 0 errors; golden games identical. Not done:
     holding protection like Veil of Summer for the key turn.
-- [ ] 107. Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs;
+- [x] 107. Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs;
   the AI values its own graveyard as a resource and graveyard hate by what it stops.
+  - Done (rules 5): Agent.graveyardPlan values a card in its own graveyard (flashback, escape, unearth, embalm,
+    eternalize, jump-start; big creatures when a reanimation spell is in hand or out; anything with Underworld Breach).
+    Discards keep those for the graveyard, milling yourself is worth what the milled cards are worth there (never close
+    to decking), and graveyard hate is scored by what each opponent's plan loses. Head to head with the built-in cEDH
+    decks against the same pilots without it (noGyPlan): 20–20 over 40 games, as expected for decks that rarely
+    discard or self-mill; golden games identical, 52 fuzz games clean.
 - [ ] 108. Threat assessment learned from batch games: which public board states lead to a win next round, used to
   pick the archenemy instead of fixed weights (frozen into the setup like learn.js data).
 - [ ] 109. Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block)

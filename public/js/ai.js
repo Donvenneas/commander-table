@@ -374,11 +374,27 @@ export class Agent {
   }
   chooseDiscard(g, p, n) {
     const landsOut = p.battlefield.filter(o => o.fx.type.land).length;
+    const fromGy = g.rules >= 5 && !this.noGyPlan ? this.graveyardPlan(g, p) : null;
     return [...p.hand].sort((a, b) => {
       const interaction = o => (o.fx.spell.some(e => INTERACTION.includes(e.k)) ? 3 : 0);
-      const s = o => (o.fx.type.land ? (landsOut >= 6 ? -10 : 5) : -(o.card.cmc || 0) + this.value(g, o) * 0.3 + this.pieceWorth(g, p, o) + interaction(o));
+      const s = o => (o.fx.type.land ? (landsOut >= 6 ? -10 : 5) : -(o.card.cmc || 0) + this.value(g, o) * 0.3 + this.pieceWorth(g, p, o) + interaction(o)) - (fromGy ? fromGy(o) : 0);
       return s(a) - s(b);
     }).slice(0, n);
+  }
+  // Graveyard plans (rules 5, item 107): how much a card is worth in our own graveyard. Cards that are cast or brought
+  // back from there (flashback, escape, unearth, embalm, eternalize, jump-start), and big creatures when we hold or
+  // have out a way to reanimate them. Returns a function card → value in the graveyard.
+  graveyardPlan(g, p) {
+    const reanimates = o => [...o.fx.spell, ...o.fx.etb].some(e => e.k === 'reanimate' && (e.types || ['creature']).includes('creature'));
+    const canReanimate = p.hand.some(reanimates) || p.battlefield.some(o => reanimates(o) || (o.fx.abilities || []).some(ab => ab.effects?.some(e => e.k === 'reanimate')));
+    const breach = p.battlefield.some(o => /underworld breach/i.test(o.card.name)) || p.hand.some(o => /underworld breach/i.test(o.card.name));
+    return o => {
+      let v = 0;
+      if (o.fx.flashback || o.fx.escape || o.fx.unearth || o.fx.embalm || o.fx.eternalize || o.fx.jumpstart) v += 3;
+      if (canReanimate && o.fx.type.creature) v += Math.max(0, (o.card.cmc || 0) - 3) + this.value(g, o) * 0.4;
+      if (breach && !o.fx.type.land) v += 1;
+      return v;
+    };
   }
 
   // ---------- targeting
@@ -1065,6 +1081,14 @@ export class Agent {
         return back > 0 && more ? back * 2 : isSpell ? -100 : 0;
       }
       case 'mill': {
+        // (rules 5: milling ourselves is worth something with a graveyard plan, never so much that we deck ourselves)
+        if (g.rules >= 5 && !this.noGyPlan && e.who === 'you') {
+          const n = N(e.n);
+          if (p.library.length - n < 8) return -5;
+          const plan = this.graveyardPlan(g, p);
+          const avg = p.library.length ? p.library.slice(-30).reduce((s, o) => s + plan(o), 0) / Math.min(30, p.library.length) : 0;
+          return Math.min(6, n * avg * 0.6) + (p.battlefield.some(o => o.fx.gyAnthem || /graveyard/i.test(o.card.text || '') && o.fx.type.creature) ? n * 0.2 : 0);
+        }
         // Storm multiplies it; it only matters when a library actually runs out
         const n = N(e.n) * (src.fx.storm ? (g.turnSpellCount?.turn === g.turn ? g.turnSpellCount.n : 0) + 1 : 1);
         const low = Math.min(...g.opponents(p).map(q => q.library.length));
@@ -1158,7 +1182,14 @@ export class Agent {
       case 'monarch': return g.monarch === p.idx ? 0 : 5;
       case 'fromHand': return p.hand.some(o => o !== src && (e.what === 'land' ? o.fx.type.land : this.matches(o, e.what))) ? (e.what === 'land' ? 2.5 : 4) : 0;
       case 'reshuffle': return p.library.length < 15 ? 3 : 0;
-      case 'exileGy': return e.all ? opps.reduce((s, q) => s + q.graveyard.filter(o => o.fx.type.creature || o.fx.flashback).length, 0) * 0.3 : 0.5;
+      case 'exileGy': {
+        if (g.rules < 5 || this.noGyPlan) return e.all ? opps.reduce((s, q) => s + q.graveyard.filter(o => o.fx.type.creature || o.fx.flashback).length, 0) * 0.3 : 0.5;
+        // (rules 5, item 107: by what it stops: each opponent's graveyard as their own plan values it, more against
+        // Breach-style combos)
+        const worth = q => { const plan = this.graveyardPlan(g, q); return q.graveyard.reduce((s, o) => s + plan(o) + this.pieceWorth(g, q, o) * 0.5, 0); };
+        if (!e.all) return Math.max(0.5, Math.max(0, ...opps.map(worth)) * 0.5);
+        return opps.reduce((s, q) => s + worth(q), 0) * 0.5 + 0.3 * opps.reduce((s, q) => s + q.graveyard.filter(o => o.fx.type.creature || o.fx.flashback).length, 0);
+      }
       case 'massReanimate': {
         const pool = (e.all ? g.alive() : [p]).flatMap(q => q.graveyard.filter(o => g.isA(o, e.what) && o.fx.type.permanent));
         return pool.reduce((s, o) => s + (o.owner === p.idx || !e.all ? this.value(g, o) : -this.value(g, o)), 0) * 0.7;
