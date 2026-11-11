@@ -477,7 +477,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
 
 ## Batch testing and tournaments
 
-**Batch** plays 10 to 250 games at full speed with the seated decks. They run on every CPU core at once (**Cores** sets how many; 25 four-player games took under a second on a 16-core PC instead of 7 seconds on one), and the same **Seed** repeats a batch exactly, whatever the number of cores.
+**Batch** plays 10 to 250 games at full speed with the seated decks. They run on every CPU core at once, as do the matchup grid and the tournament (**Cores** sets how many for a batch; 25 four-player games took under a second on a 16-core PC instead of 7 seconds on one), and the same **Seed** repeats a batch exactly, whatever the number of cores.
 - **Run** reports each deck's wins, win rate, average place, combo wins and damage per game; game speed (average and median winning round, share of wins by round 4) and interaction spells per game; each combo's attempts, how often it landed and how often it won; how games were won and how players were eliminated; and per-card performance.
 - **Tune styles** has every seat try all four play styles and suggests the best one for each deck. Decks also learn their best style on their own: once one style clearly wins more (12+ games), **Auto** plays it.
 

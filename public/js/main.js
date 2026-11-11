@@ -2003,38 +2003,36 @@ function renderTune(wins, per, styles, partial) {
 
 // Batch games on every CPU core (item 170): batchworker.js plays a list of seeds per worker; each game depends only on
 // its seed and the learned tables taken at the start, so the totals are the same with any number of cores
-async function workerGames(seeds, styles, onGame) {
-  const cores = +$('batchCores').value || Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1));
-  const tableMsg = { kind: 'table', format: formatKey, seats: seats.map(s => ({ name: s.name || 'Player', color: s.color, text: deckText(s.deck), learned: learnedBonus(learnAs(s.deck)) })) };
-  const queue = seeds.map((seed, k) => ({ seed, k }));
-  const results = new Array(seeds.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(cores, seeds.length) }, () => new Worker(new URL('./batchworker.js', import.meta.url), { type: 'module' }));
+// jobs: [{ seed, format, decks, styles, names?, colors? }]. Every job's message (with the learned tables of the
+// moment) is made before any game starts, so the results don't depend on the number of cores or on timing.
+// onResult(result, job) is called in job order. Returns false when workers aren't available.
+/** @param {any[]} jobs @param {(r: any, job: any) => void} onResult @param {{ cores?: number, stop?: () => boolean }} [opts] */
+async function runOnCores(jobs, onResult, { cores = 0, stop = () => false } = {}) {
+  if (typeof Worker !== 'function' || !jobs.length) return false;
+  const n = Math.min(jobs.length, cores || Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 2) - 1)));
+  const msgs = jobs.map((job, id) => ({ kind: 'game', id, seed: job.seed, format: job.format, seats: job.decks.map((d, i) => ({ text: deckText(d), name: job.names?.[i] || `Player ${i + 1}`, color: job.colors?.[i] || SEAT_COLORS[i], style: job.styles[i], learned: learnedBonus(learnAs(d)) })) }));
+  const results = new Array(jobs.length);
+  let next = 0, sent = 0;
+  const workers = Array.from({ length: n }, () => new Worker(new URL('./batchworker.js', import.meta.url), { type: 'module' }));
   try {
     await Promise.all(workers.map(w => new Promise((resolve, reject) => {
-      let job = null;
-      const give = () => {
-        if (batchStop || !queue.length) { resolve(); return; }
-        job = queue.shift();
-        w.postMessage({ kind: 'play', seed: job.seed, styles });
-      };
+      const give = () => { if (stop() || sent >= msgs.length) { resolve(); return; } w.postMessage(msgs[sent++]); };
       w.onmessage = ({ data }) => {
-        if (data.kind === 'ready') give();
-        else if (data.kind === 'result') {
-          results[job.k] = data;
-          // (results are counted in seed order, so the running totals don't depend on which core finished first)
-          while (results[next]) { onGame(results[next]); next++; }
-          give();
-        } else if (data.kind === 'error') reject(new Error(data.message));
+        if (data.kind === 'error') { reject(new Error(data.message)); return; }
+        results[data.id] = data;
+        // (handed on in job order, so running totals don't depend on which core finished first)
+        while (results[next]) { onResult(results[next], jobs[next]); next++; }
+        give();
       };
       w.onerror = e => reject(new Error(e.message || 'the worker failed'));
-      w.postMessage(tableMsg);
+      give();
     })));
   } finally { workers.forEach(w => w.terminate()); }
+  return true;
 }
-// A worker's summary of a game, shaped like a game for the tally and for deck learning
-function gameFromSummary(r) {
-  const players = r.players.map((p, i) => ({ ...p, idx: i, castNames: new Set(p.castNames), learnAs: learnAs(seats[i].deck), commanders: seats[i].deck.commanders, command: [] }));
+// A worker's summary of a game, shaped like a game for the tallies and for deck learning
+function gameFromSummary(r, decks) {
+  const players = r.players.map((p, i) => ({ ...p, idx: i, castNames: new Set(p.castNames), learnAs: learnAs(decks[i]), commanders: decks[i].commanders, command: [] }));
   return { over: r.over, round: r.round, winReason: r.winReason, winner: r.winner != null ? players[r.winner] : null, players, comboLog: r.comboLog, errors: r.errors, logEntries: [] };
 }
 async function plainBatch(n, status) {
@@ -2083,9 +2081,11 @@ async function plainBatch(n, status) {
   };
   const seed0 = $('batchSeed').value.trim() ? (+$('batchSeed').value >>> 0) : Math.floor(Math.random() * 2 ** 31);
   const seeds = Array.from({ length: n }, (_, k) => (seed0 + k * 7919) >>> 0);
+  /** @type {boolean} */
   let viaWorkers = typeof Worker === 'function';
   if (viaWorkers) {
-    try { await workerGames(seeds, seats.map(seatStyle), r => { if (!r.over) return; const g = gameFromSummary(r); recordGame(g); tally(g); }); }
+    const decks = seats.map(x => x.deck), styles = seats.map(seatStyle), names = seats.map(x => x.name || 'Player'), colors = seats.map(x => x.color);
+    try { viaWorkers = await runOnCores(seeds.map(seed => ({ seed, format: formatKey, decks, styles, names, colors })), r => { if (!r.over) return; const g = gameFromSummary(r, decks); recordGame(g); tally(g); }, { cores: +$('batchCores').value, stop: () => batchStop }); }
     catch (e) { console.warn('batch workers failed, playing here instead', e); viaWorkers = false; }
   }
   // (no workers, or they failed: the same seeds on this page)
@@ -2710,7 +2710,25 @@ $('btnGrid').addEventListener('click', async () => {
         }).join('')}</tbody></table>
         <p class="muted">${done} of ${total} games. Head-to-head ${esc(fmt().name)} games (two players, ${fmt().life} life each), AI pilots in their Auto style. Small samples are noisy.</p>`;
     };
-    for (let i = 0; i < n && !gridStop; i++) for (let j = i + 1; j < n && !gridStop; j++) {
+    // (on every CPU core when the browser allows it, item 170; one game per pairing and seed, the same results either way)
+    const jobs = [];
+    const seed0 = Math.floor(Math.random() * 2 ** 31);
+    for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) for (let k = 0; k < per; k++) {
+      const [a, b] = k % 2 ? [j, i] : [i, j];
+      jobs.push({ seed: (seed0 + jobs.length * 7919) >>> 0, format: formatKey, decks: [decks[a], decks[b]], styles: [a, b].map(x => learnedStyle(learnAs(decks[x])) || guessStyle(decks[x])), names: [`${a + 1}`, `${b + 1}`], i, j, a, b });
+    }
+    let onCores = false;
+    try {
+      onCores = await runOnCores(jobs, (r, job) => {
+        if (r.over) recordGame(gameFromSummary(r, job.decks));
+        games[job.i][job.j]++; games[job.j][job.i]++;
+        if (r.winner != null) { const w = r.winner === 0 ? job.a : job.b, l = w === job.a ? job.b : job.a; wins[w][l]++; }
+        done++;
+        $('libraryStatus').textContent = `Playing… ${done} / ${total}`;
+        if (done % 4 === 0) draw();
+      }, { stop: () => gridStop });
+    } catch (e) { console.warn('grid workers failed, playing here instead', e); }
+    if (!onCores) for (let i = 0; i < n && !gridStop; i++) for (let j = i + 1; j < n && !gridStop; j++) {
       for (let k = 0; k < per && !gridStop; k++) {
         // Alternate who sits first
         const [a, b] = k % 2 ? [j, i] : [i, j];
@@ -3037,7 +3055,36 @@ async function runTourney() {
       const sit = shuffled.slice(0, decks.length - podsPerRound * P);
       sit.forEach(x => x.byes++);
       const order = shuffled.filter(x => !sit.includes(x));
-      for (let k = 0; k < podsPerRound && !tourneyStop; k++) {
+      // (a round's games on every CPU core when the browser allows it, item 170)
+      const tally = (pod, players, winnerIdx) => {
+        players.forEach((p, i) => {
+          const x = pod[i];
+          x.games++;
+          x.place += p.place || 4;
+          x.points += Math.max(0, 4 - (p.place || 4));
+          if (winnerIdx === i) x.wins++;
+        });
+        played++;
+        $('tourneyBar').style.width = `${(played / total) * 100}%`;
+        status(`Round ${r + 1} of ${rounds} · ${played} of ${total} games`);
+      };
+      const name = (x, i) => x.deck.commanders[0]?.name.split(',')[0] || x.deck.deckName || `Deck ${i + 1}`;
+      const jobs = [];
+      for (let k = 0; k < podsPerRound; k++) for (let gi = 0; gi < perPod; gi++) {
+        const pod = order.slice(k * P, k * P + P);
+        jobs.push({ seed: Math.floor(Math.random() * 2 ** 31), format: formatKey, decks: pod.map(x => x.deck), styles: pod.map(x => guessStyle(x.deck)), names: pod.map(name), pod });
+      }
+      let onCores = false;
+      try {
+        onCores = await runOnCores(jobs, (res, job) => {
+          if (!res.over) return;
+          recordGame(gameFromSummary(res, job.decks));
+          tally(job.pod, res.players, res.winner);
+          if (played % 4 === 0) renderTourney(decks);
+        }, { stop: () => tourneyStop });
+      } catch (e) { console.warn('tournament workers failed, playing here instead', e); }
+      renderTourney(decks);
+      if (!onCores) for (let k = 0; k < podsPerRound && !tourneyStop; k++) {
         const pod = order.slice(k * P, k * P + P);
         for (let gi = 0; gi < perPod && !tourneyStop; gi++) {
           const g = new Game(pod.map((x, i) => ({ playerName: x.deck.commanders[0]?.name.split(',')[0] || x.deck.deckName || `Deck ${i + 1}`, deckName: x.deck.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(x.deck)), commanders: x.deck.commanders, learnAs: learnAs(x.deck), cards: x.deck.cards })), fast, { format: formatKey });
