@@ -838,8 +838,15 @@ on top of the ones above:
   - Done: a Gauntlet tab in Progress: pools EDHTop16 top 8 (1v1 Commander), your library, or random decks of the
     format (cube decks left out: the cube's AI decks are built per draft); one-on-one fights with your seat-1 deck,
     a result counted once, best run per pool. Tested a random-pool run in Standard to a loss (run ended, best kept).
-- [ ] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs
+- [x] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs
   shareable as a code.
+  - Done: four more events (8), three run modifiers of our own (Glass cannon, Laden pack, Forced march), a fourth act
+    (The Starlit Peak, the Star Herald) for new runs, and run codes (set, difficulty, modifier, seed) that replay the
+    same road. tools/expeditionsim.mjs plays whole runs with an AI in your seat. Found: the starting deck was 16
+    spells padded with 24 lands, so the first rivals won almost every fight; it is now 23 spells and 17 lands. An AI
+    pilot wins about two thirds of its fights, so Normal now forgives one loss per run (none still clear all four acts
+    with an AI pilot: 5 of 12 reached act 2). Hard runs walked to the end with --win-all (all fights played, counted as
+    won): 2 of 2 cleared all four acts with every reward, event and boss, no errors.
 - [x] 164. Story: four more chapters of The Lantern Road, balanced like the first four.
   - Done: chapters V–VIII (The Glass Desert, Under the Wolf Moon, The Clockwork Tide, The Last Lantern), original
     text and boards. tools/storybalance.mjs plays each chapter with an AI in your seat: chapters I–IV win 37–80%, the new

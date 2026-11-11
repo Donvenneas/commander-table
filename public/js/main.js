@@ -45,7 +45,7 @@ import { AVATARS, BACKS, avatarById, backById, unlocked, unlockText, pickerHtml 
 import { LANGS, startI18n } from './i18n.js';
 import { LESSONS, lessonsDone, markLesson, lessonPuzzle, coachHtml } from './tutorial.js';
 import { CHAPTERS, storyDone, markChapter, chapterOpen, chapterPuzzle } from './story.js';
-import { DIFFICULTY, NODE, runState, stats, startRun, abandonRun, yourDeck, rivalDeck, fightLife, currentChoices, rewardChoices, fightOver, takeReward, eventFor, resolveEvent, actName } from './campaign.js';
+import { DIFFICULTY, NODE, runState, stats, startRun, abandonRun, yourDeck, rivalDeck, fightLife, currentChoices, rewardChoices, fightOver, takeReward, eventFor, resolveEvent, actName, MODIFIERS, runCode, parseRunCode } from './campaign.js';
 import { encodeChallenge, decodeChallenge, challengeLink } from './challenge.js';
 import { openBuilder } from './builder.js';
 import { Tabletop, renderTabletop } from './manual.js';
@@ -3354,12 +3354,19 @@ async function renderExpedition() {
       <p class="muted">${st.runs} expedition${st.runs === 1 ? '' : 's'} so far, ${st.won} reached the summit.</p>
       <div class="limited-start"><label>Set <select id="exSet" class="input">${SUGGESTED_SETS.map(([c, n]) => `<option value="${c}">${esc(n)}</option>`).join('')}</select></label>
       ${Object.entries(DIFFICULTY).map(([k, d]) => `<label title="${esc(d.about)}"><input type="radio" name="exDiff" value="${k}" ${k === 'normal' ? 'checked' : ''}> ${d.name}</label>`).join('')}
+      <label>Modifier <select id="exMod" class="input">${Object.entries(MODIFIERS).map(([k, m]) => `<option value="${k}" title="${esc(m.about)}">${esc(m.name)}</option>`).join('')}</select></label>
       <button class="btn primary" id="btnExStart">Set out</button></div>
-      <p class="muted">${Object.values(DIFFICULTY).map(d => `<b>${d.name}:</b> ${esc(d.about)}.`).join(' ')}</p>`;
+      <p class="muted">${Object.values(DIFFICULTY).map(d => `<b>${d.name}:</b> ${esc(d.about)}.`).join(' ')} ${Object.values(MODIFIERS).slice(1).map(m => `<b>${m.name}:</b> ${esc(m.about)}.`).join(' ')}</p>
+      <p><label>Or walk a shared road: <input id="exCode" class="input" placeholder="Run code, like FDN-N-G-1A2B3C" maxlength="24"></label> <button class="btn" id="btnExCode">Set out on this road</button></p>`;
+    $('btnExCode').onclick = async () => {
+      const c = parseRunCode($('exCode').value);
+      if (!c) { exSay('That isn\'t a run code: it looks like FDN-N-G-1A2B3C.'); return; }
+      try { await startRun({ ...c, setName: SUGGESTED_SETS.find(x => x[0] === c.set)?.[1] || c.set.toUpperCase(), onStatus: exSay }); exSay(''); renderExpedition(); } catch (err) { exSay(`Couldn't set out: ${err.message}`); }
+    };
     $('btnExStart').onclick = async () => {
       try {
         const set = $('exSet').value;
-        await startRun({ set, setName: SUGGESTED_SETS.find(x => x[0] === set)?.[1] || set, difficulty: document.querySelector('input[name="exDiff"]:checked').value, onStatus: exSay });
+        await startRun({ set, setName: SUGGESTED_SETS.find(x => x[0] === set)?.[1] || set, difficulty: document.querySelector('input[name="exDiff"]:checked').value, modifier: $('exMod').value, onStatus: exSay });
         exSay('');
         renderExpedition();
       } catch (err) { exSay(`Couldn't set out: ${err.message}`); }
@@ -3367,7 +3374,7 @@ async function renderExpedition() {
     return;
   }
   const D = DIFFICULTY[r.difficulty];
-  const head = `<div class="ex-head"><b>Act ${r.act + 1}: ${esc(actName(r.act))}</b> · step ${r.step + 1} of ${r.map[r.act].length} · ${esc(r.setName)} · ${D.name}
+  const head = `<div class="ex-head"><b>Act ${r.act + 1} of ${r.acts || 3}: ${esc(actName(r.act))}</b> · step ${r.step + 1} of ${r.map[r.act].length} · ${esc(r.setName)} · ${D.name}${r.modifier && r.modifier !== 'none' ? ` · ${esc(MODIFIERS[r.modifier]?.name || '')}` : ''} · run code <code>${esc(runCode(r))}</code>
     · deck: ${r.deck.length} cards + lands · ${r.wins} win${r.wins === 1 ? '' : 's'}${r.lifeNext ? ` · +${r.lifeNext} life next fight` : ''}${D.forgive ? ` · ${r.forgiven[r.act] ? 'this act’s forgiven loss is used' : 'one loss forgiven this act'}` : ''}</div>
     <div class="ex-map">${r.map.map((act, a) => `<div class="ex-act ${a === r.act ? 'now' : a < r.act ? 'past' : ''}"><small>Act ${a + 1}</small>${act.map((step, s) => `<span class="ex-step ${a === r.act && s === r.step ? 'now' : a < r.act || (a === r.act && s < r.step) ? 'past' : ''}">${step.map(k => NODE[k].icon).join(' / ')}</span>`).join('→')}</div>`).join('')}</div>`;
   // A reward waiting: one of three cards
@@ -3428,7 +3435,7 @@ async function nodeChoice(r, kind) {
     const ev = eventFor(r);
     body.innerHTML = `<h3>✦ ${esc(ev.text)}</h3><div id="exEvent"></div>`;
     const box = $('exEvent');
-    if (ev.choice === 'life4') { box.innerHTML = '<button class="btn primary" id="btnExOk">Thank the healer</button>'; $('btnExOk').onclick = () => { resolveEvent(r, 'life', 4); renderExpedition(); }; return; }
+    if (ev.choice === 'life4' || ev.choice === 'life6') { const n = ev.choice === 'life6' ? 6 : 4; box.innerHTML = `<button class="btn primary" id="btnExOk">${n === 6 ? 'Share the road' : 'Thank the healer'}</button>`; $('btnExOk').onclick = () => { resolveEvent(r, 'life', n); renderExpedition(); }; return; }
     if (ev.choice === 'remove2') { box.innerHTML = deckList(2, 'Choose up to two cards:'); }
     if (ev.choice === 'rare' || ev.choice === 'swap') {
       const choices = await rewardChoices(r, ev.choice === 'rare' ? 'elite' : 'duel');
