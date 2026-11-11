@@ -86,6 +86,8 @@ export class Agent {
   constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; /** AI strength handicap (main.js STRENGTH), 0–1 */ this.handicap = 0; /** item 112 experiments, off by default */ this.bluff = 0; this.trickFear = false;
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
+    // (head-to-head tests switch the graveyard plans of item 107 off with this)
+    this.noGyPlan = false;
   }
   // Combo pilots fight like defensive players: they only need to survive until the combo
   get cstyle() { return this.style === 'combo' || this.style === 'cedh' ? 'defensive' : this.style; }
