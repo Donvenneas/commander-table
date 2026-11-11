@@ -1665,6 +1665,20 @@ export class Agent {
     return { kind: 'cast', card, targets: card.fx.spell.map(e => (e.k === 'counterAbility' ? { spell: item } : null)) };
   }
 
+  // Is this spell worth countering for q? (a combo, a wipe of q's board, something aimed at q, a tutor or engine from
+  // the leader for cEDH pilots, a big threat from whoever is ahead)
+  wantCountered(g, q, item) {
+    const spell = item.o;
+    if (spell.fx.uncounterable) return false;
+    const combo = this.comboSpell(g, item);
+    const mineHit = spell.fx.spell.some(e => e.k === 'wipe' || e.k === 'sweep') && q.battlefield.filter(o => !o.fx.type.land).reduce((s, o) => s + this.value(g, o), 0) > 6;
+    const targetsMe = (item.targets || []).some(tg => (tg?.obj && tg.obj.controller === q.idx && this.value(g, tg.obj) >= 5) || tg?.player === q.idx);
+    const rank = this.threatRank(g, q).get(item.p.idx) || 1;
+    const big = (spell.card.cmc || 0) >= 5 || spell.isCommander || spell.fx.type.planeswalker;
+    // cEDH pilots also stop tutors and draw engines from whoever is ahead
+    const engine = this.style === 'cedh' && rank >= 1 && (spell.fx.spell.some(e => e.k === 'tutor') || spell.fx.onOppCast);
+    return !!(combo || mineHit || targetsMe || engine || (big && rank >= 1.15) || ((spell.card.cmc || 0) >= 6 && rank >= 0.9));
+  }
   counterResponse(g, q, item) {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
@@ -1681,17 +1695,27 @@ export class Agent {
       if (worth) g.log(`${g.pn(q)} fights back over ${g.cn(s)}`, { kind: 'minor' });
       return worth ? as(cheapest()) : null;
     }
-    if (item.targets.some(t => t?.spell)) return null;
+    if (item.targets.some(t => t?.spell)) {
+      // Counter wars with three or more players (rules 5, item 106): someone counters a counterspell that was
+      // stopping a spell we want stopped (a combo, a wipe of our board, a big threat from the leader): counter that too
+      const inner = item.targets.find(t => t?.spell)?.spell;
+      const stopped = inner?.targets?.find(t => t?.spell)?.spell;
+      if (g.rules >= 5 && inner && stopped && inner.p !== q && stopped.p !== q && stopped.p === item.p && this.wantCountered(g, q, stopped)) {
+        g.log(`${g.pn(q)} joins the counter war over ${g.cn(stopped.o)}`, { kind: 'minor' });
+        return as(cheapest());
+      }
+      return null;
+    }
     const spell = item.o;
     const combo = this.comboSpell(g, item);
     const mineHit = spell.fx.spell.some(e => e.k === 'wipe' || e.k === 'sweep') && q.battlefield.filter(o => !o.fx.type.land).reduce((s, o) => s + this.value(g, o), 0) > 6;
     const targetsMe = item.targets.some(tg => (tg?.obj && tg.obj.controller === q.idx && this.value(g, tg.obj) >= 5) || tg?.player === q.idx);
+    const worth = this.wantCountered(g, q, item);
+    if (!worth) return null;
+    // (the same reasons, for the checks and the explanation below)
     const rank = this.threatRank(g, q).get(item.p.idx) || 1;
     const big = (spell.card.cmc || 0) >= 5 || spell.isCommander || spell.fx.type.planeswalker;
-    // cEDH pilots also stop tutors and draw engines from whoever is ahead
     const engine = this.style === 'cedh' && rank >= 1 && (spell.fx.spell.some(e => e.k === 'tutor') || spell.fx.onOppCast);
-    const worth = combo || mineHit || targetsMe || engine || (big && rank >= 1.15) || ((spell.card.cmc || 0) >= 6 && rank >= 0.9);
-    if (!worth) return null;
     // A no-counter deal holds unless the spell would win the game or wreck us; countering anyway breaks it
     const pact = g.dealBetween(q.idx, item.p.idx);
     if (pact?.kind === 'noCounter') {

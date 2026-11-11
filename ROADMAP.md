@@ -529,6 +529,11 @@ on top of the ones above:
     walker-heavy pod, seats alternating, against the same pilots without it: 23–17 over 40 games, no rule broken.
 - [ ] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
   combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.
+  - Done, partly: the caster already fought back over its own spells, and Silence-before-combo was already there
+    (shieldsUp). New (rules 5): a third player joins a counter war when a counterspell is aimed at a counterspell that
+    was stopping something it wants stopped (Agent.wantCountered, shared with ordinary counters). 80 cEDH games: 7
+    such joins (P3 Dispels the Flusterstorm protecting Exquisite Blood), 0 errors; golden games identical. Not done:
+    holding protection like Veil of Summer for the key turn.
 - [ ] 107. Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs;
   the AI values its own graveyard as a resource and graveyard hate by what it stops.
 - [ ] 108. Threat assessment learned from batch games: which public board states lead to a win next round, used to
