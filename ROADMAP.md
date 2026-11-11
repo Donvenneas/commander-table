@@ -994,6 +994,15 @@ on top of the ones above:
     for "look at the top card" permanents when Reveal hands was on. Golden games, card readings and fuzz unchanged.
 - [ ] 176. Split main.js and engine.js into smaller modules (setup screen, windows, results; combat, stack, zones, mana)
   with no change in behaviour, checked by the golden replays (item 173).
+  - Done, partly: engine.js 5,450 → 2,515 lines. Its combat, mana, effects-resolving, zones and triggers sections are now
+    combat.js, mana.js, resolve.js, zones.js and triggers.js: each method became an exported function taking the game
+    as g, and Game keeps a one-line method that calls it, so callers are unchanged (tools/split-engine.cjs does the
+    move; only code uses of this are rewritten, never log text). Fields first set inside moved methods are declared in
+    the constructor (left undefined, as before). All five modules are in the strict-null type check. main.js 4,022 →
+    about 3,830: the Help, What's new, Storage and card-image windows are windows.js; seat colors, decks as text and
+    games on every core are cores.js; the shared prefs object is prefs.js. Checked: golden games identical, fuzz clean,
+    card readings unchanged, type check 0, self-test 19/19, the windows and a 6-game run on workers in the browser.
+    Not done: the setup screen and results out of main.js, and the stack and casting sections out of engine.js.
 - [ ] 177. CI on more systems: build the .exe and test it and server.ps1 on a Windows runner; run server.py's --check
   and the self-test on macOS and Ubuntu runners (closes item 52's "untested on a real Mac or Linux").
   - Done, not yet run: selftest.yml now runs server.py's --check and the self-test on Ubuntu and macOS (a matrix), and
