@@ -580,8 +580,17 @@ on top of the ones above:
     the learned tables read as expected (big power, many lands and permanents and a small hand mean a win is near),
     and they reorder about 15% of threat rankings, but the results were even (40–40 over 80 games in creature pods
     and with the cEDH decks): no measurable gain yet. Storage in Updates lists and clears it.
-- [ ] 109. Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block)
+- [x] 109. Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block)
   kept in learn.js and frozen into each game's setup.
+  - Done (rules 5): the engine notes for each person seat (HumanAgent, by seat name) the turns they end with 2+ mana
+    open and cards in hand, whether that mana is used before their next turn and whether on a counterspell, the
+    combats they could block in, their blocks and chump blocks; learn.js keeps these per person in ct.people (last 50
+    people, this browser profile only). From 3 games on, the rates travel in that seat's learned table ('#person'),
+    so replays stay exact, and the game log says what the AI remembers. The AI's counter odds for that person (which
+    drive baiting, Silence and Veil before a combo, and holding back combo pieces) come from how often their open
+    mana was a counterspell instead of a guess from colors and hand size. Tested in Node with an AI seat flagged as a
+    person on the Kess deck: 20 games gave holds 65% of turns, uses 17%, counters 14%, 73% of blocks chump blocks;
+    19 of 20 later games played differently with the reading. Not used yet: the chump-block rate (recorded and shown).
 - [x] 110. Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan
   pieces, fast mana) and how those games went, and nudges planScore.
   - Done (by land count, the feature with the most signal): the engine notes each kept seven's lands; learn.js keeps

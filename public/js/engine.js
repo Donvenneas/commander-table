@@ -2,7 +2,7 @@
 import { analyzeCard, needsTarget, condText } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
-import { learnedBonus } from './learn.js';
+import { learnedBonus, learnedPerson } from './learn.js';
 import { threatFeatures, threatMult } from './threat.js';
 import { formatOf } from './formats.js';
 import * as K from './kingdomsPlay.js';
@@ -102,6 +102,10 @@ export class Game {
       p.learnAs = s.learnAs || s.commanders;
       // Per-deck memory from earlier games (learn.js): given by the setup for replays, else read now
       p.learned = opts.learned ? opts.learned[i] || null : opts.noLearning ? null : learnedBonus(p.learnAs);
+      // Reading human players (rules 5, item 109): a person's tendencies so far travel in their seat's learned table
+      if (this.rules >= 5 && !opts.learned && !opts.noLearning && s.agent?.human) { const per = learnedPerson(p.name); if (per) p.learned = { ...(p.learned || {}), '#person': per }; }
+      // (and this game's are noted for next time)
+      if (s.agent?.human && !opts.noLearning) p.tells = { turns: 0, held: 0, used: 0, counters: 0, faced: 0, blocks: 0, chumps: 0 };
       p.agent.learned = p.learned;
       // A companion waits outside the game until it's put into hand for {3} (702.139c)
       if (s.companion && this.rules >= 5) { p.companion = this.mk(s.companion, p); p.companion.zone = 'outside'; }
@@ -3418,6 +3422,8 @@ export class Game {
       if (watcher) { item.countered = true; this.log(`${this.cn(watcher)} counters ${this.cn(o)}: no mana was spent to cast it`, { kind: 'removal' }); }
     }
     choice.item = item;
+    // (item 109: held-up mana used on someone else's turn, and whether for a counterspell)
+    if (p.tells && !this.sim && this.active !== p.idx && p.holdTurn != null) { p.tells.used++; p.holdTurn = null; if (o.fx.spell.some(e => e.k === 'counter')) p.tells.counters++; }
     this.stack.push(item);
     p.stats.spells++;
     p.castNames.add(o.card.name);
@@ -4760,7 +4766,10 @@ export class Game {
         if (used.has(b) || !mine.includes(a) || !this.canBlock(b, a)) continue;
         if (this.alive().reduce((s, x) => s + x.battlefield.filter(o => o.blocking != null).length, 0) >= cap) break;
         used.add(b); b.blocking = a.iid; a.blockedBy.push(b);
+        // (item 109: a chump block — the blocker dies and the attacker lives)
+        if (q.tells && !this.sim) { q.tells.blocks++; if (this.toughness(b) - b.damage <= this.power(a) && this.power(b) < this.toughness(a) - a.damage) q.tells.chumps++; }
       }
+      if (q.tells && !this.sim && q.battlefield.some(o => o.fx.type.creature && !o.tapped)) q.tells.faced++;
       for (const a of mine) {
         if (this.has(a, 'menace') && a.blockedBy.length === 1) { a.blockedBy[0].blocking = null; a.blockedBy = []; }
         a.blocked = a.blockedBy.length > 0;
@@ -5249,6 +5258,8 @@ export class Game {
   // The end step and cleanup (also run on its own by the AI's look-ahead, lookahead.js)
   async endSteps(p) {
     this.setPhase('end');
+    // (item 109: a person ending their turn with mana held up and cards in hand)
+    if (p.tells && !this.sim) { p.holdTurn = null; p.tells.turns++; if (p.hand.length && this.availableMana(p) >= 2) { p.tells.held++; p.holdTurn = this.turn; } }
     // Necropotence: pay life for cards (the pilot keeps a safe life total)
     if (p.battlefield.some(o => o.fx.necro)) {
       const n = Math.min(6, p.life - 15, p.library.length - 1);

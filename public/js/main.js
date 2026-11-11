@@ -415,6 +415,12 @@ function newGame(opts = {}) {
   }));
   game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules });
   setup.learned ||= game.players.map(p => p.learned);
+  // (item 109: what the AI remembers about the people at the table)
+  for (const p of game.players) {
+    const per = p.learned?.['#person'];
+    const pct = x => (x == null ? '?' : `${Math.round(x * 100)}%`);
+    if (per) game.log(`The AI remembers how ${esc(p.name)} plays (${per.games} games): holds mana up on ${pct(per.hold)} of turns, uses it ${pct(per.use)} of the time, counters with it ${pct(per.counter)}; ${pct(per.chump)} of blocks are chump blocks`, { kind: 'minor' });
+  }
   if (STRENGTH[setup.strength]) game.log(`AI strength: ${STRENGTH[setup.strength].label}${STRENGTH[setup.strength].lookahead ? ' (looks ahead)' : ''}`, { kind: 'minor' });
   // The coach panel (lessons) shows beside the table while the game runs
   $('coach').innerHTML = setup.coach || '';
@@ -3844,6 +3850,7 @@ const STORAGE_GROUPS = [
   { label: 'Deck library versions', keys: ['ct.libVersions'] },
   { label: 'Deck learning and mastery', keys: ['ct.learn'] },
   { label: 'Learned threat (who is about to win)', keys: ['ct.threat'] },
+  { label: 'How the people you play with play', keys: ['ct.people'] },
   { label: 'Progress (ladder, challenges, badges, rivals, gauntlet, puzzle of the day)', keys: ['ct.ladder', 'ct.challenges', 'ct.badges', 'ct.rivals', 'ct.gauntlet', 'ct.daily'] },
   { label: 'Game history', keys: ['ct.history'] },
   { label: 'Modes in progress (expedition, story, lessons, tournaments)', keys: ['ct.expedition', 'ct.expeditionStats', 'ct.story', 'ct.tutorial', 'ct.cup', 'ct.cupDraft', 'ct.tourney', 'ct.cubes'] },

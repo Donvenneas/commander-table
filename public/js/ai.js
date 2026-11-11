@@ -88,7 +88,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -614,6 +614,9 @@ export class Agent {
     const holds = 1 - (1 - density) ** q.hand.length;
     const open = g.availableMana(q);
     const castable = open >= 2 ? 1 : open === 1 ? 0.65 : cedh ? 0.35 : 0.08;
+    // A person we have read (rules 5, item 109): how often their held-up mana has been a counterspell
+    const per = g.rules >= 5 && !this.noPeople ? q.learned?.['#person'] : null;
+    if (per && per.held >= 6 && per.counter != null) return castable * Math.max(0.02, Math.min(0.9, per.counter * 1.2 + 0.03 * (q.countersCast || 0)));
     return holds * castable;
   }
   // The chance at least one opponent stops our next spell
