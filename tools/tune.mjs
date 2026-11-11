@@ -9,7 +9,7 @@
 // noise, budget, or any field an experiment reads, such as a weight). Seats alternate between A and B game by game
 // and each deck layout and seed is played twice with the sides swapped, so neither keeps the better seat or deck
 // (use an even --games). Seeds are fixed (--seed, then +1 a pair), so
-// a run can be repeated exactly. --control also plays B against B as a check that the setup itself is fair.
+// a run can be repeated exactly. --count <regex> counts the log lines that match (to check a change fires). --control also plays B against B as a check that the setup itself is fair.
 //
 // Card data comes from Scryfall's /cards/collection once and is kept in data/tune-cache.json (data/ is private and
 // never committed). Scryfall is free and needs no account; the tool waits 100 ms between requests as they ask.
@@ -91,10 +91,11 @@ async function run(a, b, label) {
     await g.run();
     w.problems += found.size;
     w.errors += g.logEntries.filter(e => /Simulator error/.test(e.html)).length;
+    if (args.count) w.counted = (w.counted || 0) + g.logEntries.filter(e => new RegExp(String(args.count), 'i').test(e.html)).length;
     if (!g.winner) w.draw++; else w[isA(g.winner.idx) ? 'A' : 'B']++;
   }
   const n = w.A + w.B;
-  console.log(`${label}: A ${w.A} – B ${w.B}${w.draw ? `, ${w.draw} draws` : ''} (A ${n ? Math.round(100 * w.A / n) : 0}%), ${games} games, ${((Date.now() - t0) / games / 1000).toFixed(2)} s a game, ${w.errors} simulator errors, ${w.problems} rule problems`);
+  console.log(`${label}: A ${w.A} – B ${w.B}${w.draw ? `, ${w.draw} draws` : ''} (A ${n ? Math.round(100 * w.A / n) : 0}%), ${games} games, ${((Date.now() - t0) / games / 1000).toFixed(2)} s a game, ${w.errors} simulator errors, ${w.problems} rule problems${args.count ? `, ${w.counted || 0} log lines matching --count` : ''}`);
   return w;
 }
 console.log(`${decks.length} decks (${decks.map(d => d.deckName).join('; ')}), ${seats} seats, format ${format}, seeds ${seed0}–${seed0 + games - 1}`);

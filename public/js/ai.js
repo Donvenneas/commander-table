@@ -87,7 +87,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -710,6 +710,9 @@ export class Agent {
         const silence = p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'silence' && !e.who.startsWith('target'))
           && g.availableMana(p) - (o.card.cmc || 0) >= need && !Object.values(g.silenced).includes(g.turn));
         if (silence) return { s: 999, run: () => { g.log(`${g.pn(p)} casts ${g.cn(silence)} to clear the way for a combo`, { kind: 'minor' }); return g.cast(p, silence); } };
+        // (rules 5, item 106: or make this turn's spells uncounterable, when that leaves the mana for the combo)
+        const veil = g.rules >= 5 && !this.noVeil && p.shieldTurn !== g.turn && p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.availableMana(p) - (o.card.cmc || 0) >= need);
+        if (veil) return { s: 999, run: () => { g.log(`${g.pn(p)} casts ${g.cn(veil)} so the combo can't be countered`, { kind: 'minor' }); return g.cast(p, veil); } };
       }
       // Against open blue mana, cast another real threat first to draw out the counterspell
       if (this.shieldsUp(g, p) && !p.hand.some(o => isCounter(o) && g.canCast(p, o)) && this.baited !== g.turn && comboScore(go.combo, p) >= 500) {
@@ -1212,6 +1215,8 @@ export class Agent {
       case 'ring': return 2;
       case 'playerCounter': return N(e.n) * 0.5;
       case 'uncounterNext': return isSpell ? -100 : 0.3;
+      // (held for the turn it matters: a combo, or an answer to a counterspell; see shieldResponse, item 106)
+      case 'shieldSpells': return g.rules >= 5 && isSpell && !this.noVeil ? -100 : 0;
       case 'bottomSelf': return -0.5;
       case 'returnTrig': return 3;
       case 'transform': return 1;
@@ -1649,8 +1654,22 @@ export class Agent {
       if (r) { g.log(`${g.pn(q)} responds before the loop starts`, { kind: 'minor' }); return { kind: 'cast', card: r.card, targets: r.targets }; }
       return null;
     }
-    return this.counterResponse(g, q, item) || this.protectResponse(g, q, item)
+    return (g.rules >= 5 && !this.noVeil && this.shieldResponse(g, q, item)) || this.counterResponse(g, q, item) || this.protectResponse(g, q, item)
       || this.redirectResponse(g, q, item) || this.pingResponse(g, q, item) || this.wipeSacResponse(g, q, item) || this.punishResponse(g, q, item) || this.copyResponse(g, q, item);
+  }
+
+  // Veil of Summer and friends (rules 5, item 106): held until a counterspell is aimed at a spell of ours that matters,
+  // then cast in response so the counter does nothing
+  shieldResponse(g, q, item) {
+    const mine = item.targets.find(t => t?.spell && t.spell.p === q)?.spell;
+    if (!mine || !item.o.fx.spell.some(e => e.k === 'counter') || q.shieldTurn === g.turn || mine.uncounterable) return null;
+    const s = mine.o;
+    const worth = mine.combo || s.isCommander || (s.card.cmc || 0) >= 4 || this.comboSpell(g, mine) || s.fx.spell.some(e => e.k === 'wipe' || e.k === 'counter' || e.k === 'remove');
+    if (!worth) return null;
+    const card = q.hand.find(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.canCast(q, o));
+    if (!card) return null;
+    g.log(`${g.pn(q)} protects ${g.cn(s)} from the counterspell`, { kind: 'minor' });
+    return { kind: 'cast', card, targets: card.fx.spell.map(() => null) };
   }
 
   // A board wipe is coming: feed creatures that would die anyway to a free sacrifice outlet

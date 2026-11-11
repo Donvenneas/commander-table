@@ -248,6 +248,8 @@ const PATTERNS = [
   [/enchanted creature gains ([\w ,]+?) until end of turn/, m => (kwList(m[1]).length ? { k: 'pumpAttached', p: 0, t: 0, kw: kwList(m[1]) } : null)],
   [/(?:enchanted|equipped) creature gets \+(\d+|x)\/\+(\d+|x)(?: and gains ([\w, ]+))? until end of turn/, m => ({ k: 'pumpAttached', p: num(m[1]), t: num(m[2]), kw: kwList(m[3]) })],
   [/the next (?:[\w ]+ )?spell you cast this turn can't be countered/, () => ({ k: 'uncounterNext' })],
+  // Veil of Summer, Autumn's Veil: for the rest of the turn (item 106)
+  [/spells you control can't be countered(?: by [\w ]+ spells)? this turn/, () => ({ k: 'shieldSpells' })],
   [/target (?:legendary|nonlegendary|attacking|blocking|artifact|tapped|untapped) creature(?: you control)? gains ((?:hexproof|indestructible|shroud)(?:(?:,|,? and) (?:hexproof|indestructible|shroud))*) until end of turn/, m => ({ k: 'protect', scope: 'one', kw: kwList(m[1]) })],
   [/(?:up to one )?target creature(?: you control)? phases out/, () => ({ k: 'protect', scope: 'one', kw: ['hexproof', 'indestructible'] })],
   [/any number of (?:other )?target creatures you control phase out/, () => ({ k: 'protect', scope: 'all', kw: ['hexproof', 'indestructible'] })],
@@ -1284,7 +1286,7 @@ export function analyzeCard(card) {
     // Opposition Agent: you control opponents while they search; their tutors come up empty
     if (/^you control your opponents while they're searching their libraries/.test(line)) { fx.searchHate = true; continue; }
     if (/^(?:this spell|~) can't be countered/.test(line)) { fx.uncounterable = true; continue; }
-    if (/^spells you control can't be countered/.test(line)) { fx.protectsSpells = true; continue; }
+    if (/^spells you control can't be countered/.test(line) && !/this turn/.test(line)) { fx.protectsSpells = true; continue; }
     // Walking Ballista: remove a counter to ping
     if (/^remove a \+1\/\+1 counter from ~: (?:it|~) deals 1 damage to any target/.test(line)) { fx.pingCounters = true; continue; }
     if ((m = line.match(/^creatures can't attack you(?: or planeswalkers you control)? unless their controller pays \{(\d+)\} for each/))) { fx.attackTax = +m[1]; continue; }
@@ -1418,7 +1420,7 @@ export function analyzeCard(card) {
     if ((m = line.match(/^~ has ([\w ,]+?) during your turn\.?$/)) && kwList(m[1]).length) { fx.condBuff = { cond: { c: 'myTurn' }, p: 0, t: 0, kw: kwList(m[1]) }; continue; }
     if ((m = line.match(/^if you tap a permanent for mana, it produces (three times|twice) as much of that mana instead/))) { fx.manaMult = m[1] === 'twice' ? 2 : 3; continue; }
     if (/^you may cast ~ as though it had flash/.test(line)) { fx.kw.add('flash'); continue; }
-    if (/^(?:creature and enchantment |creature, enchantment, and planeswalker )?spells you control can't be countered/.test(line)) { fx.protectsSpells = true; continue; }
+    if (/^(?:creature and enchantment |creature, enchantment, and planeswalker )?spells you control can't be countered/.test(line) && !/this turn/.test(line)) { fx.protectsSpells = true; continue; }
     if (/^permanents entering don't cause abilities of permanents your opponents control to trigger/.test(line)) { fx.noEtbOpp = true; continue; }
     if ((m = line.match(/^if one or more tokens would be created under your control, those tokens plus that many 1\/1 green squirrel creature tokens are created/))) { fx.extraToken = 'squirrel'; fx.extraTokenOn = 'any'; continue; }
     if (/^the "legend rule" doesn't apply to permanents you control/.test(line)) { fx.noLegendRule = true; continue; }
@@ -1594,7 +1596,7 @@ export function analyzeCard(card) {
     if (/^if a creature dying causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time/.test(line)) { fx.deathTwice = true; continue; }
     // Utopia Sprawl, Wild Growth: the enchanted land makes one more
     if ((m = line.match(/^whenever enchanted land is tapped for mana, its controller adds an additional (\{[wubrgc]\}|one mana of any color|mana of the chosen color)/))) { fx.auraMana = m[1].match(/\{([wubrgc])\}/)?.[1]?.toUpperCase() || '*'; continue; }
-    if (/^(?:creature )?spells you control can't be countered|^creature spells you control can't be countered/.test(line)) { fx.protectsSpells = true; continue; }
+    if (/^(?:creature )?spells you control can't be countered|^creature spells you control can't be countered/.test(line) && !/this turn/.test(line)) { fx.protectsSpells = true; continue; }
     if ((m = line.match(/^if an effect would create one or more tokens under your control, it creates (twice that many|that many plus one)/))) { fx.tokenBonus = m[1].startsWith('twice') ? 'double' : 'plus'; continue; }
     if (/^when ~ enters, you may exile an? [\w, ]*card from your hand/.test(line)) { fx.imprint = true; continue; }
     // ---- 1.5.0 statics from the card scan
@@ -2118,7 +2120,7 @@ const FLAG_TEXT = {
 Object.assign(EFFECT_TEXT, {
   doublePT: e => (e.all ? "double your creatures' power and toughness" : "double target creature's power"), pumpTrig: e => `that creature gets +${e.p}/+${e.t}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`,
   copyTrig: () => 'copy that spell', shieldSelf: () => 'you gain protection from everything until your next turn', ring: () => 'the Ring tempts you', playerCounter: e => `you get ${e.n} ${e.kind} counter${e.n === 1 ? '' : 's'}`,
-  pumpAttached: e => `enchanted creature gets +${e.p}/+${e.t}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`, uncounterNext: () => "your next spell this turn can't be countered", bottomSelf: () => 'put it on the bottom of the library',
+  pumpAttached: e => `enchanted creature gets +${e.p}/+${e.t}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`, uncounterNext: () => "your next spell this turn can't be countered", shieldSpells: () => "your spells can't be countered this turn", bottomSelf: () => 'put it on the bottom of the library',
   returnTrig: () => 'return that card to the battlefield', transform: () => 'transform', bounceAll: e => `return all ${e.what} creatures to hand`, roll: e => `roll a d${e.d}${e.table?.length ? ` (${e.table.length} results)` : ''}`,
   flashTurn: () => 'cast spells as though they had flash this turn', gyCastTurn: e => `cast ${e.types.join('/') || ''} spells from your graveyard this turn`.replace('cast  spells', 'cast spells'), stealAll: e => `gain control of that player's ${e.what}s`,
   level: e => `class level ${e.n}`, station: () => 'station',

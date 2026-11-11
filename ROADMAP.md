@@ -546,13 +546,20 @@ on top of the ones above:
   - Done (rules 5): the block search now counts damage aimed at our planeswalkers as loyalty lost (the walker's full
     worth when it would hit 0) instead of life, so blocks protect walkers worth keeping. Golden games identical, fuzz
     games clean; not measured head to head.
-- [ ] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
+- [x] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
   combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.
   - Done, partly: the caster already fought back over its own spells, and Silence-before-combo was already there
     (shieldsUp). New (rules 5): a third player joins a counter war when a counterspell is aimed at a counterspell that
     was stopping something it wants stopped (Agent.wantCountered, shared with ordinary counters). 80 cEDH games: 7
-    such joins (P3 Dispels the Flusterstorm protecting Exquisite Blood), 0 errors; golden games identical. Not done:
-    holding protection like Veil of Summer for the key turn.
+    such joins (P3 Dispels the Flusterstorm protecting Exquisite Blood), 0 errors; golden games identical.
+  - Done (rules 5): "spells you control can't be countered this turn" is now read (Veil of Summer, Autumn's Veil;
+    before, Veil was only "draw a card" and Autumn's Veil a static that did nothing on an instant). The AI holds these
+    (never cast for their small extras) and casts one in response to a counterspell aimed at a spell of its that
+    matters (a combo piece, its commander, 4+ mana, a wipe, removal or counter), or before a combo when someone could
+    counter it and the mana is there for both. Head to head with Veil of Summer and Autumn's Veil in the two green
+    cEDH decks, pilots that hold them against pilots that cast them as soon as they score: 43–37 over 80 games
+    (22 counterspells blanked, 6 combos shielded first; 0 errors, no rule broken). tools/tune.mjs --count counts log
+    lines, to check a change fires.
 - [x] 107. Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs;
   the AI values its own graveyard as a resource and graveyard hate by what it stops.
   - Done (rules 5): Agent.graveyardPlan values a card in its own graveyard (flashback, escape, unearth, embalm,

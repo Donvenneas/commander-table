@@ -1848,7 +1848,7 @@ export class Game {
         break;
       }
       case 'counter': case 'counterAbility':
-        if (tgt?.spell && !tgt.spell.ability && (tgt.spell.o.fx.uncounterable || tgt.spell.uncounterable || this.alive().some(q => q.battlefield.some(o => o.fx.noCounterAll)) || this.players[tgt.spell.o.owner]?.battlefield.some(o => o.fx.protectsSpells && (!o.fx.costReduce?.minMv || (tgt.spell.o.card.cmc || 0) >= o.fx.costReduce.minMv)))) {
+        if (tgt?.spell && !tgt.spell.ability && (tgt.spell.o.fx.uncounterable || tgt.spell.uncounterable || (this.rules >= 5 && tgt.spell.p?.shieldTurn === this.turn) || this.alive().some(q => q.battlefield.some(o => o.fx.noCounterAll)) || this.players[tgt.spell.o.owner]?.battlefield.some(o => o.fx.protectsSpells && (!o.fx.costReduce?.minMv || (tgt.spell.o.card.cmc || 0) >= o.fx.costReduce.minMv)))) {
           this.log(`${this.cn(tgt.spell.o)} can't be countered`, { kind: 'minor' });
           break;
         }
@@ -2888,6 +2888,7 @@ export class Game {
         this.log(`${this.pn(p)} gets ${n} ${e.kind} counter${n === 1 ? '' : 's'} (${p[e.kind]})`, { kind: 'minor' });
         break;
       }
+      case 'shieldSpells': if (this.rules >= 5) { p.shieldTurn = this.turn; this.log(`${this.pn(p)}'s spells can't be countered this turn`, { kind: 'minor' }); } break;
       case 'uncounterNext': p.uncounterTurn = this.turn; this.log(`${this.pn(p)}'s next spell this turn can't be countered`, { kind: 'minor' }); break;
       case 'bottomSelf':
         if (src.zone === 'graveyard' || src.zone === 'battlefield') { this.move(src, 'library', { bottom: true }); this.log(`${S} goes to the bottom of its owner's library`, { kind: 'minor' }); }
