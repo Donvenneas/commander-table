@@ -8,7 +8,7 @@ import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
-import { lookAheadPlay, lookAheadRespond, lookAheadAttacks } from './lookahead.js';
+import { lookAheadPlay, lookAheadRespond, lookAheadAttacks, lookAheadEot } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
 import { threatMult } from './threat.js';
 
@@ -88,7 +88,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -1526,6 +1526,8 @@ export class Agent {
         if (plan && plan.value > bs) { bs = plan.value; best = ability = null; ping = { o, plan }; }
       }
       if (!best && !ability && !ping) return;
+      // (rules 5, item 101: a look-ahead pilot checks casting now against holding)
+      if (best && !ability && !ping && this.lookahead && !this.noLaEot && !g.sim && g.rules >= 5 && !(await lookAheadEot(this, g, q, best))) return;
       g.log(`End of ${g.pn(active)}'s turn: ${g.pn(q)} ${ping ? 'uses ' + g.cn(ping.o) : 'uses mana held up'}`, { kind: 'minor' });
       if (ping) { await g.ping(q, ping.o, ping.plan.targets); continue; }
       if (ability) { await g.activate(q, ability.o, ability.ab, { x: ability.x }); continue; }

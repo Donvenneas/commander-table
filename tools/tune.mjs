@@ -102,4 +102,4 @@ console.log(`${decks.length} decks (${decks.map(d => d.deckName).join('; ')}), $
 console.log(`A = ${JSON.stringify(A)}  B = ${JSON.stringify(B)}`);
 if (args.control) await run(B, B, 'control (B vs B)');
 await run(A, B, 'A vs B');
-{ const { laStats } = await import(js('lookahead.js')); console.log(`look-ahead: ${laStats.decisions} decisions, ${laStats.sims} simulations, ${laStats.changed} changed, ${laStats.dropped} dropped, ${laStats.errors} errors${laStats.lastError ? ` (${laStats.lastError})` : ''}`); }
+{ const { laStats } = await import(js('lookahead.js')); console.log(`look-ahead: ${laStats.decisions} decisions, ${laStats.sims} simulations, ${laStats.changed} changed, ${laStats.dropped} dropped, ${laStats.errors} errors (end of turn: ${laStats.eot} checked, ${laStats.eotHeld} held)${laStats.lastError ? ` (${laStats.lastError})` : ''}`); }

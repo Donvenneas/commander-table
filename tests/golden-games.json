@@ -50,10 +50,10 @@
  "rules 5 · seed 50000": {
   "winner": "P4",
   "round": 8,
-  "steps": 289,
-  "lines": 328,
+  "steps": 293,
+  "lines": 330,
   "errors": 0,
-  "log": "47a13838711fafee"
+  "log": "638cdfdfedda1c32"
  },
  "rules 5 · seed 50001": {
   "winner": "P2",

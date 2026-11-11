@@ -508,7 +508,7 @@ on top of the ones above:
     (235 of 1,007 plays changed).
 
 ### AI
-- [ ] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
+- [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
   copied game and step budget as item 83.
   - Done, partly (counter or not; rules 5): lookahead.js lookAheadRespond. When a look-ahead pilot could counter a
     spell, both answers are played on a copy of the game (the counterspell with everyone's chance to fight back, or
@@ -517,8 +517,7 @@ on top of the ones above:
     pieces are always countered; counter wars and abilities keep the usual answer. It shares the decisions-a-turn
     budget. Head to head with the cEDH decks, look-ahead pilots with it against look-ahead pilots without: 23–17 over
     40 games (about 6 counter-or-not decisions a game, a quarter of them changed; 0 errors, no rule broken). Rules-5
-    golden games re-recorded (2 of 6 changed), rules 4 identical. tools/tune.mjs now prints look-ahead counts. Not
-    done: removal in response and end-of-turn plays.
+    golden games re-recorded (2 of 6 changed), rules 4 identical. tools/tune.mjs now prints look-ahead counts.  - Done (the rest, rules 5): any spell a look-ahead pilot would cast in response (removal, protection) is played    out against letting the spell resolve, the same way; and before spending held-up mana on a card at the end of    someone else's turn, casting it now is played out against holding it, through the next player's whole turn    (lookAheadEot). Head to head, look-ahead pilots with all instant-speed checks against look-ahead pilots without:    21–19 over 40 cEDH games and 20–20 over 40 games in four-player creature pods. The end-of-turn check is rare (32    checks in 40 cEDH games, 6 held; it shares each turn's look-ahead budget). 0 errors, no rule broken; rules 5    golden games re-recorded, rules 4 identical; tests/hidden.mjs still finds nothing.
 - [x] 102. Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation;
   tuned with the matchup grid in Commander pods.
   - Done for attacks (rules 5): lookahead.js lookAheadAttacks. A look-ahead pilot's attack from the combat planner is
