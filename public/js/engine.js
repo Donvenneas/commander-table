@@ -1038,6 +1038,8 @@ export class Game {
     if (r.kind === 'cast') return this.cast(q, r.card, { targets: r.targets, response: item });
     if (r.kind === 'sac') return this.sacTo(q, r.outlet, r.victim, ` in response to ${item.o.card.name}`);
     if (r.kind === 'ping') return this.ping(q, r.source, r.targets);
+    // (an ability that counters a spell, aimed at the spell it answers: item 97)
+    if (r.kind === 'activate') { q.agent.spellHint = r.spell || item; try { return await this.activate(q, r.o, r.ab); } finally { q.agent.spellHint = null; } }
     if (r.kind === 'human') return q.agent.castWithChoices(this, q, r.card, { spellTarget: item, response: item });
     return false;
   }

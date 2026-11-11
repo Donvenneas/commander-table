@@ -88,7 +88,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** the spell a counter ability answers (item 97) @type {any} */ this.spellHint = null; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -449,6 +449,8 @@ export class Agent {
   }
 
   chooseTarget(g, p, e, src) {
+    // (a counter ability used in response: the spell it answers, item 97)
+    if (e.k === 'counter' && this.spellHint) return { spell: this.spellHint };
     // (an ability's X is already paid while its targets are chosen: g.xNow)
     const xGuess = () => this.xOverride ?? g.xNow ?? Math.max(1, g.availableMana(p) - 1);
     const N0 = v => (v === 'X' ? xGuess() : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
@@ -1333,6 +1335,8 @@ export class Agent {
     const avail = g.availableMana(p);
     for (const o of p.battlefield.filter(x => g.abilitiesOf(x).length && x.usedAbility !== g.turn)) {
       for (const ab of g.abilitiesOf(o)) {
+        // (counter abilities are only for answering a spell: counterResponse)
+        if (ab.counterAb) continue;
         const cost = parseCost(ab.cost);
         if (keep && avail - (cost.generic + cost.pips.length) < keep) continue;
         if (!g.canActivate(p, o, ab)) continue;
@@ -1763,6 +1767,18 @@ export class Agent {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
     const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.fits(o, item.o));
+    // (rules 5, item 97: a permanent's counter ability — Glen Elendra Archmage, Siren Stormtamer — when there's no
+    // counterspell in hand; Stormtamer only answers something aimed at us or our creatures)
+    if (!usable.length && g.rules >= 5) {
+      const aimedAtMe = (item.targets || []).some(t => t?.player === q.idx || t?.obj?.controller === q.idx);
+      for (const o of q.battlefield) for (const ab of g.abilitiesOf(o)) {
+        const e = ab.counterAb && ab.effects[0];
+        if (!e || (e.targetsMe && !aimedAtMe) || !this.fitsWhat(e.what, item.o) || !g.canActivate(q, o, ab)) continue;
+        if (item.targets.some(t => t?.spell) || !(this.wantCountered(g, q, item) || (e.targetsMe && aimedAtMe))) continue;
+        g.log(`${g.pn(q)} answers ${g.cn(item.o)} with ${g.cn(o)}`, { kind: 'minor' });
+        return { kind: 'activate', o, ab, spell: item };
+      }
+    }
     if (!usable.length) return null;
     const as = c => ({ kind: 'cast', card: c, targets: c.fx.spell.map(e => (e.k === 'counter' ? { spell: item } : null)) });
     const cheapest = () => usable.sort((a, b) => a.card.cmc - b.card.cmc)[0];
@@ -2083,9 +2099,10 @@ export class Agent {
   }
 
   // ---------- counterspells
-  fits(c, spell) {
+  fits(c, spell) { return this.fitsWhat(c.fx.spell.find(e => e.k === 'counter').what, spell); }
+  // Can a counter for "what" (any, noncreature, instant or sorcery…) answer this spell?
+  fitsWhat(what, spell) {
     const t = spell.fx.type;
-    const what = c.fx.spell.find(e => e.k === 'counter').what;
     if (what === 'any') return true;
     if (what.includes('noncreature')) return !t.creature;
     if (what.includes('creature')) return t.creature;

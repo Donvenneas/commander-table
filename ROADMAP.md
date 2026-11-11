@@ -467,6 +467,13 @@ on top of the ones above:
     Hooded Hydra. Now 88.3% (3,090), none lost. Next candidates: Sundial of the Infinite (end the turn), paradigm,
     disturb, casualty, graveyard returns with non-mana costs (Metalwork Colossus, Jarad), counter abilities on
     permanents (Glen Elendra, Siren Stormtamer).
+  - Counter abilities on permanents (rules 5): a "<cost>: counter target … spell" line is read as an ability used only
+    in response (Glen Elendra Archmage, Siren Stormtamer, which only answers what targets its controller or their
+    creatures; Kozilek's "mana value X" counter stays unread). The AI uses one when it has no counterspell in hand and
+    wants the spell stopped; the engine activates it aimed at that spell. Tested: a set board (Glen Elendra counters
+    Lightning Bolt and persists back) and 30 games of a blue deck with four of each against burn (12 spells
+    countered, 0 errors, no rule broken). Now 88.4% (3,093). The rest of the unread text is a long tail: about 60
+    different activated abilities, mostly one card each.
 - [ ] 98. Coverage for 60-card and Limited play: scan the cards the random constructed and Limited generators pick
   most, and the seven rated 17Lands sets. Target 90% fully read, so item 80's rated drafters can trust more cards.
   - Progress (not ticked: the target isn't met): scan of every booster card in BLB, DSK, FDN, MKM, WOE, DMU and

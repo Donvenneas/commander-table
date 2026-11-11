@@ -1748,10 +1748,14 @@ export function analyzeCard(card) {
       const costs = parseCostText(m[1]);
       if (costs) {
         const effects = parseEffects(m[2]);
-        if (effects.length && !effects.some(e => e.k === 'counter'))
+        // (Glen Elendra Archmage, Siren Stormtamer: an ability that counters a spell is only used in response to one,
+        // item 97; "that targets you or a creature you control" limits what it can counter)
+        const counterAb = effects.length === 1 && effects[0].k === 'counter' && !/mana value x/.test(m[2]);
+        if (counterAb && /that targets you(?: or a creature you control)?/.test(m[2])) effects[0] = { ...effects[0], targetsMe: true };
+        if (effects.length && (counterAb || !effects.some(e => e.k === 'counter')))
           fx.abilities.push({
             cost: costs.mana, tap: costs.tap, effects, text: m[2], sorcery: /activate only as a sorcery/.test(m[2]), costs,
-            sacSelf: costs.sacSelf || costs.exileSelf, life: costs.life, discard: costs.discard?.n || 0,
+            sacSelf: costs.sacSelf || costs.exileSelf, life: costs.life, discard: costs.discard?.n || 0, ...(counterAb ? { counterAb: true } : {}),
           });
         continue;
       }
