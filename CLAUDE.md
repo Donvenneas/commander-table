@@ -7,9 +7,9 @@ history of every feature: `ROADMAP.md` (read its "Rules for every session" and t
 ## Layout
 
 - `public/` — the game. Key modules in `public/js/`:
-  - `engine.js` (`Game`: turns, stack, zones, combat, formats), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
+  - `engine.js` (`Game`: turns, stack, casting, formats) with its sections in `combat.js`, `mana.js`, `resolve.js`, `zones.js`, `triggers.js` (functions taking the game as `g`; Game keeps one-line methods), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
   - `ai.js` (`Agent`, play styles), `combatai.js`, `lookahead.js` (main-phase look-ahead on a copied game), `combos.js` (Commander Spellbook), `learn.js` (per-deck learning)
-  - `main.js` (setup screen and table UI), `ui.js`, `human.js` (human seat prompts), `remote.js` / `net.js` (online seats)
+  - `main.js` (setup screen and table UI), `windows.js` (Help, What's new, Storage, images), `cores.js` (games on every core), `prefs.js`, `ui.js`, `human.js` (human seat prompts), `remote.js` / `net.js` (online seats)
   - `decks.js`, `scryfall.js`, `formats.js`, `limited.js`, `builder.js`, `presets.js` (built-in cEDH decks)
   - `selftest.js` + `selftest.html` — endpoint checks, 50 fast games, a 20-game rules check, 6 look-ahead games (replayed), a determinism check (3 seeds replayed in the opposite order), 10 Kingdoms games
 - `launcher/CommanderTable.cs` — the `.exe` (window, tray icon, local server). Rebuild with `powershell -ExecutionPolicy Bypass -File launcher\build.ps1`.
@@ -37,8 +37,7 @@ Golden games: `node tests/golden.mjs` (CI runs it too) plays 12 AI games under r
 
 Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for more) plays random decks with one seat answering every prompt at random, under the rules watcher.
 
-Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). The baseline is empty now, and engine.js and
-effects.js must also pass `--strictNullChecks`. It fails on any type error not in
+Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). The baseline is empty now, and engine.js, effects.js and the engine's section modules must also pass `--strictNullChecks`. It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.
 
