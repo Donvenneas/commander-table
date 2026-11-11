@@ -43,6 +43,12 @@ export function recordGame(g) {
       c[0]++;
       if (won) c[1]++;
     }
+    // Learned mulligans (item 110): results by the kept hand's land count (seven-card keeps only)
+    if (p.keptHand && p.keptHand.mulls === 0) {
+      const h = (d.hands ||= {})[Math.min(6, p.keptHand.lands)] ||= [0, 0];
+      h[0]++;
+      if (won) h[1]++;
+    }
   }
   // Keep the most recently played decks only
   const keys = Object.keys(all);
@@ -64,6 +70,11 @@ export function learnedBonus(commanders) {
     const b = Math.round(Math.max(-2, Math.min(2, (rate - base) * 6)) * 100) / 100;
     if (b) out[name] = b;
   }
+  // Seven-card keeps by land count, as win-rate points against the deck average (shrunk the same way); kept under a
+  // key no card has, so the table stays one plain object saved with each game
+  const hands = {};
+  for (const [n, h] of Object.entries(d.hands || {})) if (h[0] >= 6) hands[n] = Math.round(((h[1] + base * 4) / (h[0] + 4) - base) * 100) / 100;
+  if (Object.keys(hands).length) out['#hands'] = hands;
   return out;
 }
 

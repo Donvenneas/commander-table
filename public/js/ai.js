@@ -317,6 +317,19 @@ export class Agent {
     return s;
   }
   keepHand(g, p) {
+    const verdict = this.keepHandRules(g, p);
+    // Learned mulligans (rules 5, item 110): this deck's own record with seven-card hands of this many lands. Only
+    // the first seven, and only a clear difference (8 points or more from the deck's average) changes the decision.
+    const hands = g.rules >= 5 && p.mulligans === 0 ? this.learned?.['#hands'] : null;
+    if (hands) {
+      const n = Math.min(6, p.hand.filter(o => o.fx.type.land).length);
+      const d = hands[n];
+      if (typeof d === 'number' && d <= -0.08 && verdict) { this.explain(g, p, `sends back a ${n}-land seven: this deck has won clearly less often with those`); return false; }
+      if (typeof d === 'number' && d >= 0.08 && !verdict && n >= 1) { this.explain(g, p, `keeps a ${n}-land seven: this deck has won clearly more often with those`); return true; }
+    }
+    return verdict;
+  }
+  keepHandRules(g, p) {
     const plan = this.planScore(g, p);
     // cEDH: a hand needs to do something fast (tutors, fast mana, combo pieces, free interaction)
     if (this.style === 'cedh' && p.mulligans < 2) {

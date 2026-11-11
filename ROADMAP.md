@@ -535,8 +535,13 @@ on top of the ones above:
   pick the archenemy instead of fixed weights (frozen into the setup like learn.js data).
 - [ ] 109. Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block)
   kept in learn.js and frozen into each game's setup.
-- [ ] 110. Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan
+- [x] 110. Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan
   pieces, fast mana) and how those games went, and nudges planScore.
+  - Done (by land count, the feature with the most signal): the engine notes each kept seven's lands; learn.js keeps
+    results per land count and adds them to the learned table (under "#hands", so it's saved with each game and
+    replays stay exact). Under rules 5, a seven whose land count has 6+ games and won 8+ points less than average is
+    sent back, and one that won 8+ points more is kept. Tested in Node: an all-losing table mulliganed all 40 sevens,
+    an all-winning one kept all 40, rules 4 unchanged (38 of 40); golden games identical.
 - [x] 111. One "AI strength" choice per seat (Beginner, Casual, Strong, Expert) that sets style noise, look-ahead and
   learning together; shown on the seat; the ladder rates each strength separately.
   - Done: setup screen "AI strength" (by bracket / Beginner / Casual / Strong / Expert), saved in prefs; each seat's

@@ -5047,6 +5047,8 @@ export class Game {
         shuffle(p.library, this.rand);
         this.draw(p, 7, true);
       }
+      // (for learned mulligans, item 110: the kept seven's land count, before any card goes to the bottom)
+      p.keptHand = { lands: p.hand.filter(o => o.fx.type.land).length, mulls: p.mulligans };
       // London mulligan: a card to the bottom per mulligan, the first one free in Commander (103.5c)
       const bottom = Math.max(0, p.mulligans - (this.format.freeMull ? 1 : 0));
       for (const o of await p.agent.bottomCards(this, p, bottom)) { p.hand.splice(p.hand.indexOf(o), 1); o.zone = 'library'; p.library.unshift(o); }

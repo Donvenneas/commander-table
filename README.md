@@ -282,7 +282,7 @@ To swap two seats, drag one seat's ⠿ grip onto another seat.
 - **what the simulator understands**: the share of non-basic cards it reads at least part of, and a list of cards whose abilities it ignores. Ignored cards are still cast, but their real strength isn't reflected in results.
 - after a batch run with the deck seated: its key cards, and cards that may be worth cutting
 - **Compare with recent EDHTop16 lists for this commander**: the cards at least half of the recent top-16 lists play that yours doesn't, and your cards none of them play
-- **what its AI has learned**: after every finished game (batch runs especially), each deck remembers which of its cards it cast and whether it won. After 5 games, cards that show up in its wins get a small bonus when its AI chooses what to cast, and cards seen mostly in losses a small penalty. **Forget what it learned** resets it. Replays keep the values from when the game was played, so they replay exactly.
+- **what its AI has learned**: after every finished game (batch runs especially), each deck remembers which of its cards it cast and whether it won. After 5 games, cards that show up in its wins get a small bonus when its AI chooses what to cast, and cards seen mostly in losses a small penalty. It also remembers how its seven-card hands did by land count: once a land count has 6+ games and clearly won less (or more) than the deck's average, its AI sends those sevens back (or keeps them). **Forget what it learned** resets it. Replays keep the values from when the game was played, so they replay exactly.
 
 ### Deck editor and library
 
