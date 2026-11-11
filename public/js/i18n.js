@@ -185,6 +185,7 @@ const T = {
   'Nudge': ['Avisar', 'Relancer', 'Anstupsen', 'Cutucar'],
 };
 // Longer prompts and labels with numbers or names in them
+/** @type {[RegExp, (m: RegExpMatchArray, lang: string) => string | null][]} */
 const P = [
   [/^Your (first|second) main phase\.$/, (m, l) => ({ es: `Tu ${m[1] === 'first' ? 'primera' : 'segunda'} fase principal.`, fr: `Votre ${m[1] === 'first' ? 'première' : 'seconde'} phase principale.`, de: `Deine ${m[1] === 'first' ? 'erste' : 'zweite'} Hauptphase.`, pt: `Sua ${m[1] === 'first' ? 'primeira' : 'segunda'} fase principal.`, it: `La tua ${m[1] === 'first' ? 'prima' : 'seconda'} fase principale.`, ja: `あなたの${m[1] === 'first' ? '第1' : '第2'}メイン・フェイズ。` })[l]],
   [/^Go to combat( \((\d+) playable\))?$/, (m, l) => ({ es: 'Ir al combate', fr: 'Aller au combat', de: 'Zum Kampf', pt: 'Ir para o combate', it: 'Vai al combattimento', ja: '戦闘へ' })[l] + (m[2] ? ` (${m[2]})` : '')],

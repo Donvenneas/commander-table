@@ -55,6 +55,7 @@ const N = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|
 // A modal trigger or ability's modes, parsed from its bullet lines (see analyzeCard)
 let MODAL_STASH = null;
 // The last "roll a d20" read, so the table lines under it can fill it in
+/** @type {any} */
 let LAST_ROLL = null;
 /** @type {Array<[RegExp, (m: RegExpMatchArray) => any]>} */
 const PATTERNS = [
@@ -115,7 +116,7 @@ const PATTERNS = [
   [/untap target (creature|artifact or creature|permanent) and gain control of it until end of turn/, m => ({ k: 'steal', what: m[1], temp: true })],
   [/takes? an extra turn after this one/, () => ({ k: 'extraTurn' })],
   // Rituals: "Add {B}{B}{B}." (mana abilities of permanents are handled separately)
-  [/\badd ((?:\{[wubrgc]\})+)(?! for each card in)/, m => ({ k: 'addMana', syms: m[1].match(/[wubrgc]/g).map(c => c.toUpperCase()) })],
+  [/\badd ((?:\{[wubrgc]\})+)(?! for each card in)/, m => ({ k: 'addMana', syms: (m[1].match(/[wubrgc]/g) || []).map(c => c.toUpperCase()) })],
   [new RegExp(`(target player|target opponent|each opponent|each player|each other player) discards? ${N} cards?`), m => ({ k: 'discard', who: m[1], n: num(m[2]) })],
   [/create (?:a|one) token that's a copy of (?:up to one )?(?:another )?target (?:nonlegendary )?(creature|artifact|permanent)/, m => ({ k: 'copyToken', what: m[1] })],
   [/create (?:a|one) token that's a copy of (equipped creature|enchanted creature|it|that creature|that artifact|that permanent|~)/, m => ({ k: 'copyToken', what: 'creature', of: m[1] })],
@@ -242,7 +243,7 @@ const PATTERNS = [
   [/you gain protection from everything until your next turn|your life total can't change and you gain protection from everything/, () => ({ k: 'shieldSelf' })],
   [/the ring tempts you/, () => ({ k: 'ring' })],
   [/you get (an?|one|two|three|\d+) (experience|energy|rad) counters?/, m => ({ k: 'playerCounter', kind: m[2], n: num(m[1]) })],
-  [/you get ((?:\{e\})+)/, m => ({ k: 'playerCounter', kind: 'energy', n: m[1].match(/\{e\}/g).length })],
+  [/you get ((?:\{e\})+)/, m => ({ k: 'playerCounter', kind: 'energy', n: (m[1].match(/\{e\}/g) || []).length })],
   [/attach ~ to (?:it|that creature)/, () => ({ k: 'attachSelf', toTrig: true })],
   [/enchanted creature gains ([\w ,]+?) until end of turn/, m => (kwList(m[1]).length ? { k: 'pumpAttached', p: 0, t: 0, kw: kwList(m[1]) } : null)],
   [/(?:enchanted|equipped) creature gets \+(\d+|x)\/\+(\d+|x)(?: and gains ([\w, ]+))? until end of turn/, m => ({ k: 'pumpAttached', p: num(m[1]), t: num(m[2]), kw: kwList(m[3]) })],
@@ -506,6 +507,7 @@ const PATTERNS = [
 // returning a permanent to hand. Returns null when some part of the cost isn't understood.
 const COSTN = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|x|\\d+)';
 export function parseCostText(s) {
+  /** @type {Record<string, any>} (each part of the cost read fills in its field) */
   const c = { mana: '', tap: false, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null };
   let m;
   // (Khalni Heart Expedition: "remove three quest counters from ~ and sacrifice it" is two costs)
@@ -647,6 +649,7 @@ export const condText = c => (COND_TEXT[c.c] || (() => c.c))(c);
 
 // Triggered abilities beyond the classic ones: "whenever you gain life", "whenever equipped creature
 // attacks", "at the beginning of each upkeep"… The engine fires these events and queues the matches.
+/** @type {[RegExp, (m: RegExpMatchArray) => any[]][]} */
 const WATCHERS = [
   [/^whenever ~ blocks or becomes blocked,? (.*)/, () => [{ ev: 'block', self: true }, { ev: 'blocked', self: true }]],
   [/^whenever ~ blocks(?: a creature)?,? (.*)/, () => [{ ev: 'block', self: true }]],
@@ -880,7 +883,9 @@ export function parseEffects(t) {
     return rest;
   }
   const out = [];
-  let plain = [], lastPlain = null, lastIf = null;
+  /** @type {any} (set by flush below: the plain effects just before an "if … instead" sentence) */
+  let lastPlain = null;
+  let plain = [], lastIf = null;
   const flush = () => { if (plain.length) { lastPlain = parseFlat(plain.join(' ')); out.push(...lastPlain); plain = []; } };
   for (let s of t.split(/(?<=\.)\s+/)) {
     s = s.replace(/^(?!choose )[a-z0-9',! ]{3,30} — (?=if |\w)/, '');
@@ -973,6 +978,8 @@ export function analyzeCard(card) {
   type.permanent = !type.instant && !type.sorcery;
   const subtypes = (typeLine.split('—')[1] || '').trim().split(/\s+/).filter(Boolean);
   const t = cleanText(card.text, card.frontName || card.name);
+  // (a card's reading: many fields start empty and are filled in as its lines are read)
+  /** @type {Record<string, any>} */
   const fx = {
     type, subtypes, kw: new Set(), spell: [], etb: [], attack: [], upkeep: [], endstep: [], dies: [],
     abilities: [], pw: [], anthem: null, attachBuff: null, pacify: false, equip: null, mana: null,

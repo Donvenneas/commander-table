@@ -8,7 +8,7 @@ const post = (url, body) => fetch(url, { method: 'POST', body: typeof body === '
 const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
 
 export class Room {
-  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; }
+  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; /** @type {any} */ this.presence = null; }
   // A seat's join code: its own secret key, then the seat number (spectators: 0), like "K7Q2XF9ABM-2".
   // Each seat has its own key, so changing the seat number in a link doesn't open another player's hand.
   joinCode(seat) { return `${this.keys[seat] || ''}-${seat + 1}`; }
@@ -90,6 +90,7 @@ export class RemoteUI {
     // (the bank starts with one turn's worth)
     this.bank = this.clockMode === 'off' ? null : TURN_CLOCKS[this.clockMode].add;
     this.nudges = 0;
+    /** @type {((who: any, i: number) => void) | null} */ this.onRecord = null;
   }
   // A new turn of theirs: top the bank up
   refill() {

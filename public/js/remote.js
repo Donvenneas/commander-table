@@ -12,6 +12,7 @@ const params = new URLSearchParams(location.search);
 // 0 for spectators) can be typed instead
 let code = params.get('code'), seat = +params.get('seat');
 if (!code && params.get('j')) [code, seat] = parseJoin(params.get('j'));
+/** @returns {[string | null, number]} */
 function parseJoin(s) {
   const m = String(s).toUpperCase().replace(/[\s-]/g, '').match(/^([A-Z0-9]{10})(\d)$/);
   return m ? [m[1], +m[2] - 1] : [null, NaN];

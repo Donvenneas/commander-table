@@ -94,6 +94,7 @@ export function combosIn(cards) {
 // ---------- Commander Spellbook (commanderspellbook.com): every known combo in a decklist
 // A combo is added when it uses 2–4 cards from the battlefield, hand or command zone, has no extra
 // template requirements, and produces something the engine can run as one of the results above.
+/** @type {[RegExp, string][]} */
 const FEATURE_RESULT = [
   [/win the game/i, 'win'],
   [/infinite lifeloss|infinite life loss|infinite drain/i, 'drain'],
@@ -108,6 +109,7 @@ const FEATURE_RESULT = [
 const DRAIN_ON_DEATH = ['Blood Artist', 'Zulaport Cutthroat', 'Cruel Celebrant', 'Falkenrath Noble', 'Bastion of Remembrance', 'Vindictive Vampire', 'Elas il-Kor, Sadistic Pilgrim', 'Pitiless Plunderer'];
 const DAMAGE_ON_ETB = ['Impact Tremors', 'Purphoros, God of the Forge', 'Warstorm Surge', 'Pandemonium', 'Terror of the Peaks', 'Witty Roastmaster'];
 const ORACLES = ["Thassa's Oracle", 'Laboratory Maniac', 'Jace, Wielder of Mysteries'];
+/** @type {[RegExp, string[], (card: string) => any][]} */
 const PAYOFFS = [
   [/infinite creature etb|infinite blinking|infinite creature tokens/i, [...DAMAGE_ON_ETB, 'Blood Artist', 'Elas il-Kor, Sadistic Pilgrim'], n => (DAMAGE_ON_ETB.includes(n) ? 'damage' : 'drain')],
   [/infinite creature ltb|infinite (creature )?death|infinite sacrifice/i, DRAIN_ON_DEATH, () => 'drain'],

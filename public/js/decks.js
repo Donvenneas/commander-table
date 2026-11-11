@@ -9,7 +9,7 @@ import { preconText } from './precons.js';
 async function proxied(url, as = 'json') {
   const r = await fetch('/api/fetch?url=' + encodeURIComponent(url));
   if (!r.ok) {
-    const err = new Error(`HTTP ${r.status}`);
+    const err = /** @type {Error & { status?: number }} */ (new Error(`HTTP ${r.status}`));
     err.status = r.status;
     throw err;
   }

@@ -70,7 +70,7 @@ const els = {
 class Clock {
   constructor() {
     this.speed = +$('speed').value; this.paused = false; this.credits = 0; this.aborted = false; this.waiters = [];
-    this.skip = 0; this.untilTurn = false; this.untilEnd = false; this.fast = 0;
+    this.skip = 0; this.untilTurn = false; this.untilEnd = false; this.untilLive = false; this.fast = 0;
   }
   get ff() { return this.skip > 0 || this.untilTurn || this.untilEnd || this.untilLive; }
   async beat(w = 1) {
@@ -108,6 +108,8 @@ const allSeats = SEAT_COLORS.map((color, i) => ({
   style: saved[i]?.style || 'auto',
   bracket: saved[i]?.bracket ?? null,
   deck: null,
+  // (set later: the rival in this seat and the deck it brought, a friend's choice in the lobby)
+  /** @type {string | null} */ rivalKey: null, /** @type {string | null} */ rivalSource: null, /** @type {string | null} */ lobbyChoice: null,
 }));
 // The table's format (formats.js): seats in play are the first `seats` of the four
 let formatKey = FORMATS[(store('ct.prefs') || {}).format] ? (store('ct.prefs') || {}).format : 'commander';
@@ -1070,7 +1072,7 @@ function sideboardScreen(i, deck, choose) {
     if (b) b.qty++; else cur[to].push({ card: a.card, qty: 1 });
     cur[from] = cur[from].filter(x => x.qty > 0);
   };
-  const sortKey = (a, b) => (/\bland\b/i.test(a.card.typeLine) - /\bland\b/i.test(b.card.typeLine)) || (a.card.cmc || 0) - (b.card.cmc || 0) || a.card.name.localeCompare(b.card.name);
+  const sortKey = (a, b) => (Number(/\bland\b/i.test(a.card.typeLine)) - Number(/\bland\b/i.test(b.card.typeLine))) || (a.card.cmc || 0) - (b.card.cmc || 0) || a.card.name.localeCompare(b.card.name);
   const col = (key, title) => `<div class="side-col"><h3>${title} <span class="muted">(${count(cur[key])})</span></h3>
     ${[...cur[key]].sort(sortKey).map(x => `<button class="side-card" data-from="${key}" data-name="${esc(x.card.name)}" title="${esc(x.card.typeLine)}"><span class="side-qty">${x.qty}</span> ${esc(x.card.name)} <span class="muted">${symbolize(esc(x.card.manaCost || ''))}</span></button>`).join('') || '<p class="muted">Empty</p>'}</div>`;
   return new Promise(resolve => {
@@ -1553,6 +1555,7 @@ async function fightGauntlet() {
 
 // Rivals: named AI decks to play against, each with a strength tier and your record against it
 async function rivalList() {
+  /** @type {any[]} */
   const out = CEDH_PRESETS.map(p => ({ name: p.name, source: p.list, format: 'commander', kind: 'cEDH preset', key: deckKey(parseText(p.list).entries.filter(e => e.commander).map(e => ({ name: e.name }))) }));
   try {
     for (const d of await listDecks()) {
@@ -1999,7 +2002,7 @@ function renderTune(wins, per, styles, partial) {
 }
 
 async function plainBatch(n, status) {
-  const stats = seats.map(s => ({ seat: s, wins: 0, place: 0, comboWins: 0, combos: 0, damage: 0, styles: {}, cards: new Map() }));
+  const stats = seats.map(s => ({ seat: s, wins: 0, place: 0, comboWins: 0, combos: 0, damage: 0, interaction: 0, styles: {}, cards: new Map() }));
   const reasons = {}, losses = {};
   // cEDH-style statistics: when games end, how much interaction gets cast, which combos land
   const meta = { winRounds: [], interaction: 0, combos: {} };

@@ -133,7 +133,7 @@ export function recordChallenges(r) {
   const done = [];
   for (const c of [...s.daily, ...s.weekly]) {
     if (c.done) continue;
-    const t = templ(c.id);
+    const t = /** @type {any} */ (templ(c.id));
     if (!t) continue;
     if (t.distinct) {
       const v = t.distinct(r);

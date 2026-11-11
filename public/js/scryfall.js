@@ -163,6 +163,11 @@ export const BUDGET = {
   noRL: { label: 'No Reserved List', cmd: '-is:reserved', cards: '-is:reserved' },
   pauper: { label: 'Commons and uncommons (Pauper Commander style)', cmd: 'r:uncommon', cards: 'r<=uncommon' },
 };
+/**
+ * @param {any} onStatus
+ * @param {number | null} [bracket]
+ * @param {{ combosIn?: Function, budget?: string }} [opts]
+ */
 export async function randomDeck(onStatus, bracket = null, { combosIn, budget = 'any' } = {}) {
   const b = BUDGET[budget] || BUDGET.any;
   onStatus?.('Picking a random commander…');
@@ -210,6 +215,11 @@ export async function randomDeck(onStatus, bracket = null, { combosIn, budget = 
 // A random deck for a Commander variant: Brawl (a legendary creature or planeswalker, 60 cards),
 // Pauper Commander (an uncommon creature and commons, 100 cards) or Oathbreaker (a planeswalker plus
 // an instant or sorcery as its signature spell, 60 cards). The most-played legal cards in its colors.
+/**
+ * @param {any} onStatus
+ * @param {string} key
+ * @param {{ combosIn?: Function }} [opts]
+ */
 export async function randomVariant(onStatus, key, { combosIn } = {}) {
   const f = { brawl: { legal: 'brawl', deck: 60, lands: 24 }, paupercommander: { legal: 'paupercommander', deck: 100, lands: 37 }, oathbreaker: { legal: 'oathbreaker', deck: 60, lands: 20 }, duel: { legal: 'duel', deck: 100, lands: 37 } }[key];
   const label = { brawl: 'Brawl', paupercommander: 'Pauper Commander', oathbreaker: 'Oathbreaker', duel: 'Duel Commander' }[key];
@@ -276,7 +286,7 @@ export async function randomConstructed(onStatus, f, rand = Math.random) {
   const others = (await search(`${base} -t:creature -t:land cmc<=5`)).filter(inColors);
   if (creatures.length < 5 || others.length < 4) throw new Error(`Scryfall didn't find enough ${f.name} cards in those colors. Try again.`);
   // A curve: two 1–2 drops, two 3-drops, one 4–5 drop among the creatures; cheap interaction first among the rest
-  const take = (list, n, used, ok = () => true) => { const out = []; for (const c of list) { if (out.length >= n) break; if (!used.has(c.name) && ok(c)) { out.push(c); used.add(c.name); } } return out; };
+  const take = (list, n, used, ok = (/** @type {any} */ _c) => true) => { const out = []; for (const c of list) { if (out.length >= n) break; if (!used.has(c.name) && ok(c)) { out.push(c); used.add(c.name); } } return out; };
   const used = new Set();
   const spells = [
     ...take(creatures, 2, used, c => c.cmc <= 2), ...take(creatures, 2, used, c => c.cmc === 3), ...take(creatures, 1, used, c => c.cmc >= 4),

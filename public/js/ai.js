@@ -88,6 +88,8 @@ export class Agent {
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
     this.noGyPlan = false;
+    // (true for seats played by a person: HumanAgent)
+    this.human = false;
   }
   // Combo pilots fight like defensive players: they only need to survive until the combo
   get cstyle() { return this.style === 'combo' || this.style === 'cedh' ? 'defensive' : this.style; }
@@ -318,6 +320,7 @@ export class Agent {
     if (cmd && (cmd.card.cmc || 0) <= p.hand.filter(o => o.fx.type.land).length + fast + 1) s += 1.5;
     return s;
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   keepHand(g, p) {
     const verdict = this.keepHandRules(g, p);
     // Learned mulligans (rules 5, item 110): this deck's own record with seven-card hands of this many lands. Only
@@ -360,6 +363,7 @@ export class Agent {
     if (n === 5) return playable.length >= 2;
     return early.length >= 1 || playable.length >= 2;
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   bottomCards(g, p, n) {
     const lands = p.hand.filter(o => o.fx.type.land);
     // Keep combo pieces, tutors and fast mana; bottom the most expensive of the rest
@@ -374,6 +378,7 @@ export class Agent {
     }
     return out;
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   chooseDiscard(g, p, n) {
     const landsOut = p.battlefield.filter(o => o.fx.type.land).length;
     const fromGy = g.rules >= 5 && !this.noGyPlan ? this.graveyardPlan(g, p) : null;
@@ -521,6 +526,7 @@ export class Agent {
     return scored.slice(0, n).flatMap(m => m.es);
   }
   // Rings of Brighthearth: copy an ability when the {2} isn't needed for something better this turn
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   wantsAbilityCopy(g, p, o, ab) {
     if ((ab.effects || []).some(e => ['sacSelf', 'exileSelf'].includes(e.k))) return false;
     const after = g.availableMana(p) - 2;
@@ -1531,6 +1537,7 @@ export class Agent {
   }
 
   // Between iterations of an opponent's combo loop: kill a piece if we can
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   respondToLoop(g, q, p, pieces) {
     const r = this.instantAnswer(g, q, pieces);
     if (r) g.log(`${g.pn(q)} sees the loop and responds`, { kind: 'minor' });
@@ -1538,6 +1545,7 @@ export class Agent {
   }
 
   // After blockers: a pump spell that wins a fight, or saves a creature
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   combatTrick(g, q, active) {
     // A Fog when the unblocked damage coming at us is lethal, or a big share of our life
     if (q !== active && g.fogTurn !== g.turn) {
@@ -1598,6 +1606,7 @@ export class Agent {
     this.explain(g, p, `offers ${to.name} a ${kind} deal for ${rounds} round${rounds === 1 ? '' : 's'}: ${kind === 'gangUp' ? 'the archenemy needs stopping' : kind === 'tribute' ? 'we are lowest on life and they keep hitting us' : 'their counterspells are what could stop our combo'}`);
     return { to, kind, rounds };
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   considerDeal(g, q, from, kind = 'truce', rounds = 2) {
     if (from.idx === g.archenemy || (q.grudge[from.idx] || 0) >= 12) return false;
     // Not if they're the biggest threat to us, or we were about to kill them
@@ -1621,6 +1630,7 @@ export class Agent {
   }
 
   // ---------- priority: responding to a spell on the stack
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   respond(g, q, item) {
     if (item.p === q) return null;
     // A combo loop is about to start: kill one of its pieces now if there's no Stifle
@@ -2015,6 +2025,7 @@ export class Agent {
     return blocks;
   }
 
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   combatResponse(g, q, attackers) {
     const incoming = attackers.reduce((s, a) => s + g.power(a), 0);
     const r = this.instantAnswer(g, q, attackers);

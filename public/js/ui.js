@@ -576,7 +576,7 @@ export class TableView {
     let list = [...p[zone]].reverse();
     if (zone === 'library') {
       const top = p.library[p.library.length - 1];
-      const mayLook = top && (p.battlefield.some(o => o.fx.seeTop) && (this.humanIdx === p.idx || this.revealAll));
+      const mayLook = top && (p.battlefield.some(o => o.fx.seeTop) && (this.humanIdx === p.idx || this.revealHands));
       list = mayLook ? [top] : [];
       grid.innerHTML = `<p class="muted">${p.library.length} card${p.library.length === 1 ? '' : 's'} left, face down.${mayLook ? ' The top card:' : ''}</p>`;
       if (!mayLook) { this.els.zoneModal.hidden = false; return; }

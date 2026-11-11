@@ -155,7 +155,6 @@ async function run() {
       if (g.winner) winners++;
       rounds += g.round;
       combos += g.comboLog.filter(c => c.landed).length;
-      play.lastI = i;
       if (i % 10 === 9) await new Promise(r => setTimeout(r, 0));
     }
     play(errors === 0, `${errors} simulator errors, ${winners}/50 with a winner, ${(rounds / 50).toFixed(1)} rounds on average, ${combos} combos landed, ${((performance.now() - t0) / 1000).toFixed(1)} s`);

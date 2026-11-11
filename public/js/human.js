@@ -14,6 +14,9 @@ const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx
 // The action bar plus "click a card / click a player" picking
 export class HumanUI {
   constructor() {
+    // (the seat answering now in a hotseat game, and the page's hook that records each answer)
+    /** @type {number | null} */ this.seat = null;
+    /** @type {((who: any, i: number) => void) | null} */ this.onRecord = null;
     this.bar = document.getElementById('actionBar');
     this.text = document.getElementById('abText');
     this.buttons = document.getElementById('abButtons');
@@ -730,7 +733,7 @@ export class HumanAgent extends Agent {
   }
 
   // ---------- instant-speed windows: only ask when you actually have something to cast
-  instants(g, p, filter = () => true) {
+  instants(g, p, filter = (/** @type {any} */ _o) => true) {
     return p.hand.filter(o => !o.fx.type.land && instantSpeed(o) && g.canCast(p, o) && filter(o));
   }
   // Smart pass (item 119): "Pass to end of turn", "Pass to my turn", "Pass unless targeted". While one is on, response

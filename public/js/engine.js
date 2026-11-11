@@ -19,6 +19,7 @@ export const RULES = 5;
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
 export function parseCost(str) {
+  /** @type {{ generic: number, pips: string[][], x: number }} */
   const cost = { generic: 0, pips: [], x: 0 };
   for (const [, s] of (str || '').matchAll(/\{([^}]+)\}/g)) {
     const u = s.toUpperCase();
@@ -40,6 +41,13 @@ const basePT = v => { const n = parseInt(v, 10); return Number.isNaN(n) ? (Strin
 export class Game {
   constructor(seats, clock, opts = {}) {
     this.clock = clock;
+    // (set as the game goes: recent trigger signatures for loop detection, tokens to sacrifice at end of turn, the
+    // page's chat log for friends, and whether AI reasons are logged)
+    /** @type {string[] | undefined} */ this.trigSig = undefined;
+    /** @type {any} (the read-only cache while the AI plans combat: withEvalCache) */ this._ev = null;
+    /** @type {any[] | undefined} */ this.endSac = undefined;
+    /** @type {any[] | undefined} */ this.chat = undefined;
+    this.explain = false;
     // The format's rules (formats.js): starting life, commander damage, the free mulligan
     this.formatKey = opts.format || 'commander';
     // Kingdoms (kingdomsPlay.js): secret roles decide who wins
@@ -144,6 +152,7 @@ export class Game {
   async beat(w = 1) { this.steps++; this.emit('update'); await this.clock.beat(w); }
 
   mk(card, p, x = {}) {
+    /** @type {any} (an object in play: its fields are filled in as it moves between zones) */
     const o = {
       iid: this.nextId++, card, fx: card.fx, owner: p.idx, controller: p.idx, zone: null, tapped: false, sick: false,
       damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, attachedTo: null,
@@ -186,7 +195,9 @@ export class Game {
   // removing effects). Only for planning code that doesn't change the board, and doesn't wait (no await) inside.
   withEvalCache(f) {
     if (this._ev) return f();
-    this._ev = { att: null, memo: new Map(), p: new Map(), t: new Map(), kw: new Map() };
+    /** @type {any} */
+    const ev = { att: null, memo: new Map(), p: new Map(), t: new Map(), kw: new Map() };
+    this._ev = ev;
     try { return f(); } finally { this._ev = null; }
   }
   evalMemo(key, f) { const ev = this._ev; if (!ev) return f(); if (!ev.memo.has(key)) ev.memo.set(key, f()); return ev.memo.get(key); }
@@ -527,6 +538,9 @@ export class Game {
   availableMana(p) { return this.infinite(p) ? 99 : this.units(p).length; }
   // avoid: colors needed by spells still to be cast this turn, kept back when paying generic costs
   // help: extra one-shot payers for this spell (convoke creatures, delve graveyard cards)
+  /**
+   * @param {any} p @param {any} cost @param {number} [extra] @param {any} [exclude] @param {Set<string> | null} [avoid] @param {any[]} [help]
+   */
   planPayment(p, cost, extra = 0, exclude = null, avoid = null, help = []) {
     if (this.infinite(p)) return { free: true };
     const units = this.units(p, exclude).concat(help);
@@ -1146,6 +1160,7 @@ export class Game {
     return true;
   }
   // A creature died (700.4): its own "when ~ dies" and every "whenever a creature dies" watcher trigger
+  /** @param {any} o @param {any} [snap] */
   noteDeath(o, snap = {}) {
     this.trigger(o, 'dies');
     const p = this.players[o.owner];
@@ -1175,6 +1190,7 @@ export class Game {
     this.fire('sac', { o, p: p.idx });
   }
   // Discarding (701.8): "whenever you discard" watchers and madness-style payoffs see it
+  /** @param {any} p @param {any[]} cards @param {string | null} [why] */
   discard(p, cards, why = '') {
     for (const c of cards) {
       // Madness (702.35): a discarded madness card is exiled instead, and its owner may cast it for the madness cost
@@ -1708,6 +1724,7 @@ export class Game {
     if (this.kingdoms) { K.onEliminated(this, q); return; }
     if (this.alive().length <= 1) this.finish(this.alive()[0], this.winNote || 'last player standing');
   }
+  /** @param {any} winner @param {string} why @param {any[] | null} [team] */
   finish(winner, why, team = null) {
     if (this.over) return;
     this.over = true;
@@ -2196,7 +2213,7 @@ export class Game {
     return [...cards].sort((a, b) => p.agent.value(this, b) + (b.card.cmc || 0) * 0.3 - p.agent.value(this, a) - (a.card.cmc || 0) * 0.3).slice(0, n);
   }
   // A creature p would like to grow, pump or protect (their best one)
-  bestOwnCreature(p, filter = () => true) { return p.agent.bestOwn(this, p, o => o.fx.type.creature && filter(o)); }
+  bestOwnCreature(p, filter = (/** @type {any} */ _o) => true) { return p.agent.bestOwn(this, p, o => o.fx.type.creature && filter(o)); }
 
   // The newer effects: library manipulation, keyword actions, conditions, graveyard work
   async doEffectMore(p, src, e, ctx, tgt, X) {
@@ -4632,6 +4649,7 @@ export class Game {
         if (cu.life) { if (p.life - cu.life * o.age > 15 && p.agent.value(this, o) >= o.age * 1.5) { p.life -= cu.life * o.age; this.emit('life', { p: p.idx, d: -cu.life * o.age }); paid = true; } }
         else {
           const one = parseCost(cu.cost);
+          /** @type {{ generic: number, pips: string[][], x: number }} */
           let total = { generic: 0, pips: [], x: 0 };
           for (let k = 0; k < o.age; k++) total = this.addCost(total, one);
           const plan = p.agent.value(this, o) >= o.age * 1.5 && this.planPayment(p, total, 0);

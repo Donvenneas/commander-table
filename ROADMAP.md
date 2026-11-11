@@ -892,7 +892,13 @@ on top of the ones above:
     random; 12 fixed seeds in CI, more with --games/--seed). HumanAgent no longer needs a page (two DOM uses guarded).
     Found and fixed: equipment stayed on a Vehicle after it stopped being a creature; now 704.5n unattaches it
     (rules 5), and the watcher checks that after state-based actions. 132 more games: 0 errors, 0 broken rules.
-- [ ] 175. Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.
+- [x] 175. Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.
+  - Done: 105 → 0 findings. types/dom.d.ts tells the checker the pages' DOM lookups are HTML elements (42 findings);
+    fields set after construction are declared (Game, Clock, Room, HumanUI, RemoteUI, Agent, seats); HumanAgent's async
+    overrides have an any return on the Agent side; the rest got JSDoc types. engine.js and effects.js now also pass
+    --strictNullChecks (172 findings fixed, mostly by typing the card reading and object records), checked by a second
+    pass in tests/typecheck.mjs. Found on the way: a typo (revealAll for revealHands) kept the top of a library hidden
+    for "look at the top card" permanents when Reveal hands was on. Golden games, card readings and fuzz unchanged.
 - [ ] 176. Split main.js and engine.js into smaller modules (setup screen, windows, results; combat, stack, zones, mana)
   with no change in behaviour, checked by the golden replays (item 173).
 - [ ] 177. CI on more systems: build the .exe and test it and server.ps1 on a Windows runner; run server.py's --check
