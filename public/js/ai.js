@@ -7,7 +7,7 @@ import { parseCost } from './engine.js';
 import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
-import { knownType, isKing } from './kingdomsPlay.js';
+import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
 import { lookAheadPlay, lookAheadRespond, lookAheadAttacks } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
 import { threatMult } from './threat.js';
@@ -577,7 +577,7 @@ export class Agent {
     // nor end the game for the wrong side (a Bandit or Renegade killing the King while Assassins remain)
     // (rules 5, item 115: only a true ally holds a combo back. Before, Bandits and Renegades, who'd rather keep the King
     // alive, never fired one, so with combo decks almost only Assassins could win by combo.)
-    if (g.kingdoms && !this.human && ['damage', 'drain', 'attack', 'mill'].includes(combo.result) && g.opponents(p).some(q => kingdomsWeight(g, p, q) < (g.rules >= 5 ? 0.12 : 0.5))) return null;
+    if (g.kingdoms && !this.human && ['damage', 'drain', 'attack', 'mill'].includes(combo.result) && g.opponents(p).some(q => kingdomsWeight(g, p, q) < (g.rules >= 5 ? 0.12 : 0.5) && !comboSpares(g, p, q))) return null;
     return st;
   }
   readyCombos(g, p, phase) {

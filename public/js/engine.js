@@ -1234,7 +1234,8 @@ export class Game {
   }
 
   async comboResult(p, combo, st) {
-    const opps = this.opponents(p);
+    // (Kingdoms, rules 5: damage, drain and attack combos spare known allies, item 115)
+    const opps = this.opponents(p).filter(q => !(['damage', 'drain', 'attack'].includes(combo.result) && K.comboSpares(this, p, q)));
     const onBf = st.found.filter(f => f.o.zone === 'battlefield').map(f => f.o);
     const src = [...onBf].reverse().find(o => o.fx.type.creature) || onBf[0] || st.found[0].o;
     this.winNote = `${combo.label} (${RESULT_TEXT[combo.result]})`;

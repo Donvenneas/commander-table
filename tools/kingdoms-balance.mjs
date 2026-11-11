@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Kingdoms balance (item 115): AI games at 5 to 9 seats with the built-in cEDH decks, counting which role type wins.
-//   node tools/kingdoms-balance.mjs [--games 60] [--seed 920000] [--rules 4]   (rules 4: the AI before item 115)
+//   node tools/kingdoms-balance.mjs [--games 60] [--seed 920000] [--rules 4] [--why]   (rules 4: the AI before item 115)
 import { readFileSync } from 'node:fs';
 import { Game } from '../public/js/engine.js';
 import { Agent } from '../public/js/ai.js';
@@ -26,6 +26,8 @@ for (let i = 0; i < GAMES; i++) {
   await g.run();
   errs += g.logEntries.filter(e => /Simulator error/.test(e.html)).length;
   rounds += g.round;
+  // (with --why: how the King fell in each Assassin win)
+  if (argv.includes('--why') && g.winners?.[0]?.role.type === 'assassin') { const k = g.players.find(p => p.role.type === 'king' || p.role.id === 'king'); const L = g.logEntries.map(e => e.html.replace(/<[^>]+>/g, '')); const at = L.findIndex(l => k && l.startsWith(k.name + ' is eliminated')); console.log('  King fell:', L.slice(Math.max(0, at - 2), at + 1).map(x => x.slice(0, 90)).join(' / ')); }
   if (g.winners?.length) { ended++; const t = g.winners[0].role.type; wins[t] = (wins[t] || 0) + 1; (bySize[n] ||= {})[t] = (bySize[n][t] || 0) + 1; }
 }
 console.log(`${GAMES} games: ${ended} ended on a role win, ${errs} errors, ${(rounds / GAMES).toFixed(1)} rounds on average`);

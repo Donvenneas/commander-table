@@ -640,6 +640,14 @@ on top of the ones above:
     theirs; now only a true ally holds it back (under 0.12). The guard reacts after 4 damage to the King instead of 10,
     the King hits back at whoever hurt him, and Assassins weigh the known King 0.8 instead of 1.8. On 100 fresh seeds:
     Assassins 75% → 67%, the King's side 21% → 25%, Renegades 4% → 8%. Not yet in the 30–60% band.
+  - Pass 2: damage, drain and attack combos now spare the players their maker knows to be allies (kingdomsPlay.js
+    comboSpares, rules 5): such combos pick their targets, and before this Knights never fired theirs because they would
+    have killed the King. tools/kingdoms-balance.mjs --why prints how the King fell in each Assassin win: mostly combat
+    damage with no blocks, some table-wide combos. Tried and dropped, since none held up on a second set of 100 seeds
+    (100-game runs swing by ±6 points): a more defensive King (more kept home, life counted double: worse, 21%), 20
+    or 30 extra life for the King (30% then 22% for his side on two seed sets), Assassins weighing the King 0.6. Now
+    about Assassins 64–67%, the King's side 25–27%. Not in the band; the next step is probably role counts or how
+    many seats run fast combo decks, not AI weights.
 - [x] 116. Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0)
   and ship the small JSON files; improve the plain heuristic (removal, curve, two-color commitment) for unrated sets.
 

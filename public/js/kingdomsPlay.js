@@ -39,6 +39,15 @@ export function knownType(g, me, q) {
   if (me?.role?.type === 'bandit' && q.role.type === 'bandit') return 'bandit';
   return null;
 }
+// (rules 5, item 115) A damage, drain or attack combo picks its targets (Walking Ballista, Sanguine Bond, hasty copies),
+// so it spares the players its maker knows to be allies: face-up teammates, the King for a Knight, a face-up Knight
+// for the King, a known Bandit for a Bandit
+export function comboSpares(g, p, q) {
+  if (!g.kingdoms || g.rules < 5 || !p.role || !q.role || p === q) return false;
+  const qt = knownType(g, p, q), mt = p.role.type;
+  if (!qt) return false;
+  return qt === mt && mt !== 'renegade' || (mt === 'knight' && qt === 'king') || (mt === 'king' && qt === 'knight');
+}
 export function sees(g, viewerIdx, q) {
   if (viewerIdx == null || viewerIdx < 0) return !!(q.role?.up || q.lost);
   return knownType(g, g.players[viewerIdx], q) != null;
