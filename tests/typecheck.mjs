@@ -39,4 +39,17 @@ for (const m of errors) {
 const fixed = [...known.values()].reduce((a, b) => a + b, 0);
 console.log(`Type check: ${errors.length} findings, ${errors.length - fresh.length} known, ${fresh.length} new${fixed ? `, ${fixed} known ones gone (run with --update to shrink the baseline)` : ''}.`);
 for (const l of fresh) console.log(`::error::${l}`);
-process.exit(fresh.length ? 1 : 0);
+
+// Strict null checks for the rules engine and the card reader (item 175): these two files must have no finding at all
+// with --strictNullChecks (the other files are checked without it).
+const STRICT = ['public/js/engine.js', 'public/js/effects.js', 'public/js/combat.js', 'public/js/mana.js', 'public/js/resolve.js', 'public/js/zones.js', 'public/js/triggers.js'];
+let strictOut = '';
+try {
+  strictOut = execSync('npx -y -p typescript@5.6.3 tsc -p jsconfig.json --pretty false --strictNullChecks', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], shell: true });
+} catch (e) {
+  strictOut = (e.stdout || '') + (e.stderr || '');
+}
+const strict = strictOut.split(/\r?\n/).filter(l => /error TS\d+/.test(l) && STRICT.some(f => l.replace(/\\/g, '/').startsWith(f)));
+console.log(`Strict null checks (${STRICT.map(f => f.split('/').pop()).join(', ')}): ${strict.length} finding${strict.length === 1 ? '' : 's'}.`);
+for (const l of strict) console.log(`::error::${l}`);
+process.exit(fresh.length || strict.length ? 1 : 0);

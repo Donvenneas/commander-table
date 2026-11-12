@@ -55,6 +55,7 @@ export function normalize(raw) {
     power: front.power ?? raw.power,
     toughness: front.toughness ?? raw.toughness,
     loyalty: front.loyalty ?? raw.loyalty,
+    defense: front.defense ?? raw.defense,
     colors: front.colors ?? raw.colors ?? [],
     colorIdentity: raw.color_identity || [],
     keywords: raw.keywords || [],
@@ -74,9 +75,22 @@ export function normalize(raw) {
   // The back face of a transforming card, for "transform ~"
   if (faces.length > 1 && /transform|flip|meld/.test(raw.layout || '') && faces[1].oracle_text !== undefined) {
     const b = faces[1];
+    /** @type {any} */
     const back = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: '', text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, imgNormal: card.backNormal || card.imgNormal, canBeCommander: false };
     back.fx = analyzeCard(back);
     Object.defineProperty(card, 'backCard', { value: back, enumerable: false });
+  }
+  // The other half of an adventure card or a modal double-faced card (castable or playable instead of the front)
+  card.layout = raw.layout || 'normal';
+  if (faces.length > 1 && /^(adventure|modal_dfc|split)$/.test(raw.layout || '') && faces[1].oracle_text !== undefined) {
+    const b = faces[1];
+    const cost = b.mana_cost || '';
+    const mv = [...cost.matchAll(/\{([^}]+)\}/g)].reduce((s, [, x]) => s + (/^\d+$/.test(x) ? +x : x === 'X' ? 0 : 1), 0);
+    const dfc = raw.layout === 'modal_dfc';
+    /** @type {any} */
+    const alt = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: cost, cmc: mv, text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, keywords: [], produced: dfc ? card.produced : [], imgNormal: dfc ? card.backNormal || card.imgNormal : card.imgNormal, imgSmall: dfc ? card.backNormal || card.imgSmall : card.imgSmall, canBeCommander: false, isAltFace: raw.layout };
+    alt.fx = analyzeCard(alt);
+    Object.defineProperty(card, 'altFace', { value: alt, enumerable: false });
   }
   byId.set(raw.id, card);
   return card;
@@ -149,6 +163,11 @@ export const BUDGET = {
   noRL: { label: 'No Reserved List', cmd: '-is:reserved', cards: '-is:reserved' },
   pauper: { label: 'Commons and uncommons (Pauper Commander style)', cmd: 'r:uncommon', cards: 'r<=uncommon' },
 };
+/**
+ * @param {any} onStatus
+ * @param {number | null} [bracket]
+ * @param {{ combosIn?: Function, budget?: string }} [opts]
+ */
 export async function randomDeck(onStatus, bracket = null, { combosIn, budget = 'any' } = {}) {
   const b = BUDGET[budget] || BUDGET.any;
   onStatus?.('Picking a random commander…');
@@ -196,15 +215,21 @@ export async function randomDeck(onStatus, bracket = null, { combosIn, budget = 
 // A random deck for a Commander variant: Brawl (a legendary creature or planeswalker, 60 cards),
 // Pauper Commander (an uncommon creature and commons, 100 cards) or Oathbreaker (a planeswalker plus
 // an instant or sorcery as its signature spell, 60 cards). The most-played legal cards in its colors.
+/**
+ * @param {any} onStatus
+ * @param {string} key
+ * @param {{ combosIn?: Function }} [opts]
+ */
 export async function randomVariant(onStatus, key, { combosIn } = {}) {
-  const f = { brawl: { legal: 'brawl', deck: 60, lands: 24 }, paupercommander: { legal: 'paupercommander', deck: 100, lands: 37 }, oathbreaker: { legal: 'oathbreaker', deck: 60, lands: 20 } }[key];
-  const label = { brawl: 'Brawl', paupercommander: 'Pauper Commander', oathbreaker: 'Oathbreaker' }[key];
+  const f = { brawl: { legal: 'brawl', deck: 60, lands: 24 }, paupercommander: { legal: 'paupercommander', deck: 100, lands: 37 }, oathbreaker: { legal: 'oathbreaker', deck: 60, lands: 20 }, duel: { legal: 'duel', deck: 100, lands: 37 } }[key];
+  const label = { brawl: 'Brawl', paupercommander: 'Pauper Commander', oathbreaker: 'Oathbreaker', duel: 'Duel Commander' }[key];
   onStatus?.(`Picking a random ${key === 'oathbreaker' ? 'oathbreaker' : 'commander'}…`);
   const cmdQuery = {
     brawl: 'legal:brawl game:paper -is:digital t:legendary (t:creature or t:planeswalker)',
     // (Scryfall lists uncommon commanders as not legal in Pauper Commander, so no legality term here)
     paupercommander: 't:creature r:uncommon game:paper -is:digital -t:token',
     oathbreaker: 'legal:oathbreaker game:paper -is:digital t:planeswalker',
+    duel: 'legal:duel game:paper -is:digital t:legendary t:creature',
   }[key];
   const cmd = await sf('/cards/random?q=' + encodeURIComponent(cmdQuery));
   const ci = cmd.color_identity.join('').toLowerCase() || 'c';
@@ -261,7 +286,7 @@ export async function randomConstructed(onStatus, f, rand = Math.random) {
   const others = (await search(`${base} -t:creature -t:land cmc<=5`)).filter(inColors);
   if (creatures.length < 5 || others.length < 4) throw new Error(`Scryfall didn't find enough ${f.name} cards in those colors. Try again.`);
   // A curve: two 1–2 drops, two 3-drops, one 4–5 drop among the creatures; cheap interaction first among the rest
-  const take = (list, n, used, ok = () => true) => { const out = []; for (const c of list) { if (out.length >= n) break; if (!used.has(c.name) && ok(c)) { out.push(c); used.add(c.name); } } return out; };
+  const take = (list, n, used, ok = (/** @type {any} */ _c) => true) => { const out = []; for (const c of list) { if (out.length >= n) break; if (!used.has(c.name) && ok(c)) { out.push(c); used.add(c.name); } } return out; };
   const used = new Set();
   const spells = [
     ...take(creatures, 2, used, c => c.cmc <= 2), ...take(creatures, 2, used, c => c.cmc === 3), ...take(creatures, 1, used, c => c.cmc >= 4),

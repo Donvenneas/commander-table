@@ -24,6 +24,9 @@ export const LOOKAHEAD = {
   oppTurns: false, // play the opponents' whole next turns, not just their combats  // ignore alternatives that only change the order of the same plays
 };
 
+// A short pause for the page (a message to ourselves runs sooner than setTimeout's 4 ms floor); not in Node or workers
+const YIELD = typeof window !== 'undefined' && typeof MessageChannel === 'function';
+const yieldToPage = () => new Promise(res => { const ch = new MessageChannel(); ch.port1.onmessage = () => res(undefined); ch.port2.postMessage(0); });
 class OverBudget extends Error { constructor() { super('look-ahead budget'); this.name = 'OverBudget'; } }
 
 // ---------- copying a game
@@ -59,9 +62,13 @@ export function cloneGame(g, seed, budget = LOOKAHEAD.steps) {
   Object.assign(ng, {
     format: g.format, puzzle: g.puzzle, handlers: {}, logEntries: [], comboLog: [], explain: false, sim: true,
     rand: makeRng(seed), steps: 0,
-    clock: { beat: async () => { if (ng.steps > budget) throw new OverBudget(); } },
+    // (in a page, every 25 simulated steps hand the browser a moment so the table stays smooth while the AI thinks,
+    // item 169; the steps and the result are the same either way)
+    clock: { beat: async () => { if (ng.steps > budget) throw new OverBudget(); if (YIELD && ng.steps % 25 === 0) await yieldToPage(); } },
   });
   ng.log = () => {};
+  // (Two-Headed Giant: the copied teammates share their life again)
+  if (g.teams) ng.linkTeams();
   return ng;
 }
 
@@ -117,8 +124,16 @@ const keysOf = opts => {
   return opts.map(o => { const w = o.why || '?'; const k = seen.get(w) || 0; seen.set(w, k + 1); return `${w}#${k}`; });
 };
 
+// The look-ahead budget for a decision. Item 103 tried more in duels and late game (600 steps, 5–6 decisions a turn)
+// and less at cEDH tables (300, 2): 80-game duels came out identical (39–41 for every variant against 400/3) and 16
+// cEDH-preset games differed in one game, 4% faster. Since budget size made no measurable difference, every table
+// keeps the tuned defaults; agent.budget overrides them for tuning runs (tools/tune.mjs).
+export function budgetFor(agent, g) {
+  if (agent.budget) return agent.budget;
+  return { steps: LOOKAHEAD.steps, perTurn: LOOKAHEAD.perTurn };
+}
 async function simulate(agent, g, p, phase, key, seed, oppIdx) {
-  const ng = cloneGame(g, seed);
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps);
   determinize(ng, p.idx, ng.rand);
   const cp = ng.players[p.idx];
   const ca = cp.agent;
@@ -153,14 +168,14 @@ async function simulate(agent, g, p, phase, key, seed, oppIdx) {
 const PASS = { k: 'pass', o: { why: 'holds the rest of the hand for later', s: 0, run: async () => false } };
 
 // Debug counters (selftest and tuning read these)
-export const laStats = { decisions: 0, sims: 0, changed: 0, dropped: 0, errors: 0, steps: 0, lastError: '' };
+export const laStats = { decisions: 0, sims: 0, changed: 0, dropped: 0, errors: 0, steps: 0, lastError: '', eot: 0, eotHeld: 0 };
 
 // The pilot's pick for this main-phase decision, checked by look-ahead
 export async function lookAheadPlay(agent, g, p, phase) {
   const best = agent.bestPlay(g, p, phase);
   if (!best || !best.opts || g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05) return best;
   if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
-  if (agent.laCount >= LOOKAHEAD.perTurn) return best;
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return best;
   const ks = keysOf(best.opts);
   const order = best.opts.map((o, i) => ({ o, k: ks[i] })).filter(x => x.o !== best).sort((a, b) => b.o.s - a.o.s);
   const cands = [{ o: best, k: ks[best.opts.indexOf(best)] }, ...order].filter(x => x.o.why).slice(0, LOOKAHEAD.cands);
@@ -204,4 +219,215 @@ export async function lookAheadPlay(agent, g, p, phase) {
       return run();
     },
   };
+}
+
+// ---------- instant speed: counter or let it resolve (item 101)
+// When a pilot with look-ahead could counter a spell, both answers are tried on a copy of the game: the counterspell
+// (with everyone's chance to fight back) or the spell resolving, then the rest of the active player's turn and each
+// opponent's next combat. The usual answer stays unless the other one scores better by the same margin as main-phase
+// look-ahead. A combo piece is always countered; counter wars and abilities keep the usual answer.
+// (the spell resolving is played on the copy by casting it again without paying, from its caster's hand)
+async function simulateRespond(agent, g, q, item, counter, seed, oppIdx) {
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps);
+  determinize(ng, q.idx, ng.rand);
+  const at = g.stack.indexOf(item);
+  const ci = ng.stack[at];
+  const cq = ng.players[q.idx];
+  if (!ci || !cq) return null;
+  const caster = ci.p;
+  if (counter) {
+    const card = cq.hand.find(o => o.iid === counter.card.iid);
+    if (!card) return null;
+    // (the response's targets on the copy: the spell, a permanent by id, or a player)
+    const tgt = t => (!t ? null : t.spell ? { spell: t.spell === item ? ci : ng.stack[g.stack.indexOf(t.spell)] } : t.obj ? { obj: ng.objects.get(t.obj.iid) } : { ...t });
+    const targets = (counter.targets || []).map(tgt);
+    if (targets.some((t, k) => counter.targets[k] && (!t || (t.spell === undefined && t.obj === undefined && t.player == null)))) return null;
+    await ng.doResponse(cq, { kind: 'cast', card, targets }, ci);
+  }
+  ng.stack.splice(ng.stack.indexOf(ci), 1);
+  if (ci.countered) ng.move(ci.o, 'graveyard');
+  else if (!ng.over) {
+    // (the copy's pilot for q lets it through this time)
+    ng.laHold = { q: q.idx, iid: ci.o.iid };
+    ci.o.zone = 'hand';
+    caster.hand.push(ci.o);
+    await ng.cast(caster, ci.o, { mode: { alt: 'free' }, targets: ci.targets, x: ci.x, response: ci.response });
+    ng.laHold = null;
+  }
+  // The rest of the active player's turn, then each opponent's next combat (as for main-phase look-ahead)
+  const ap = ng.players[ng.active];
+  const phase = ng.phase;
+  if (!ng.over && !cq.lost && ap && !ap.lost && !ng.stack.length) {
+    if ((phase === 'main1' || phase === 'main2') && ap.agent) await ap.agent.mainPhase(ng, ap, phase);
+    if (!ng.over && !ap.lost) {
+      if (phase === 'main1') await ng.restOfTurn(ap);
+      else if (phase === 'main2') await ng.endSteps(ap);
+    }
+  }
+  for (const r of ng.order(ng.active)) {
+    if (ng.over || cq.lost) break;
+    if (r.idx === ng.active || r.lost || r === cq) continue;
+    ng.turn++;
+    ng.active = r.idx;
+    for (const o of r.battlefield) { o.tapped = false; o.sick = false; }
+    await ng.combat(r);
+  }
+  return { score: positionScore(cq.agent, ng, cq, oppIdx), steps: ng.steps };
+}
+
+export async function lookAheadRespond(agent, g, q, item, isCounter) {
+  const usual = agent.respond(g, q, item);
+  if (g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05 || item.ability || item.loopStart || item.countered) return usual;
+  // (any spell cast in response — removal, protection — is checked against letting the spell resolve; a counterspell
+  // also when the usual answer is to let it through)
+  if (usual && usual.kind !== 'cast') return usual;
+  const other = !!usual && !isCounter(usual.card);
+  if (!usual && (item.p === q || item.targets.some(t => t?.spell))) return null;
+  if (!other && (item.o.fx.uncounterable || item.uncounterable || agent.comboSpell(g, item))) return usual;
+  const usable = other ? [] : q.hand.filter(o => isCounter(o) && g.canCast(q, o) && agent.fits(o, item.o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
+  if (!other && !usable.length) return usual;
+  if (other && (item.loopStart || item.combo)) return usual;
+  if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return usual;
+  agent.laCount++;
+  laStats.decisions++;
+  const counter = usual || { kind: 'cast', card: usable[0], targets: usable[0].fx.spell.map(e => (e.k === 'counter' ? { spell: item } : null)) };
+  const seed = (Math.imul(g.seed ^ 0x7f4a7c15, 31) + g.steps * 977 + g.turn * 131 + q.idx) >>> 0;
+  const oppIdx = g.opponents(q).map(r => r.idx);
+  const res = [];
+  for (const c of [usual, usual ? null : counter]) {
+    try {
+      laStats.sims++;
+      const r = await simulateRespond(agent, g, q, item, c, seed, oppIdx);
+      if (!r) { laStats.dropped++; return usual; }
+      laStats.steps += r.steps;
+      res.push(r.score);
+    } catch (e) {
+      if (e.name === 'OverBudget') laStats.dropped++;
+      else { laStats.errors++; laStats.lastError = `${e.message} ${(e.stack || '').split('\n')[1] || ''}`; }
+      return usual;
+    }
+  }
+  if (res[1] < res[0] + LOOKAHEAD.margin) return usual;
+  laStats.changed++;
+  if (usual) {
+    agent.explain(g, q, `looks ahead: letting ${item.o.card.name} resolve leaves a better position (${res[1].toFixed(1)}) than ${other ? `responding with ${usual.card.card.name}` : 'countering it'} (${res[0].toFixed(1)})`);
+    return null;
+  }
+  agent.explain(g, q, `looks ahead: countering ${item.o.card.name} leaves a better position (${res[1].toFixed(1)}) than letting it resolve (${res[0].toFixed(1)})`);
+  return counter;
+}
+
+// ---------- attacks (item 102)
+// A look-ahead pilot's attack is checked by whole-turn rollouts: the combat planner's attack, no attack, and every
+// ready creature at the opponent with the least life are each played on a copy of the game (the combat again from the
+// start, the second main phase, the end step), then each opponent plays a whole turn of their own. The planner's
+// attack stays unless another scores better by item 83's margin. Shares the decisions-a-turn budget.
+async function simulateAttack(agent, g, p, plan, seed, oppIdx) {
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps * 2);
+  determinize(ng, p.idx, ng.rand);
+  const cp = ng.players[p.idx];
+  cp.agent.forcedAttacks = plan;
+  await ng.combat(cp);
+  cp.agent.forcedAttacks = null;
+  if (!ng.over && !cp.lost) {
+    ng.setPhase('main2');
+    await cp.agent.mainPhase(ng, cp, 'main2');
+    if (!ng.over && !cp.lost) await ng.endSteps(cp);
+  }
+  for (const q of ng.order(p.idx)) {
+    if (ng.over || cp.lost) break;
+    if (q === cp || q.lost) continue;
+    ng.active = q.idx;
+    await ng.takeTurn(q);
+  }
+  return { score: positionScore(cp.agent, ng, cp, oppIdx), steps: ng.steps };
+}
+export async function lookAheadAttacks(agent, g, p, usual) {
+  if (g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05 || g.stack.length) return usual;
+  const ready = p.battlefield.filter(o => g.canAttack(o) && g.power(o) > 0);
+  const opps = g.opponents(p);
+  if (!ready.length || !opps.length) return usual;
+  if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return usual;
+  const key = plan => plan.map(x => `${x.o.iid}>${x.target}`).sort().join(',');
+  const low = [...opps].sort((a, b) => a.life - b.life)[0];
+  const cands = [usual, [], ready.map(o => ({ o, target: low.idx }))];
+  const seen = new Set();
+  const plans = cands.filter(c => { const k = key(c); if (seen.has(k)) return false; seen.add(k); return true; });
+  if (plans.length < 2) return usual;
+  agent.laCount++;
+  laStats.decisions++;
+  const seed = (Math.imul(g.seed ^ 0x2545f491, 31) + g.steps * 977 + g.turn * 131 + p.idx) >>> 0;
+  const oppIdx = opps.map(q => q.idx);
+  const res = [];
+  for (const plan of plans) {
+    try {
+      laStats.sims++;
+      const r = await simulateAttack(agent, g, p, plan.map(x => ({ iid: x.o.iid, target: x.target, obj: x.obj?.iid })), seed, oppIdx);
+      laStats.steps += r.steps;
+      res.push({ plan, score: r.score });
+    } catch (e) {
+      if (e.name === 'OverBudget') laStats.dropped++;
+      else { laStats.errors++; laStats.lastError = `${e.message} ${(e.stack || '').split('\n')[1] || ''}`; }
+      return usual;
+    }
+  }
+  const base = res[0];
+  const top = res.reduce((a, b) => (b.score > a.score ? b : a));
+  if (top === base || top.score < base.score + LOOKAHEAD.margin) return usual;
+  laStats.changed++;
+  const what = top.plan.length ? `attacking ${g.players[top.plan[0].target].name} with everything` : 'not attacking';
+  agent.explain(g, p, `looks ahead: ${what} leaves a better position after everyone's next turn (${top.score.toFixed(1)}) than the planned attack (${base.score.toFixed(1)})`);
+  return top.plan;
+}
+
+// ---------- end-of-turn plays (item 101)
+// Before a look-ahead pilot spends held-up mana at the end of someone else's turn, both choices are played on a copy
+// of the game: casting it now, or holding the mana (for answers during the next turn, or the card for later), then the
+// next player's whole turn. The usual choice (cast) stays unless holding scores better by item 83's margin.
+async function simulateEot(agent, g, q, card, cast, seed, oppIdx) {
+  const ng = cloneGame(g, seed, budgetFor(agent, g).steps * 2);
+  determinize(ng, q.idx, ng.rand);
+  const cq = ng.players[q.idx];
+  if (cast) {
+    const c = cq.hand.find(o => o.iid === card.iid) || [...cq.exile, ...cq.graveyard, ...cq.command].find(o => o.iid === card.iid);
+    if (!c) return null;
+    await ng.cast(cq, c);
+  }
+  if (!ng.over && !cq.lost) {
+    const next = ng.players[ng.nextAlive(ng.active)];
+    ng.active = next.idx;
+    await ng.takeTurn(next);
+  }
+  return { score: positionScore(cq.agent, ng, cq, oppIdx), steps: ng.steps };
+}
+export async function lookAheadEot(agent, g, q, card) {
+  if (g.sim || g.kingdoms || g.puzzle || agent.noise > 0.05 || g.stack.length) return true;
+  if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }
+  if (agent.laCount >= budgetFor(agent, g).perTurn) return true;
+  agent.laCount++;
+  laStats.decisions++;
+  laStats.eot++;
+  const seed = (Math.imul(g.seed ^ 0x6c8e9cf5, 31) + g.steps * 977 + g.turn * 131 + q.idx) >>> 0;
+  const oppIdx = g.opponents(q).map(r => r.idx);
+  const res = [];
+  for (const cast of [true, false]) {
+    try {
+      laStats.sims++;
+      const r = await simulateEot(agent, g, q, card, cast, seed, oppIdx);
+      if (!r) { laStats.dropped++; return true; }
+      laStats.steps += r.steps;
+      res.push(r.score);
+    } catch (e) {
+      if (e.name === 'OverBudget') laStats.dropped++;
+      else { laStats.errors++; laStats.lastError = `${e.message} ${(e.stack || '').split('\n')[1] || ''}`; }
+      return true;
+    }
+  }
+  if (res[1] < res[0] + LOOKAHEAD.margin) return true;
+  laStats.changed++;
+  laStats.eotHeld++;
+  agent.explain(g, q, `looks ahead: holding ${card.card.name} and the mana through the next turn leaves a better position (${res[1].toFixed(1)}) than casting it now (${res[0].toFixed(1)})`);
+  return false;
 }

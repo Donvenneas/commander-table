@@ -1,11 +1,12 @@
-// Interface translations: Spanish, French, German and Portuguese. Text on the page (buttons, labels,
+// Interface translations: Spanish, French, German, Portuguese, Italian and Japanese (the last two in i18n_more.js). Text on the page (buttons, labels,
 // headings, tooltips, placeholders) is matched by its English wording and replaced, also as new text
 // appears (a MutationObserver), so code that writes English keeps working. Longer prompts are matched
 // by patterns. The game log and card rules text stay in English; card names and images can come from
 // Scryfall in your language in the card preview (cardInLanguage).
 import { store, imgUrl } from './util.js';
+import { IT_JA, NEW5 } from './i18n_more.js';
 
-export const LANGS = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', pt: 'Português' };
+export const LANGS = { en: 'English', es: 'Español', fr: 'Français', de: 'Deutsch', pt: 'Português', it: 'Italiano', ja: '日本語' };
 
 // English → [es, fr, de, pt]
 const T = {
@@ -184,16 +185,17 @@ const T = {
   'Nudge': ['Avisar', 'Relancer', 'Anstupsen', 'Cutucar'],
 };
 // Longer prompts and labels with numbers or names in them
+/** @type {[RegExp, (m: RegExpMatchArray, lang: string) => string | null][]} */
 const P = [
-  [/^Your (first|second) main phase\.$/, (m, l) => ({ es: `Tu ${m[1] === 'first' ? 'primera' : 'segunda'} fase principal.`, fr: `Votre ${m[1] === 'first' ? 'première' : 'seconde'} phase principale.`, de: `Deine ${m[1] === 'first' ? 'erste' : 'zweite'} Hauptphase.`, pt: `Sua ${m[1] === 'first' ? 'primeira' : 'segunda'} fase principal.` })[l]],
-  [/^Go to combat( \((\d+) playable\))?$/, (m, l) => ({ es: 'Ir al combate', fr: 'Aller au combat', de: 'Zum Kampf', pt: 'Ir para o combate' })[l] + (m[2] ? ` (${m[2]})` : '')],
-  [/^End turn( \((\d+) playable\))?$/, (m, l) => ({ es: 'Terminar turno', fr: 'Finir le tour', de: 'Zug beenden', pt: 'Encerrar turno' })[l] + (m[2] ? ` (${m[2]})` : '')],
-  [/^Attack (.+)$/, (m, l) => ({ es: `Atacar a ${m[1]}`, fr: `Attaquer ${m[1]}`, de: `${m[1]} angreifen`, pt: `Atacar ${m[1]}` })[l]],
-  [/^Turn (\d+) · step (\d+)(?: of (\d+))?(.*)$/, (m, l) => `${({ es: 'Turno', fr: 'Tour', de: 'Zug', pt: 'Turno' })[l]} ${m[1]} · ${({ es: 'paso', fr: 'étape', de: 'Schritt', pt: 'passo' })[l]} ${m[2]}${m[3] ? ` / ${m[3]}` : ''}${m[4]}`],
-  [/^Seat two (.+) decks$/, (m, l) => ({ es: `Sienta dos mazos de ${m[1]}`, fr: `Installez deux decks ${m[1]}`, de: `Zwei ${m[1]}-Decks platzieren`, pt: `Coloque dois decks de ${m[1]}` })[l]],
-  [/^Hand · (\d+)$/, (m, l) => `${({ es: 'Mano', fr: 'Main', de: 'Hand', pt: 'Mão' })[l]} · ${m[1]}`],
-  [/^Your hand$/, (m, l) => ({ es: 'Tu mano', fr: 'Votre main', de: 'Deine Hand', pt: 'Sua mão' })[l]],
-  [/^(.+) wins!$/, (m, l) => ({ es: `¡${m[1]} gana!`, fr: `${m[1]} gagne !`, de: `${m[1]} gewinnt!`, pt: `${m[1]} vence!` })[l]],
+  [/^Your (first|second) main phase\.$/, (m, l) => ({ es: `Tu ${m[1] === 'first' ? 'primera' : 'segunda'} fase principal.`, fr: `Votre ${m[1] === 'first' ? 'première' : 'seconde'} phase principale.`, de: `Deine ${m[1] === 'first' ? 'erste' : 'zweite'} Hauptphase.`, pt: `Sua ${m[1] === 'first' ? 'primeira' : 'segunda'} fase principal.`, it: `La tua ${m[1] === 'first' ? 'prima' : 'seconda'} fase principale.`, ja: `あなたの${m[1] === 'first' ? '第1' : '第2'}メイン・フェイズ。` })[l]],
+  [/^Go to combat( \((\d+) playable\))?$/, (m, l) => ({ es: 'Ir al combate', fr: 'Aller au combat', de: 'Zum Kampf', pt: 'Ir para o combate', it: 'Vai al combattimento', ja: '戦闘へ' })[l] + (m[2] ? ` (${m[2]})` : '')],
+  [/^End turn( \((\d+) playable\))?$/, (m, l) => ({ es: 'Terminar turno', fr: 'Finir le tour', de: 'Zug beenden', pt: 'Encerrar turno', it: 'Fine turno', ja: 'ターン終了' })[l] + (m[2] ? ` (${m[2]})` : '')],
+  [/^Attack (.+)$/, (m, l) => ({ es: `Atacar a ${m[1]}`, fr: `Attaquer ${m[1]}`, de: `${m[1]} angreifen`, pt: `Atacar ${m[1]}`, it: `Attacca ${m[1]}`, ja: `${m[1]}を攻撃` })[l]],
+  [/^Turn (\d+) · step (\d+)(?: of (\d+))?(.*)$/, (m, l) => `${({ es: 'Turno', fr: 'Tour', de: 'Zug', pt: 'Turno', it: 'Turno', ja: 'ターン' })[l]} ${m[1]} · ${({ es: 'paso', fr: 'étape', de: 'Schritt', pt: 'passo', it: 'passo', ja: 'ステップ' })[l]} ${m[2]}${m[3] ? ` / ${m[3]}` : ''}${m[4]}`],
+  [/^Seat two (.+) decks$/, (m, l) => ({ es: `Sienta dos mazos de ${m[1]}`, fr: `Installez deux decks ${m[1]}`, de: `Zwei ${m[1]}-Decks platzieren`, pt: `Coloque dois decks de ${m[1]}`, it: `Siedi due mazzi ${m[1]}`, ja: `${m[1]}のデッキを2つ着席` })[l]],
+  [/^Hand · (\d+)$/, (m, l) => `${({ es: 'Mano', fr: 'Main', de: 'Hand', pt: 'Mão', it: 'Mano', ja: '手札' })[l]} · ${m[1]}`],
+  [/^Your hand$/, (m, l) => ({ es: 'Tu mano', fr: 'Votre main', de: 'Deine Hand', pt: 'Sua mão', it: 'La tua mano', ja: 'あなたの手札' })[l]],
+  [/^(.+) wins!$/, (m, l) => ({ es: `¡${m[1]} gana!`, fr: `${m[1]} gagne !`, de: `${m[1]} gewinnt!`, pt: `${m[1]} vence!`, it: `${m[1]} vince!`, ja: `${m[1]}の勝利！` })[l]],
 ];
 
 let lang = 'en';
@@ -201,8 +203,9 @@ export const currentLang = () => lang;
 export function t(s) {
   const k = s.trim();
   if (lang === 'en' || !k) return s;
-  const i = { es: 0, fr: 1, de: 2, pt: 3 }[lang];
-  const hit = T[k]?.[i];
+  const i = { es: 0, fr: 1, de: 2, pt: 3, it: 4, ja: 5 }[lang];
+  // (Italian and Japanese, and the Round 5 labels: i18n_more.js)
+  const hit = (i < 4 ? T[k]?.[i] : IT_JA[k]?.[i - 4]) || NEW5[k]?.[i];
   if (hit) return s.replace(k, hit);
   for (const [re, f] of P) { const m = k.match(re); if (m) { const v = f(m, lang); if (v) return s.replace(k, v); } }
   return s;

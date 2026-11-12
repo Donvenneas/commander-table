@@ -9,12 +9,12 @@ export const KINGDOMS_AUTO = [
   'Automated: dealing roles, the King\'s +10 life and first turn, teams, every Victory and Defeat condition, and who eliminated whom (damage and life loss from their spells and abilities).',
   'Announce with the Announce button (your main phase; the Wizard in response to a spell). The Marksman, Priestess, Bear Trainer, Thief, Giant, Necromancer, Stalker, Wizard (exile a spell) and Zealot abilities resolve automatically.',
   'These Announce on their own when their moment comes: the Queen (saves the King from lethal damage), the Knight in Shining Armor (lethal combat damage to the King goes back to the attacker), the Rightful Heir, the Kingslayer, the Cultist (converts the player it would eliminate), the Mimic (at 20 life or less; its upkeep drain and equal-life eliminations) and the Champion (chooses the Challenger).',
-  'Not automated (Announce only reveals the role): the Schemer, Sellsword, Field Marshal and Straw Man abilities, the War Bears\' {Q} ability, the Wizard\'s retarget mode and the Champion\'s scry. The Straw Man\'s first Victory condition is checked.',
+  'Not automated (Announce only reveals the role): the Schemer, Sellsword and Field Marshal abilities, the Wizard\'s retarget mode and the War Bears\' +1/+1 counter. The War Bears\' {Q} damage, the Champion\'s scry and the Straw Man (forced attacks and both Victory conditions) are played.',
   '"Win the game" cards and combos do nothing in Kingdoms (a role wins only by its Victory condition).',
 ];
 
-const ROLE_ABILITY = new Set(['marksman', 'priestess', 'beartrainer', 'thief', 'giant', 'necromancer', 'stalker', 'zealot']);
-const REVEAL_ONLY = new Set(['schemer', 'sellsword', 'marshal', 'strawman']);
+const ROLE_ABILITY = new Set(['marksman', 'priestess', 'beartrainer', 'thief', 'giant', 'necromancer', 'stalker', 'zealot', 'strawman']);
+const REVEAL_ONLY = new Set(['schemer', 'sellsword', 'marshal']);
 
 export const roleOf = p => (p?.role ? roleById(p.role.id) : null);
 export const isKing = p => p?.role?.type === 'king';
@@ -38,6 +38,15 @@ export function knownType(g, me, q) {
   if (q.role.up || q === me || q.lost) return q.role.type;
   if (me?.role?.type === 'bandit' && q.role.type === 'bandit') return 'bandit';
   return null;
+}
+// (rules 5, item 115) A damage, drain or attack combo picks its targets (Walking Ballista, Sanguine Bond, hasty copies),
+// so it spares the players its maker knows to be allies: face-up teammates, the King for a Knight, a face-up Knight
+// for the King, a known Bandit for a Bandit
+export function comboSpares(g, p, q) {
+  if (!g.kingdoms || g.rules < 5 || !p.role || !q.role || p === q) return false;
+  const qt = knownType(g, p, q), mt = p.role.type;
+  if (!qt) return false;
+  return qt === mt && mt !== 'renegade' || (mt === 'knight' && qt === 'king') || (mt === 'king' && qt === 'knight');
 }
 export function sees(g, viewerIdx, q) {
   if (viewerIdx == null || viewerIdx < 0) return !!(q.role?.up || q.lost);
@@ -128,6 +137,8 @@ export function onEliminated(g, q) {
   k.out.push({ idx: q.idx, by: by?.idx ?? null });
   if (q.role.type === 'bandit') { k.banditDown = true; for (const b of g.players) if (b.role.type === 'bandit') b.defeated = true; }
   if (k.out.length === 1 && q.role.id === 'strawman' && by) return win(g, [q], 'the Straw Man was the first player eliminated, by another player');
+  // (after Announcing, from their next upkeep: the Straw Man wins by eliminating themself)
+  if (q.role.id === 'strawman' && q.role.selfWin && !by) return win(g, [q], 'the Straw Man eliminated themself');
   if (by && !by.lost) {
     if (by.role.id === 'heir') reveal(g, by, `eliminated ${q.name}`);
     // The King eliminated a Knight: discard, sacrifice half, lose half
@@ -220,6 +231,16 @@ export function tick(g) {
 
 // The Mimic's upkeep: one player loses 1 life, another gains 1 (aiming to match a life total)
 export function upkeep(g, p) {
+  // The Straw Man: their next upkeep ends the forced attacks and changes their Victory condition
+  if (g.strawMan?.idx === p.idx && g.turn > g.strawMan.turn) { g.strawMan = null; p.role.selfWin = true; g.log(`${g.pn(p)}'s Victory condition becomes: eliminate themself (The Straw Man)`, { kind: 'minor', rule: 'Kingdoms' }); }
+  // The Champion: scry 1 at the beginning of their upkeep (a land is kept while short of lands, a strong card always)
+  if (p.role?.id === 'champion' && !p.lost && p.library.length) {
+    const top = p.library[p.library.length - 1];
+    const lands = p.battlefield.filter(o => o.fx.type.land).length;
+    const keep = top.fx.type.land ? lands < 6 : p.agent.value(g, top) >= 2;
+    if (!keep) { p.library.pop(); p.library.unshift(top); }
+    g.log(`🏆 The Champion scries 1: ${keep ? 'keeps the card on top' : 'puts the card on the bottom'}`, { kind: 'minor', rule: 'Kingdoms' });
+  }
   if (p.role?.id !== 'mimic' || !p.role.up || p.lost) return;
   const opps = g.opponents(p);
   if (!opps.length) return;
@@ -272,6 +293,8 @@ export function aiPlan(g, p) {
       return theirs - mine >= 15 || (t === king && p.life <= 8 && t.life > p.life) ? { player: t.idx } : null;
     }
     case 'beartrainer': return g.active === p.idx ? {} : null;
+    // (the Straw Man wants to be the first player eliminated, by someone else: Announce once low enough to die soon)
+    case 'strawman': return g.active === p.idx && p.life <= 20 && !(g.kd?.out || []).length ? {} : null;
     case 'thief': {
       if (g.active !== p.idx) return null;
       const best = enemyCreatures.filter(o => g.canTarget(p, o) || true).sort((a, b) => g.power(b) - g.power(a))[0];
@@ -333,7 +356,11 @@ export async function announce(g, p, plan = {}) {
       break;
     }
     case 'beartrainer':
-      for (let k = 0; k < 3; k++) g.createToken(p, { p: 2, t: 2, desc: 'green war bear', kw: ['haste'] }, src);
+      for (let k = 0; k < 3; k++) {
+        const bear = g.createToken(p, { p: 2, t: 2, desc: 'green war bear', kw: ['haste'] }, src);
+        // "{Q}: this deals damage equal to its power to target creature" (untap it as the cost; it must be tapped)
+        if (bear?.fx) bear.fx = { ...bear.fx, abilities: [...(bear.fx.abilities || []), { cost: '', tap: false, effects: [{ k: 'damage', n: { dyn: 'selfPower' }, to: 'target creature' }], text: 'deals damage equal to its power to target creature', sorcery: false, costs: { mana: '', tap: false, untapSelf: true, life: 0, discard: null, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null } }] };
+      }
       g.log(`${S} creates three 2/2 War Bears with haste`, { kind: 'combo' });
       break;
     case 'thief': {
@@ -389,6 +416,11 @@ export async function announce(g, p, plan = {}) {
       if (item && g.stack.includes(item) && !item.countered) { item.countered = true; item.toExile = true; g.log(`${S} exiles ${g.cn(item.o)} from the stack`, { kind: 'removal', rule: 'Kingdoms' }); }
       break;
     }
+    case 'strawman':
+      // Until the Straw Man's next turn every opponent's creature attacks them if able (engine.js combat reads it)
+      g.strawMan = { idx: p.idx, turn: g.turn };
+      g.log(`${S}: until ${g.pn(p)}'s next turn, all their opponents' creatures attack them if able`, { kind: 'combat', rule: 'Kingdoms' });
+      break;
     default:
       if (REVEAL_ONLY.has(id)) g.log(`${S}: this role's ability isn't automated (see the role text)`, { kind: 'minor' });
   }

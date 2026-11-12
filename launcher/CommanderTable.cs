@@ -318,6 +318,7 @@ static class CommanderTable
             }
             else if (path == "/api/fetch") Proxy(ctx);
             else if (path == "/api/img") CardImage(ctx);
+            else if (path == "/api/imgcache") ImageCacheInfo(ctx);
             else if (path == "/api/library") Library(ctx);
             else if (path == "/api/update") Update(ctx);
             else if (path == "/api/edhtop16" && req.HttpMethod == "POST")
@@ -463,11 +464,19 @@ static class CommanderTable
                 var body = GetRemote(u.AbsoluteUri, out status, out type);
                 if (status != 200) { SendText(ctx, 502, "The update address answered HTTP " + status + "."); return; }
                 if (body.Length < 4 || body[0] != 'P' || body[1] != 'K') { SendText(ctx, 400, "That address didn't give a .zip file."); return; }
+                // (item 183) the zip's SHA-256, checked against a published "<address>.sha256" when there is one
+                string digest;
+                using (var sha = System.Security.Cryptography.SHA256.Create()) digest = BitConverter.ToString(sha.ComputeHash(body)).Replace("-", "").ToLowerInvariant();
+                int sStatus; string sType;
+                var sBody = GetRemote(u.AbsoluteUri + ".sha256", out sStatus, out sType);
+                var sm = sStatus == 200 ? Regex.Match(Encoding.UTF8.GetString(sBody), @"\b[0-9a-fA-F]{64}\b") : Match.Empty;
+                var published = sm.Success ? sm.Value.ToLowerInvariant() : "";
+                if (published.Length > 0 && published != digest) { SendText(ctx, 400, "The download doesn't match its published checksum (SHA-256 " + digest.Substring(0, 16) + "…, expected " + published.Substring(0, 16) + "…). Nothing was installed."); return; }
                 File.WriteAllBytes(zipFile, body);
                 string prefix, version; int count;
                 var err = InspectUpdate(zipFile, out prefix, out version, out count);
                 if (err != null) { File.Delete(zipFile); SendText(ctx, 400, err); return; }
-                Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"version\":" + Js(version) + ",\"current\":" + Js(LocalVersion()) + ",\"files\":" + count + ",\"size\":" + body.Length + "}"));
+                Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"version\":" + Js(version) + ",\"current\":" + Js(LocalVersion()) + ",\"files\":" + count + ",\"size\":" + body.Length + ",\"sha256\":" + Js(digest) + ",\"verified\":" + (published.Length > 0 ? "true" : "false") + "}"));
                 return;
             }
             if (step == "apply")
@@ -586,16 +595,37 @@ static class CommanderTable
         }
         else Send(ctx, status, remoteType, body);
     }
+    // The image folder's cap: data\image-cache-mb.txt (set in the app), else 400 MB
+    static long ImageCap()
+    {
+        try { int mb; if (int.TryParse(File.ReadAllText(Path.Combine(DataDir, "image-cache-mb.txt")).Trim(), out mb)) return Math.Max(100, Math.Min(20000, mb)) * 1024L * 1024; } catch { }
+        return ImageCacheMax;
+    }
+    // GET: how much the image folder holds; POST (from the app only, X-Commander-Table: images) a new cap in MB
+    static void ImageCacheInfo(HttpListenerContext ctx)
+    {
+        var req = ctx.Request;
+        if (req.HttpMethod == "POST")
+        {
+            if (req.Headers["X-Commander-Table"] != "images") { SendText(ctx, 400, "Use the Updates window in the app."); return; }
+            int mb;
+            if (!int.TryParse(ReadBody(req.InputStream, req.ContentLength64).Trim(), out mb)) { SendText(ctx, 400, "The cap is a number of MB."); return; }
+            try { Directory.CreateDirectory(DataDir); File.WriteAllText(Path.Combine(DataDir, "image-cache-mb.txt"), Math.Max(100, Math.Min(20000, mb)).ToString()); } catch { }
+        }
+        long total = 0; int n = 0;
+        try { foreach (var f in new DirectoryInfo(Path.Combine(DataDir, "images")).GetFiles()) { total += f.Length; n++; } } catch { }
+        Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"files\":" + n + ",\"bytes\":" + total + ",\"capMB\":" + (ImageCap() / (1024 * 1024)) + "}"));
+    }
     static void TrimImages()
     {
         try
         {
             var files = new DirectoryInfo(Path.Combine(DataDir, "images")).GetFiles();
-            long total = 0;
+            long total = 0, cap = ImageCap();
             foreach (var f in files) total += f.Length;
-            if (total <= ImageCacheMax) return;
+            if (total <= cap) return;
             Array.Sort(files, (a, b) => a.LastWriteTimeUtc.CompareTo(b.LastWriteTimeUtc));
-            foreach (var f in files) { if (total <= ImageCacheMax * 0.8) break; total -= f.Length; try { f.Delete(); } catch { } }
+            foreach (var f in files) { if (total <= cap * 0.8) break; total -= f.Length; try { f.Delete(); } catch { } }
         }
         catch { }
     }
@@ -781,7 +811,15 @@ static class CommanderTable
                     Seats = new Dictionary<int, Seat>();
                     Chat.Clear();
                     Fails.Clear();
-                    foreach (var part in body.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries)) { int i; if (int.TryParse(part.Trim(), out i)) Seats[i] = new Seat(); }
+                    // ("seat" or "seat=KEY": a resumed game reopens its room with the same keys, so friends' links still work)
+                    foreach (var part in body.Split(new[] { ',' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var bits = part.Trim().Split('='); int i;
+                        if (!int.TryParse(bits[0], out i)) continue;
+                        var ns = new Seat();
+                        if (bits.Length > 1 && Regex.IsMatch(bits[1], "^[" + KeyChars + "]{10}$")) ns.Key = bits[1];
+                        Seats[i] = ns;
+                    }
                     var keys = new List<string>();
                     foreach (var kv in Seats) keys.Add(Js(kv.Key.ToString()) + ":" + Js(kv.Value.Key));
                     var ips = new List<string>();
@@ -804,6 +842,15 @@ static class CommanderTable
                 {
                     if (method == "POST") StartTunnel();
                     r.Body = "{\"status\":" + Js(TunnelStatus) + ",\"url\":" + Js(TunnelUrl) + ",\"error\":" + Js(TunnelError) + "}";
+                    return r;
+                }
+                // (hand a seat to someone else: a new key, so the old link stops working)
+                case "rekey":
+                {
+                    Seat s;
+                    if (!Seats.TryGetValue(seat, out s)) { r.Status = 404; r.Body = "{\"error\":\"No such seat.\"}"; return r; }
+                    s.Key = SeatKey(); s.Name = ""; s.Seen = DateTime.MinValue; s.Answer = null;
+                    r.Body = "{\"key\":" + Js(s.Key) + "}";
                     return r;
                 }
                 case "state": { Seat s; if (Seats.TryGetValue(seat, out s)) s.State = body; return r; }

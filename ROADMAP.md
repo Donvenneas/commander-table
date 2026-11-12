@@ -323,6 +323,782 @@ Rules for this round, on top of the ones above:
     methods; none looked like a bug. Checked: a planted typo (`(1).lenght`) fails the check. Shrink the baseline
     as code is touched (declare the properties in constructors, JSDoc the overrides).
 
+## Round 5 (asked for 2026-11-08: "find the next 100 improvements")
+
+Picked from the gaps the session notes above leave open (X in activated costs, unread card families, Kingdoms roles not
+done, the friend page without a sideboard window, untested Mac/Linux and tabletop paths, 124 type-check findings), a
+grep of the engine for missing mechanics (no morph, adventure, MDFC lands, initiative, dungeons, day/night, mutate,
+Web Workers or APNAP trigger order), and the size of main.js (2,700 lines) and engine.js (4,600). Rules for this round,
+on top of the ones above:
+- Items within a section can be taken in any order; sections don't depend on each other unless an item says so.
+- Anything that changes game outcomes bumps the replay version and keeps older replays playing as before.
+- Free, open data only; read each site's terms before adding it (as in items 22 and 80). Card text and images come
+  from Scryfall like every other card; all art, names and wording for modes are our own.
+
+### Rules engine and card coverage
+- [x] 85. X in activated ability costs ("{X}, {T}: …"): read X in parseCostText, the AI picks X by value, a human seat
+  gets a number prompt. The biggest missing engine piece in item 82's notes.
+  - Done: the cost and effects were already read, but every X was played as 0. Game.maxAbilityX and activate(p, o, ab,
+    { x }) pay X, the stack item and its effects carry it (g.xNow while targets are chosen); AI bestAbilityX values
+    X = 1…20 (effects with that X, less 0.15 a mana) and keeps counterspell mana; human seats pick X from buttons.
+    New engine RULES = 5 (Game opts.rules, saved in setup and replays; replays without it play as rules 4 with X = 0).
+    Tested: 30 games with Crypt Rats, Cinder Elemental and Kessig Wolf Run (116 activations with X, 0 errors, no rule
+    broken); self-test. Not done: "spend only black mana on X".
+- [x] 86. Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents,
+  turning face up as a special action; hidden from opponents on the table, in friends' snapshots and in replays shared
+  as web pages.
+  - Done: effects.js reads "morph/megamorph/disguise {cost}" (fx.morph), "when ~ is turned face up" (fx.turnedUp) and
+    manifest / manifest dread / cloak effects. engine.js: makeFaceDown swaps the object's card and fx for a nameless
+    colorless 2/2 (ward {2} for disguise and cloak) and keeps the real ones in o.faceCard/o.faceFx; cast face down
+    for {3} at sorcery speed (castMode alt 'morph', also for disguise lands); turnFaceUp as a special action
+    (morph cost, or a manifested/cloaked creature's mana cost; megamorph counter; turned-face-up trigger); revealed
+    when it leaves the battlefield or the stack (708.9); Cryptic Coat attaches to the card it cloaked. AI casts face
+    down when the real cost is out of reach and turns cards up by value; human seats get "Face down ({3})" and can
+    turn cards up in main phases and every response window. The table and the friend page show a card back (its
+    controller sees the name). Shared web-page replays only carry names, so they show "Face-down creature".
+    Tested: 12 + 8 games with a morph/manifest deck (17 face-down casts, 23 turned up, megamorph, triggers, cloak,
+    manifest dread, 0 errors, no rule broken) and 3 games with a scripted human seat (5 cast face down, 3 turned up).
+- [x] 87. Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back
+  face as a land (the AI counts those as lands for mulligans and land drops).
+  - Done: scryfall.js normalize keeps the second face of adventure, modal_dfc and split cards (card.altFace, with
+    its own fx) and card.layout. engine.js useFace/mainFace swap the card's face on the stack and battlefield
+    (restored as it leaves, via baseCard); faceCastMode/castFace cast the other face from hand; an adventure
+    resolves into exile and the creature may be cast from there (715.4); playLand plays an MDFC's land back.
+    AI: scores the other face against the front (adventures get 60% of the creature's value on top), plays a land
+    back only with no other land in hand (and under 6 lands or the front uncastable), counts land backs in
+    mulligans. Human seats choose the face when they click such a card. Tested: 18 games with 20 adventure/MDFC
+    cards (30 adventures, creatures cast from exile, 7 land backs played, 0 errors, no rule broken) and 3 games with
+    a scripted human seat. Card names still show as "Front // Back" (Scryfall's name).
+- [x] 88. Finish "aura or creature" cards: bestow end to end, mutate (merged stack with every ability), reconfigure.
+  - Done: bestow wasn't read at all. effects.js reads bestow/mutate costs, "whenever this creature mutates" and
+    reconfigure (as an equip cost). Bestow: cast as an Aura for its bestow cost (castMode alt 'bestow'), becomes an
+    enchantment creature again when the creature leaves or the target is gone (702.103e). Mutate: targets a non-Human
+    creature you own; on resolution the card merges on top (the permanent takes its name and P/T and every card's
+    abilities; mutate triggers fire); when the merged permanent leaves, every card goes to the same zone (a commander
+    still goes to the command zone); an illegal target makes it a plain creature. Reconfigure: equipping stops it being a
+    creature (equipment on it falls off) until it's unattached. Cast log says "bestowed on X", "to mutate onto X",
+    "face down". AI scores bestow and mutate against a plain cast; human seats pick from the card's play options.
+    Not done: "unattach" with reconfigure, choosing to put a mutating card underneath. Tested: 30 games with a
+    bestow/mutate/reconfigure deck (10 bestowed, 46 mutates, reconfigures, 0 errors, no rule broken after the fixes).
+- [x] 89. Madness (finish), cleave, meld, split cards with fuse, and aftermath.
+  - Done: madness and cleave are read as costs. Madness: a discarded madness card is exiled and a "madness" trigger
+    lets its owner cast it for the madness cost (AI if it scores, human seats are asked), else it goes to the
+    graveyard. Cleave: analyzeCard reads the card twice (with and without the [bracketed] words; fx.cleaveSpell), cast
+    with alt 'cleave'. Split cards (via item 87's altFace): either half from hand; fuse casts both halves for both
+    costs (canFuse); aftermath halves only from the graveyard, exiled afterwards. Cast log names the mode. AI weighs
+    cleave and fuse against the plain half; human seats see them in the card's play options. Not done: meld (needs
+    both cards together; left for the coverage pass). Tested: 16 + 12 games with a madness/cleave/split deck (175
+    casts in the new modes, 0 errors, no rule broken), and set boards for madness, cleave, fuse and a split half.
+- [ ] 90. Layers (rule 613) with timestamps for copy, control, text, type, color, ability and P/T effects instead of
+  today's fixed order; an invariants check that the result doesn't depend on the order effects were added.
+  - Done, partly (the part that changed results): layer 7b now goes by timestamp. Every permanent gets o.ts as it
+    enters the battlefield and every animation (animPT) gets one too; Game.setLayer picks the latest of the animation
+    and auras that set P/T (Kenrith's Transformation, Lignify), where before an animation always won (rules 4 keeps
+    that). Layers 1–6 stay as they were: the engine works out copy, control, type and abilities on the spot rather than
+    as a list of effects, so there was no order to get wrong. New rules check (invariants.js layerOrderIssues, after
+    every state-based-actions pass): each creature's power, toughness and 11 keywords must come out the same with
+    every battlefield reversed. Tested: 16 games with an anthem/P-T-setting/keyword-granting deck (no order-dependent
+    result found), a set board (aura, then animation, then a later aura), self-test rules check.
+- [x] 91. Several replacement or prevention effects on one event: the affected player chooses the order (616.1); human
+  seats are asked.
+  - Done: counter, damage and life-gain modifiers were applied in battlefield order (Hardened Scales + Doubling
+    Season gave 3 or 4 counters depending on which came first). Game.replaceInOrder tries every order (up to 6
+    effects) and uses the best one for the affected player: most counters on their permanent, most life gained, least
+    damage taken (Torbran, damage doublers, Dictate of the Twin Gods, Gisela's halving). Human seats aren't asked:
+    every choice here is about an amount, so their best order is used. Rules 4 replays keep battlefield order.
+    Zone-change replacements (Rest in Peace, God-Eternals, commanders) are item 96. Tested: set boards both ways
+    round (4 counters either way; 3 damage through Torbran + Dictate into Gisela → 4), 8 games, 0 errors.
+- [x] 92. Triggers from several players at once go on the stack in APNAP order (603.3b), each player ordering their own
+  (extends item 68).
+  - Done: flushTriggers (rules 5) sorts triggers that have just triggered so the active player's go on the stack
+    first and the last player's in turn order resolve first, and puts them above triggers still waiting from before
+    (so a trigger's own triggers resolve before older ones, as on a real stack). Each player still orders their own
+    (item 68). Self-test: 17/17, 0 errors, rules check clean (57 combos landed instead of 50: trigger order changes
+    some games, as expected).
+- [x] 93. Combat choices for human seats: damage assignment among several blockers, trample with deathtouch, and
+  dividing damage from "divided as you choose" spells.
+  - Done: an attacker blocked by several creatures, or with trample, has its damage divided by its controller
+    (agent.assignCombatDamage, checked by Game.validDamagePlan: it must add up, and trample damage reaches the player
+    only once every blocker has lethal, 1 with deathtouch). The AI kills the most valuable blockers it can and pushes
+    lethal through with trample; human seats click blockers and amounts, or "Assign it for me". "Divided as you
+    choose" spells and abilities (Arc Lightning, Forked Bolt, Inferno Titan…) now split their damage (fx.divided =
+    most targets): the AI kills what it can and sends the rest to a player; people pick targets and amounts. The split
+    is chosen as it resolves, not when cast. Tested: 16 games (31 divided splits, 0 errors, no rule broken) and a set
+    board (6/6 trampler into three blockers; an illegal split refused).
+- [x] 94. Initiative and dungeons (venture into the dungeon, Undercity), and day/night (daybound/nightbound).
+  - Done: public/js/dungeons.js has the four dungeons as room maps; each room's ability is read by parseEffects
+    (Twisted Caverns' "can't attack" isn't read and does nothing). Game.venture (choose a dungeon, then a room below;
+    the room's ability triggers; a finished dungeon is completed on the next venture), Game.takeInitiative (ventures
+    into Undercity, again at each of the holder's upkeeps; combat damage to the holder takes it; a holder who left
+    passes it to the active player). Day/night: daybound/nightbound read as keywords; the first such permanent makes
+    it day, and at each turn's start it turns night if the last active player cast no spells, day if they cast two
+    or more, transforming the werewolves; at night they enter transformed. AI picks rooms by value, Lost Mine of
+    Phandelver first (the Mad Mage late); human seats choose. Board chips: 🏰 room, ⚑ Initiative, ☀/☾.
+    Not done: "if you've completed a dungeon" conditions. Tested: 12 games with a venture/initiative/werewolf deck
+    (539 ventures, 85 dungeons completed, 84 initiative changes, 12 nights and days, 0 errors) + 8 rules-watched.
+- [x] 95. Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special
+  action and check the deck-building condition when the deck loads (a warning in formats.js).
+  - Done: decks.js keeps the companion (a "Companion" heading in pasted lists, Moxfield's companions board,
+    Archidekt's Companion category, or a companion in a 60-card sideboard) as deck.companion, outside the deck; saved
+    deck text (replays, challenge links) writes a Companion section. The game keeps it outside (zone 'outside') and
+    Game.useCompanion puts it into hand for {3} at sorcery speed, once (702.139c). formats.js companionCheck warns
+    when the condition isn't met (Lurrus, Obosh, Gyruda, Keruga, Kaheera, Jegantha, Umori, Lutri, Yorion) and when
+    it's outside the commander's colors. AI pays when the card scores (more with a small hand); human seats get a
+    "Companion: … to hand ({3})" button; boards show 🐾 and the companion's name. Tested: a Commander and a Modern
+    list with Lurrus (both warnings right; 30 + 20 games with the companion put into hand, 0 errors).
+- [x] 96. Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses
+  (903.9; the AI usually moves it, a human seat is asked). Check partner, Friends forever, Choose a Background and
+  Doctor's companion pairings at load.
+  - Done: (rules 5) a commander put into a graveyard or exile now really goes there (so "dies" and "put into a
+    graveyard" triggers see it) and its owner chooses at the next state-based check (Game.commanderChoices, 903.9a);
+    to a hand or library it's a replacement decided at once (903.9b). The AI leaves it in the graveyard only when it can
+    recast or reanimate it this turn (Kess, Muldrotha-style permission, a reanimation spell in hand); human seats are
+    asked for graveyard and exile. The rules check accepts a commander its owner chose to leave. formats.js checks two
+    commanders are a legal pair (partner, partner with each other, friends forever, background, Doctor's companion)
+    and at most two. Tested: 12 cEDH-preset games (commanders returning, 0 errors, no rule broken); a Kinnan +
+    Thrasios list is flagged, the four presets aren't.
+- [ ] 97. Coverage pass 2: rerun the 3,500-card scan and model the most common families still unread (Sundial, Scroll
+  Rack, Chain Veil, "becomes a copy … with mana value X", Planar Bridge and the like). Target 88% → 93%.
+  - Progress (not ticked: the target isn't met): rescan 2026-11-08 after items 85–96: 88.2% (3,086 of 3,500).
+    The 414 unread cards have almost no families left (the biggest: paradigm ×3, soulbond ×2, "prepared" ×2);
+    each needs its own rule. Done here: Scroll Rack (swaps up to three weak cards for the top of the library),
+    "remove N <kind> counters" costs now use the engine's named counters (Khalni Heart Expedition works end to end),
+    "and sacrifice it" costs, manlands with X or hyphenated types (Lair of the Hydra, Mishra's Factory's first line),
+    Hooded Hydra. Now 88.3% (3,090), none lost. Next candidates: Sundial of the Infinite (end the turn), paradigm,
+    disturb, casualty, graveyard returns with non-mana costs (Metalwork Colossus, Jarad), counter abilities on
+    permanents (Glen Elendra, Siren Stormtamer).
+  - Counter abilities on permanents (rules 5): a "<cost>: counter target … spell" line is read as an ability used only
+    in response (Glen Elendra Archmage, Siren Stormtamer, which only answers what targets its controller or their
+    creatures; Kozilek's "mana value X" counter stays unread). The AI uses one when it has no counterspell in hand and
+    wants the spell stopped; the engine activates it aimed at that spell. Tested: a set board (Glen Elendra counters
+    Lightning Bolt and persists back) and 30 games of a blue deck with four of each against burn (12 spells
+    countered, 0 errors, no rule broken). Now 88.4% (3,093). The rest of the unread text is a long tail: about 60
+    different activated abilities, mostly one card each.
+- [ ] 98. Coverage for 60-card and Limited play: scan the cards the random constructed and Limited generators pick
+  most, and the seven rated 17Lands sets. Target 90% fully read, so item 80's rated drafters can trust more cards.
+  - Progress (not ticked: the target isn't met): scan of every booster card in BLB, DSK, FDN, MKM, WOE, DMU and
+    MOM (1,840 cards): 74.6% fully read (FDN 90%, MKM and DSK about 67%). Added the families that cover several
+    cards: enlist (11 cards), read ahead (10), "kicker A and/or B", "if ~ was kicked, it enters with N counters",
+    freezing auras, +N/−N on itself, two keywords for a target creature, "owner puts it on top or bottom of their
+    library", suspect. Now 76.4% (1,405), none lost. Biggest families left: collect evidence (6), Season "pawprint"
+    modes (5), expend, royal role tokens, "when ~ dies, put its counters on…". Tested: 16 + 16 Limited games (tuck,
+    enlist, suspect fire; 0 errors, no rule broken).
+- [x] 99. Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with
+  a puzzle each; fix what they show.
+  - Done: Sagas and Classes already worked (39 chapters, 103 level-ups in the test). Battles were missing: cards keep
+    Scryfall's defense; a battle enters with defense counters and its controller picks a protector (the AI: the
+    opponent with the least to block with); combat can now attack a permanent (decl.obj, o.attackingObj: blockers are
+    the protector's, unblocked and trample damage removes defense counters); with no counters left it goes to the
+    graveyard (704.5v) and a Siege is exiled and cast transformed for free. The AI sends attackers already going at
+    the protector at its own Siege when they can finish it. Rooms: either door can be cast (item 87), the other is
+    unlocked for its cost at sorcery speed (Game.unlockRoom; both doors' abilities then apply, "when you unlock this
+    door" triggers), relocked when it leaves; AI and human seats unlock. Board badge ⛨ shows defense. Tested with set
+    games instead of shipped puzzles: 24 games with Rooms, Sieges, Sagas and Classes (18 unlocks, 8 Sieges flipped,
+    0 errors, no rule broken). Human seats can attack battles from the attack prompt (added with item 105).
+- [x] 100. Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops
+  per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).
+  - Done, partly: watchGame now wraps Game.cast and Game.playLand: a player's own cast of a spell without flash
+    (or flash granted, or a combat-only timing) must happen in their main phase with an empty stack, a land play too,
+    and no player plays more lands than their land drops ("timing" and "land" findings; casts that effects make with
+    a given mode — cascade, rebound, madness, Sieges — are left out). Tested: a planted off-turn sorcery and land are
+    both caught; 16 cEDH-preset, 16 mixed and 10 extra-land-drop games found nothing; self-test rules check clean.
+    Not done: mana spent against cost (payments go through one planner already), and an automatic
+    hidden-information check (a read of ai.js found its hand reads are of the deciding player's own hand; the
+    look-ahead copy already redeals opponents' hands; a checker that proves it in every decision isn't built).
+  - Done (the rest): mana against cost — watchGame totals the mana units committed while a spell from hand or the
+    command zone is cast for its mana cost and reports a cast that paid less than its cost after reductions and taxes
+    ("mana" findings; alternative and free casts, unbounded mana and Phyrexian pips left out). A planted bug that
+    dropped one mana from each payment gave 19 findings in one game; 40 fuzz, 40 cEDH and 20 Two-Headed Giant games
+    gave none. Hidden information — tests/hidden.mjs (in CI) asks every AI decision again (main-phase plays, attacks,
+    blocks, responses) with each opponent's hand and library scrambled, on the same random stream, and fails if one
+    changes: 24 games, 14,102 decisions, 0 changed. A planted pilot that peeked at an opponent's hand was caught
+    (235 of 1,007 plays changed).
+- [x] 185. Card debugging pass (asked 2026-11-11): find cards that don't do what their text says, fix the cause, and
+  test each fix with a small board.
+  - Done (rules 6; replays at rules 4 and 5 play exactly as before, golden games for all three): new
+    tests/interactions.mjs (in CI) builds boards from card names (tests/scenario.mjs; extra card data in
+    tests/interaction-cards.json) — 51 tests. Fixed: (1) "destroy target artifact or enchantment" was read twice by
+    two patterns, so Disenchant, Naturalize, Reclamation Sage and ~20 others destroyed a second permanent (readRiders
+    marks the copy dup). (2) The AI's and the human seat's target filter had no "land" case, so Strip Mine, Wasteland
+    and Ghost Quarter destroyed the best creature, and Deathrite Shaman's mana ability exiled one; Wasteland now
+    skips basics, and Deathrite needs a land, instant/sorcery or creature card in a graveyard. (3) Removal and
+    counterspell riders were dropped: Swords to Plowshares' life, Path to Exile's land, Beast Within / Generous Gift /
+    Pongify / Swan Song tokens, An Offer You Can't Refuse's Treasures, Nature's Claim's life (e.comp). (4) Gray
+    Merchant, Exsanguinate, Kokusho gain the life lost; Reanimate and Feed the Swarm cost life. (5) Kiki-Jiki, Feldon,
+    Twinflame, Heat Shimmer, Helm of the Host copies: haste, not legendary, sacrificed or exiled at the end step.
+    (6) "Enters with X counters" now counts as putting counters (Hardened Scales, Doubling Season on Walking Ballista).
+    (7) A God below its devotion was picked as "target creature", so Heliod put its own counter on itself and the
+    Heliod + Ballista loop died. (8) Painlands, Talismans, Ancient Tomb, Elves of Deep Shadow, Mana Confluence now
+    cost their life. (9) Torpor Orb and Hushbringer are read. Found with a sentence scan of the 3,500-card snapshot
+    (lines counted as read while one sentence was dropped) and board probes. Tests: interactions 51/51, cards (130
+    readings changed on purpose), golden 18 (rules 4 and 5 unchanged), fuzz 12 + 60 games and hidden 0 problems,
+    type check 0, browser self-test 19/19. Still open: about 740 cards with a dropped sentence by the scan (many are
+    harmless or read by a whole-line pattern; see the notes below), The Scarab God and Abyssal Harvester copy a
+    battlefield creature instead of the exiled card, Twinflame copies nothing, Humility/Opalescence (item 90), a
+    target that stops being a creature isn't rechecked on resolution (608.2b).
+
+### AI
+- [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
+  copied game and step budget as item 83.
+  - Done, partly (counter or not; rules 5): lookahead.js lookAheadRespond. When a look-ahead pilot could counter a
+    spell, both answers are played on a copy of the game (the counterspell with everyone's chance to fight back, or
+    the spell resolving: cast again for free on the copy while that pilot lets it through), then the rest of the
+    active player's turn and each opponent's next combat; the other answer wins only by item 83's margin. Combo
+    pieces are always countered; counter wars and abilities keep the usual answer. It shares the decisions-a-turn
+    budget. Head to head with the cEDH decks, look-ahead pilots with it against look-ahead pilots without: 23–17 over
+    40 games (about 6 counter-or-not decisions a game, a quarter of them changed; 0 errors, no rule broken). Rules-5
+    golden games re-recorded (2 of 6 changed), rules 4 identical. tools/tune.mjs now prints look-ahead counts.  - Done (the rest, rules 5): any spell a look-ahead pilot would cast in response (removal, protection) is played    out against letting the spell resolve, the same way; and before spending held-up mana on a card at the end of    someone else's turn, casting it now is played out against holding it, through the next player's whole turn    (lookAheadEot). Head to head, look-ahead pilots with all instant-speed checks against look-ahead pilots without:    21–19 over 40 cEDH games and 20–20 over 40 games in four-player creature pods. The end-of-turn check is rare (32    checks in 40 cEDH games, 6 held; it shares each turn's look-ahead budget). 0 errors, no rule broken; rules 5    golden games re-recorded, rules 4 identical; tests/hidden.mjs still finds nothing.
+- [x] 102. Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation;
+  tuned with the matchup grid in Commander pods.
+  - Done for attacks (rules 5): lookahead.js lookAheadAttacks. A look-ahead pilot's attack from the combat planner is
+    checked against no attack and an all-in attack on the opponent with the least life: each is played on a copy of
+    the game (that combat, the second main phase, the end step), then every opponent plays a whole turn; the
+    planner's attack stays unless another wins by item 83's margin. Blocks keep the block search (item 105 already
+    added walker-aware blocks; a block look-ahead would need the attacker's turn to be resumable mid-combat). Head to
+    head in four-player creature pods (tools/tune.mjs, four 60-card decks), look-ahead pilots with it against
+    look-ahead pilots without: 22–18 over 40 games; with the cEDH decks 5–5 over 10. 0 errors, no rule broken.
+- [x] 103. Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in
+  steps, not ms, so replays stay exact.
+  - Done, as a finding: lookahead.js budgetFor (per decision; agent.budget overrides it). Tried 600 steps and 5–6
+    decisions a turn in duels and late game, 300/2 at cEDH tables: 80-game Standard duels came out identical for
+    every variant (39–41 against 400/3, the same as 400/3 against itself) and 16 cEDH games differed in one game,
+    4% faster. Budget size makes no measurable difference, so the defaults stay. (An earlier 41–79 reading came from
+    the test seating better decks with one side, not from the budget; tools/tune.mjs rotates decks to avoid that.)
+- [x] 104. X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards)
+  rather than the most mana available.
+  - Done: (rules 5) Game.cast asks the caster for X. AI chooseSpellX: permanents (Hydras, counters) take all the
+    mana; other spells try X = 1…30 valued with that X less 0.15 a mana, so burn stops at the X that kills its
+    target and the rest of the mana stays free. An AI pilot no longer casts an X spell with X = 0 (one cast Banefire
+    for 0 before). Human seats pick X from buttons. Head to head with the same deck, seats alternating, against
+    pilots that always use all the mana: 26–14 over 40 games, no X = 0 casts.
+- [x] 105. Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when
+  that's worth more than face damage.
+  - Done, partly: creatures can now attack planeswalkers (item 99's attack-a-permanent: decl.obj, combat damage
+    removes loyalty). The AI sends the smallest set of attackers already going at a walker's controller that kills
+    it, when the walker is worth more than the damage those attackers would have dealt (and the player isn't about to
+    die anyway). Choosing + or − was already done (pickPW). Human seats get "Attack <walker or battle>" buttons once
+    creatures are selected (tested: 44 attacks by a scripted human seat). Not done: blocks that protect our own
+    walkers (blocks treat an attack on a walker like one on us). Head to head in a
+    walker-heavy pod, seats alternating, against the same pilots without it: 23–17 over 40 games, no rule broken.
+  - Done (rules 5): the block search now counts damage aimed at our planeswalkers as loyalty lost (the walker's full
+    worth when it would hit 0) instead of life, so blocks protect walkers worth keeping. Golden games identical, fuzz
+    games clean; not measured head to head.
+- [x] 106. Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a
+  combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.
+  - Done, partly: the caster already fought back over its own spells, and Silence-before-combo was already there
+    (shieldsUp). New (rules 5): a third player joins a counter war when a counterspell is aimed at a counterspell that
+    was stopping something it wants stopped (Agent.wantCountered, shared with ordinary counters). 80 cEDH games: 7
+    such joins (P3 Dispels the Flusterstorm protecting Exquisite Blood), 0 errors; golden games identical.
+  - Done (rules 5): "spells you control can't be countered this turn" is now read (Veil of Summer, Autumn's Veil;
+    before, Veil was only "draw a card" and Autumn's Veil a static that did nothing on an instant). The AI holds these
+    (never cast for their small extras) and casts one in response to a counterspell aimed at a spell of its that
+    matters (a combo piece, its commander, 4+ mana, a wipe, removal or counter), or before a combo when someone could
+    counter it and the mana is there for both. Head to head with Veil of Summer and Autumn's Veil in the two green
+    cEDH decks, pilots that hold them against pilots that cast them as soon as they score: 43–37 over 80 games
+    (22 counterspells blanked, 6 combos shielded first; 0 errors, no rule broken). tools/tune.mjs --count counts log
+    lines, to check a change fires.
+- [x] 107. Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs;
+  the AI values its own graveyard as a resource and graveyard hate by what it stops.
+  - Done (rules 5): Agent.graveyardPlan values a card in its own graveyard (flashback, escape, unearth, embalm,
+    eternalize, jump-start; big creatures when a reanimation spell is in hand or out; anything with Underworld Breach).
+    Discards keep those for the graveyard, milling yourself is worth what the milled cards are worth there (never close
+    to decking), and graveyard hate is scored by what each opponent's plan loses. Head to head with the built-in cEDH
+    decks against the same pilots without it (noGyPlan): 20–20 over 40 games, as expected for decks that rarely
+    discard or self-mill; golden games identical, 52 fuzz games clean.
+- [x] 108. Threat assessment learned from batch games: which public board states lead to a win next round, used to
+  pick the archenemy instead of fixed weights (frozen into the setup like learn.js data).
+  - Done (rules 5): threat.js. At the start of each round of a 3+ player game the engine notes each player's public
+    board as seven coarse features (creature power, life share, other permanents, lands, hand size, combo pieces out,
+    commander out); recordGame marks each note by whether that player won within two rounds and keeps counts in
+    ct.threat (worker games send their notes too). After 30 games each feature value gets a log ratio of its win-soon
+    rate against the average; the table travels in every seat's learned table ('#threat'), so replays stay exact.
+    Agent.threat (threat ranks: removal, Silence and attack targets) and the engine's archenemy pick are scaled by
+    it (×0.4–2.5). tools/threatlearn.mjs learns a table in Node and plays pilots with it against pilots without:
+    the learned tables read as expected (big power, many lands and permanents and a small hand mean a win is near),
+    and they reorder about 15% of threat rankings, but the results were even (40–40 over 80 games in creature pods
+    and with the cEDH decks): no measurable gain yet. Storage in Updates lists and clears it.
+- [x] 109. Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block)
+  kept in learn.js and frozen into each game's setup.
+  - Done (rules 5): the engine notes for each person seat (HumanAgent, by seat name) the turns they end with 2+ mana
+    open and cards in hand, whether that mana is used before their next turn and whether on a counterspell, the
+    combats they could block in, their blocks and chump blocks; learn.js keeps these per person in ct.people (last 50
+    people, this browser profile only). From 3 games on, the rates travel in that seat's learned table ('#person'),
+    so replays stay exact, and the game log says what the AI remembers. The AI's counter odds for that person (which
+    drive baiting, Silence and Veil before a combo, and holding back combo pieces) come from how often their open
+    mana was a counterspell instead of a guess from colors and hand size. Tested in Node with an AI seat flagged as a
+    person on the Kess deck: 20 games gave holds 65% of turns, uses 17%, counters 14%, 73% of blocks chump blocks;
+    19 of 20 later games played differently with the reading. Not used yet: the chump-block rate (recorded and shown).
+- [x] 110. Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan
+  pieces, fast mana) and how those games went, and nudges planScore.
+  - Done (by land count, the feature with the most signal): the engine notes each kept seven's lands; learn.js keeps
+    results per land count and adds them to the learned table (under "#hands", so it's saved with each game and
+    replays stay exact). Under rules 5, a seven whose land count has 6+ games and won 8+ points less than average is
+    sent back, and one that won 8+ points more is kept. Tested in Node: an all-losing table mulliganed all 40 sevens,
+    an all-winning one kept all 40, rules 4 unchanged (38 of 40); golden games identical.
+- [x] 111. One "AI strength" choice per seat (Beginner, Casual, Strong, Expert) that sets style noise, look-ahead and
+  learning together; shown on the seat; the ladder rates each strength separately.
+  - Done: setup screen "AI strength" (by bracket / Beginner / Casual / Strong / Expert), saved in prefs; each seat's
+    noise, handicap and look-ahead are kept in the setup and replays; the log names the strength at the start; the
+    ranked ladder rates opponents by strength (1100/1300/1550/1750) when one is chosen. Measuring it showed noise
+    barely weakens a pilot (0.35 noise: 47–53), so a handicap was added (ai.js: that share of main-phase decisions
+    picks any decent play or stops, attacks and blocks use the old rule-of-thumb versions). tools/tune.mjs, 2-against-2
+    pods of fair decks, against Strong: Beginner (handicap 1 + noise) 38%, Casual (0.75) 44%, Expert (look-ahead)
+    49–51%: look-ahead adds little in those pods. tune.mjs itself was fixed on the way: its first seat/deck rotation
+    gave one side the same decks every game (a B-vs-B control came out 16–84); games now come in pairs with the sides
+    swapped and each side holding a copy of each deck (control 50–50). Results from the tool before that fix (item
+    103's notes are from the browser, not the tool) were not used. Not done: a strength label on each seat.
+- [x] 112. Bluffing: casual pilots sometimes keep mana open for nothing; strong pilots hold up mana when an opponent is
+  likely to attack into them.
+  - Done, off by default: combatai.js trickFear (a blocked attacker that only just survives counts as at risk when
+    the defender has 2+ open mana and cards in hand) and ai.js bluff (reserveFor keeps 2 mana up now and then with a
+    full hand and opposing attackers). tools/tune.mjs, fair 2-against-2 pods, 160 games each: trick fear 77–83 (48%),
+    bluffing on top of it 78–82 (49%). Neither helps with these decks (few tricks), so both stay as Agent flags
+    (agent.trickFear, agent.bluff) for decks where they might, rather than on for everyone.
+- [x] 113. Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and
+  writes a report, so tuning stops being done by hand in the browser pane.
+  - Done: tools/tune.mjs. Runs the game modules in Node (no browser, no npm packages): two pilots as JSON (--a, --b:
+    style plus any Agent field), games in pairs with the same decks and seed and the sides swapped (each side holds a
+    copy of each deck), fixed seeds, --control for B vs B, the rules watcher on every game. Decks: the cEDH presets or deck-list files; card data from Scryfall
+    /cards/collection once, cached in data/tune-cache.json. Tested: control runs come out 50–50 (after the seating fix in item 111), 0 errors, 0 rule problems. Its point is running long tuning grids from a terminal, where the hidden browser pane slows them.
+- [x] 114. Kingdoms roles still missing: Schemer, Sellsword, Field Marshal, Straw Man abilities, War Bear {Q}, Wizard
+  retarget, Champion scry (listed in README and KINGDOMS_AUTO).
+  - Done, partly: War Bears get "{Q}: deals damage equal to its power to target creature" (the +1/+1 counter part
+    isn't played); the Champion scries 1 each upkeep; the Straw Man's Announce forces every opponent's creature to
+    attack them until their next turn, and from that upkeep they win by eliminating themself (the AI Straw Man Announces
+    on its turn at 20 life or less while nobody is out). Fixed on the way: the AI valued "damage equal to its power"
+    and other counted amounts as 0 when choosing targets and abilities (ai.js now passes the source). Still not
+    automated (Announce reveals the role): the Schemer, Sellsword and Field Marshal, and the Wizard's retarget.
+    Tested: 24 + 24 Kingdoms games with those roles dealt (War Bears used {Q} 34 times, a Straw Man Announced and won,
+    Champion scried 31 times; 0 errors, no rule broken).
+- [ ] 115. Kingdoms balance with fast decks: Assassins win 9 of 10 with the cEDH presets. Tune the King's guard and the
+  Knights' protection until each team wins 30–60%.
+  - Done, partly (rules 5): tools/kingdoms-balance.mjs measures it in Node. Found: a combo that hits every opponent was
+    held back whenever any opponent had a weight under 0.5, so Bandits and Renegades (who spare the King) never fired
+    theirs; now only a true ally holds it back (under 0.12). The guard reacts after 4 damage to the King instead of 10,
+    the King hits back at whoever hurt him, and Assassins weigh the known King 0.8 instead of 1.8. On 100 fresh seeds:
+    Assassins 75% → 67%, the King's side 21% → 25%, Renegades 4% → 8%. Not yet in the 30–60% band.
+  - Pass 2: damage, drain and attack combos now spare the players their maker knows to be allies (kingdomsPlay.js
+    comboSpares, rules 5): such combos pick their targets, and before this Knights never fired theirs because they would
+    have killed the King. tools/kingdoms-balance.mjs --why prints how the King fell in each Assassin win: mostly combat
+    damage with no blocks, some table-wide combos. Tried and dropped, since none held up on a second set of 100 seeds
+    (100-game runs swing by ±6 points): a more defensive King (more kept home, life counted double: worse, 21%), 20
+    or 30 extra life for the King (30% then 22% for his side on two seed sets), Assassins weighing the King 0.6. Now
+    about Assassins 64–67%, the King's side 25–27%. Not in the band; the next step is probably role counts or how
+    many seats run fast combo decks, not AI weights.
+- [x] 116. Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0)
+  and ship the small JSON files; improve the plain heuristic (removal, curve, two-color commitment) for unrated sets.
+
+### Playing and the table
+  - Done: tools/ratings_17lands.py run for 17 more sets: OTJ, MH3, LCI, ONE, BRO, SNC, NEO, VOW, MID, AFR, STX,
+    KHM, DFT, TDM, FIN, EOE built (150,000 games each, 254–347 cards rated, 392 KB for all 23 sets); ZNR's public
+    file answers 403. Unrated sets: limited.js pickScore v2 (HEURISTIC.v2) counts more kinds of removal (and
+    removal on enter), creature size for its cost, two-drops when short of them, fewer 6+ drops, and cards with
+    unread text for less. Test: 16 simulated M21 drafts, two drafters on each version, the 40-card decks played
+    each other (both seat orders): v2 72–56.
+- [x] 117. Drag to attack, block and target: drag a card onto a player, walker or creature; arrows on the table show
+  what each stack item targets.
+  - Done, partly: drag one of your highlighted creatures onto an opponent's board while declaring attackers to
+    attack them (with it and any already selected); it's answered as the same clicks, so replays and undo are
+    unchanged. Arrows: dotted arrows from each spell or ability in the stack panel to its targets, and attack arrows
+    now point at an attacked planeswalker or battle. Not done: dragging to block or to choose a spell's target.
+    Tested by hand in the Attacking lesson (dragged Hill Giant onto the dummy: it attacked and won).
+- [x] 118. Auto-answers: "always yes / always pay / never pay" for a trigger or card this game (Rhystic Study taxes,
+  "you may" triggers), listed so they can be undone; saved with the answers so replays stay exact.
+  - Done: yes/no-style questions (2–6 buttons, no cards to click; not main-phase, attack, block, response or X
+    questions) get an "Always" checkbox in the action bar; ticked, that answer is given automatically to the same
+    question (numbers ignored, so "pay {1} or P3 draws" counts as the same) for the rest of the game. An "Auto answers:
+    N ✕" button lists them (hover) and clears them. Each automatic answer is recorded like a click, so replays and undo
+    are unchanged. Tested on the action bar: one ticked "Don't pay" answered the next two questions.
+- [x] 119. Smart pass: "pass until something targets me or mine", "pass to my turn", "pass to end of turn", working
+  with the stops from item 67.
+  - Done: response windows and stops get "Pass to end of turn", "Pass to my turn" (on others' turns) and "Pass unless
+    targeted" (asked again only for spells and abilities that target you or your permanents, until your next turn).
+    While one is on, those windows pass without asking; blocks and your own main phases are still asked. The choice is a
+    recorded answer, so replays set the same mode. Tested with a scripted Full-control seat in 4 cEDH games each:
+    1,202 response prompts with plain Pass, 189 / 293 / 110 with the three modes, 0 errors, no rule broken.
+- [x] 120. Payment preview: before a cast is confirmed, highlight the sources that will tap and let the player swap one.
+  - Done, partly: hovering a card you can cast now outlines (yellow dashes) the lands and mana sources the automatic
+    payment would tap. Swapping a source is done the way it already worked: tap the sources you want by hand first
+    (mana in your pool is spent first); there is no separate confirm step, which would add a click to every cast.
+    Tested in the first lesson: hovering Grizzly Bears outlined both Forests.
+- [x] 121. Big boards: identical tokens stack with a ×N count; rows shrink instead of overflowing at 50+ permanents.
+  - Done: identical creature tokens (same name, power/toughness and tapped state, no counters, damage, attachments
+    or combat) are drawn together as an overlapped pile with a ×N count on the first card; each token is still its own
+    card for clicks and targets. Cards shrink further past 34 and 50 permanents (38 and 34 px). Tested: a goblin token
+    game drawn on the table (piles of ×7 and ×2).
+- [x] 122. Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line,
+  from any card on the table, in a pile or in the log.
+  - Done: right-click any card (table, piles, stack panel, or its name in the log) for a details panel: image, Oracle
+    text, how the simulator reads it (describeFx) and any unread lines, and Scryfall's rulings (fetched once per card,
+    the last 300 kept in the browser profile for offline). Tested: Hill Giant (no rulings), Rhystic Study (2 rulings,
+    cached).
+- [x] 123. Clickable log: card names highlight the card on the table and open its details; a search box over the log.
+  - Done: clicking a card name in the log points the card out on the table (scrolls to it, a gold pulse); right-click
+    opens its details (item 122); a "Search the log…" box shows only lines with that text (turn headers stay).
+    Tested: searching "giant" in a lesson left the matching lines.
+- [x] 124. Post-game report: life-total graph, damage dealt by and to each player, cards drawn and cast, the turn that
+  decided the game and the biggest plays; kept in History.
+  - Done: the results screen has a Game report: a life-total graph by turn (one line per player), spells cast, cards
+    drawn, damage dealt and taken per player, the turn that decided it (where the winner's lead grew most) and the
+    three biggest hits. The engine only records these (lifeLog, bigHits, stats.draws/taken); nothing reads them
+    during play, so results and replays don't change. History entries keep each seat's spells and damage dealt and
+    taken (not yet shown on the History page). Tested on a finished lesson game.
+- [x] 125. The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.
+  - Done: under 600 px the top toolbar and the timeline are single rows that scroll sideways (156 px tall
+    together instead of 332 at 375 px wide), the page never scrolls sideways, the lesson coach panel moves to the top
+    and stays short. Card zoom on touch relies on the right-click details panel (item 122): phone browsers send a long
+    press as a context menu, but that wasn't tested here. Checked at 375×812 in a lesson; not on a real phone.
+- [x] 126. Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts,
+  announcements of other players' actions.
+  - Done: the cards you can pick are focusable buttons named for screen readers ("Forest, in your hand"); Tab moves
+    between them and Enter or Space picks the focused one (buttons already had Space/Enter, 1–9, Esc, A). The action
+    bar's question is a polite live region, and casts, combat, damage, removal, combos and eliminations are announced
+    through a hidden live region. Tested: the first lesson played with Enter only. Not tested with a real screen reader.
+- [x] 127. Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and "your turn", with
+  separate volumes for music and effects.
+  - Done: synthesized effects already played for casts, lands, combat, damage, removal, deaths, combos, wins and
+    losses; added a two-note "your turn" sound and separate Music volume and Effects volume sliders in the Display
+    window (saved in prefs). Tested: sliders change both levels and are saved.
+- [x] 128. High-contrast theme, card text size setting, and the OS "reduce motion" setting turning on "Fewer animations".
+  - Done: Display window: High contrast (black panels, white borders and text, yellow main buttons and pickable
+    cards), Text size (Normal / Large / Larger), and Fewer animations starts on when the system asks for reduced
+    motion (until the player changes it). Tested: both settings switch on and off in the Display window.
+- [x] 129. Finish translations: help paragraphs, the game log, the self-test page and the windows from rounds 3–4
+  (Expedition, builder, Draft, Updates) in es/fr/de/pt; add Italian and Japanese interfaces.
+  - Done, partly: Italian and Japanese interfaces (public/js/i18n_more.js: all 165 existing strings and the 9
+    patterns, card names and images from Scryfall in those languages), the Round 5 labels in all six languages, and the
+    Round 3 setup buttons that had stayed English (Learn to play, Story, Expedition, Tabletop, Deck builder, Players…).
+    Not done: the game log, longer help paragraphs, the self-test page, and the inside of the Round 3–4 windows
+    (Expedition, builder, Draft, Updates). Tested: the setup screen in Japanese and Italian.
+- [x] 130. Puzzle editor: build a board by clicking (search cards, place them in any zone for any player, set life and
+  counters), test it, save it as a file or a challenge link (item 77 has no button to make one from a board).
+  - Done, as a text editor rather than click-to-place: Puzzles → Make a puzzle… has a name, goal, hint, 2–4
+    players (name, commander, life, commander out) and their battlefield, hand, graveyard and top of library, one card
+    per line ("*tapped*" and "(+2)" for tapped cards and counters). Test it (plays it at once), Save as file, Copy a
+    challenge link (opens the puzzle on any PC: item 77 had no button for this), or start From the current board. The
+    draft is kept between visits. Tested: a board with a tapped Hill Giant and countered Grizzly Bears loaded and played.
+- [x] 131. Rematch with changes: swap decks between seats, rotate seats or change one pilot, on the same seed.
+  - Done: the results screen has "Rotate decks, same seed" (each deck moves one seat along, players and pilots stay)
+    and "Same seed, change setup…" (back to the setup screen; the next game started uses this seed). Hidden for
+    puzzles, custom seats and unfinished matches. Tested: a Standard game, rotated (the 60-card deck moved seats with
+    the same seed), played out and rotated back. Fixed on the way: the opening-hand question no longer offers
+    item 118's "Always" box.
+- [x] 132. "What if" from the timeline: take over any seat from any point of a replay and play on; the branch is saved
+  as its own replay.
+  - Done: timeline "Take over…" (games of AI seats, or loaded replays): pick a seat; the game is rebuilt to this
+    step and that seat is yours from there (setup.takeovers = [{ seat, step }], applied at that step in every rebuild
+    and saved in replay files, so the branch replays exactly). The branch replaces the game on the table: Save replay
+    first to keep the original. Tested: an AI Standard game stepped back to turn 10, Amber taken over, the main-phase
+    question came up for her.
+- [x] 133. Save and resume: the game in progress is autosaved (setup + answers) so closing the app or a crash loses
+  nothing; Resume on the start menu.
+  - Done: the game in progress is saved in the browser profile (ct.autosave: the replay file plus how many steps
+    it got to) at every turn start and every answer; a finished game clears it. The start menu shows Resume with the
+    players, turn and time; it plays the game back quickly to that step and pauses, and your recorded answers carry it
+    there. Not for puzzles, lessons, campaigns, online or loaded-replay games. Like loading a replay file, resuming
+    puts the saved decks into that format's seats. Tested: a Commander game reloaded at turn 22 and resumed to turn 22.
+- [x] 134. Readable big tables: layouts and card sizes for 5–9 seat Kingdoms tables on a 1080p screen.
+
+### Online
+  - Done, partly: 5–6 and 7–9 seat tables had fixed card sizes (44 and 36 px) whatever the screen; they now follow
+    the screen (clamp by width and height: 44–60 and 36–50 px). At 1920×1080 with 9 players: cards 44 px instead of
+    36, boards with an inner scroll bar 5 of 9 instead of 7. Token piles (item 121) also save room. A first try that
+    shrank cards by seat count made it worse and was dropped. Not done: a different layout for very full boards.
+- [x] 135. Sideboard window on the friend page between best-of-three games (friends keep their deck today).
+  - Done: between best-of-three games the host sends an online friend their deck and sideboard (RemoteUI.askSideboard);
+    the friend page shows both lists, a click moves one copy across, "Play these" or "Keep my deck". The host only
+    accepts the same cards in total and at least the format's deck size; no answer in 3 minutes keeps the deck.
+    Tested with server.py and a friend tab: Standard Bo3, the friend moved cards and game 2 started.
+- [x] 136. Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel),
+  then play the pod or one-on-one matches.
+  - Done: with the lobby open, Draft / Sealed counts the friend seats among seats 2–4. runDraft lets everyone pick from
+    their pack at once (the host on the setup screen, each friend on their own page through the room's ask/answer
+    channel: net.js askDraftPick, a card grid on the friend page), the AI drafters straight away; a friend who doesn't
+    answer in 90 seconds gets the AI drafter's pick. Sealed gives friends their own pools. One on one: a friend in
+    seat 2 plays the pool they drafted (built automatically; they sideboard between best-of-three games with item
+    135's window); a pod: every seat gets its own drafter's deck, friends included. No server change (answers pass
+    through as sent). Tested with server.py and a friend tab: an FDN draft, the friend's picks arrived (pack 2 had
+    13 cards), 42 picks each, the friend's pool went to seat 2 under their name.
+- [x] 137. Friends at 1v1 and Limited tables: test the friend page with two seats and fix what breaks (untested in 56–60).
+  - Done (tested, nothing needed fixing in the page): a Standard table with a friend seat played through server.py
+    with a friend tab: two boards, the friend's questions, the game to the end, and a best-of-three into game 2.
+    Limited uses the same two-seat path (not played separately). Found while testing: the Commander Table.exe in the
+    folder was older than the per-seat join keys (friend links read code=undefined); rebuilt. An old server.ps1 left
+    running by an earlier session (Nov 4) still holds port 8777 and answers with the old API; it was left alone.
+- [x] 138. Tabletop with 3–4 friends tested and fixed (untested in item 76); save and load a tabletop.
+  - Done: tested a 4-seat tabletop with three friend tabs (draws, life, dice, playing cards, all seen by the host).
+    Save table writes the table to a file and Load table… carries on from it (Tabletop.save/load; friends rejoin with
+    new links and their moves are accepted). Fixed: the friend page showed a Deal button at the tabletop.
+- [x] 139. Deals proposed from the chat are recorded with the answers, so rewinds and saved replays include them. Done: `setup.chatDeals` keeps each offer with the step it was made; rebuilds and loaded replays offer it again at that step.
+- [x] 140. Resume a room after the host's app closes: reopen from the autosave (item 133) and friends rejoin with the
+  same seat keys.
+  - Done: online games are autosaved too, with each friend seat's key; Resume reopens the room with those keys
+    (room/open now takes "seat=KEY" in all three servers). Tested with server.py restarted mid-game: the friend's same
+    link rejoined and play went on. server.ps1's open was checked with curl; the .exe was rebuilt but not run (port 8777 busy).
+- [x] 141. Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.
+  - Done: "New link for someone else" in Invite (room/rekey in all three servers). Tested with server.py: the old link
+    was refused, the new one joined the seat mid-game; server.ps1's rekey checked with curl; the .exe rebuilt, not run.
+- [x] 142. Streamer view: a spectator link with a delay (30 s–3 min) that shows every hand after the delay, in a clean
+  layout for screen capture.
+  - Done: seat -2 in every room; the host samples the whole table every 2 s and sends it only after the delay. Tested
+    with server.py: both hands shown, chat and buttons hidden, a chat line appeared 31 s later at the 30 s setting.
+- [x] 143. Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.
+  - Done: Friend tournament (friendcup.js + a window on the table): entrants played by you, friends or the AI; Swiss or
+    single elimination; AI fill-ins for short pods; pods with people played at the table (friends get links per match),
+    AI pods at full speed; standings with Copy. Tested: the pairing logic on 4 shapes in Node, and a 5-player Swiss
+    Standard event in the browser (AI pods, my pod at the table, round 2 paired by points). A friend seat in a cup game
+    uses the normal online seat path but wasn't played separately.
+- [x] 144. Connection check for friends: a page on the host that tests the port and the tunnel from outside the PC and
+  says what to fix (firewall, router, tunnel down).
+  - Done: "Check the connection" in Invite: the server, each LAN address and port, the tunnel URL through Cloudflare,
+    who has joined, with a fix for each failure. A true outside-the-PC port test would need an outside service, so the
+    advice covers what this PC can't see. LAN rows tested with server.py; the tunnel row not run.
+
+### Decks and data
+- [x] 145. Deck health: lands, curve and counts of ramp, card draw, removal and wipes against a Commander template
+  (Scryfall's `otag:` tags, fetched once and cached), with suggestions.
+  - Done: dechealth.js and a Deck health button in the deck viewer. Tags are asked only for the deck's own cards (20
+    names a search) and kept per card (ct.otags2). Ramp uses mana-rock/mana-dork/land-ramp/ritual: the broad ramp tag
+    counted Path to Exile and Sun Titan. Tested on random Commander decks in the browser (about 3 s the first time).
+- [x] 146. Commander precons from MTGJSON's deck files (free, open license): browse by set and seat one in a click;
+  cached for offline.
+  - Done: precons.js + "Commander precons…" on the setup screen (208 decks, by set, filter); a seat's source
+    "precon:<file>" loads one. The list is kept a week, each deck once. Tested: Virtue and Valor seated and loaded
+    (99 + commander, no warnings), and two full-speed games with four precons, 0 simulator errors.
+- [x] 147. Collection: import what you own (ManaBox, Deckbox or any CSV), mark owned cards in the builder, an "only
+  cards I own" filter and a missing-cards list per deck. No prices.
+  - Done: collection.js + Collection… on the setup screen (replace or add); builder ✓ badges, "need N" rows and an
+    Only cards I own filter (Scryfall pages filtered here, reading up to 6 more pages); the deck viewer's missing list
+    with Copy. Tested with ManaBox and Deckbox style CSVs and a precon in the browser.
+- [x] 148. Library folders and tags, search by commander, colors and bracket, notes per deck, and version history with
+  a diff between versions.
+  - Done: folder, tags, colors, bracket and notes in each list's About section (loaders skip it; no server change);
+    folder filter and multi-word search; Info panel with "Work out colors and bracket"; every save keeps the replaced
+    list (last 10, in the browser profile) with Show changes and Restore. Tested with a throwaway deck, then deleted.
+- [x] 149. Goldfish: sample hands with mulligans, and solo runs of the AI pilot over 1,000 seeds giving the average turn
+  the commander comes down and the combo is assembled.
+  - Done: goldfish.js + a Goldfish section in the deck viewer: sample hands (London mulligan, draws) and 100/250/1,000
+    solo runs against a lands-only opponent (commander turn, first combo attempt, win turn, lands after three turns,
+    mulligans). Fixed seeds, so results compare before and after an edit. Tested on a precon: 100 runs in about 2 s.
+- [x] 150. Draw odds: chance of having a card or a category (ramp, a combo piece) by turn N, in the deck viewer.
+  - Done: hypergeometric odds (goldfish.js atLeast) for a group or one card, at least 1–5, turns 1–10 on the draw and on
+    the play. Groups: lands, card types, Deck health roles once checked, combo pieces. Checked: 1 card in 7 of 99 is
+    7.07%, and the at-exactly-k odds sum to 1.
+- [x] 151. Combos one card away: Commander Spellbook's "almost included" results in the deck viewer and the builder.
+  - Done: combos.js almostCombos (find-my-combos' almostIncluded, one missing card, by popularity) in the deck viewer
+    (with Spellbook links) and the builder (click the missing card to search it). Tested on a precon in both.
+- [x] 152. Bracket estimate refresh: follow the current official bracket rules (tutors, extra turns, Game Changers from
+  Scryfall) and explain each difference from Spellbook's estimate.
+  - Done: late-game two-card combos (pieces over 6 mana together) are bracket 3, early ones 4; extra-turn chaining
+    (2+ cards) and tutors (counted, no limit) are listed; bracketDifferences explains a gap with Spellbook on the chip
+    and in a new Bracket section of the deck viewer. Changes the default AI noise for some unbracketed seats; noise
+    is saved in setups, so replays stay exact. Tested on a precon and two random decks.
+- [x] 153. More exports: MTGO .dek, Arena text and a printable text checklist.
+  - Done: deckexport.js + Export buttons in the deck viewer. Checked on a precon: the .dek parses as XML with the
+    commander in the sideboard, the Arena text reads back as 100 cards with the commander, the checklist groups by type.
+- [x] 154. "Fully simulated only" filter in the builder, so people can build decks the AI plays at full strength.
+  - Done: a builder checkbox (effects.js ignoredText per result, reading on like the owned filter) and a ⚠ badge on
+    partly simulated results. Tested: o:"exchange life totals" showed 7 cards with 5 ⚠, and 2 with the filter on.
+- [x] 155. EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.
+  - Done: a Trends tab: share across the year/6-month/3-month/month windows with a sparkline and rising/falling, win
+    rates, and a daily snapshot history (ct.metaTrend, a year) shown as "Your visits" from the second day. Tested in
+    the browser (25 commanders); the visits column needs a second day, not seen yet.
+- [x] 156. More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish,
+  Archidekt folders).
+  - Done: Archidekt folders (robots.txt allows them; the folder API goes through the existing proxy, no server change):
+    Import an Archidekt folder… in the library, with subfolders, saving each chosen deck into a library folder.
+    TappedOut and MTGGoldfish deck links already loaded (earlier rounds). Tested with a public folder (saved, then deleted).
+- [x] 157. Printings offline: the optional "Default Cards" bulk file so set searches for Draft / Sealed and printings
+  work without Scryfall (item 81 still sends e: and is:booster there).
+  - Done: bulk.js downloadPrints/loadPrints/removePrints (paper printings, kept in a separate IndexedDB) and set,
+    cn and is:booster terms plus order=set and unique=cards/prints in the local search. Tested: a 104,682-printing
+    download in 55 s; e:fdn is:booster answered locally with the same 271 cards in the same order as Scryfall.
+- [x] 158. "Download images for my library": fetch every image for library decks into data\images with progress, and
+  let the 400 MB cap be changed.
+  - Done: /api/imgcache (folder size and cap, kept in data\image-cache-mb.txt) in all three servers; server.ps1 now trims
+    the folder too. Updates has a Cap select and the download button (4 at a time, Stop). Tested on server.py (cap
+    set and read back, bad input refused, a temporary library deck's 21 images fetched) and server.ps1 with curl;
+    the .exe rebuilt but not run (port 8777 busy).
+
+### Modes and progression
+- [x] 159. Two-Headed Giant: shared 30 life, shared turns and team combat, with AI teammates that plan together.
+  - Done: format twohg (formats.js; random decks from Standard's pool). Seats 1–2 and 3–4 are teams (Game.linkTeams:
+    each member's life and poison read and write the team's, so lifelink, "each opponent" damage and life costs all
+    hit the shared total; look-ahead copies link again). 15 poison loses; a player losing takes the teammate out too
+    (810.8a) and the team left wins together (g.winners). Teammates are never opponents (no attacks, targets, deals or
+    threat on each other), the team that goes first skips its first draw, and the defender's teammate blocks too,
+    among the attackers still unblocked (810.7). Turns: teammates take theirs back to back as the team's turn
+    rather than one merged turn (a merged untap, draw and combat would need the turn structure rebuilt). Tested: 20
+    games with four creature decks through tools/tune.mjs (team against team, 10–10, 0 errors, no rule broken) and a
+    logged game (shared life to 0 eliminated both, the other team won together, teammates blocked for each other).
+- [x] 160. Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each
+  turn, the planar die, AI that plays both sides.
+  - Done: planar.js and two formats. Archenemy: seat 1 has 40 life and a deck of 20 schemes (Scryfall t:scheme, no
+    ongoing ones); at the start of its first main phase each turn the top scheme's "set in motion" ability goes on the
+    stack (targets chosen by its pilot, AI or person) and the scheme goes to the bottom. The others are a team
+    (Game.teams, as in item 159: never opponents of each other, block for each other, win together when the archenemy
+    is out; but each loses on their own). Planechase (Commander): 10 planes, one face up; each player rolls the planar
+    die once at the start of their first main phase (planeswalk 1 in 6, chaos 1 in 6); "when you planeswalk to",
+    chaos (both wordings) and upkeep abilities are played, the rest of a plane is named in the log as not played.
+    The pick is saved in the setup and in replays (planar), and the decks are shuffled with the game's seed. Tested in
+    Node with fetched cards: 12 Archenemy games with four creature decks rotated (archenemy won 2; 110 schemes set in
+    motion, 60 of them read; 0 errors, no rule broken) and 12 Planechase games with the cEDH decks (66 planeswalks, 71
+    chaos rolls, 21 chaos abilities played; 0 errors, no rule broken). Not done: ongoing schemes, plane statics, more
+    paid rolls of the die, batch runs (they play these formats without the scheme or plane deck).
+- [x] 161. Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.
+  - Done: two formats (formats.js), random Duel Commander decks from legal:duel (randomVariant), and 1v1 Commander
+    taking any Commander deck. Tested: random decks of 100 with no warnings, three games each at full speed (0 errors),
+    and a 1v1 Commander game started from the setup screen.
+- [x] 162. Gauntlet: beat a chain of rivals in a row (EDHTop16 top 8, a cube's AI decks or the library); one loss ends
+  it; best run shown in Progress.
+  - Done: a Gauntlet tab in Progress: pools EDHTop16 top 8 (1v1 Commander), your library, or random decks of the
+    format (cube decks left out: the cube's AI decks are built per draft); one-on-one fights with your seat-1 deck,
+    a result counted once, best run per pool. Tested a random-pool run in Standard to a loss (run ended, best kept).
+- [x] 163. Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs
+  shareable as a code.
+  - Done: four more events (8), three run modifiers of our own (Glass cannon, Laden pack, Forced march), a fourth act
+    (The Starlit Peak, the Star Herald) for new runs, and run codes (set, difficulty, modifier, seed) that replay the
+    same road. tools/expeditionsim.mjs plays whole runs with an AI in your seat. Found: the starting deck was 16
+    spells padded with 24 lands, so the first rivals won almost every fight; it is now 23 spells and 17 lands. An AI
+    pilot wins about two thirds of its fights, so Normal now forgives one loss per run (none still clear all four acts
+    with an AI pilot: 5 of 12 reached act 2). Hard runs walked to the end with --win-all (all fights played, counted as
+    won): 2 of 2 cleared all four acts with every reward, event and boss, no errors.
+- [x] 164. Story: four more chapters of The Lantern Road, balanced like the first four.
+  - Done: chapters V–VIII (The Glass Desert, Under the Wolf Moon, The Clockwork Tide, The Last Lantern), original
+    text and boards. tools/storybalance.mjs plays each chapter with an AI in your seat: chapters I–IV win 37–80%, the new
+    ones 43–53% after tuning (30 games each, 0 errors). Tested: chapter V opens after IV and starts with every card.
+- [x] 165. Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the
+  engine to have a solution and picked by date.
+  - Done: tools/dailypuzzles.mjs saves the board at the winner's last first main phase in AI games (the cEDH decks,
+    fixed seeds) and keeps it only when an AI pilot wins from it on three shuffles: 91 of 120 games (71 combo wins,
+    20 damage). The Puzzles window shows the day's puzzle with a streak. Tested: today's opened with all 4 boards
+    and no missing cards.
+- [x] 166. Limited ladder: Elo from draft and sealed results, and a league record per draft (best of seven wins).
+  No entry fees.
+  - Done: seating a one-on-one Limited deck starts a league for that pool (the other three drafters' decks in turn,
+    until 7 match wins or 3 losses); each decided match counts once for a Limited Elo rating; the results screen shows
+    the record and "Next league opponent"; Progress › Ladder lists the rating and past leagues. Tested with a sealed
+    FDN pool: a loss counted (0–1, 1480), the next opponent was seated and its match started.
+- [x] 167. More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress
+  toward each unlock.
+  - Done: six badges (puzzle of the day x2, Gauntlet x2, Limited league, friend tournament), two original SVG avatars
+    and two CSS card backs, and an Unlocks tab in Progress with a progress bar per locked item (badges report their
+    own progress). Badges are checked right after those modes record a result. Tested in the browser.
+- [x] 168. Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in
+  Ranked.
+  - Done: a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate
+    random stream and adds its reason to the main-phase prompt. Off in Ranked and puzzles. Tested: shown in a
+    Standard game; in Node a game with the coach asked at many points came out identical to one without.
+
+### Speed, testing and tooling
+- [x] 169. Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.
+  - Done another way: the live table stays in the page (the board, prompts, undo and replays all read the game object
+    directly, so moving it to a worker would mean rebuilding the whole table around messages). What froze it was
+    look-ahead, whose simulated steps never gave the browser a turn: now every 25 simulated steps in a page hand it a
+    moment (a MessageChannel message, not in Node or workers). Measured in the browser on two cEDH games with four
+    look-ahead seats: long tasks (over 50 ms) 13 → 0, the longest 98 ms → none; same winners and steps, self-test
+    19/19 (look-ahead replays exact), golden games identical. Batch, grid and tournament games already run in
+    workers (item 170).
+- [x] 170. Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker
+  for the same seeds.
+  - Done: batch runs, the matchup grid and the AI tournament play on every core (batchworker.js, a module worker per core; each loads the decks from
+    their card lists and plays a list of fixed seeds with the learned tables taken at the start). Batch has Cores and
+    Seed controls. Tested: 25 cEDH games with seed 12345 gave identical results on 1 core (6.9 s) and on 15 workers
+    (0.76 s). The grid (3 decks, 12 games) and a 5-deck tournament (3 rounds) were played on workers too; each keeps
+    its old in-page loop as the fallback.
+- [x] 171. Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the
+  hottest paths (abilitiesOf, statics, cloneGame).
+  - Done: profiled in Node: the combat planner spent most of its time in attachments(), has(), power() and toughness().
+    Game.withEvalCache gives the planner a read-only memo of those (the board doesn't change while it plans).
+    Self-test: 50 games 13.9 s → 6.5 s and look-ahead 0.69 → 0.34 s a game, with the same results (13.0 rounds, 53
+    combos; golden games identical). abilitiesOf and cloneGame were under 3% each and left as they are. New
+    self-test row: Speed (10 fixed seeds, games and steps a second).
+- [x] 172. Golden card readings: tests/cards.mjs runs the effects parser over a saved snapshot of the 3,500 cards and
+  fails when a card's reading changes without the snapshot being updated on purpose.
+  - Done: tests/cards-snapshot.json (3,500 cards, Scryfall fields normalize() reads; --fetch refreshes it) and
+    tests/card-readings.json (type, what is understood, lines not read; --update accepts). CI runs it after the type
+    check. Now 88.3% fully read. Checked that a changed reading fails with a +/- diff.
+- [x] 173. Golden replays: saved replays from each version in tests/ that CI replays and checks for the same result,
+  so outcome-changing edits are caught and replay versions are bumped on purpose.
+  - Done as golden games: tests/golden.mjs plays 12 AI games (the four built-in decks, fixed seeds) under rules 4 and
+    rules 5 and compares winner, rounds, steps and a log hash with tests/golden-games.json; card data is saved in
+    tests/golden-cards.json so it runs offline in CI. Replays saved from the app with your own answers need the browser
+    (HumanUI), so they aren't part of it. Recorded and re-run: 12/12 identical.
+- [x] 174. Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI
+  with a fixed seed list.
+  - Done: tests/fuzz.mjs (random Commander decks from the card snapshot; seat 1 is a HumanAgent whose UI answers at
+    random; 12 fixed seeds in CI, more with --games/--seed). HumanAgent no longer needs a page (two DOM uses guarded).
+    Found and fixed: equipment stayed on a Vehicle after it stopped being a creature; now 704.5n unattaches it
+    (rules 5), and the watcher checks that after state-based actions. 132 more games: 0 errors, 0 broken rules.
+- [x] 175. Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.
+  - Done: 105 → 0 findings. types/dom.d.ts tells the checker the pages' DOM lookups are HTML elements (42 findings);
+    fields set after construction are declared (Game, Clock, Room, HumanUI, RemoteUI, Agent, seats); HumanAgent's async
+    overrides have an any return on the Agent side; the rest got JSDoc types. engine.js and effects.js now also pass
+    --strictNullChecks (172 findings fixed, mostly by typing the card reading and object records), checked by a second
+    pass in tests/typecheck.mjs. Found on the way: a typo (revealAll for revealHands) kept the top of a library hidden
+    for "look at the top card" permanents when Reveal hands was on. Golden games, card readings and fuzz unchanged.
+- [ ] 176. Split main.js and engine.js into smaller modules (setup screen, windows, results; combat, stack, zones, mana)
+  with no change in behaviour, checked by the golden replays (item 173).
+  - Done, partly: engine.js 5,450 → 2,515 lines. Its combat, mana, effects-resolving, zones and triggers sections are now
+    combat.js, mana.js, resolve.js, zones.js and triggers.js: each method became an exported function taking the game
+    as g, and Game keeps a one-line method that calls it, so callers are unchanged (tools/split-engine.cjs does the
+    move; only code uses of this are rewritten, never log text). Fields first set inside moved methods are declared in
+    the constructor (left undefined, as before). All five modules are in the strict-null type check. main.js 4,022 →
+    about 3,830: the Help, What's new, Storage and card-image windows are windows.js; seat colors, decks as text and
+    games on every core are cores.js; the shared prefs object is prefs.js. Checked: golden games identical, fuzz clean,
+    card readings unchanged, type check 0, self-test 19/19, the windows and a 6-game run on workers in the browser.
+    Not done: the setup screen and results out of main.js, and the stack and casting sections out of engine.js.
+- [ ] 177. CI on more systems: build the .exe and test it and server.ps1 on a Windows runner; run server.py's --check
+  and the self-test on macOS and Ubuntu runners (closes item 52's "untested on a real Mac or Linux").
+  - Done, not yet run: selftest.yml now runs server.py's --check and the self-test on Ubuntu and macOS (a matrix), and
+    a Windows job builds Commander Table.exe and runs the self-test against it and against server.ps1. Written and
+    checked by eye only: the branch isn't pushed, so GitHub hasn't run the new jobs. (server.py --check passes here.)
+- [x] 178. Local bug reports: "Report a problem" saves the replay, log, version and console errors into
+  data\bugs\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.
+  - Done as one JSON file saved to Downloads (no server change; a browser can't write a zip into data\): the replay
+    with seat numbers for names, the last 400 log lines, version, browser, screen, the last 40 errors and warnings
+    (kept from page load) and a note. Paths, emails and IP addresses are masked. Tested: a test error's path, email and
+    IP came out masked.
+- [x] 179. Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in
+  Updates, with clean-up buttons.
+  - Done, partly: Updates has a Storage panel (each feature's size in the browser profile, the card files, the total
+    the browser reports) with Clear buttons (caches at once, your own records after a question). Tested: the card
+    caches (238 KB) cleared. Not done: moving the large keys to IndexedDB, which would make every `store()` reader
+    async; none is near the limit yet (256 KB of about 5 MB in the test profile).
+  - Done (the move): util.js keeps 14 large keys (the unfinished game, history, deck learning, library versions, learned
+    threat and people, the collection, card caches, scheme and plane cards) in IndexedDB. They are read once when the
+    page starts (util.js waits for it with a top-level await, so every module finds them loaded) and kept in memory as
+    JSON text, so store() stays synchronous and every reader is unchanged; writes go to memory at once, to IndexedDB in
+    the background, and to the game's other tabs (BroadcastChannel). The first start moves the keys over and removes
+    them from localStorage only once IndexedDB has them. Without IndexedDB (Node, workers, a blocked browser)
+    everything stays in localStorage. Storage in Updates shows both. Tested in the browser: 5 keys moved, a write
+    survived a reload, Resume and history still found, self-test unchanged.
+- [x] 180. Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a
+  different order, give identical logs (catches stray Math.random or Date).
+  - Done: a self-test row: 3 seeds with and without look-ahead seats, then again in the opposite order; logs compared.
+    Self-test: all 18 checks passed, 6/6 identical in 5.4 s.
+
+### Help and packaging
+- [x] 181. Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.
+  - Done: Rules.keywordIndex/glossify (702 keyword abilities and the rarer 701 actions, 242 names) mark keywords in
+    log lines, card previews and card details; one page tooltip shows the rule and its first subrule. Tested in the
+    browser (Flying, trample, scry, Deathtouch marked; Exile left plain; the tooltip shows 702.9).
+- [x] 182. "What's new" window after an update, built from this file's Done notes for the new VERSION.
+  - Done: tools/whatsnew.mjs writes public/data/whatsnew.json (newest round's finished items, first sentence of each
+    Done note, VERSION); the page shows it once when the version changed since the last start, and from Updates.
+    make-shareable-zip.ps1 refreshes it when Node.js is there. Tested by setting an older seen version.
+- [x] 183. Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks
+  it and refuses a mismatch.
+  - Done: release.yml attaches commander-table.zip.sha256; the update check in all three servers hashes the download,
+    fetches <address>.sha256 and refuses a mismatch (nothing saved); Updates shows the hash and whether it matched.
+    Tested server.py's check with a stubbed download (match, mismatch refused, none published); server.ps1 parses and
+    the .exe builds, but neither was run against a real address.
+- [x] 184. Help window inside the app: README's sections with a search box, translated where item 129 covers them.
+  - Done: tools/help.mjs builds public/data/help.json from README's sections (make-shareable-zip.ps1 refreshes it);
+    Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that
+    ranks sections and highlights the words. The manual itself stays in English: item 129 translated the interface,
+    not README. Tested: 25 sections, a search for "gauntlet" found Progress, the formats table renders.
+
 ## Notes from sessions
 
 - 2026-11-07 (side session, version 1.17.0, item 82): card scan 80.8% → 88.0% fully read (3,080 of 3,500). How the

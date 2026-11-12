@@ -460,6 +460,8 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .tkn { flex: 1; border-radius: inherit; background: #2a2f3a center/cover; display: flex; align-items: flex-start; justify-content: center; padding: 3px; position: relative; overflow: hidden; }
 .tkn::after { content: "TOKEN"; position: absolute; bottom: 14px; left: 0; right: 0; text-align: center; font-size: 7px; letter-spacing: .2em; color: rgba(255,255,255,.65); }
 .tkn b { font-size: 9px; background: rgba(0,0,0,.72); padding: 1px 3px; border-radius: 3px; text-align: center; }
+.tkn.fd { background: var(--card-back, radial-gradient(ellipse at center, #a86a2c 0 22%, #5a3517 23% 40%, #3b2410 41%), #3b2410); align-items: center; }
+.tkn.fd small { font-weight: normal; opacity: .9; }
 
 /* ---------- spotlight (the stack) */
 .spotlight { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 10px; pointer-events: none; z-index: 20; }
@@ -989,8 +991,8 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 /* Kingdoms in the rules engine: 5 to 9 boards, role chips */
 .table[data-n="5"], .table[data-n="6"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: 1fr 1fr; }
 .table[data-n="7"], .table[data-n="8"], .table[data-n="9"] { grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); }
-.table[data-n="5"] .board, .table[data-n="6"] .board { --cw: 44px !important; }
-.table[data-n="7"] .board, .table[data-n="8"] .board, .table[data-n="9"] .board { --cw: 36px !important; font-size: 11px; }
+.table[data-n="5"] .board, .table[data-n="6"] .board { --cw: clamp(44px, min(2.9vw, 5.2vh), 60px) !important; }
+.table[data-n="7"] .board, .table[data-n="8"] .board, .table[data-n="9"] .board { --cw: clamp(36px, min(2.3vw, 4.1vh), 50px) !important; font-size: 11px; }
 .table[data-n="7"] .board .avatar, .table[data-n="8"] .board .avatar, .table[data-n="9"] .board .avatar { width: 30px; height: 30px; }
 .role-chip { font-weight: 700; }
 .role-chip.t-king { background: rgba(245, 196, 66, .25); border-color: #f5c442; }
@@ -1000,3 +1002,183 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 .role-chip.t-renegade { background: rgba(180, 110, 240, .22); border-color: #b46ef0; }
 .role-chip.t-hidden { opacity: .7; }
 @media (max-width: 900px) { .table[data-n="5"], .table[data-n="6"], .table[data-n="7"], .table[data-n="8"], .table[data-n="9"] { grid-template-columns: 1fr; grid-template-rows: none; } }
+
+/* Stack targets (ui.js drawCombat): dotted arrows from a spell or ability to what it targets */
+.combat-svg path.target { stroke-dasharray: 2 5; stroke-width: 2.5; fill: none; opacity: .85; }
+
+/* Auto-answers (human.js): "Always" checkbox and the list chip in the action bar */
+.ab-always { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; opacity: .85; margin-left: 6px; cursor: pointer; }
+.ab-autos { font-size: 11px; opacity: .8; }
+
+/* Payment preview (human.js): the sources a cast would tap */
+.card.will-tap { outline: 2px dashed #f5c542; outline-offset: 2px; }
+
+/* Identical tokens piled up (ui.js sync stackBy): the pile's count on its first card */
+.card[data-count]::after { content: attr(data-count); position: absolute; top: 2px; left: 2px; background: rgba(0,0,0,.8); color: #fff; font: 700 11px/1.3 system-ui, sans-serif; padding: 0 4px; border-radius: 4px; z-index: 3; pointer-events: none; }
+
+/* Card details (ui.js installDetails): right-click a card */
+.card-details { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.card-details[hidden] { display: none; }
+.cd-panel { position: relative; background: var(--panel, #1b1f2a); color: var(--text, #e8eaf0); border-radius: 12px; max-width: 760px; width: 100%; max-height: 90vh; overflow: auto; padding: 18px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+.cd-close { position: absolute; top: 10px; right: 10px; }
+.cd-cols { display: flex; gap: 16px; align-items: flex-start; }
+.cd-cols img { width: 240px; border-radius: 10px; flex: none; }
+.cd-text { min-width: 0; }
+.cd-text h4 { margin: 12px 0 4px; font-size: 13px; opacity: .8; }
+.cd-text p { margin: 4px 0; font-size: 13px; line-height: 1.4; }
+.cd-unread { color: #f0a050; }
+@media (max-width: 600px) { .cd-cols { flex-direction: column; } .cd-cols img { width: 100%; max-width: 260px; } }
+/* A card pointed out from the log */
+.card.pointed { animation: pointed 1.6s ease-out; }
+@keyframes pointed { 0%, 60% { box-shadow: 0 0 0 4px #f5c542, 0 0 18px #f5c542; } 100% { box-shadow: none; } }
+.log .search-hide { display: none; }
+
+/* Post-game report (main.js gameReport) */
+.report { margin: 10px 0; }
+.report h3 { margin: 6px 0; font-size: 15px; }
+.life-graph { width: 100%; max-width: 520px; height: auto; display: block; }
+.report-table { border-collapse: collapse; font-size: 12px; margin: 6px 0; }
+.report-table th, .report-table td { padding: 2px 8px; text-align: right; }
+.report-table td:first-child, .report-table th:first-child { text-align: left; }
+.report-table .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+
+/* The host's own table on phones (item 125): one-line scrolling tool rows instead of four wrapped rows, the coach
+   panel shorter, bigger touch targets on cards. (Card zoom on touch: phone browsers send a long press as a context menu, which opens the details panel in ui.js) */
+@media (max-width: 600px) {
+  .topbar .controls, .timeline { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; flex-shrink: 0; min-height: 36px; max-width: 100vw; min-width: 0; box-sizing: border-box; }
+  .topbar { max-width: 100vw; overflow-x: clip; flex-shrink: 0; }
+  .topbar .controls::-webkit-scrollbar, .timeline::-webkit-scrollbar { display: none; }
+  .topbar .controls > *, .timeline > * { flex: none; }
+  .timeline input[type=range] { min-width: 90px; flex: 1 0 90px; }
+  .coach { max-height: 28vh; bottom: auto; top: 8px; font-size: 12px; }
+  .board .card { touch-action: manipulation; }
+}
+
+/* Screen readers only (item 126) */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.card.pickable:focus-visible { outline: 3px solid #5b8cff; outline-offset: 2px; }
+
+/* High contrast and text size (item 128) */
+body.text-scaled { font-size: calc(14px * var(--text-scale, 1)); }
+body.text-scaled .ab-text, body.text-scaled .log, body.text-scaled .btn { font-size: calc(1em * var(--text-scale, 1)); }
+body.contrast { --line: #ffffff; --muted: #e8e8e8; background: #000 !important; color: #fff; }
+body.contrast .board, body.contrast .action-bar, body.contrast .modal > div, body.contrast .cd-panel { background: #000 !important; border: 2px solid #fff !important; }
+body.contrast .btn { background: #000; color: #fff; border: 2px solid #fff; }
+body.contrast .btn.primary { background: #ffd400; color: #000; border-color: #ffd400; }
+body.contrast .card.pickable { outline: 3px solid #ffd400; outline-offset: 2px; }
+body.contrast .muted, body.contrast small { color: #e8e8e8 !important; opacity: 1 !important; }
+body.contrast .le { color: #fff; }
+
+/* Puzzle editor (item 130) */
+.pe-head { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
+.pe-head label { display: flex; flex-direction: column; font-size: 12px; gap: 2px; }
+.pe-players { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+.pe-player { border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.pe-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+.pe-row .pe-pname { width: 110px; } .pe-row .pe-cmd { flex: 1; min-width: 140px; } .pe-row .pe-life { width: 64px; }
+.pe-cob { font-size: 12px; display: flex; align-items: center; gap: 4px; }
+.pe-zone { display: block; font-size: 12px; margin-top: 4px; }
+.pe-zone textarea { width: 100%; box-sizing: border-box; font-size: 12px; }
+
+/* "What if" seat picker on the timeline (item 132) */
+.takeover-menu { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+
+/* Friend page sideboarding (remote.js, item 135) */
+.sb-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 6px; max-height: 40vh; overflow: auto; }
+.sb-cols .sb-card { display: block; width: 100%; text-align: left; margin: 2px 0; }
+
+/* Streamer view on the friend page (item 142): just the table, for screen capture */
+body.streamer .chatbox, body.streamer #btnAskUndo, body.streamer #btnTheme, body.streamer #actionBar, body.streamer #joinModal { display: none !important; }
+
+/* Connection check in Invite (item 144) */
+.conn-check { margin: 8px 0; }
+.cc-row.ok { color: var(--good, #3a9a5b); }
+.cc-row.bad { color: var(--bad, #c0392b); }
+
+/* Friend tournaments (item 143) */
+.cup-entrants, .cup-standings { width: 100%; border-collapse: collapse; margin: 8px 0; }
+.cup-entrants td, .cup-standings td, .cup-standings th { padding: 3px 6px; }
+.cup-pod { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.25)); }
+.cup-champion { font-size: 1.2em; }
+
+/* Deck health in the deck viewer (item 145) */
+table.health { border-collapse: collapse; margin: 6px 0; }
+table.health td { padding: 2px 8px; vertical-align: top; }
+table.health tr.warn td:nth-child(4) { color: var(--bad, #c0392b); font-weight: 600; }
+table.health tr.ok td:nth-child(4) { color: var(--good, #3a9a5b); }
+.health-sugg { display: block; font-size: .9em; opacity: .85; }
+
+/* Collection marks in the deck builder (item 147) */
+.bld-res { position: relative; }
+.own-badge { position: absolute; right: 4px; bottom: 4px; background: var(--good, #3a9a5b); color: #fff; border-radius: 8px; padding: 0 5px; font-size: 11px; font-weight: 700; }
+.own-mark { color: var(--good, #3a9a5b); }
+.own-miss { color: var(--bad, #c0392b); font-size: .85em; }
+
+/* Deck library folders, tags, info and history (item 148) */
+.libtag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 8px; background: var(--line, rgba(127,127,127,.2)); margin-left: 4px; }
+.libacts { white-space: nowrap; }
+.libinfo-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+.libinfo-form label { display: flex; flex-direction: column; font-size: 12px; }
+.libinfo-form label.wide { flex: 1 1 100%; }
+.libver { padding: 4px 0; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); }
+.libdiff .add { color: var(--good, #3a9a5b); }
+.libdiff .cut { color: var(--bad, #c0392b); }
+
+/* Goldfish in the deck viewer (item 149) */
+.gf-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.gf-card { width: 92px; border-radius: 5px; }
+
+/* Draw odds in the deck viewer (item 150) */
+table.odds { border-collapse: collapse; margin: 4px 0; }
+table.odds td, table.odds th { padding: 2px 8px; }
+#oddsWhat { max-width: 340px; }
+
+/* Combos one card away in the builder (item 151) */
+.bld-almost { margin: 6px 0; }
+.bld-almost ul { margin: 4px 0; padding-left: 16px; font-size: 12px; }
+
+/* Partly simulated cards in the builder (item 154) */
+.sim-badge { position: absolute; left: 4px; top: 4px; background: rgba(0,0,0,.65); color: #ffcc4d; border-radius: 8px; padding: 0 4px; font-size: 11px; }
+
+/* EDHTop16 trends (item 155) */
+table.trend .spark { color: var(--accent, #3bb6f2); vertical-align: middle; }
+table.trend td { white-space: nowrap; }
+
+/* Gauntlet (item 162) */
+.gauntlet-list .gl-next { font-weight: 700; }
+
+/* What's new (item 182) */
+ul.whatsnew { padding-left: 18px; }
+ul.whatsnew li { margin: 4px 0; }
+ul.whatsnew details p { margin: 2px 0 6px; }
+
+/* Rules glossary tooltips (item 181) */
+.kw-tip { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
+.kw-tooltip { position: fixed; z-index: 9999; max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--panel, #1d2230); color: var(--text, #eee); border: 1px solid var(--line, rgba(127,127,127,.4)); box-shadow: 0 6px 20px rgba(0,0,0,.35); font-size: 12.5px; line-height: 1.4; pointer-events: none; }
+.kw-tooltip div { margin-top: 4px; }
+
+/* Help window (item 184) */
+.help-card { width: min(1000px, 96vw); }
+.help-cols { display: grid; grid-template-columns: 240px 1fr; gap: 12px; margin-top: 8px; height: min(70vh, 640px); }
+.help-toc { overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.help-link { text-align: left; background: none; border: 0; color: inherit; padding: 4px 6px; border-radius: 6px; cursor: pointer; font: inherit; }
+.help-link.sub { padding-left: 18px; font-size: .92em; }
+.help-link.active, .help-link:hover { background: var(--line, rgba(127,127,127,.2)); }
+.help-body { overflow: auto; padding-right: 6px; }
+.help-body li.sub { margin-left: 18px; }
+.help-table td { padding: 2px 8px; border-bottom: 1px solid var(--line, rgba(127,127,127,.2)); vertical-align: top; }
+@media (max-width: 700px) { .help-cols { grid-template-columns: 1fr; height: auto; } .help-toc { max-height: 30vh; } }
+
+/* Coach hint in the action bar (item 168) */
+.coach-tip { display: inline-block; margin-top: 4px; font-size: .92em; opacity: .9; }
+
+/* Storage in Updates (item 179) */
+table.storage td { padding: 2px 8px; }
+
+/* Unlocks page (item 167) */
+.unlock-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 8px; }
+.unlock-row { display: flex; gap: 10px; align-items: center; padding: 6px; border-radius: 8px; border: 1px solid var(--line, rgba(127,127,127,.25)); opacity: .8; }
+.unlock-row.got { opacity: 1; }
+.unlock-av { width: 48px; height: 48px; border-radius: 50%; }
+.unlock-back { display: inline-block; width: 36px; height: 50px; border-radius: 4px; flex: none; }
+.draft-pack { max-height: 60vh; overflow: auto; margin: 8px 0; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); }

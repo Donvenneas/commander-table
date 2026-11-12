@@ -103,7 +103,22 @@ const cmdCost = total => (total >= 21 ? 1000 : total >= 14 ? (total - 13) * 3 : 
 // ---------- blocks
 function defenderScore(g, q, agent, plan, nextHit) {
   const r = simulate(g, plan);
-  let s = -lifeCost(g, q, r.toPlayer.get(q.idx) || 0, nextHit, agent.combatTune?.life ?? LIFE_K);
+  // Attacks on our planeswalkers (rules 5, item 105): that damage takes loyalty, not life; a walker brought to 0 is
+  // lost, so blocks protect walkers worth keeping
+  let walkerCost = 0, offWalkers = 0;
+  if (g.rules >= 5) {
+    const onWalker = new Map();
+    for (const { a } of plan) {
+      const w = a.attackingObj;
+      if (!w || w.zone !== 'battlefield' || w.controller !== q.idx || !w.fx.type.planeswalker) continue;
+      const d = r.byAttacker.get(a) || 0;
+      if (!d) continue;
+      onWalker.set(w, (onWalker.get(w) || 0) + d);
+      offWalkers += d;
+    }
+    for (const [w, d] of onWalker) walkerCost += d >= (w.loyalty || 0) ? keyValue(agent, g, w) : keyValue(agent, g, w) * 0.5 * (d / Math.max(1, w.loyalty));
+  }
+  let s = -lifeCost(g, q, Math.max(0, (r.toPlayer.get(q.idx) || 0) - offWalkers), nextHit, agent.combatTune?.life ?? LIFE_K) - walkerCost;
   s -= cmdCost(r.cmd.get(q.idx) || 0);
   for (const o of r.dead) {
     if (o.controller === q.idx) s -= keyValue(agent, g, o);
@@ -181,6 +196,12 @@ export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {})
       else s += w.dmg * pol * d * (0.35 + 8 / Math.max(6, q.life - d));
       if ((r.cmd.get(t) || 0) >= 14) s += w.dmg * ((r.cmd.get(t) || 0) - 13);
       for (const o of r.dead) s += o.controller === p.idx ? -w.loss * keyValue(agent, g, o) : (agent.value(g, o) + agent.comboDanger(g, o)) * 0.9;
+      // Combat tricks (rules 5, item 112): a blocked attacker that only just survives is at risk when the defender has
+      // two or more mana open and cards in hand (so open mana deters attacks, and holding it up means something)
+      if (agent.trickFear && g.rules >= 5 && q.hand.length && g.availableMana(q) >= 2) {
+        const risk = Math.min(0.35, 0.1 * q.hand.length);
+        for (const x of plan) if (x.blockers.length && !r.dead.has(x.a) && g.toughness(x.a) - x.a.damage - x.blockers.reduce((a, b) => a + P(g, b), 0) <= 2) s -= w.loss * risk * keyValue(agent, g, x.a);
+      }
       // Attacking a deal partner breaks the deal (and earns a grudge) unless it finishes them
       if (g.dealBetween(p.idx, t) && d < q.life) s -= 12;
     }

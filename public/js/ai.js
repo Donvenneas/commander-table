@@ -7,8 +7,10 @@ import { parseCost } from './engine.js';
 import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
-import { knownType, isKing } from './kingdomsPlay.js';
-import { lookAheadPlay } from './lookahead.js';
+import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
+import { lookAheadPlay, lookAheadRespond, lookAheadAttacks, lookAheadEot } from './lookahead.js';
+import { DUNGEONS, roomEffects } from './dungeons.js';
+import { threatMult } from './threat.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
 function kingdomsWeight(g, me, q) {
@@ -18,15 +20,18 @@ function kingdomsWeight(g, me, q) {
   const assassinsLeft = g.players.some(r => r.role?.type === 'assassin' && !r.lost);
   // Whoever has been hurting the King draws the fire of everyone who needs the King alive
   const king = g.players.find(r => isKing(r) && !r.lost);
-  const guard = king && king !== q ? 1 + Math.min(2, (king.grudge[q.idx] || 0) / 10) : 1;
-  if (mt === 'king') return qt === 'knight' ? 0.1 : qt ? 1.5 : 1;
+  // (rules 5, item 115: the guard reacts sooner, the King hits back at whoever hurt him, and Assassins press the King
+  // a little less; with the cEDH decks Assassins had won 73% of games)
+  const r5 = g.rules >= 5;
+  const guard = king && king !== q ? 1 + Math.min(r5 ? 2.5 : 2, (king.grudge[q.idx] || 0) / (r5 ? 4 : 10)) : 1;
+  if (mt === 'king') return qt === 'knight' ? 0.1 : (qt ? 1.5 : 1) * (r5 ? 1 + Math.min(2, (me.grudge[q.idx] || 0) / 5) : 1);
   if (mt === 'knight') return qt === 'king' ? 0.05 : (qt === 'knight' ? 0.3 : qt ? 1.4 : 1) * guard;
-  if (mt === 'assassin') return qt === 'king' ? 1.8 : qt === 'assassin' ? 0.1 : qt === 'knight' ? 1.3 : qt === 'bandit' ? 0.9 : 0.7;
-  if (mt === 'bandit') return qt === 'bandit' ? 0.05 : qt === 'assassin' ? 1.5 : qt === 'king' ? (assassinsLeft ? 0.3 : 1.2) : assassinsLeft ? guard : 1;
+  if (mt === 'assassin') return qt === 'king' ? (r5 ? 0.8 : 1.8) : qt === 'assassin' ? 0.1 : qt === 'knight' ? 1.3 : qt === 'bandit' ? 0.9 : 0.7;
+  if (mt === 'bandit') return qt === 'bandit' ? 0.05 : qt === 'assassin' ? 1.5 : qt === 'king' ? (assassinsLeft ? (r5 ? 0.15 : 0.3) : 1.2) : assassinsLeft ? guard : 1;
   // Renegades: the Champion hunts the Challenger, Cultists spare Cultists, the rest wear down the leader
   if (me.role.id === 'champion' && g.kd?.challenger === q.idx) return 3;
   if (me.role.id === 'cultist' && q.role.up && q.role.id === 'cultist') return 0.1;
-  return isKing(q) ? (assassinsLeft ? 0.4 : 1) : (qt === 'assassin' ? 1.2 : 1) * (assassinsLeft ? guard : 1);
+  return isKing(q) ? (assassinsLeft ? (r5 ? 0.2 : 0.4) : 1) : (qt === 'assassin' ? 1.2 : 1) * (assassinsLeft ? guard : 1);
 }
 
 const KW_VALUE = {
@@ -79,9 +84,13 @@ const needsOwnTarget = e => e.k === 'pump' || e.k === 'blink' || (e.k === 'prote
 export class Agent {
   // noise: how loosely this pilot plays (low brackets play more casually; see brackets.js)
   // lookahead: check the best main-phase plays by simulating the rest of the turn (lookahead.js)
-  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead;
+  constructor(style = 'balanced', { noise = 0, lookahead = false } = {}) { this.style = style; this.baited = -1; this.noise = noise; this.lookahead = !!lookahead; /** AI strength handicap (main.js STRENGTH), 0–1 */ this.handicap = 0; /** item 112 experiments, off by default */ this.bluff = 0; this.trickFear = false;
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
+    // (head-to-head tests switch the graveyard plans of item 107 off with this)
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** the spell a counter ability answers (item 97) @type {any} */ this.spellHint = null; /** @type {any[] | null} */ this.forcedAttacks = null;
+    // (true for seats played by a person: HumanAgent)
+    this.human = false;
   }
   // Combo pilots fight like defensive players: they only need to survive until the combo
   get cstyle() { return this.style === 'combo' || this.style === 'cedh' ? 'defensive' : this.style; }
@@ -162,6 +171,9 @@ export class Agent {
     for (const o of q.battlefield) v += o.fx.type.land ? 0.3 : this.value(g, o) + this.comboDanger(g, o) * 0.8;
     v += q.hand.length * 0.4;
     if (q.life <= 10 * (g.startLife || 40) / 40) v *= 0.8;
+    // (rules 5, item 108: boards like this one win soon more or less often than their value says)
+    const T = g.rules >= 5 && !this.noThreatTable ? this.learned?.['#threat'] : null;
+    if (T) v *= threatMult(T, g, q);
     return (v + (me.grudge[q.idx] || 0) * 0.25) * this.politicalWeight(g, me, q);
   }
 
@@ -312,15 +324,30 @@ export class Agent {
     if (cmd && (cmd.card.cmc || 0) <= p.hand.filter(o => o.fx.type.land).length + fast + 1) s += 1.5;
     return s;
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   keepHand(g, p) {
+    const verdict = this.keepHandRules(g, p);
+    // Learned mulligans (rules 5, item 110): this deck's own record with seven-card hands of this many lands. Only
+    // the first seven, and only a clear difference (8 points or more from the deck's average) changes the decision.
+    const hands = g.rules >= 5 && p.mulligans === 0 ? this.learned?.['#hands'] : null;
+    if (hands) {
+      const n = Math.min(6, p.hand.filter(o => o.fx.type.land).length);
+      const d = hands[n];
+      if (typeof d === 'number' && d <= -0.08 && verdict) { this.explain(g, p, `sends back a ${n}-land seven: this deck has won clearly less often with those`); return false; }
+      if (typeof d === 'number' && d >= 0.08 && !verdict && n >= 1) { this.explain(g, p, `keeps a ${n}-land seven: this deck has won clearly more often with those`); return true; }
+    }
+    return verdict;
+  }
+  keepHandRules(g, p) {
     const plan = this.planScore(g, p);
     // cEDH: a hand needs to do something fast (tutors, fast mana, combo pieces, free interaction)
     if (this.style === 'cedh' && p.mulligans < 2) {
-      const lands = p.hand.filter(o => o.fx.type.land).length;
+      const lands = p.hand.filter(o => o.fx.type.land || (g.rules >= 5 && o.card.layout === 'modal_dfc' && o.card.altFace?.fx.type.land)).length;
       const good = p.hand.filter(o => this.pieceWorth(g, p, o) || [...o.fx.spell, ...o.fx.etb].some(e => e.k === 'tutor' || e.k === 'addMana') || (o.fx.mana && (o.card.cmc || 0) <= 2) || o.fx.altFree).length;
       return lands >= 1 && lands <= 4 && (good >= 2 || plan >= 4);
     }
-    const lands = p.hand.filter(o => o.fx.type.land);
+    // (a modal double-faced card with a land back counts as a land)
+    const lands = p.hand.filter(o => o.fx.type.land || (g.rules >= 5 && o.card.layout === 'modal_dfc' && o.card.altFace?.fx.type.land));
     const n = lands.length;
     if (p.mulligans >= 2) return true;
     // A hand with a whole combo is worth keeping on fewer lands
@@ -340,6 +367,7 @@ export class Agent {
     if (n === 5) return playable.length >= 2;
     return early.length >= 1 || playable.length >= 2;
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   bottomCards(g, p, n) {
     const lands = p.hand.filter(o => o.fx.type.land);
     // Keep combo pieces, tutors and fast mana; bottom the most expensive of the rest
@@ -354,18 +382,40 @@ export class Agent {
     }
     return out;
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   chooseDiscard(g, p, n) {
     const landsOut = p.battlefield.filter(o => o.fx.type.land).length;
+    const fromGy = g.rules >= 5 && !this.noGyPlan ? this.graveyardPlan(g, p) : null;
     return [...p.hand].sort((a, b) => {
       const interaction = o => (o.fx.spell.some(e => INTERACTION.includes(e.k)) ? 3 : 0);
-      const s = o => (o.fx.type.land ? (landsOut >= 6 ? -10 : 5) : -(o.card.cmc || 0) + this.value(g, o) * 0.3 + this.pieceWorth(g, p, o) + interaction(o));
+      const s = o => (o.fx.type.land ? (landsOut >= 6 ? -10 : 5) : -(o.card.cmc || 0) + this.value(g, o) * 0.3 + this.pieceWorth(g, p, o) + interaction(o)) - (fromGy ? fromGy(o) : 0);
       return s(a) - s(b);
     }).slice(0, n);
   }
+  // Graveyard plans (rules 5, item 107): how much a card is worth in our own graveyard. Cards that are cast or brought
+  // back from there (flashback, escape, unearth, embalm, eternalize, jump-start), and big creatures when we hold or
+  // have out a way to reanimate them. Returns a function card → value in the graveyard.
+  graveyardPlan(g, p) {
+    const reanimates = o => [...o.fx.spell, ...o.fx.etb].some(e => e.k === 'reanimate' && (e.types || ['creature']).includes('creature'));
+    const canReanimate = p.hand.some(reanimates) || p.battlefield.some(o => reanimates(o) || (o.fx.abilities || []).some(ab => ab.effects?.some(e => e.k === 'reanimate')));
+    const breach = p.battlefield.some(o => /underworld breach/i.test(o.card.name)) || p.hand.some(o => /underworld breach/i.test(o.card.name));
+    return o => {
+      let v = 0;
+      if (o.fx.flashback || o.fx.escape || o.fx.unearth || o.fx.embalm || o.fx.eternalize || o.fx.jumpstart) v += 3;
+      if (canReanimate && o.fx.type.creature) v += Math.max(0, (o.card.cmc || 0) - 3) + this.value(g, o) * 0.4;
+      if (breach && !o.fx.type.land) v += 1;
+      return v;
+    };
+  }
 
   // ---------- targeting
-  matches(o, what) {
+  matches(o, what, g = null) {
     const t = o.fx.type;
+    // (rules 6: "target land" means a land, and a God below its devotion or an uncharged Spacecraft isn't a creature)
+    if (g && g.rules >= 6) {
+      if (what === 'land') return t.land;
+      if (t.creature && g.dormant(o) && /creature/.test(what || 'creature')) return what === 'creature or planeswalker' ? t.planeswalker : false;
+    }
     switch (what) {
       case 'creature': return t.creature;
       case 'artifact': return t.artifact;
@@ -404,13 +454,18 @@ export class Agent {
   }
 
   chooseTarget(g, p, e, src) {
-    const n = e.n === 'X' ? Math.max(1, g.availableMana(p) - 1) : e.n;
-    const N0 = v => (v === 'X' ? Math.max(1, g.availableMana(p) - 1) : v && typeof v === 'object' ? g.dynValue(p, v) : v);
+    // (a counter ability used in response: the spell it answers, item 97)
+    if (e.k === 'counter' && this.spellHint) return { spell: this.spellHint };
+    // (an ability's X is already paid while its targets are chosen: g.xNow)
+    const xGuess = () => this.xOverride ?? g.xNow ?? Math.max(1, g.availableMana(p) - 1);
+    const N0 = v => (v === 'X' ? xGuess() : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
+    const n = N0(e.n);
     switch (e.k) {
-      case 'remove': return this.bestEnemy(g, p, o => this.matches(o, e.what) && (e.mode === 'exile' || !g.has(o, 'indestructible')) && (e.maxMv == null || ((o.card.cmc || 0) <= e.maxMv && !o.token))
+      case 'remove': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && (e.mode === 'exile' || !g.has(o, 'indestructible')) && (e.maxMv == null || ((o.card.cmc || 0) <= e.maxMv && !o.token))
         // ("nonartifact, nonblack creature")
         && !(e.not || []).some(w => o.fx.type[w] || (o.card.colors || []).includes({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[w])));
-      case 'bounce': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land);
+      case 'bounce': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land);
+      case 'tuck': return this.bestEnemy(g, p, o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && !o.fx.type.land);
       // (an untapped creature that could block, or attack)
       case 'noBlock': return this.bestEnemy(g, p, o => o.fx.type.creature && !o.tapped);
       case 'loseLife': { const q = this.weakestOpponent(g, p); return q ? { player: q.idx } : null; }
@@ -418,14 +473,15 @@ export class Agent {
       case 'silence': { const q = [...g.opponents(p)].sort((a, b) => this.threat(g, p, b) - this.threat(g, p, a))[0]; return q ? { player: q.idx } : null; }
       // Mill whoever is closest to running out
       case 'mill': { const q = [...g.opponents(p)].sort((a, b) => a.library.length - b.library.length)[0]; return q ? { player: q.idx } : null; }
-      case 'copyToken': { const o = this.bestOwn(g, p, x => this.matches(x, e.what) && !x.fx.type.legendary); return o ? { obj: o, v: this.value(g, o) } : null; }
-      case 'pump': case 'counters': case 'protect': case 'doublePT': { const o = this.bestOwn(g, p); return o ? { obj: o } : null; }
+      case 'copyToken': { const o = this.bestOwn(g, p, x => this.matches(x, e.what, g) && !x.fx.type.legendary); return o ? { obj: o, v: this.value(g, o) } : null; }
+      // (rules 6: only a creature now: not Heliod below its devotion, so Heliod's counter goes on Walking Ballista)
+      case 'pump': case 'counters': case 'protect': case 'doublePT': { const o = this.bestOwn(g, p, g.rules >= 6 ? x => x.fx.type.creature && !g.dormant(x) : undefined); return o ? { obj: o } : null; }
       case 'blink': {
         // The creature whose enters-the-battlefield effect is worth the most to repeat
         let best = null, bv = 0;
         for (const o of p.battlefield) {
           // (a blinker never blinks itself: its own enter trigger would start over and over)
-          if (!this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent') || o.token || o === src || o.fx.etb.some(x => x.k === 'blink')) continue;
+          if (!this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) || o.token || o === src || o.fx.etb.some(x => x.k === 'blink')) continue;
           // (blink-on-ETB creatures like Restoration Angel aren't counted, or the valuation would recurse)
           const v = o.fx.etb.filter(x => x.k !== 'blink').reduce((s, x) => s + this.effectValue(g, p, o, x, false), 0);
           if (v > bv) { bv = v; best = o; }
@@ -434,9 +490,9 @@ export class Agent {
       }
       case 'steal':
         // A creature borrowed for a turn is only worth taking if it can swing hard
-        return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land
+        return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land
           && (!e.temp || (o.fx.type.creature && g.power(o) >= 3 && !g.has(o, 'defender'))));
-      case 'flickerDelay': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land && !o.token);
+      case 'flickerDelay': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land && !o.token);
       case 'fight': {
         const mine = src.zone === 'battlefield' && src.fx.type.creature ? src : this.bestOwn(g, p);
         if (!mine) return null;
@@ -444,7 +500,7 @@ export class Agent {
       }
       case 'shrink': return this.bestEnemy(g, p, o => o.fx.type.creature && g.toughness(o) <= N0(e.t));
       case 'minus': return this.bestEnemy(g, p, o => o.fx.type.creature && g.toughness(o) <= N0(e.n)) || this.bestEnemy(g, p, o => o.fx.type.creature);
-      case 'tap': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.tapped && !o.fx.type.land);
+      case 'tap': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.tapped && !o.fx.type.land);
       case 'goad': return this.bestEnemy(g, p, o => o.fx.type.creature && g.power(o) >= 2);
       case 'regen': { const o = this.bestOwn(g, p); return o ? { obj: o } : null; }
       case 'copySpell': {
@@ -482,6 +538,7 @@ export class Agent {
     return scored.slice(0, n).flatMap(m => m.es);
   }
   // Rings of Brighthearth: copy an ability when the {2} isn't needed for something better this turn
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   wantsAbilityCopy(g, p, o, ab) {
     if ((ab.effects || []).some(e => ['sacSelf', 'exileSelf'].includes(e.k))) return false;
     const after = g.availableMana(p) - 2;
@@ -526,7 +583,9 @@ export class Agent {
     if (combo.result === 'mana' && !g.manaOutlet(p)) return null;
     // Kingdoms: a combo that hits every opponent mustn't take down a secret ally (a face-down Knight's King),
     // nor end the game for the wrong side (a Bandit or Renegade killing the King while Assassins remain)
-    if (g.kingdoms && !this.human && ['damage', 'drain', 'attack', 'mill'].includes(combo.result) && g.opponents(p).some(q => kingdomsWeight(g, p, q) < 0.5)) return null;
+    // (rules 5, item 115: only a true ally holds a combo back. Before, Bandits and Renegades, who'd rather keep the King
+    // alive, never fired one, so with combo decks almost only Assassins could win by combo.)
+    if (g.kingdoms && !this.human && ['damage', 'drain', 'attack', 'mill'].includes(combo.result) && g.opponents(p).some(q => kingdomsWeight(g, p, q) < (g.rules >= 5 ? 0.12 : 0.5) && !comboSpares(g, p, q))) return null;
     return st;
   }
   readyCombos(g, p, phase) {
@@ -563,6 +622,9 @@ export class Agent {
     const holds = 1 - (1 - density) ** q.hand.length;
     const open = g.availableMana(q);
     const castable = open >= 2 ? 1 : open === 1 ? 0.65 : cedh ? 0.35 : 0.08;
+    // A person we have read (rules 5, item 109): how often their held-up mana has been a counterspell
+    const per = g.rules >= 5 && !this.noPeople ? q.learned?.['#person'] : null;
+    if (per && per.held >= 6 && per.counter != null) return castable * Math.max(0.02, Math.min(0.9, per.counter * 1.2 + 0.03 * (q.countersCast || 0)));
     return holds * castable;
   }
   // The chance at least one opponent stops our next spell
@@ -593,7 +655,13 @@ export class Agent {
     const extra = [...p.exile.filter(o => o.fx.type.land && o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn), p.library[p.library.length - 1]].filter(o => o && o.fx.type.land && (o.zone === 'exile' || g.topPlayable(p, o)));
     if (extra.length) return extra[0];
     const lands = p.hand.filter(o => o.fx.type.land);
-    if (!lands.length) return null;
+    if (!lands.length) {
+      // Modal double-faced cards with a land back: play one as a land when there's no other land and mana is short
+      // (the cheapest front first; never while the front could be cast and the board has 6+ lands)
+      const onBf = p.battlefield.filter(o => o.fx.type.land).length;
+      const backs = p.hand.filter(o => g.canPlayBackLand(p, o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
+      return backs.find(o => onBf < 6 || !g.canCast(p, o)) || null;
+    }
     const have = new Set(p.battlefield.flatMap(o => o.fx.mana?.colors || []));
     const wanted = new Set(p.hand.concat(p.command).flatMap(o => [...o.card.manaCost.matchAll(/\{([WUBRG])\}/g)].map(m => m[1])));
     // Is there a spell that needs this land's mana right now? If not, a tapped land costs nothing today
@@ -621,6 +689,9 @@ export class Agent {
     const keyOut = p.battlefield.some(o => o.isCommander || this.pieceWorth(g, p, o));
     const shield = keyOut && p.hand.filter(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'protect' || e.k === 'counter'));
     if (shield?.length) keep = Math.max(keep, Math.min(...shield.map(o => o.card.cmc || 0)));
+    // Bluffing (rules 5, item 112): with cards in hand and an opponent's creatures able to attack next turn, keep two
+    // mana up now and then even with nothing to cast (attackers that fear tricks then hold back)
+    if (this.bluff && g.rules >= 5 && !keep && p.hand.length >= 2 && g.round >= 3 && g.opponents(p).some(q => q.battlefield.some(o => o.fx.type.creature && g.power(o) >= 2)) && g.rand() < this.bluff) keep = 2;
     return keep;
   }
   // A board already well ahead is exposed to a board wipe: more creatures add little but risk a lot
@@ -654,6 +725,9 @@ export class Agent {
         const silence = p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'silence' && !e.who.startsWith('target'))
           && g.availableMana(p) - (o.card.cmc || 0) >= need && !Object.values(g.silenced).includes(g.turn));
         if (silence) return { s: 999, run: () => { g.log(`${g.pn(p)} casts ${g.cn(silence)} to clear the way for a combo`, { kind: 'minor' }); return g.cast(p, silence); } };
+        // (rules 5, item 106: or make this turn's spells uncounterable, when that leaves the mana for the combo)
+        const veil = g.rules >= 5 && !this.noVeil && p.shieldTurn !== g.turn && p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.availableMana(p) - (o.card.cmc || 0) >= need);
+        if (veil) return { s: 999, run: () => { g.log(`${g.pn(p)} casts ${g.cn(veil)} so the combo can't be countered`, { kind: 'minor' }); return g.cast(p, veil); } };
       }
       // Against open blue mana, cast another real threat first to draw out the counterspell
       if (this.shieldsUp(g, p) && !p.hand.some(o => isCounter(o) && g.canCast(p, o)) && this.baited !== g.turn && comboScore(go.combo, p) >= 500) {
@@ -687,19 +761,63 @@ export class Agent {
     const breach = p.battlefield.some(x => x.fx.breach);
     const top = p.library[p.library.length - 1];
     const fromElsewhere = [...p.exile.filter(c => c.mayPlay?.p === p.idx && !c.fx.type.land), ...(top && !top.fx.type.land && g.topPlayable(p, top) ? [top] : [])];
-    for (const o of [...p.hand, ...p.command, ...fromElsewhere, ...p.graveyard.filter(c => c.fx.flashback || c.tempFlashback === g.turn || c.fx.escape || c.fx.jumpstart || (breach && !c.fx.type.land))]) {
+    for (const o of [...p.hand, ...p.command, ...fromElsewhere, ...p.graveyard.filter(c => c.fx.flashback || c.tempFlashback === g.turn || c.fx.escape || c.fx.jumpstart || (breach && !c.fx.type.land) || g.aftermath(c))]) {
       if (o.fx.type.land || held.has(o)) continue;
       // A ritual is worth more next turn when a ready combo is short on mana (planning a turn ahead)
       if (ready.length && !o.fx.type.permanent && o.fx.spell.some(e => e.k === 'addMana')) continue;
       const mode = g.castMode(p, o);
-      if (!mode) continue;
+      const faceMode = o.zone === 'hand' || o.zone === 'graveyard' ? g.faceCastMode(p, o) : null;
+      const bestowOk = o.zone === 'hand' && g.canBestow(p, o), mutateOk = o.zone === 'hand' && g.canMutate(p, o);
+      if (!mode && !faceMode && !bestowOk && !mutateOk) continue;
+      // (an X spell with no mana for X does nothing)
+      if (g.rules >= 5 && mode && !mode.alt && !o.fx.type.permanent && parseCost(o.card.manaCost).x && g.availableMana(p) - (o.card.cmc || 0) < 1) continue;
       // A combo spell that does nothing on its own (Tainted Pact without Oracle) waits for its partner
       if (!o.fx.type.permanent && !o.fx.spell.length && this.pieceWorth(g, p, o)) continue;
-      let s = this.scoreCast(g, p, o, phase);
+      let s = mode ? this.scoreCast(g, p, o, phase) : 0;
       // Don't overextend into a wipe: a plain extra creature is worth less when the board is already well ahead
       if (o.fx.type.creature && !o.fx.etb.length && !o.isCommander && !this.pieceWorth(g, p, o) && !g.has(o, 'haste') && this.overextended(g, p)) s *= 0.55;
       // An evoked creature is sacrificed at once, so only its enters-the-battlefield effect counts
-      if (mode.alt === 'evoke') s = o.fx.etb.reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) * 0.9 - 1;
+      if (mode?.alt === 'evoke') s = o.fx.etb.reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) * 0.9 - 1;
+      // Cast face down (morph, disguise): a 2/2 now, and the real card later
+      if (mode?.alt === 'morph') s = 2 + Math.min(3, s * 0.3);
+      // An adventure (the creature is cast from exile later) or an MDFC's back face, when it scores better
+      // Bestow: the creature as an Aura on our best creature (it stays as a creature when that one dies)
+      if (bestowOk) {
+        const host = this.bestOwn(g, p, x => x.fx.type.creature);
+        const b = o.card.fx.attachBuff;
+        if (host && b) {
+          const bs = (b.p + b.t * 0.6 + (b.kw || []).length * 1.2) * (host.sick ? 0.7 : 1) + Math.max(0, mode ? s : this.scoreCast(g, p, o, phase)) * 0.35 + 1;
+          if (bs > s && bs > 0.5) opts.push({ s: bs, why: `bestows ${o.card.name} on ${host.card.name}`, run: () => g.cast(p, o, { mode: { alt: 'bestow' } }) });
+        }
+      }
+      // Mutate: merge onto a creature we own (no summoning sickness if it's been around; the mutate triggers fire)
+      if (mutateOk) {
+        const host = this.chooseMutateTarget(g, p, o, g.mutateTargets(p, o));
+        const base = Math.max(0, mode ? s : this.scoreCast(g, p, o, phase));
+        const ms = base + (o.fx.onMutate || []).reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) + (host && !host.sick ? 1.5 : 0) - 1;
+        if (host && ms > s && ms > 0.5) opts.push({ s: ms, why: `mutates ${o.card.name} onto ${host.card.name}`, run: () => g.cast(p, o, { mode: { alt: 'mutate' }, mutateOnto: host }) });
+      }
+      // Cleave (the text without its brackets) and fuse (both halves of a split card) when they're worth more
+      if (mode && o.zone === 'hand' && g.canCleave(p, o)) {
+        const sum = es => es.reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0);
+        const cs = s + sum(o.fx.cleaveSpell) - sum(o.fx.spell) - 0.5;
+        if (cs > s && cs > 0.5) opts.push({ s: cs, why: `casts ${o.card.name} with cleave`, run: () => g.cast(p, o, { mode: { alt: 'cleave' } }) });
+      }
+      if (o.zone === 'hand' && g.canFuse(p, o)) {
+        const both = [...o.fx.spell, ...o.card.altFace.fx.spell].reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0);
+        if (both > s + 1) opts.push({ s: both, why: `casts both halves of ${o.card.name} (fuse)`, run: () => g.cast(p, o, { mode: { alt: 'fuse' } }) });
+      }
+      if (!mode && !faceMode) continue;
+      if (faceMode) {
+        g.useFace(o, o.card.altFace);
+        let fs;
+        try { fs = this.scoreCast(g, p, o, phase); } finally { g.mainFace(o); }
+        if (o.card.layout === 'adventure') fs += Math.max(0, mode ? s : this.scoreCast(g, p, o, phase)) * 0.6;
+        if (fs > s || !mode) {
+          if (fs > 0.5) opts.push({ s: fs, why: `casts ${o.card.altFace.name}${o.card.layout === 'adventure' ? ' (adventure)' : ''}`, run: () => g.castFace(p, o), o });
+          continue;
+        }
+      }
       // Pitching a card is a real cost; free spells are mostly for responses
       if (mode.alt === 'pitch') s -= 4;
       if (mode.alt === 'jumpstart') s -= 1.5;
@@ -713,14 +831,30 @@ export class Agent {
       if (reserve && avail - mana < reserve && s < 9) continue;
       opts.push({ s, cost: mana, why: `casts ${o.card.name}${mode.alt ? ` (${mode.alt})` : ''}`, run: () => g.cast(p, o, { mode }) });
     }
+    // A companion: {3} to put it into hand, worth it when it's a card we'd cast (more so with a small hand)
+    if (g.canCompanion(p)) {
+      const s = this.scoreCast(g, p, p.companion, phase) * 0.7 + (p.hand.length <= 2 ? 1.5 : 0) - 1;
+      if (s > 0.5) opts.push({ s, why: `puts its companion ${p.companion.card.name} into hand`, run: async () => g.useCompanion(p) });
+    }
     if (phase === 'main1') {
-      for (const eq of p.battlefield.filter(o => o.fx.equip)) {
+      for (const eq of p.battlefield.filter(o => o.fx.equip && (!o.fx.reconfigure || g.rules >= 5))) {
         const holder = eq.attachedTo;
-        const best = this.bestOwn(g, p, o => o.fx.type.creature && !o.sick);
+        const best = this.bestOwn(g, p, o => o.fx.type.creature && !o.sick && o !== eq);
         if (!best || holder === best || !g.planPayment(p, g.equipCost(p, eq), 0)) continue;
         if (holder && holder.zone === 'battlefield' && !holder.sick) continue;
         const b = eq.fx.attachBuff || { p: 1, t: 1 };
         opts.push({ s: 2 + b.p + b.t * 0.5, why: `equips ${eq.card.name} to ${best.card.name}`, run: () => g.equip(p, eq, best) });
+      }
+      // Rooms: unlock the other door when its abilities are worth the mana
+      for (const o of p.battlefield.filter(x => g.canUnlock(p, x))) {
+        const d = g.lockedDoor(o);
+        const s = 1.5 + (d.fx.onUnlock || []).reduce((a, e) => a + this.effectValue(g, p, o, e, false), 0) + (d.cmc || 0) * 0.3;
+        opts.push({ s, why: `unlocks ${d.name}`, run: () => g.unlockRoom(p, o) });
+      }
+      // Turn face-down creatures face up when the real card is worth the mana (megamorph adds a counter)
+      for (const o of p.battlefield.filter(x => x.faceDown && g.canTurnFaceUp(p, x))) {
+        const s = this.faceUpValue(g, p, o);
+        if (s > 1) opts.push({ s, why: `turns ${o.faceCard.name} face up`, run: () => g.turnFaceUp(p, o) });
       }
       for (const pw of p.battlefield.filter(o => o.fx.type.planeswalker && !o.usedPW)) {
         const ab = this.pickPW(g, p, pw);
@@ -766,11 +900,20 @@ export class Agent {
     for (const ab of this.usableAbilities(g, p, reserve)) {
       const instant = !ab.ab.sorcery;
       if (phase === 'main1' && instant && ab.s < 3) continue;
-      if (ab.s > 0.5) opts.push({ s: ab.s * 0.8, why: `uses ${ab.o.card.name}'s ability`, run: () => g.activate(p, ab.o, ab.ab) });
+      if (ab.s > 0.5) opts.push({ s: ab.s * 0.8, why: `uses ${ab.o.card.name}'s ability${ab.x ? ` (X = ${ab.x})` : ''}`, run: () => g.activate(p, ab.o, ab.ab, { x: ab.x }) });
     }
     if (!opts.length) return null;
     // Casual pilots don't always find the best play
     if (this.noise) for (const o of opts) o.s *= 1 + this.noise * (g.rand() * 2 - 1);
+    // AI strength (Beginner, Casual: main.js STRENGTH): now and then the pilot plays any decent option instead of
+    // its best, or stops for the phase. Noise alone barely changes the order of very different plays.
+    if (this.handicap && g.rand() < this.handicap) {
+      const ok = opts.filter(o => o.s > 0.5);
+      if (!ok.length || g.rand() < 0.4) return null;
+      const r = ok[Math.floor(g.rand() * ok.length)];
+      /** @type {any} */ (r).opts = opts;
+      return r;
+    }
     // Use the turn's mana well: among the best spells, find the set that fits the available mana
     // with the highest total value, and cast its best card first (rather than one big card that wastes mana)
     const casts = opts.filter(x => x.cost != null).sort((a, b) => b.s - a.s).slice(0, 8);
@@ -858,7 +1001,7 @@ export class Agent {
 
   effectValue(g, p, src, e, isSpell) {
     const opps = g.opponents(p);
-    const N = v => (v === 'X' ? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v) : v);
+    const N = v => (v === 'X' ? this.xOverride ?? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
     const myCreatures = p.battlefield.filter(o => o.fx.type.creature);
     // Life thresholds below were set for Commander's 40; L scales them to the format (0.5 at 20 life)
     const L = (g.startLife || 40) / 40;
@@ -896,6 +1039,13 @@ export class Agent {
         return net * 0.6;
       }
       case 'token': return N(e.n) * (N(e.p) + N(e.t)) * 0.7 + e.kw.length * 0.5;
+      case 'manifest': return N(e.n || 1) * (e.cloak ? 3.2 : 2.8);
+      case 'scrollRack': return p.hand.length ? 1.5 : 0;
+      case 'tuck': return 4;
+      case 'suspect': return 0.5;
+      // (a room's worth of value; the initiative also ventures every upkeep while it's held)
+      case 'venture': return 2;
+      case 'initiative': return g.initiative === p.idx ? 2 : 5;
       case 'treasure': return N(e.n) * 1.5;
       case 'rampLand': return g.round <= 7 ? 4 * N(e.n) + (e.bf ? 2 : 0) : 1.5;
       case 'tutor': {
@@ -957,6 +1107,14 @@ export class Agent {
         return back > 0 && more ? back * 2 : isSpell ? -100 : 0;
       }
       case 'mill': {
+        // (rules 5: milling ourselves is worth something with a graveyard plan, never so much that we deck ourselves)
+        if (g.rules >= 5 && !this.noGyPlan && e.who === 'you') {
+          const n = N(e.n);
+          if (p.library.length - n < 8) return -5;
+          const plan = this.graveyardPlan(g, p);
+          const avg = p.library.length ? p.library.slice(-30).reduce((s, o) => s + plan(o), 0) / Math.min(30, p.library.length) : 0;
+          return Math.min(6, n * avg * 0.6) + (p.battlefield.some(o => o.fx.gyAnthem || /graveyard/i.test(o.card.text || '') && o.fx.type.creature) ? n * 0.2 : 0);
+        }
         // Storm multiplies it; it only matters when a library actually runs out
         const n = N(e.n) * (src.fx.storm ? (g.turnSpellCount?.turn === g.turn ? g.turnSpellCount.n : 0) + 1 : 1);
         const low = Math.min(...g.opponents(p).map(q => q.library.length));
@@ -1050,7 +1208,14 @@ export class Agent {
       case 'monarch': return g.monarch === p.idx ? 0 : 5;
       case 'fromHand': return p.hand.some(o => o !== src && (e.what === 'land' ? o.fx.type.land : this.matches(o, e.what))) ? (e.what === 'land' ? 2.5 : 4) : 0;
       case 'reshuffle': return p.library.length < 15 ? 3 : 0;
-      case 'exileGy': return e.all ? opps.reduce((s, q) => s + q.graveyard.filter(o => o.fx.type.creature || o.fx.flashback).length, 0) * 0.3 : 0.5;
+      case 'exileGy': {
+        if (g.rules < 5 || this.noGyPlan) return e.all ? opps.reduce((s, q) => s + q.graveyard.filter(o => o.fx.type.creature || o.fx.flashback).length, 0) * 0.3 : 0.5;
+        // (rules 5, item 107: by what it stops: each opponent's graveyard as their own plan values it, more against
+        // Breach-style combos)
+        const worth = q => { const plan = this.graveyardPlan(g, q); return q.graveyard.reduce((s, o) => s + plan(o) + this.pieceWorth(g, q, o) * 0.5, 0); };
+        if (!e.all) return Math.max(0.5, Math.max(0, ...opps.map(worth)) * 0.5);
+        return opps.reduce((s, q) => s + worth(q), 0) * 0.5 + 0.3 * opps.reduce((s, q) => s + q.graveyard.filter(o => o.fx.type.creature || o.fx.flashback).length, 0);
+      }
       case 'massReanimate': {
         const pool = (e.all ? g.alive() : [p]).flatMap(q => q.graveyard.filter(o => g.isA(o, e.what) && o.fx.type.permanent));
         return pool.reduce((s, o) => s + (o.owner === p.idx || !e.all ? this.value(g, o) : -this.value(g, o)), 0) * 0.7;
@@ -1065,6 +1230,8 @@ export class Agent {
       case 'ring': return 2;
       case 'playerCounter': return N(e.n) * 0.5;
       case 'uncounterNext': return isSpell ? -100 : 0.3;
+      // (held for the turn it matters: a combo, or an answer to a counterspell; see shieldResponse, item 106)
+      case 'shieldSpells': return g.rules >= 5 && isSpell && !this.noVeil ? -100 : 0;
       case 'bottomSelf': return -0.5;
       case 'returnTrig': return 3;
       case 'transform': return 1;
@@ -1174,16 +1341,161 @@ export class Agent {
     const avail = g.availableMana(p);
     for (const o of p.battlefield.filter(x => g.abilitiesOf(x).length && x.usedAbility !== g.turn)) {
       for (const ab of g.abilitiesOf(o)) {
+        // (counter abilities are only for answering a spell: counterResponse)
+        if (ab.counterAb) continue;
         const cost = parseCost(ab.cost);
         if (keep && avail - (cost.generic + cost.pips.length) < keep) continue;
         if (!g.canActivate(p, o, ab)) continue;
         if (ab.life && p.life <= ab.life + 5) continue;
         // What it costs besides mana: the permanent itself, life, cards, other permanents
         const extra = (ab.sacSelf ? (o.token && !o.fx.type.creature ? 0.3 : this.value(g, o) + this.pieceWorth(g, p, o)) : 0) + this.extraCostValue(g, p, o, ab.costs, ab);
+        // {X} in the cost: value the best X that leaves the kept mana open (an X of 0 does nothing)
+        if (cost.x && g.rules >= 5) {
+          const max = g.maxAbilityX(p, o, ab) - Math.ceil(keep / cost.x);
+          const best = this.bestAbilityX(g, p, o, ab, max);
+          if (best.x < 1) continue;
+          out.push({ o, ab, s: best.s - extra, x: best.x });
+          continue;
+        }
         out.push({ o, ab, s: ab.effects.reduce((sum, e) => sum + this.effectValue(g, p, o, e, false), 0) - extra });
       }
     }
     return out;
+  }
+  // The X worth paying for an ability: each X is valued as the ability's effects with that X, less a little for
+  // the mana spent (so 1 more damage that changes nothing doesn't eat the rest of the mana)
+  bestAbilityX(g, p, o, ab, max) {
+    const per = parseCost(ab.cost).x || 1;
+    let best = { x: 0, s: 0 };
+    const prev = this.xOverride;
+    try {
+      for (let x = 1; x <= Math.min(max, 20); x++) {
+        this.xOverride = x;
+        const s = ab.effects.reduce((sum, e) => sum + this.effectValue(g, p, o, e, false), 0) - x * per * 0.15;
+        if (s > best.s + 0.05) best = { x, s };
+      }
+    } finally { this.xOverride = prev; }
+    return best;
+  }
+  // Combat damage among several blockers (and trample): kill the most valuable blockers it can, then push the rest
+  // through to the player with trample (or onto the next blocker). Lethal through trample comes first.
+  assignCombatDamage(g, p, a, blockers, dmg, tr, dt) {
+    const lethal = b => g.lethalFor(b, dt);
+    const total = blockers.reduce((s, b) => s + lethal(b), 0);
+    const q = g.players[a.attacking];
+    if (tr && dmg - total > 0 && q && dmg - total >= q.life) return [...blockers.map(b => ({ obj: b, n: lethal(b) })), { player: true, n: dmg - total }];
+    const plan = new Map(blockers.map(b => [b, 0]));
+    let left = dmg;
+    for (const b of [...blockers].sort((x, y) => this.value(g, y) - this.value(g, x))) {
+      const need = lethal(b);
+      if (need <= left) { plan.set(b, need); left -= need; }
+    }
+    const out = blockers.map(b => ({ obj: b, n: plan.get(b) }));
+    if (left > 0) {
+      if (tr && blockers.every(b => plan.get(b) >= lethal(b))) out.push({ player: true, n: left });
+      else { const last = out.find(x => x.n < lethal(x.obj)) || out[0]; last.n += left; }
+    }
+    return out;
+  }
+  // "Damage divided as you choose": kill the opponents' best creatures it can, the rest to the chosen target (or the
+  // weakest opponent's face when players can be targeted)
+  divideDamage(g, p, src, e, n, tgt) {
+    const out = [];
+    let left = n;
+    const foes = g.opponents(p).flatMap(q => q.battlefield.filter(o => o.fx.type.creature && g.canTarget(p, o)))
+      .map(o => ({ o, need: Math.max(1, g.toughness(o) - o.damage), v: this.value(g, o) }))
+      .filter(x => !g.has(x.o, 'indestructible')).sort((a, b) => b.v / b.need - a.v / a.need);
+    for (const f of foes) {
+      if (out.length >= e.divided - 1 && left < n) break;
+      if (f.need <= left) { out.push({ obj: f.o, n: f.need }); left -= f.need; }
+    }
+    if (left > 0) {
+      const face = e.to === 'any target' ? (tgt?.player != null ? tgt.player : this.weakestOpponent(g, p)?.idx) : null;
+      if (face != null && out.length < e.divided) out.push({ player: face, n: left });
+      else if (out.length) out[0].n += left;
+      else if (tgt?.obj || tgt?.player != null) out.push({ ...tgt, n: left });
+    }
+    return out;
+  }
+  // Dungeons: the room below that's worth most now; Lost Mine of Phandelver (the shortest) when choosing a dungeon,
+  // or the Dungeon of the Mad Mage once the game has gone long
+  roomValue(g, p, d, r) { return roomEffects(d, r).reduce((s, e) => s + this.effectValue(g, p, p.dungeonObj || p.battlefield[0] || { card: { cmc: 0 }, fx: {} }, e, false), 0); }
+  chooseRoom(g, p, d, rooms) { return [...rooms].sort((a, b) => this.roomValue(g, p, d, b) - this.roomValue(g, p, d, a))[0]; }
+  chooseDungeon(g, p, names) { return names.includes('Dungeon of the Mad Mage') && g.round >= 8 ? 'Dungeon of the Mad Mage' : names.includes('Lost Mine of Phandelver') ? 'Lost Mine of Phandelver' : names[0]; }
+  // A commander going to a graveyard or exile, hand or library: back to the command zone, unless it's going to a
+  // graveyard we can cast it from or reanimate it out of this turn (Kess, Muldrotha, a reanimation spell in hand)
+  commanderToCommandZone(g, p, o, to) {
+    if (to !== 'graveyard') return true;
+    const recast = g.gyOnceSource?.(p, o) || p.gyCast?.turn === g.turn;
+    const reanimate = p.hand.some(x => [...x.fx.spell].some(e => e.k === 'reanimate') && g.canCast(p, x));
+    return !(recast || reanimate) || (o.card.cmc || 0) <= 2;
+  }
+  // Enlist: tap a creature that wouldn't do more (not needed to block next turn: the weakest that adds 2+ power)
+  chooseEnlist(g, p, attacker, pool) {
+    const keep = g.opponents(p).some(q => q.battlefield.some(o => o.fx.type.creature && g.power(o) >= p.life / 3));
+    return [...pool].filter(x => g.power(x) >= 2 && !x.isCommander && !(keep && g.toughness(x) >= 3)).sort((a, b) => this.value(g, a) - this.value(g, b))[0] || null;
+  }
+  // Battles: protect ours with the opponent who has the least to block with
+  chooseProtector(g, p, o, opps) {
+    return [...opps].sort((a, b) => a.battlefield.filter(x => x.fx.type.creature && !x.tapped).reduce((s, x) => s + g.power(x), 0) - b.battlefield.filter(x => x.fx.type.creature && !x.tapped).reduce((s, x) => s + g.power(x), 0))[0] || null;
+  }
+  // Our Sieges: send attackers already going at a battle's protector at the battle instead, when together they
+  // can take its last defense counters (then it flips); the strongest first, only as many as needed
+  battleAttacks(g, p, decl) {
+    for (const b of p.battlefield.filter(o => o.fx.type.battle && g.attackable(p, o) && o.defense > 0)) {
+      const mine = decl.filter(d => d.target === b.protector && !d.obj).sort((x, y) => g.power(y.o) - g.power(x.o));
+      let need = b.defense;
+      const pick = [];
+      for (const d of mine) { if (need <= 0) break; pick.push(d); need -= g.power(d.o); }
+      if (need > 0 || !pick.length) continue;
+      for (const d of pick) d.obj = b;
+    }
+    // Opponents' planeswalkers: send enough attackers already going at their controller to kill one that's worth
+    // more than the damage to the player, unless that player is close to dead anyway
+    const walkers = g.opponents(p).flatMap(q => q.battlefield.filter(o => o.fx.type.planeswalker && !o.fx.type.creature && g.attackable(p, o)))
+      .sort((a, b) => this.value(g, b) - this.value(g, a));
+    for (const w of walkers) {
+      const q = g.players[w.controller];
+      const mine = decl.filter(d => d.target === q.idx && !d.obj).sort((x, y) => g.power(x.o) - g.power(y.o));
+      const toFace = mine.reduce((s, d) => s + g.power(d.o), 0);
+      if (!mine.length || toFace >= q.life) continue;
+      const worth = this.value(g, w) + 2 * (w.loyalty || 0) / 3;
+      let need = w.loyalty || 0;
+      const pick = [];
+      for (const d of [...mine].reverse()) { if (need <= 0) break; pick.push(d); need -= g.power(d.o); }
+      const spent = pick.reduce((s, d) => s + g.power(d.o), 0);
+      if (need > 0 || worth < spent * 0.6) continue;
+      for (const d of pick) d.obj = w;
+    }
+  }
+  // Madness: cast the discarded card now when it's worth casting at all
+  wantsMadness(g, p, o) { return this.scoreCast(g, p, o, 'eot') > 0.5; }
+  // Mutate onto the creature that gains most from it: one that can attack now, and not our commander
+  chooseMutateTarget(g, p, o, hosts) {
+    return [...hosts].sort((a, b) => (this.value(g, b) + (b.sick ? 0 : 2) - (b.isCommander ? 3 : 0)) - (this.value(g, a) + (a.sick ? 0 : 2) - (a.isCommander ? 3 : 0)))[0] || null;
+  }
+  chooseAbilityX(g, p, o, ab, max) { return this.bestAbilityX(g, p, o, ab, max).x; }
+  // X for a spell: permanents (Hydras, counters) take all the mana; other spells the X that does the most, less a
+  // little per mana (so a burn spell stops at the X that kills its target, and the rest of the mana stays free)
+  chooseSpellX(g, p, o, max) {
+    if (o.fx.type.permanent || o.fx.modes || !o.fx.spell.some(e => [e.n, e.p, e.t].includes('X'))) return max;
+    let best = { x: max, s: -Infinity };
+    const prev = this.xOverride;
+    try {
+      for (let x = 1; x <= Math.min(max, 30); x++) {
+        this.xOverride = x;
+        const s = o.fx.spell.reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0) - x * 0.15;
+        if (s > best.s + 0.05) best = { x, s };
+      }
+    } finally { this.xOverride = prev; }
+    return best.x;
+  }
+  // What turning a face-down permanent up gains: the real card over a vanilla 2/2, plus its "turned face up" effect
+  faceUpValue(g, p, o) {
+    if (!o.faceDown) return 0;
+    const real = Object.assign(Object.create(Object.getPrototypeOf(o)), o, { card: o.faceCard, fx: o.faceFx, faceDown: null });
+    const gain = (o.faceFx.type.creature ? this.value(g, real) : 0) - this.value(g, o) + (o.faceFx.morph?.mega ? 1 : 0);
+    return gain + (o.faceFx.turnedUp || []).reduce((s, e) => s + this.effectValue(g, p, o, e, false), 0);
   }
 
   // ---------- instant speed
@@ -1224,9 +1536,11 @@ export class Agent {
         if (plan && plan.value > bs) { bs = plan.value; best = ability = null; ping = { o, plan }; }
       }
       if (!best && !ability && !ping) return;
+      // (rules 5, item 101: a look-ahead pilot checks casting now against holding)
+      if (best && !ability && !ping && this.lookahead && !this.noLaEot && !g.sim && g.rules >= 5 && !(await lookAheadEot(this, g, q, best))) return;
       g.log(`End of ${g.pn(active)}'s turn: ${g.pn(q)} ${ping ? 'uses ' + g.cn(ping.o) : 'uses mana held up'}`, { kind: 'minor' });
       if (ping) { await g.ping(q, ping.o, ping.plan.targets); continue; }
-      if (ability) { await g.activate(q, ability.o, ability.ab); continue; }
+      if (ability) { await g.activate(q, ability.o, ability.ab, { x: ability.x }); continue; }
       await g.cast(q, best);
     }
   }
@@ -1247,6 +1561,7 @@ export class Agent {
   }
 
   // Between iterations of an opponent's combo loop: kill a piece if we can
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   respondToLoop(g, q, p, pieces) {
     const r = this.instantAnswer(g, q, pieces);
     if (r) g.log(`${g.pn(q)} sees the loop and responds`, { kind: 'minor' });
@@ -1254,6 +1569,7 @@ export class Agent {
   }
 
   // After blockers: a pump spell that wins a fight, or saves a creature
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   combatTrick(g, q, active) {
     // A Fog when the unblocked damage coming at us is lethal, or a big share of our life
     if (q !== active && g.fogTurn !== g.turn) {
@@ -1314,6 +1630,7 @@ export class Agent {
     this.explain(g, p, `offers ${to.name} a ${kind} deal for ${rounds} round${rounds === 1 ? '' : 's'}: ${kind === 'gangUp' ? 'the archenemy needs stopping' : kind === 'tribute' ? 'we are lowest on life and they keep hitting us' : 'their counterspells are what could stop our combo'}`);
     return { to, kind, rounds };
   }
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   considerDeal(g, q, from, kind = 'truce', rounds = 2) {
     if (from.idx === g.archenemy || (q.grudge[from.idx] || 0) >= 12) return false;
     // Not if they're the biggest threat to us, or we were about to kill them
@@ -1337,8 +1654,18 @@ export class Agent {
   }
 
   // ---------- priority: responding to a spell on the stack
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
+  // What the engine asks (item 101: with look-ahead on, a counter-or-not choice is checked on a copy of the game first)
+  /** @returns {any} */
+  respondAt(g, q, item) {
+    if (this.lookahead && !this.noLaRespond && !g.sim && g.rules >= 5) return lookAheadRespond(this, g, q, item, isCounter);
+    return this.respond(g, q, item);
+  }
+  /** @returns {any} */
   respond(g, q, item) {
     if (item.p === q) return null;
+    // (a look-ahead copy trying "let it resolve": this pilot lets that spell through)
+    if (g.laHold && g.laHold.q === q.idx && g.laHold.iid === item.o.iid) return null;
     // A combo loop is about to start: kill one of its pieces now if there's no Stifle
     if (item.loopStart) {
       const r = this.counterResponse(g, q, item) || this.instantAnswer(g, q, item.p.battlefield.filter(o => this.comboDanger(g, o) >= 5 || o === item.o));
@@ -1346,8 +1673,22 @@ export class Agent {
       if (r) { g.log(`${g.pn(q)} responds before the loop starts`, { kind: 'minor' }); return { kind: 'cast', card: r.card, targets: r.targets }; }
       return null;
     }
-    return this.counterResponse(g, q, item) || this.protectResponse(g, q, item)
+    return (g.rules >= 5 && !this.noVeil && this.shieldResponse(g, q, item)) || this.counterResponse(g, q, item) || this.protectResponse(g, q, item)
       || this.redirectResponse(g, q, item) || this.pingResponse(g, q, item) || this.wipeSacResponse(g, q, item) || this.punishResponse(g, q, item) || this.copyResponse(g, q, item);
+  }
+
+  // Veil of Summer and friends (rules 5, item 106): held until a counterspell is aimed at a spell of ours that matters,
+  // then cast in response so the counter does nothing
+  shieldResponse(g, q, item) {
+    const mine = item.targets.find(t => t?.spell && t.spell.p === q)?.spell;
+    if (!mine || !item.o.fx.spell.some(e => e.k === 'counter') || q.shieldTurn === g.turn || mine.uncounterable) return null;
+    const s = mine.o;
+    const worth = mine.combo || s.isCommander || (s.card.cmc || 0) >= 4 || this.comboSpell(g, mine) || s.fx.spell.some(e => e.k === 'wipe' || e.k === 'counter' || e.k === 'remove');
+    if (!worth) return null;
+    const card = q.hand.find(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.canCast(q, o));
+    if (!card) return null;
+    g.log(`${g.pn(q)} protects ${g.cn(s)} from the counterspell`, { kind: 'minor' });
+    return { kind: 'cast', card, targets: card.fx.spell.map(() => null) };
   }
 
   // A board wipe is coming: feed creatures that would die anyway to a free sacrifice outlet
@@ -1414,10 +1755,36 @@ export class Agent {
     return { kind: 'cast', card, targets: card.fx.spell.map(e => (e.k === 'counterAbility' ? { spell: item } : null)) };
   }
 
+  // Is this spell worth countering for q? (a combo, a wipe of q's board, something aimed at q, a tutor or engine from
+  // the leader for cEDH pilots, a big threat from whoever is ahead)
+  wantCountered(g, q, item) {
+    const spell = item.o;
+    if (spell.fx.uncounterable) return false;
+    const combo = this.comboSpell(g, item);
+    const mineHit = spell.fx.spell.some(e => e.k === 'wipe' || e.k === 'sweep') && q.battlefield.filter(o => !o.fx.type.land).reduce((s, o) => s + this.value(g, o), 0) > 6;
+    const targetsMe = (item.targets || []).some(tg => (tg?.obj && tg.obj.controller === q.idx && this.value(g, tg.obj) >= 5) || tg?.player === q.idx);
+    const rank = this.threatRank(g, q).get(item.p.idx) || 1;
+    const big = (spell.card.cmc || 0) >= 5 || spell.isCommander || spell.fx.type.planeswalker;
+    // cEDH pilots also stop tutors and draw engines from whoever is ahead
+    const engine = this.style === 'cedh' && rank >= 1 && (spell.fx.spell.some(e => e.k === 'tutor') || spell.fx.onOppCast);
+    return !!(combo || mineHit || targetsMe || engine || (big && rank >= 1.15) || ((spell.card.cmc || 0) >= 6 && rank >= 0.9));
+  }
   counterResponse(g, q, item) {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
     const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.fits(o, item.o));
+    // (rules 5, item 97: a permanent's counter ability — Glen Elendra Archmage, Siren Stormtamer — when there's no
+    // counterspell in hand; Stormtamer only answers something aimed at us or our creatures)
+    if (!usable.length && g.rules >= 5) {
+      const aimedAtMe = (item.targets || []).some(t => t?.player === q.idx || t?.obj?.controller === q.idx);
+      for (const o of q.battlefield) for (const ab of g.abilitiesOf(o)) {
+        const e = ab.counterAb && ab.effects[0];
+        if (!e || (e.targetsMe && !aimedAtMe) || !this.fitsWhat(e.what, item.o) || !g.canActivate(q, o, ab)) continue;
+        if (item.targets.some(t => t?.spell) || !(this.wantCountered(g, q, item) || (e.targetsMe && aimedAtMe))) continue;
+        g.log(`${g.pn(q)} answers ${g.cn(item.o)} with ${g.cn(o)}`, { kind: 'minor' });
+        return { kind: 'activate', o, ab, spell: item };
+      }
+    }
     if (!usable.length) return null;
     const as = c => ({ kind: 'cast', card: c, targets: c.fx.spell.map(e => (e.k === 'counter' ? { spell: item } : null)) });
     const cheapest = () => usable.sort((a, b) => a.card.cmc - b.card.cmc)[0];
@@ -1430,17 +1797,27 @@ export class Agent {
       if (worth) g.log(`${g.pn(q)} fights back over ${g.cn(s)}`, { kind: 'minor' });
       return worth ? as(cheapest()) : null;
     }
-    if (item.targets.some(t => t?.spell)) return null;
+    if (item.targets.some(t => t?.spell)) {
+      // Counter wars with three or more players (rules 5, item 106): someone counters a counterspell that was
+      // stopping a spell we want stopped (a combo, a wipe of our board, a big threat from the leader): counter that too
+      const inner = item.targets.find(t => t?.spell)?.spell;
+      const stopped = inner?.targets?.find(t => t?.spell)?.spell;
+      if (g.rules >= 5 && inner && stopped && inner.p !== q && stopped.p !== q && stopped.p === item.p && this.wantCountered(g, q, stopped)) {
+        g.log(`${g.pn(q)} joins the counter war over ${g.cn(stopped.o)}`, { kind: 'minor' });
+        return as(cheapest());
+      }
+      return null;
+    }
     const spell = item.o;
     const combo = this.comboSpell(g, item);
     const mineHit = spell.fx.spell.some(e => e.k === 'wipe' || e.k === 'sweep') && q.battlefield.filter(o => !o.fx.type.land).reduce((s, o) => s + this.value(g, o), 0) > 6;
     const targetsMe = item.targets.some(tg => (tg?.obj && tg.obj.controller === q.idx && this.value(g, tg.obj) >= 5) || tg?.player === q.idx);
+    const worth = this.wantCountered(g, q, item);
+    if (!worth) return null;
+    // (the same reasons, for the checks and the explanation below)
     const rank = this.threatRank(g, q).get(item.p.idx) || 1;
     const big = (spell.card.cmc || 0) >= 5 || spell.isCommander || spell.fx.type.planeswalker;
-    // cEDH pilots also stop tutors and draw engines from whoever is ahead
     const engine = this.style === 'cedh' && rank >= 1 && (spell.fx.spell.some(e => e.k === 'tutor') || spell.fx.onOppCast);
-    const worth = combo || mineHit || targetsMe || engine || (big && rank >= 1.15) || ((spell.card.cmc || 0) >= 6 && rank >= 0.9);
-    if (!worth) return null;
     // A no-counter deal holds unless the spell would win the game or wreck us; countering anyway breaks it
     const pact = g.dealBetween(q.idx, item.p.idx);
     if (pact?.kind === 'noCounter') {
@@ -1543,9 +1920,23 @@ export class Agent {
   }
 
   // Attacks and blocks are planned by simulation (combatai.js); the older rule-of-thumb versions remain as a fallback
+  /** @returns {any} */
   declareAttackers(g, p) {
+    // (a look-ahead copy playing one candidate attack, item 102)
+    if (this.forcedAttacks) {
+      const f = this.forcedAttacks;
+      this.forcedAttacks = null;
+      return f.map(x => ({ o: p.battlefield.find(o => o.iid === x.iid), target: x.target, ...(x.obj != null ? { obj: g.objects.get(x.obj) } : {}) })).filter(x => x.o);
+    }
+    const usual = this.declareAttackersPlan(g, p);
+    if (this.lookahead && !this.noLaAttack && !g.sim && g.rules >= 5) return lookAheadAttacks(this, g, p, usual);
+    return usual;
+  }
+  declareAttackersPlan(g, p) {
+    // AI strength: a handicapped pilot sometimes uses the old rule-of-thumb attacks instead of the combat simulation
+    if (this.handicap && g.rand() < this.handicap) return this.declareAttackersHeuristic ? this.declareAttackersHeuristic(g, p) : [];
     try {
-      const { attacks, gain } = bestAttacks(g, p, this, { style: this.style, noise: this.noise || 0 });
+      const { attacks, gain } = g.withEvalCache(() => bestAttacks(g, p, this, { style: this.style, noise: this.noise || 0 }));
       if (attacks.length) {
         const targets = [...new Set(attacks.map(x => g.players[x.target].name))];
         this.explain(g, p, `attacks ${targets.join(' and ')} with ${attacks.length} creature${attacks.length === 1 ? '' : 's'}: the combat simulation expects ${gain.toFixed(1)} value after the defenders' best blocks and the backswing`);
@@ -1558,8 +1949,8 @@ export class Agent {
   }
   declareBlockers(g, q, attackers) {
     try {
-      const { blocks } = bestBlocks(g, q, attackers, this);
-      if (this.noise && g.rand() < this.noise * 0.5) return this.declareBlockersHeuristic(g, q, attackers);
+      const { blocks } = g.withEvalCache(() => bestBlocks(g, q, attackers, this));
+      if ((this.noise && g.rand() < this.noise * 0.5) || (this.handicap && g.rand() < this.handicap)) return this.declareBlockersHeuristic(g, q, attackers);
       const kept = q.battlefield.filter(o => o.fx.type.creature && !o.tapped && (this.pieceWorth(g, q, o) || o.isCommander) && !blocks.some(x => x.b === o));
       if (blocks.length || kept.length) this.explain(g, q, `${blocks.length ? `blocks with ${blocks.map(x => x.b.card.name).join(', ')}` : 'takes the hit'}${kept.length ? `; keeps ${kept.map(o => o.card.name).join(', ')} out of combat` : ''} (best result of the block search)`);
       return blocks;
@@ -1705,6 +2096,7 @@ export class Agent {
     return blocks;
   }
 
+  /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   combatResponse(g, q, attackers) {
     const incoming = attackers.reduce((s, a) => s + g.power(a), 0);
     const r = this.instantAnswer(g, q, attackers);
@@ -1713,9 +2105,10 @@ export class Agent {
   }
 
   // ---------- counterspells
-  fits(c, spell) {
+  fits(c, spell) { return this.fitsWhat(c.fx.spell.find(e => e.k === 'counter').what, spell); }
+  // Can a counter for "what" (any, noncreature, instant or sorcery…) answer this spell?
+  fitsWhat(what, spell) {
     const t = spell.fx.type;
-    const what = c.fx.spell.find(e => e.k === 'counter').what;
     if (what === 'any') return true;
     if (what.includes('noncreature')) return !t.creature;
     if (what.includes('creature')) return t.creature;

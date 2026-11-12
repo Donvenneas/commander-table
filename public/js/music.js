@@ -90,6 +90,9 @@ function tick() {
 
 export const Music = {
   playing: false,
+  // Music volume 0–1 (Display window; item 127): the loop's level is scaled by it
+  volume: 1,
+  setVolume(v) { this.volume = Math.max(0, Math.min(1, v)); if (ctx && this.playing) master.gain.setTargetAtTime(0.55 * this.volume, ctx.currentTime, 0.3); },
   start() {
     try {
       if (!ctx) setup();
@@ -98,7 +101,7 @@ export const Music = {
       this.playing = true;
       nextBar = ctx.currentTime + 0.1;
       master.gain.cancelScheduledValues(ctx.currentTime);
-      master.gain.setTargetAtTime(0.55, ctx.currentTime, 1.2);
+      master.gain.setTargetAtTime(0.55 * this.volume, ctx.currentTime, 1.2);
       timer = setInterval(tick, 60);
     } catch { /* audio unavailable */ }
   },

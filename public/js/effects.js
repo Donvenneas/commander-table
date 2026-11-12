@@ -55,6 +55,7 @@ const N = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|
 // A modal trigger or ability's modes, parsed from its bullet lines (see analyzeCard)
 let MODAL_STASH = null;
 // The last "roll a d20" read, so the table lines under it can fill it in
+/** @type {any} */
 let LAST_ROLL = null;
 /** @type {Array<[RegExp, (m: RegExpMatchArray) => any]>} */
 const PATTERNS = [
@@ -71,6 +72,19 @@ const PATTERNS = [
   [/reveal the top card of your library and put that card into your hand\. you lose life equal to its mana value/, () => ({ k: 'adNauseam' })],
   // Orcish Bowmasters and friends
   [/amass (?:\w+ )?(\d+)/, m => ({ k: 'token', n: 1, p: +m[1], t: +m[1], desc: 'orc army', kw: [] })],
+  // Limited families (item 98): +N/-N on itself, two keywords for a target creature, tuck, suspect
+  [/(?:^|[.,] )~ gets \+(\d+)\/-(\d+) until end of turn/, m => ({ k: 'pumpSelf', p: +m[1], t: -m[2], kw: [] })],
+  [/^target creature (?:you control )?gains ((?:deathtouch|indestructible|lifelink|flying|trample|first strike|hexproof|vigilance|menace|haste)(?:(?:,|,? and) (?:deathtouch|indestructible|lifelink|flying|trample|first strike|hexproof|vigilance|menace|haste))+) until end of turn/, m => ({ k: 'pump', p: 0, t: 0, kw: kwList(m[1]) })],
+  [/target (creature|nonland permanent)'s owner puts it on (?:their choice of )?the top or bottom of their library/, m => ({ k: 'tuck', what: m[1] === 'creature' ? 'creature' : 'nonland permanent' })],
+  [/(?:^|\. )suspect it\b/, () => ({ k: 'suspect' })],
+  // Scroll Rack: swap cards in hand for the top of the library (engine.js: the AI swaps its weakest cards)
+  [/exile any number of cards from your hand face down\. put that many cards from the top of your library into your hand/, () => ({ k: 'scrollRack' })],
+  // Dungeons and the initiative (dungeons.js, engine.js venture)
+  [/\bventure into the dungeon\b/, () => ({ k: 'venture' })],
+  [/\b(?:you )?take(?:s)? the initiative\b/, () => ({ k: 'initiative' })],
+  // Whisperwood Elemental, Hauntwoods Shrieker, Cryptic Coat: face-down 2/2s from the top of the library (engine.js manifest)
+  [/\bmanifest dread\b/, () => ({ k: 'manifest', n: 1, dread: true })],
+  [/\b(manifest|cloak) the top (?:card|(\w+) cards) of your library/, m => ({ k: 'manifest', n: m[2] ? num(m[2]) : 1, cloak: m[1] === 'cloak' })],
   [/counter (?:up to one )?target (?:activated or triggered |activated |triggered )ability/, () => ({ k: 'counterAbility' })],
   // Dramatic Reversal, Turnabout-style untaps: tapped mana sources become mana again
   [/untap all (nonland permanents|artifacts|creatures|lands|permanents) you control/, m => ({ k: 'untapAll', what: m[1] })],
@@ -102,7 +116,7 @@ const PATTERNS = [
   [/untap target (creature|artifact or creature|permanent) and gain control of it until end of turn/, m => ({ k: 'steal', what: m[1], temp: true })],
   [/takes? an extra turn after this one/, () => ({ k: 'extraTurn' })],
   // Rituals: "Add {B}{B}{B}." (mana abilities of permanents are handled separately)
-  [/\badd ((?:\{[wubrgc]\})+)(?! for each card in)/, m => ({ k: 'addMana', syms: m[1].match(/[wubrgc]/g).map(c => c.toUpperCase()) })],
+  [/\badd ((?:\{[wubrgc]\})+)(?! for each card in)/, m => ({ k: 'addMana', syms: (m[1].match(/[wubrgc]/g) || []).map(c => c.toUpperCase()) })],
   [new RegExp(`(target player|target opponent|each opponent|each player|each other player) discards? ${N} cards?`), m => ({ k: 'discard', who: m[1], n: num(m[2]) })],
   [/create (?:a|one) token that's a copy of (?:up to one )?(?:another )?target (?:nonlegendary )?(creature|artifact|permanent)/, m => ({ k: 'copyToken', what: m[1] })],
   [/create (?:a|one) token that's a copy of (equipped creature|enchanted creature|it|that creature|that artifact|that permanent|~)/, m => ({ k: 'copyToken', what: 'creature', of: m[1] })],
@@ -201,7 +215,7 @@ const PATTERNS = [
   [/(target creature|~|target creature you control) can't be blocked this turn/, m => ({ k: 'evade', self: m[1] === '~' })],
   [/put an? (indestructible|flying|first strike|deathtouch|lifelink|trample|hexproof|menace|reach|vigilance) counter on (~|target creature(?: you control)?)/, m => ({ k: 'kwCounter', kw: m[1], self: m[2] === '~' })],
   [/reveal the top card of your library\. if it's a land card, put it onto the battlefield(?: tapped)?\. otherwise, put (?:that card|it) into your hand/, () => ({ k: 'topLandOrHand' })],
-  [/(?:~ becomes|until end of turn, ~ becomes) an? (\d+)\/(\d+) ([\w ,]*?)creature(?: with ([\w, ]+?))?(?: until end of turn|[.]|$)/, m => ({ k: 'animate', p: +m[1], t: +m[2], kw: kwList(m[4] || m[3]) })],
+  [/(?:~ becomes|until end of turn, ~ becomes) an? (\d+|x)\/(\d+|x) ([\w ,-]*?)creature(?: with ([\w, ]+?))?(?: until end of turn|[.]|$)/, m => ({ k: 'animate', p: m[1] === 'x' ? 'X' : +m[1], t: m[2] === 'x' ? 'X' : +m[2], kw: kwList(m[4] || m[3]) })],
   [/attach (?:it|~) to (?:up to one )?target (?:legendary )?creature you control/, () => ({ k: 'attachSelf' })],
   [/return (?:a|an) (land|creature|permanent|nonland permanent|artifact|enchantment) you control to its owner's hand/, m => ({ k: 'bounceOwn', what: m[1] })],
   [/you may play an additional land this turn/, () => ({ k: 'extraLand' })],
@@ -229,11 +243,13 @@ const PATTERNS = [
   [/you gain protection from everything until your next turn|your life total can't change and you gain protection from everything/, () => ({ k: 'shieldSelf' })],
   [/the ring tempts you/, () => ({ k: 'ring' })],
   [/you get (an?|one|two|three|\d+) (experience|energy|rad) counters?/, m => ({ k: 'playerCounter', kind: m[2], n: num(m[1]) })],
-  [/you get ((?:\{e\})+)/, m => ({ k: 'playerCounter', kind: 'energy', n: m[1].match(/\{e\}/g).length })],
+  [/you get ((?:\{e\})+)/, m => ({ k: 'playerCounter', kind: 'energy', n: (m[1].match(/\{e\}/g) || []).length })],
   [/attach ~ to (?:it|that creature)/, () => ({ k: 'attachSelf', toTrig: true })],
   [/enchanted creature gains ([\w ,]+?) until end of turn/, m => (kwList(m[1]).length ? { k: 'pumpAttached', p: 0, t: 0, kw: kwList(m[1]) } : null)],
   [/(?:enchanted|equipped) creature gets \+(\d+|x)\/\+(\d+|x)(?: and gains ([\w, ]+))? until end of turn/, m => ({ k: 'pumpAttached', p: num(m[1]), t: num(m[2]), kw: kwList(m[3]) })],
   [/the next (?:[\w ]+ )?spell you cast this turn can't be countered/, () => ({ k: 'uncounterNext' })],
+  // Veil of Summer, Autumn's Veil: for the rest of the turn (item 106)
+  [/spells you control can't be countered(?: by [\w ]+ spells)? this turn/, () => ({ k: 'shieldSpells' })],
   [/target (?:legendary|nonlegendary|attacking|blocking|artifact|tapped|untapped) creature(?: you control)? gains ((?:hexproof|indestructible|shroud)(?:(?:,|,? and) (?:hexproof|indestructible|shroud))*) until end of turn/, m => ({ k: 'protect', scope: 'one', kw: kwList(m[1]) })],
   [/(?:up to one )?target creature(?: you control)? phases out/, () => ({ k: 'protect', scope: 'one', kw: ['hexproof', 'indestructible'] })],
   [/any number of (?:other )?target creatures you control phase out/, () => ({ k: 'protect', scope: 'all', kw: ['hexproof', 'indestructible'] })],
@@ -261,7 +277,9 @@ const PATTERNS = [
   [/you may play lands and cast spells from your graveyard/, () => ({ k: 'gyCastTurn', types: [] })],
   [/each creature you control with power (\d+) or greater gets \+(\d+)\/\+(\d+)(?: and gains ([\w, ]+))? until end of turn/, m => ({ k: 'teamPump', p: +m[2], t: +m[3], kw: kwList(m[4]), minPower: +m[1] })],
   [/creatures your opponents control attack this turn if able/, () => ({ k: 'goad', all: true })],
-  [/(destroy|exile) target (land|nonbasic land)/, m => ({ k: 'remove', mode: m[1], what: 'land' })],
+  // (rules 6: "nonbasic" is kept, and "exile target land card from a graveyard" is a card in a graveyard, not a land)
+  [/(destroy|exile) target (land|nonbasic land)( cards? from a graveyard)?/, m => ({ k: 'remove', mode: m[1], what: 'land', ...(m[2] === 'nonbasic land' ? { nonbasic: true } : {}), ...(m[3] ? { gyCard: true } : {}) })],
+  [/exile target (instant or sorcery|creature|artifact|enchantment) card from a graveyard/, m => ({ k: 'gyExile', types: m[1].split(' or ') })],
   [/gain control of all artifacts that player controls/, () => ({ k: 'stealAll', what: 'artifact' })],
   // ---- 1.6.0 second batch: one-of-a-kind staples
   [/the owner of target (permanent|nonland permanent|creature) shuffles it into their library/, m => ({ k: 'remove', mode: 'exile', what: m[1] })],
@@ -316,7 +334,7 @@ const PATTERNS = [
   [/exile two target permanents/, () => ({ k: 'remove', mode: 'exile', what: 'nonland permanent' })],
   [/defending player exiles the top (\w+) cards of their library/, m => ({ k: 'mill', who: 'defending player', n: num(m[1]), exile: true })],
   [/copy it for each other instant and sorcery spell you've cast before it this turn/, () => ({ k: 'copyTrig', storm: true })],
-  [/deals (x|\d+) damage divided as you choose among (?:up to )?(?:one|two|three|any number of|one, two, or three) (?:target )?(?:creatures and\/or planeswalkers|targets?)/, m => ({ k: 'damage', n: num(m[1]), to: /planeswalkers/.test(m[0]) ? 'target creature' : 'any target' })],
+  [/deals (x|\d+) damage divided as you choose among (?:up to )?(one|two|three|any number of|one, two, or three) (?:target )?(?:creatures and\/or planeswalkers|targets?)/, m => ({ k: 'damage', n: num(m[1]), to: /planeswalkers/.test(m[0]) ? 'target creature' : 'any target', divided: /any number/.test(m[2]) ? 99 : /three/.test(m[2]) ? 3 : m[2] === 'two' ? 2 : 1 })],
   [/it deals that much damage to each creature that player controls/, () => ({ k: 'sweepThat', n: { dyn: 'trigN' } })],
   [/put that many (\w+) counters on ~/, m => ({ k: 'namedCounter', kind: m[1], n: { dyn: 'trigN' } })],
   // ---- 1.6.0 fourth batch
@@ -493,8 +511,11 @@ const PATTERNS = [
 // returning a permanent to hand. Returns null when some part of the cost isn't understood.
 const COSTN = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|fifteen|x|\\d+)';
 export function parseCostText(s) {
+  /** @type {Record<string, any>} (each part of the cost read fills in its field) */
   const c = { mana: '', tap: false, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null };
   let m;
+  // (Khalni Heart Expedition: "remove three quest counters from ~ and sacrifice it" is two costs)
+  s = s.replace(/ and sacrifice (?:it|~)$/, ', sacrifice ~');
   for (let part of s.split(/,\s*(?![^{]*\})/).map(x => x.trim()).filter(Boolean)) {
     part = part.replace(/^and /, '');
     if (/^(\{[^}]+\})+$/.test(part)) {
@@ -509,7 +530,11 @@ export function parseCostText(s) {
     else if ((m = part.match(new RegExp(`^sacrifice (another |${COSTN} (?:other |untapped )?)([\\w -]+?)s?$`)))) c.sac = { n: m[1].trim() === 'another' ? 1 : num(m[2] || 'a'), what: m[3].replace(/ you control$/, '').trim(), other: /another|other/.test(m[1]) };
     else if ((m = part.match(new RegExp(`^exile ${COSTN} (?:other )?([\\w ]*?)cards? from your graveyard$`)))) c.exileGy = num(m[1]) === 'X' ? 1 : num(m[1]);
     else if ((m = part.match(new RegExp(`^tap ${COSTN} (?:other )?untapped ([\\w -]+?)s? you control$`)))) c.tapOthers = { n: num(m[1]) === 'X' ? 1 : num(m[1]), what: m[2].trim() };
-    else if ((m = part.match(new RegExp(`^remove ${COSTN} ([+\\-\\d/]+ |\\w+ )?counters? from ~$`)))) c.removeCounters = num(m[1]) === 'X' ? 1 : num(m[1]);
+    else if ((m = part.match(new RegExp(`^remove ${COSTN} ([+\\-\\d/]+ |\\w+ )?counters? from ~$`)))) {
+      // (+1/+1 counters, or a named kind the engine keeps apart: quest, charge, time… in o.named)
+      const n = num(m[1]) === 'X' ? 1 : num(m[1]);
+      if (m[2] && /^[a-z]+ $/.test(m[2])) c.removeNamed = { kind: m[2].trim(), n }; else c.removeCounters = n;
+    }
     else if ((m = part.match(/^return (?:a|an) ([\w ]+?) you control to its owner's hand$/))) c.bounce = { what: m[1] };
     // ---- 1.6.0 costs
     else if ((m = part.match(new RegExp(`^mill ${COSTN} cards?$`)))) c.mill = num(m[1]) === 'X' ? 1 : num(m[1]);
@@ -534,7 +559,7 @@ export function costText(c) {
   if (!c) return '';
   return [c.mana, c.tap && '{T}', c.life && `pay ${c.life} life`, c.discardHand && 'discard your hand', c.discard && `discard ${c.discard.n} ${c.discard.types.join('/') || ''} card${c.discard.n > 1 ? 's' : ''}`.replace('  ', ' '),
     c.sacSelf && 'sacrifice it', c.exileSelf && 'exile it', c.sac && `sacrifice ${c.sac.n > 1 ? c.sac.n + ' ' : c.sac.other ? 'another ' : /^[aeiou]/.test(c.sac.what) ? 'an ' : 'a '}${c.sac.what}`,
-    c.exileGy && `exile ${c.exileGy} from graveyard`, c.tapOthers && `tap ${c.tapOthers.n} untapped ${c.tapOthers.what}`, c.removeCounters && `remove ${c.removeCounters} counter${c.removeCounters > 1 ? 's' : ''}`,
+    c.exileGy && `exile ${c.exileGy} from graveyard`, c.tapOthers && `tap ${c.tapOthers.n} untapped ${c.tapOthers.what}`, c.removeCounters && `remove ${c.removeCounters} counter${c.removeCounters > 1 ? 's' : ''}`, c.removeNamed && `remove ${c.removeNamed.n} ${c.removeNamed.kind} counter${c.removeNamed.n > 1 ? 's' : ''}`,
     c.bounce && `return a ${c.bounce.what}`, c.mill && `mill ${c.mill}`, c.untapOthers && `untap ${c.untapOthers.n} tapped ${c.untapOthers.what}`, c.exert && 'exert it',
     c.minusSelf && 'put a -1/-1 counter on it', c.exileOwn && `exile a ${c.exileOwn.what}`, c.removeAny && `remove ${c.removeAny} counter${c.removeAny > 1 ? 's' : ''} from among your permanents`,
     c.forage && 'forage', c.energy && `pay ${c.energy} energy`].filter(Boolean).join(', ');
@@ -628,6 +653,7 @@ export const condText = c => (COND_TEXT[c.c] || (() => c.c))(c);
 
 // Triggered abilities beyond the classic ones: "whenever you gain life", "whenever equipped creature
 // attacks", "at the beginning of each upkeep"… The engine fires these events and queues the matches.
+/** @type {[RegExp, (m: RegExpMatchArray) => any[]][]} */
 const WATCHERS = [
   [/^whenever ~ blocks or becomes blocked,? (.*)/, () => [{ ev: 'block', self: true }, { ev: 'blocked', self: true }]],
   [/^whenever ~ blocks(?: a creature)?,? (.*)/, () => [{ ev: 'block', self: true }]],
@@ -747,12 +773,13 @@ function keywordLine(line, fx) {
       if (m[1] === 'crew') fx.crew = n;
       continue;
     }
-    if ((m = s.match(/^(kicker|multikicker|buyback|unearth|embalm|eternalize|dash|blitz|spectacle|echo|ninjutsu|outlast|flashback|evoke|reconfigure) ((?:\{[^}]+\})+)$/))) {
+    if ((m = s.match(/^(kicker|multikicker|buyback|unearth|embalm|eternalize|dash|blitz|spectacle|echo|ninjutsu|outlast|flashback|evoke|reconfigure|madness|cleave) ((?:\{[^}]+\})+)$/))) {
       const cost = m[2].toUpperCase();
       fx.kw.add(m[1]);
       if (m[1] === 'outlast') fx.abilities.push({ cost: m[2], tap: true, effects: [{ k: 'counters', n: 1, on: '~' }], text: 'outlast', sorcery: true });
       else if (m[1] === 'multikicker') fx.kicker = cost;
-      else if (m[1] !== 'reconfigure') fx[m[1]] = cost;
+      else if (m[1] === 'reconfigure') { fx.reconfigure = true; fx.equip ||= cost; }
+      else fx[m[1]] = cost;
       continue;
     }
     if ((m = s.match(/^((?:basic )?land|plains|island|swamp|mountain|forest)?cycling ((?:\{[^}]+\})+)$/))) { fx.cycling = { cost: m[2].toUpperCase(), land: m[1] ? m[1].replace('basic land', 'basic') : null }; fx.kw.add('cycling'); continue; }
@@ -765,6 +792,20 @@ function keywordLine(line, fx) {
     if (s === 'for mirrodin!') { fx.etb.push({ k: 'germ', p: 2, t: 2, desc: 'red rebel' }); continue; }
     if (s === 'riot') { fx.entersCounters = (+fx.entersCounters || 0) + 1; fx.kw.add('riot'); continue; }
     if (s === 'ravenous') { fx.entersCounters = 'X'; continue; }
+    // Morph, megamorph, disguise: cast face down for {3}, turned face up for this cost (engine.js canCastFaceDown)
+    if ((m = s.match(/^(morph|megamorph|disguise) ((?:\{[^}]+\})+)$/))) { fx.morph = { cost: m[2].toUpperCase(), mega: m[1] === 'megamorph', disguise: m[1] === 'disguise' }; continue; }
+    // Bestow (cast as an Aura), mutate (merge onto a creature): engine.js (reconfigure is read with kicker and friends above)
+    if ((m = s.match(/^bestow ((?:\{[^}]+\})+)$/))) { fx.bestow = m[1].toUpperCase(); continue; }
+    // Enlist (702.154): tap a non-attacking creature as it attacks to add its power (engine.js attackKeywords);
+    // read ahead (702.155): a Saga may start on a later chapter (it starts on chapter 1 here, which is allowed)
+    if (s === 'enlist') { fx.enlist = true; continue; }
+    if (s === 'read ahead') { fx.readAhead = true; continue; }
+    // "Kicker {1}{W} and/or {2}{B}": the first kicker is offered (fx.kicker2 kept for the cards that check it)
+    if ((m = s.match(/^kicker ((?:\{[^}]+\})+) and\/or ((?:\{[^}]+\})+)$/))) { fx.kicker = m[1].toUpperCase(); fx.kicker2 = m[2].toUpperCase(); fx.kw.add('kicker'); continue; }
+    // Day and night (702.145): werewolves that transform as day turns to night and back (engine.js dayNight)
+    if (s === 'daybound') { fx.daybound = true; continue; }
+    if (s === 'nightbound') { fx.nightbound = true; continue; }
+    if ((m = s.match(/^mutate ((?:\{[^}]+\})+)$/))) { fx.mutate = m[1].toUpperCase(); continue; }
     if (s === 'split second') { fx.splitSecond = true; continue; }
     if (s === 'cascade') { fx.cascade = true; continue; }
     if (['fear', 'shadow', 'exalted', 'battle cry', 'flanking', 'melee', 'dethrone', 'training', 'mentor', 'evolve', 'undying', 'persist',
@@ -846,7 +887,9 @@ export function parseEffects(t) {
     return rest;
   }
   const out = [];
-  let plain = [], lastPlain = null, lastIf = null;
+  /** @type {any} (set by flush below: the plain effects just before an "if … instead" sentence) */
+  let lastPlain = null;
+  let plain = [], lastIf = null;
   const flush = () => { if (plain.length) { lastPlain = parseFlat(plain.join(' ')); out.push(...lastPlain); plain = []; } };
   for (let s of t.split(/(?<=\.)\s+/)) {
     s = s.replace(/^(?!choose )[a-z0-9',! ]{3,30} — (?=if |\w)/, '');
@@ -901,12 +944,57 @@ function parseFlat(t) {
     const d = dyn[1] ? { dyn: 'devotion', color: 'WUBRG'['white blue black red green'.split(' ').indexOf(dyn[1])] } : dyn[2] ? { dyn: 'count', what: dyn[2] } : dyn[3] ? { dyn: 'maxPower' } : dyn[4] ? { dyn: 'gy' } : dyn[5] ? { dyn: 'trigMV' } : { dyn: 'hand' };
     for (const e of effects) for (const f of ['n', 'p', 't']) if (e[f] === 'X') e[f] = d;
   }
+  readRiders(t, found, effects);
   return effects;
 }
 
+// Second halves of sentences the patterns above leave out. Each is a mark on an effect already read, used by the
+// engine from rules 6 (older replays keep playing as before):
+// - dup: two patterns read the same words ("destroy target artifact or enchantment") into one effect twice
+// - comp: what a removal spell's or counterspell's target controller gets (Swords to Plowshares' life, Path to
+//   Exile's land, Beast Within's token, An Offer You Can't Refuse's Treasures)
+// - gainLost: "you gain life equal to the life lost this way" after a drain (Gray Merchant, Exsanguinate)
+// - loseMv: "you lose life equal to that card's / permanent's mana value" (Reanimate, Feed the Swarm)
+// - haste, temp: a token copy that "has haste" and is sacrificed or exiled "at the beginning of the next end step"
+//   (Kiki-Jiki, Twinflame, Heat Shimmer); notLegend: "except the token isn't legendary" (Helm of the Host)
+function readRiders(t, found, effects) {
+  const seen = new Set();
+  for (const x of [...found].sort((a, b) => a.i - b.i)) {
+    const key = `${x.i}|${JSON.stringify(x.e)}`;
+    if (seen.has(key)) x.e.dup = true;
+    seen.add(key);
+  }
+  let m;
+  const ctl = "(?:its|that (?:creature|permanent|spell|land)'s) controller";
+  const hit = [...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
+  if (hit) {
+    const comp = {};
+    if (new RegExp(`${ctl} gains life equal to its power`).test(t)) comp.gain = 'power';
+    else if ((m = t.match(new RegExp(`${ctl} gains (\\d+) life`)))) comp.gain = +m[1];
+    if ((m = t.match(new RegExp(`${ctl} may search (?:their|his or her) library for a basic land card, put (?:that card|it) onto the battlefield( tapped)?`)))) comp.land = { tapped: !!m[1] };
+    if ((m = t.match(new RegExp(`${ctl} creates? (a|an|one|two|three) (\\d+)\\/(\\d+) ([\\w -]*?) ?creature tokens?(?: with ([\\w, ]+))?`)))) comp.token = { n: num(m[1]), p: +m[2], t: +m[3], desc: m[4], kw: kwList(m[5]) };
+    if ((m = t.match(new RegExp(`${ctl} creates? (a|an|one|two|three) treasure tokens?`)))) comp.treasure = num(m[1]);
+    if (Object.keys(comp).length) hit.comp = comp;
+  }
+  if (/you gain life equal to the life lost this way/.test(t)) for (const e of effects) if (e.k === 'drain' && !e.gain) e.gainLost = true;
+  if (/you lose life equal to (?:that card's|its|that permanent's|that creature's) mana value/.test(t)) {
+    const e = effects.find(x => x.k === 'reanimate' || (x.k === 'remove' && !x.dup));
+    if (e) e.loseMv = true;
+  }
+  const copy = effects.find(e => e.k === 'copyToken');
+  if (copy) {
+    if (/except (?:it has|they have|the token has) haste|(?:it|that token|the token|they|those tokens) gains? haste/.test(t)) copy.haste = true;
+    if ((m = t.match(/(sacrifice|exile) (?:it|that token|the token|them|those tokens) at the beginning of the next end step|at the beginning of the (?:next )?end step, (sacrifice|exile) (?:this token|~)/))) copy.temp = m[1] || m[2];
+    if (/except (?:the token|it) isn't legendary/.test(t)) copy.notLegend = true;
+  }
+}
+
+// Effects that take no target on the battlefield from rules 6: a duplicate reading of the same words (readRiders),
+// and "exile target land card from a graveyard" (Deathrite Shaman), whose card is picked as it resolves
+export function needsTargetIn(e, rules) { return needsTarget(e) && !(rules >= 6 && (e.dup || e.gyCard)); }
 export function needsTarget(e) {
   if (e.k === 'copyToken' && e.of) return false;
-  if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock'].includes(e.k)) return true;
+  if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock', 'tuck'].includes(e.k)) return true;
   if (e.k === 'goad') return !e.all;
   if (e.k === 'evade' || e.k === 'kwCounter') return !e.self && !e.all;
   if (e.k === 'regen') return !e.self && !e.all;
@@ -920,6 +1008,13 @@ export function needsTarget(e) {
 }
 
 export function analyzeCard(card) {
+  // Cleave (702.148): the card is read twice, with the [bracketed] words (cast normally) and without (cleaved)
+  if (!card.cleaveRead && /\[[^\]]*\]/.test(card.text || '') && /^cleave \{/im.test(card.text || '')) {
+    const full = analyzeCard({ ...card, cleaveRead: true, text: card.text.replace(/[[\]]/g, '') });
+    const cut = analyzeCard({ ...card, cleaveRead: true, text: card.text.replace(/ ?\[[^\]]*\]/g, '') });
+    full.cleaveSpell = cut.spell;
+    return full;
+  }
   const typeLine = (card.typeLine || '').toLowerCase();
   const main = typeLine.split('—')[0];
   const type = {
@@ -932,6 +1027,8 @@ export function analyzeCard(card) {
   type.permanent = !type.instant && !type.sorcery;
   const subtypes = (typeLine.split('—')[1] || '').trim().split(/\s+/).filter(Boolean);
   const t = cleanText(card.text, card.frontName || card.name);
+  // (a card's reading: many fields start empty and are filled in as its lines are read)
+  /** @type {Record<string, any>} */
   const fx = {
     type, subtypes, kw: new Set(), spell: [], etb: [], attack: [], upkeep: [], endstep: [], dies: [],
     abilities: [], pw: [], anthem: null, attachBuff: null, pacify: false, equip: null, mana: null,
@@ -958,6 +1055,8 @@ export function analyzeCard(card) {
   const check = () => { if (pending != null && describeFx(fx).join('|') === sig) fx.unread.push(pending); pending = null; };
   // Abilities that only work past a threshold: station "8+ |", class levels, max speed (see Game.gateOk)
   let gate = null, classLevel = 1, bgMark = null;
+  // Mana that costs life (rules 6): painlands, Talismans, Ancient Tomb, Mana Confluence (see the mana lines below)
+  let painN = 0, painless = false, painLife = false;
   // A background's granted ability only works while you control a commander
   const applyBg = () => {
     if (!bgMark) return;
@@ -1236,7 +1335,7 @@ export function analyzeCard(card) {
     // Opposition Agent: you control opponents while they search; their tutors come up empty
     if (/^you control your opponents while they're searching their libraries/.test(line)) { fx.searchHate = true; continue; }
     if (/^(?:this spell|~) can't be countered/.test(line)) { fx.uncounterable = true; continue; }
-    if (/^spells you control can't be countered/.test(line)) { fx.protectsSpells = true; continue; }
+    if (/^spells you control can't be countered/.test(line) && !/this turn/.test(line)) { fx.protectsSpells = true; continue; }
     // Walking Ballista: remove a counter to ping
     if (/^remove a \+1\/\+1 counter from ~: (?:it|~) deals 1 damage to any target/.test(line)) { fx.pingCounters = true; continue; }
     if ((m = line.match(/^creatures can't attack you(?: or planeswalkers you control)? unless their controller pays \{(\d+)\} for each/))) { fx.attackTax = +m[1]; continue; }
@@ -1370,8 +1469,10 @@ export function analyzeCard(card) {
     if ((m = line.match(/^~ has ([\w ,]+?) during your turn\.?$/)) && kwList(m[1]).length) { fx.condBuff = { cond: { c: 'myTurn' }, p: 0, t: 0, kw: kwList(m[1]) }; continue; }
     if ((m = line.match(/^if you tap a permanent for mana, it produces (three times|twice) as much of that mana instead/))) { fx.manaMult = m[1] === 'twice' ? 2 : 3; continue; }
     if (/^you may cast ~ as though it had flash/.test(line)) { fx.kw.add('flash'); continue; }
-    if (/^(?:creature and enchantment |creature, enchantment, and planeswalker )?spells you control can't be countered/.test(line)) { fx.protectsSpells = true; continue; }
+    if (/^(?:creature and enchantment |creature, enchantment, and planeswalker )?spells you control can't be countered/.test(line) && !/this turn/.test(line)) { fx.protectsSpells = true; continue; }
     if (/^permanents entering don't cause abilities of permanents your opponents control to trigger/.test(line)) { fx.noEtbOpp = true; continue; }
+    // Torpor Orb, Hushbringer (rules 6): no triggers from creatures entering (or dying), for every player
+    if ((m = line.match(/^creatures entering( or dying)? don't cause abilities to trigger\.?$/))) { fx.noEtbCreature = true; if (m[1]) fx.noDieCreature = true; continue; }
     if ((m = line.match(/^if one or more tokens would be created under your control, those tokens plus that many 1\/1 green squirrel creature tokens are created/))) { fx.extraToken = 'squirrel'; fx.extraTokenOn = 'any'; continue; }
     if (/^the "legend rule" doesn't apply to permanents you control/.test(line)) { fx.noLegendRule = true; continue; }
     if (/^(?:nonartifact )?spells you cast have improvise/.test(line)) { fx.improviseAll = true; continue; }
@@ -1546,7 +1647,7 @@ export function analyzeCard(card) {
     if (/^if a creature dying causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time/.test(line)) { fx.deathTwice = true; continue; }
     // Utopia Sprawl, Wild Growth: the enchanted land makes one more
     if ((m = line.match(/^whenever enchanted land is tapped for mana, its controller adds an additional (\{[wubrgc]\}|one mana of any color|mana of the chosen color)/))) { fx.auraMana = m[1].match(/\{([wubrgc])\}/)?.[1]?.toUpperCase() || '*'; continue; }
-    if (/^(?:creature )?spells you control can't be countered|^creature spells you control can't be countered/.test(line)) { fx.protectsSpells = true; continue; }
+    if (/^(?:creature )?spells you control can't be countered|^creature spells you control can't be countered/.test(line) && !/this turn/.test(line)) { fx.protectsSpells = true; continue; }
     if ((m = line.match(/^if an effect would create one or more tokens under your control, it creates (twice that many|that many plus one)/))) { fx.tokenBonus = m[1].startsWith('twice') ? 'double' : 'plus'; continue; }
     if (/^when ~ enters, you may exile an? [\w, ]*card from your hand/.test(line)) { fx.imprint = true; continue; }
     // ---- 1.5.0 statics from the card scan
@@ -1647,6 +1748,9 @@ export function analyzeCard(card) {
     if (/^you control enchanted (creature|permanent|artifact|land)/.test(line)) { fx.controlAura = true; continue; }
     // Mana abilities, including ones with a mana cost first (Signets: "{1}, {T}: Add {U}{B}" nets one mana)
     if ((m = line.match(/^(?:\{(\d)\}, )?\{t\}(, sacrifice ~|, pay \d+ life|, tap an untapped creature you control)?: add ([^.]+)/))) {
+      // ("~ deals 1 damage to you" after the mana, or "pay 1 life" in the cost; a painland's {C} line costs nothing)
+      const pain = line.match(/(?:~|this (?:land|artifact|creature)) deals (\d+) damage to you|^\{t\}, pay (\d+) life:/);
+      if (pain) { painN = Math.max(painN, +(pain[1] || pain[2])); painLife ||= !!pain[2]; } else painless = true;
       if (!fx.mana) {
         const clause = m[3];
         const syms = clause.match(/\{[wubrgc]\}/g) || [];
@@ -1670,6 +1774,27 @@ export function analyzeCard(card) {
       fx.graveReturn = { cost: m[1].toUpperCase(), to: m[2] === 'your hand' ? 'hand' : 'battlefield', tapped: !!m[3] };
       continue;
     }
+    // Den Protector, Hidden Dragonslayer: "When ~ is turned face up, …" (engine.js turnFaceUp)
+    if ((m = line.match(/^when ~ is turned face up, (.+)/))) {
+      const es = parseEffects(m[1]);
+      if (es.length) { fx.turnedUp = es; continue; }
+    }
+    // Shalai's Acolyte, Pixie Illusionist: "If ~ was kicked, it enters with two +1/+1 counters on it"
+    if ((m = line.match(/^if ~ was kicked, it enters with (\w+) \+1\/\+1 counters? on it\.?$/))) { fx.kickCounters = num(m[1]); continue; }
+    // Freezing auras: "Enchanted creature doesn't untap during its controller's untap step"
+    if (/^enchanted (?:creature|permanent) doesn't untap during its controller's untap step\.?$/.test(line)) { fx.attachNoUntap = true; continue; }
+    // Hooded Hydra: "As ~ is turned face up, put five +1/+1 counters on it"
+    if ((m = line.match(/^as ~ is turned face up, put (\w+) \+1\/\+1 counters on it\.?$/))) { fx.turnedUp = [{ k: 'counters', n: num(m[1]), on: '~' }]; continue; }
+    // Rooms (709.5): "When you unlock this door, …" (engine.js unlockRoom)
+    if ((m = line.match(/^when you unlock this door, (.+)/))) {
+      const es = parseEffects(m[1]);
+      if (es.length) { fx.onUnlock = es; continue; }
+    }
+    // Gemrazer, Nethroi: "Whenever this creature mutates, …"
+    if ((m = line.match(/^whenever (?:~|this creature) mutates, (.+)/))) {
+      const es = parseEffects(m[1]);
+      if (es.length) { fx.onMutate = es; continue; }
+    }
     // Hardened Scales, Branching Evolution: more +1/+1 counters
     if ((m = line.match(/^if one or more \+1\/\+1 counters would be put on (?:a creature|a permanent|an artifact or creature) you control, (that many plus one|twice that many)/))) { fx.counterBonus = m[1] === 'that many plus one' ? 'plus' : 'double'; continue; }
     // Activated abilities: "<costs>: <effect>", where every part of the cost is one the engine can pay
@@ -1677,10 +1802,14 @@ export function analyzeCard(card) {
       const costs = parseCostText(m[1]);
       if (costs) {
         const effects = parseEffects(m[2]);
-        if (effects.length && !effects.some(e => e.k === 'counter'))
+        // (Glen Elendra Archmage, Siren Stormtamer: an ability that counters a spell is only used in response to one,
+        // item 97; "that targets you or a creature you control" limits what it can counter)
+        const counterAb = effects.length === 1 && effects[0].k === 'counter' && !/mana value x/.test(m[2]);
+        if (counterAb && /that targets you(?: or a creature you control)?/.test(m[2])) effects[0] = { ...effects[0], targetsMe: true };
+        if (effects.length && (counterAb || !effects.some(e => e.k === 'counter')))
           fx.abilities.push({
             cost: costs.mana, tap: costs.tap, effects, text: m[2], sorcery: /activate only as a sorcery/.test(m[2]), costs,
-            sacSelf: costs.sacSelf || costs.exileSelf, life: costs.life, discard: costs.discard?.n || 0,
+            sacSelf: costs.sacSelf || costs.exileSelf, life: costs.life, discard: costs.discard?.n || 0, ...(counterAb ? { counterAb: true } : {}),
           });
         continue;
       }
@@ -1695,6 +1824,8 @@ export function analyzeCard(card) {
   check();
   applyGate();
   applyBg();
+  // (colored: only colored mana hurts, as the painland also has a painless {C} line)
+  if (fx.mana && painN) fx.mana.pain = { n: painN, colored: painless, ...(painLife ? { life: true } : {}) };
   if (type.land) {
     if (!fx.mana && produced.length) fx.mana = { amount: 1, colors: produced, sac: false };
     if (!produced.length && /search your library for/.test(t)) fx.fetch = true;
@@ -1705,28 +1836,37 @@ export function analyzeCard(card) {
 // How a counted amount reads: 3, X, "your devotion to B", "# creatures you control"
 export const amount = n => (n && typeof n === 'object' ? ({ devotion: `devotion to {${n.color}}`, hand: 'cards in hand', maxPower: 'greatest power', maxToughness: 'greatest toughness', sacPower: "the sacrificed creature's power", gy: 'cards in graveyard', trigN: 'that many', trigP: "its power", trigT: "its toughness", trigMV: 'its mana value' }[n.dyn] || `# ${n.what}s you control`) : n);
 
+// What a removal spell's or counterspell's target controller gets back (rules 6: readRiders)
+const compText = e => (!e.comp ? '' : ', its controller ' + [e.comp.gain === 'power' ? 'gains life equal to its power' : e.comp.gain ? `gains ${e.comp.gain} life` : '', e.comp.land ? `may get a basic land${e.comp.land.tapped ? ' (tapped)' : ''}` : '', e.comp.token ? `gets ${e.comp.token.n} ${e.comp.token.p}/${e.comp.token.t} token${e.comp.token.n > 1 ? 's' : ''}` : '', e.comp.treasure ? `gets ${e.comp.treasure} Treasure` : ''].filter(Boolean).join(' and '));
+
 const EFFECT_TEXT = {
   discard: e => `${e.who} discards ${amount(e.n)}`,
   addMana: e => `add ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`,
   silence: e => `${e.who} can't cast spells this turn`,
+  venture: () => 'venture into the dungeon',
+  tuck: e => `put target ${e.what} on top of or under its owner's library`,
+  suspect: () => 'suspect it (menace, can\'t block)',
+  initiative: () => 'take the initiative',
+  manifest: e => (e.dread ? 'manifest dread' : `${e.cloak ? 'cloak' : 'manifest'} the top ${e.n > 1 ? e.n + ' cards' : 'card'} of your library`),
   adNauseam: () => 'reveal cards into your hand, paying life',
-  copyToken: e => `token copy of target ${e.what}`,
+  copyToken: e => `token copy of target ${e.what}${e.notLegend ? ' (not legendary)' : ''}${e.haste ? ' with haste' : ''}${e.temp ? `, ${e.temp === 'exile' ? 'exiled' : 'sacrificed'} at the next end step` : ''}`,
   wipe: e => `${e.mode} all ${e.what}`,
   sweep: e => `${e.n} damage to each creature`,
-  counter: e => `counter target ${e.what === 'any' ? '' : e.what + ' '}spell`,
-  remove: e => `${e.mode} target ${e.what}`,
+  counter: e => `counter target ${e.what === 'any' ? '' : e.what + ' '}spell${compText(e)}`,
+  remove: e => (e.gyCard ? `exile target ${e.what} card from a graveyard` : `${e.mode} target ${e.nonbasic ? 'nonbasic ' : ''}${e.what}${compText(e)}${e.loseMv ? ', you lose life equal to its mana value' : ''}`),
+  gyExile: e => `exile target ${e.types.join(' or ')} card from a graveyard`,
   bounce: e => `bounce target ${e.what}`,
   damage: e => `${e.n} damage to ${e.to}`,
   draw: e => `draw ${amount(e.n)}`,
   gain: e => `gain ${amount(e.n)} life`,
-  drain: e => `each opponent loses ${amount(e.n)}`,
+  drain: e => `each opponent loses ${amount(e.n)}${e.gainLost ? ', you gain the life lost' : ''}`,
   loseLife: e => `target player loses ${amount(e.n)}`,
   token: e => `create ${e.n} ${e.p}/${e.t} token${e.n === 1 ? '' : 's'}`,
   treasure: e => `create ${e.n} Treasure`,
   teamPump: e => `team +${e.p}/+${e.t}`,
   pump: e => `target creature +${e.p}/+${e.t}`,
   counters: e => `${e.n} +1/+1 counter(s)`,
-  reanimate: e => `reanimate a${e.types?.length ? ` ${e.types.join('/')}` : ' creature'}${e.any ? ' from any graveyard' : ''}`,
+  reanimate: e => `reanimate a${e.types?.length ? ` ${e.types.join('/')}` : ' creature'}${e.any ? ' from any graveyard' : ''}${e.loseMv ? ', you lose life equal to its mana value' : ''}`,
   regrow: e => `return ${e.n > 1 ? e.n + ' cards' : 'a card'}${e.types?.length ? ` (${e.types.join('/')})` : ''} from graveyard to hand`,
   edict: e => `${e.all ? 'each player sacrifices' : e.that ? 'that player sacrifices' : 'opponents sacrifice'} ${e.n > 1 ? e.n : 'a'} ${e.nontoken ? 'nontoken ' : ''}${e.what || 'creature'}${e.n > 1 ? 's' : ''}`,
   rampLand: e => `fetch ${e.n} land${e.bf ? ' to battlefield' : ''}`,
@@ -1803,7 +1943,7 @@ const EFFECT_TEXT = {
   modular: () => 'move its +1/+1 counters to an artifact creature',
   returnSelf: () => 'return it to the battlefield',
 };
-const list = es => es.map(e => (EFFECT_TEXT[e.k] || (() => e.k))(e)).join(', ');
+const list = es => es.filter(e => !e.dup).map(e => (EFFECT_TEXT[e.k] || (() => e.k))(e)).join(', ');
 
 // How much of a card the simulator understands. Lands count if they make mana; a creature whose
 // text is only keywords counts too. Returns null for fully understood cards, else what's missing.
@@ -1839,10 +1979,24 @@ export function coverage(deck) {
 
 export function describeFx(fx) {
   const out = [];
-  if (fx.mana) out.push(`mana: ${fx.mana.amount}× {${fx.mana.colors.join('/')}}${fx.mana.sac ? ' (sacrifice)' : ''}${fx.mana.discardHand ? ' (discard your hand)' : ''}${fx.mana.only === 'creatureAbility' ? ' (only for creature abilities)' : fx.mana.only === 'creatureSpell' ? ' (only for creature spells)' : ''}`);
+  if (fx.mana) out.push(`mana: ${fx.mana.amount}× {${fx.mana.colors.join('/')}}${fx.mana.sac ? ' (sacrifice)' : ''}${fx.mana.discardHand ? ' (discard your hand)' : ''}${fx.mana.only === 'creatureAbility' ? ' (only for creature abilities)' : fx.mana.only === 'creatureSpell' ? ' (only for creature spells)' : ''}${fx.mana.pain ? ` (${fx.mana.pain.life ? 'pay' : 'deals you'} ${fx.mana.pain.n}${fx.mana.pain.life ? ' life' : ' damage'}${fx.mana.pain.colored ? ' for colored mana' : ''})` : ''}`);
   if (fx.breach) out.push('cards in your graveyard have escape (mana cost + exile three others)');
   if (fx.sacAtEnd) out.push('sacrificed at the end step');
   if (fx.storm) out.push('storm');
+  if (fx.morph) out.push(`${fx.morph.disguise ? 'disguise' : fx.morph.mega ? 'megamorph' : 'morph'} ${fx.morph.cost} (cast face down for {3})`);
+  if (fx.turnedUp) out.push(`when turned face up: ${list(fx.turnedUp)}`);
+  if (fx.bestow) out.push(`bestow ${fx.bestow} (cast as an Aura)`);
+  if (fx.daybound || fx.nightbound) out.push(fx.daybound ? 'daybound (transforms when it becomes night)' : 'nightbound (transforms back when it becomes day)');
+  if (fx.madness) out.push(`madness ${fx.madness} (cast it when you discard it)`);
+  if (fx.enlist) out.push('enlist');
+  if (fx.onUnlock) out.push(`when you unlock this door: ${list(fx.onUnlock)}`);
+  if (fx.readAhead) out.push('read ahead (starts on chapter 1)');
+  if (fx.kickCounters) out.push(`kicked: enters with ${fx.kickCounters} +1/+1 counters`);
+  if (fx.attachNoUntap) out.push("enchanted permanent doesn't untap");
+  if (fx.cleave) out.push(`cleave ${fx.cleave}: ${fx.cleaveSpell?.length ? list(fx.cleaveSpell) : '(not modelled)'}`);
+  if (fx.mutate) out.push(`mutate ${fx.mutate} (merge onto a non-Human creature you own)`);
+  if (fx.onMutate) out.push(`whenever it mutates: ${list(fx.onMutate)}`);
+  if (fx.reconfigure) out.push('reconfigure (not a creature while attached)');
   if (fx.onOppSecondDraw) out.push(`when an opponent draws their second card each turn: ${list(fx.onOppSecondDraw)}`);
   if (fx.flashGrant) out.push(`${fx.flashGrant === 'noncreature' ? 'noncreature spells' : 'spells'} as though they had flash`);
   if (fx.lifeCost) out.push(`costs ${fx.lifeCost} life extra`);
@@ -2000,7 +2154,7 @@ const FLAG_TEXT = {
   hasteAll: () => 'all creatures have haste', altMana: v => `may cast for ${v} instead`,
   bloodMoon: () => 'nonbasic lands tap only for {R}', costReduceAll: v => `every spell costs {${v}} less`, cantLose: () => "you can't lose and opponents can't win", creatureDamageOnly: () => '(only damage from your creatures)',
   attachMana: () => 'equipped creature taps for any color', tokenAngel: () => 'your creature tokens are 4/4 flying Angels instead',
-  manaMult: v => `mana from permanents ×${v}`, noEtbOpp: () => "permanents entering don't trigger opponents' abilities", noLegendRule: () => "the legend rule doesn't apply to you", improviseAll: () => 'your spells have improvise',
+  manaMult: v => `mana from permanents ×${v}`, noEtbOpp: () => "permanents entering don't trigger opponents' abilities", noEtbCreature: () => "creatures entering don't trigger abilities", noDieCreature: () => "creatures dying don't trigger abilities", noLegendRule: () => "the legend rule doesn't apply to you", improviseAll: () => 'your spells have improvise',
   // 1.7.0
   wardGrant: v => `${v.other ? 'other ' : ''}${v.what}s you control${v.counters ? ' with counters' : ''} have ward ${v.n ? `{${v.n}}` : ''}${v.life ? `pay ${v.life} life` : ''}`,
   noGain: v => (v === 'opp' ? "opponents can't gain life" : "players can't gain life"), spellCap: v => `each player can cast only one ${v === 'any' ? '' : v + ' '}spell each turn`,
@@ -2030,7 +2184,7 @@ const FLAG_TEXT = {
 Object.assign(EFFECT_TEXT, {
   doublePT: e => (e.all ? "double your creatures' power and toughness" : "double target creature's power"), pumpTrig: e => `that creature gets +${e.p}/+${e.t}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`,
   copyTrig: () => 'copy that spell', shieldSelf: () => 'you gain protection from everything until your next turn', ring: () => 'the Ring tempts you', playerCounter: e => `you get ${e.n} ${e.kind} counter${e.n === 1 ? '' : 's'}`,
-  pumpAttached: e => `enchanted creature gets +${e.p}/+${e.t}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`, uncounterNext: () => "your next spell this turn can't be countered", bottomSelf: () => 'put it on the bottom of the library',
+  pumpAttached: e => `enchanted creature gets +${e.p}/+${e.t}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`, uncounterNext: () => "your next spell this turn can't be countered", shieldSpells: () => "your spells can't be countered this turn", bottomSelf: () => 'put it on the bottom of the library',
   returnTrig: () => 'return that card to the battlefield', transform: () => 'transform', bounceAll: e => `return all ${e.what} creatures to hand`, roll: e => `roll a d${e.d}${e.table?.length ? ` (${e.table.length} results)` : ''}`,
   flashTurn: () => 'cast spells as though they had flash this turn', gyCastTurn: e => `cast ${e.types.join('/') || ''} spells from your graveyard this turn`.replace('cast  spells', 'cast spells'), stealAll: e => `gain control of that player's ${e.what}s`,
   level: e => `class level ${e.n}`, station: () => 'station',

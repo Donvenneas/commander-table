@@ -65,11 +65,24 @@ export const RATING_OPTS = { weight: 0.4, readOnly: true };
 const ratingOf = c => RATINGS && !(RATING_OPTS.readOnly && c.fx.unread?.length) && (RATINGS.cards[c.name] || RATINGS.cards[c.frontName]);
 
 // How much a drafter wants a card, given what it already picked
-export function pickScore(c, picks) {
+// HEURISTIC.v2 (item 116): more kinds of removal, creature size for its cost, the curve, and cards the simulator
+// can't fully read count for less
+export const HEURISTIC = { v2: true };
+const REMOVAL_V2 = ['remove', 'wipe', 'counter', 'damage', 'bounce', 'tuck', 'fight', 'edict', 'shrink', 'minus', 'sweep'];
+export function pickScore(c, picks, v2 = HEURISTIC.v2) {
   let s = RARITY[c.rarity] || 1;
   if (c.fx.type.land && !c.fx.mana) s -= 1;
   if (c.fx.type.creature) s += 0.4;
-  if (c.fx.spell.some(e => ['remove', 'wipe', 'counter', 'damage'].includes(e.k))) s += 1;
+  if (c.fx.spell.some(e => (v2 ? REMOVAL_V2 : ['remove', 'wipe', 'counter', 'damage']).includes(e.k))) s += 1;
+  if (v2) {
+    const mv = c.cmc || 0;
+    if (c.fx.type.creature) s += Math.max(-0.5, Math.min(0.8, ((+c.power || 0) + (+c.toughness || 0)) / (2 * Math.max(1, mv)) - 1));
+    if (c.fx.etb.some(e => REMOVAL_V2.includes(e.k))) s += 0.8;
+    const twos = picks.filter(p => p.fx.type.creature && (p.cmc || 0) <= 2).length;
+    if (picks.length >= 10 && twos < 4 && c.fx.type.creature && mv <= 2) s += 0.5;
+    if (mv >= 6 && picks.filter(p => (p.cmc || 0) >= 6).length >= 2) s -= 1;
+    if (c.fx.unread?.length) s -= 0.5;
+  }
   // With ratings, the card's real win rate counts too (5 points of win rate over the set's average ≈ +2.5)
   const r = ratingOf(c);
   if (r) s = (1 - RATING_OPTS.weight) * s + RATING_OPTS.weight * (2.5 + (r.gihwr - RATINGS.average) * 50);
@@ -202,7 +215,10 @@ export function cubeNames(text) {
 
 // Draft: three rounds of packs passed left, right, left. pickFor(seat, pack, picks) chooses for a person
 // (it can be async); the AI picks for everyone else.
+// humanSeat: the seat a person picks for, or (item 136, drafting with friends) a test for the seats people pick for;
+// everyone picks from their pack at the same time, and the AI drafters straight away
 export async function runDraft(pool, players, seed, humanSeat, pickFor, onStatus, packFn = makePack) {
+  const asks = typeof humanSeat === 'function' ? humanSeat : s => s === humanSeat;
   const rand = makeRng(seed);
   const picks = Array.from({ length: players }, () => []);
   for (let round = 0; round < 3; round++) {
@@ -211,10 +227,10 @@ export async function runDraft(pool, players, seed, humanSeat, pickFor, onStatus
     const dir = round % 2 ? -1 : 1;
     while (packs.some(p => p.length)) {
       onStatus?.(`Pack ${round + 1}, pick ${picks[0].length % size + 1}`);
+      const chosen = await Promise.all(packs.map((pack, s) => (!pack.length ? null : asks(s) ? pickFor(s, pack, picks[s]) : aiPick(pack, picks[s]))));
       for (let s = 0; s < players; s++) {
-        const pack = packs[s];
-        if (!pack.length) continue;
-        const c = s === humanSeat ? await pickFor(s, pack, picks[s]) : aiPick(pack, picks[s]);
+        const pack = packs[s], c = chosen[s] && pack.includes(chosen[s]) ? chosen[s] : pack.length ? aiPick(pack, picks[s]) : null;
+        if (!c) continue;
         pack.splice(pack.indexOf(c), 1);
         picks[s].push(c);
       }

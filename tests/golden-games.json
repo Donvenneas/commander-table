@@ -1,0 +1,146 @@
+{
+ "rules 4 · seed 50000": {
+  "winner": "P1",
+  "round": 5,
+  "steps": 159,
+  "lines": 152,
+  "errors": 0,
+  "log": "c027cc25a40d796b"
+ },
+ "rules 4 · seed 50001": {
+  "winner": "P2",
+  "round": 16,
+  "steps": 469,
+  "lines": 508,
+  "errors": 0,
+  "log": "3318a0df3678a1fb"
+ },
+ "rules 4 · seed 50002": {
+  "winner": "P2",
+  "round": 19,
+  "steps": 633,
+  "lines": 755,
+  "errors": 0,
+  "log": "3261e00de392daec"
+ },
+ "rules 4 · seed 50003": {
+  "winner": "P4",
+  "round": 13,
+  "steps": 550,
+  "lines": 795,
+  "errors": 0,
+  "log": "453ba6af082df343"
+ },
+ "rules 4 · seed 50004": {
+  "winner": "P2",
+  "round": 11,
+  "steps": 389,
+  "lines": 444,
+  "errors": 0,
+  "log": "75725d0bf54bc208"
+ },
+ "rules 4 · seed 50005": {
+  "winner": "P3",
+  "round": 7,
+  "steps": 252,
+  "lines": 282,
+  "errors": 0,
+  "log": "a3caa5d71ff88e92"
+ },
+ "rules 5 · seed 50000": {
+  "winner": "P4",
+  "round": 8,
+  "steps": 293,
+  "lines": 330,
+  "errors": 0,
+  "log": "638cdfdfedda1c32"
+ },
+ "rules 5 · seed 50001": {
+  "winner": "P2",
+  "round": 16,
+  "steps": 469,
+  "lines": 508,
+  "errors": 0,
+  "log": "3ab13a5400098259"
+ },
+ "rules 5 · seed 50002": {
+  "winner": "P1",
+  "round": 13,
+  "steps": 440,
+  "lines": 510,
+  "errors": 0,
+  "log": "1ecccd0a3a10002b"
+ },
+ "rules 5 · seed 50003": {
+  "winner": "P1",
+  "round": 13,
+  "steps": 434,
+  "lines": 556,
+  "errors": 0,
+  "log": "06b5637fd5f306a8"
+ },
+ "rules 5 · seed 50004": {
+  "winner": "P4",
+  "round": 15,
+  "steps": 523,
+  "lines": 626,
+  "errors": 0,
+  "log": "a3b96a5f21d8e840"
+ },
+ "rules 5 · seed 50005": {
+  "winner": "P3",
+  "round": 7,
+  "steps": 252,
+  "lines": 282,
+  "errors": 0,
+  "log": "a3caa5d71ff88e92"
+ },
+ "rules 6 · seed 50000": {
+  "winner": "P4",
+  "round": 8,
+  "steps": 293,
+  "lines": 330,
+  "errors": 0,
+  "log": "638cdfdfedda1c32"
+ },
+ "rules 6 · seed 50001": {
+  "winner": "P2",
+  "round": 24,
+  "steps": 618,
+  "lines": 687,
+  "errors": 0,
+  "log": "d2c02192c54de50c"
+ },
+ "rules 6 · seed 50002": {
+  "winner": "P3",
+  "round": 19,
+  "steps": 719,
+  "lines": 969,
+  "errors": 0,
+  "log": "c3124b10d459230d"
+ },
+ "rules 6 · seed 50003": {
+  "winner": "P4",
+  "round": 11,
+  "steps": 395,
+  "lines": 506,
+  "errors": 0,
+  "log": "41cab8b8ec59d846"
+ },
+ "rules 6 · seed 50004": {
+  "winner": "P4",
+  "round": 11,
+  "steps": 423,
+  "lines": 511,
+  "errors": 0,
+  "log": "83f9ab9f39f80aea"
+ },
+ "rules 6 · seed 50005": {
+  "winner": "P3",
+  "round": 8,
+  "steps": 263,
+  "lines": 288,
+  "errors": 0,
+  "log": "b657ee6d5537cea3"
+ }
+}

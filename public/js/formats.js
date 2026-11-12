@@ -22,7 +22,18 @@ export const FORMATS = {
   // Commander variants (multiplayer). cmdRule: what may be the commander (see commanderOk)
   brawl: { name: 'Brawl', life: 25, seats: 4, deck: 60, exact: true, copies: 1, commander: true, cmdDamage: 0, freeMull: true, legal: 'brawl', sideboard: 0, bo3: false, cmdRule: 'brawl', lands: 24, about: '60-card singleton with Standard cards, a legendary creature or planeswalker as commander, 25 life, no commander damage' },
   paupercommander: { name: 'Pauper Commander', life: 30, seats: 4, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 16, freeMull: true, legal: 'paupercommander', sideboard: 0, bo3: false, cmdRule: 'uncommon', rarity: ['common'], lands: 37, about: 'Commons only, an uncommon creature as commander, 30 life, 16 commander damage' },
+  // One-on-one Commander (item 161): Duel Commander (its own ban list on Scryfall as legal:duel, 20 life) and plain
+  // Commander rules for two players at 40 life
+  duel: { name: 'Duel Commander', life: 20, seats: 2, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 21, freeMull: true, legal: 'duel', sideboard: 0, bo3: true, lands: 37, about: '100-card singleton with a commander, one on one, 20 life, its own ban list' },
+  commander1v1: { name: '1v1 Commander', life: 40, seats: 2, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 21, freeMull: true, legal: 'commander', sideboard: 0, bo3: true, lands: 37, about: 'Commander rules for two players: 100-card singleton, 40 life, one on one' },
   oathbreaker: { name: 'Oathbreaker', life: 20, seats: 4, deck: 60, exact: true, copies: 1, commander: true, cmdDamage: 0, freeMull: true, legal: 'oathbreaker', sideboard: 0, bo3: false, cmdRule: 'oathbreaker', signature: true, lands: 20, about: 'A planeswalker (the oathbreaker) and an instant or sorcery (its signature spell) in the command zone, 60 cards, 20 life' },
+  // Two-Headed Giant (item 159): seats 1–2 and 3–4 are teams; each team shares 30 life and 15 poison, teammates take
+  // their turns back to back as the team's turn and block for each other. Constructed cards (Standard's pool for
+  // random decks).
+  twohg: { name: 'Two-Headed Giant', life: 30, seats: 4, deck: 60, copies: 4, commander: false, cmdDamage: 0, freeMull: true, legal: 'standard', sideboard: 0, bo3: false, teams: true, poison: 15, about: 'Two teams of two: each team shares 30 life and its turn, and blocks together; 60-card decks' },
+  // Archenemy and Planechase (item 160, planar.js): scheme and plane cards from Scryfall
+  archenemy: { name: 'Archenemy', life: 20, seats: 4, deck: 60, copies: 4, commander: false, cmdDamage: 0, freeMull: true, legal: 'standard', sideboard: 0, bo3: false, planar: 'archenemy', about: 'Seat 1 is the archenemy: 40 life and a deck of schemes, one set in motion each turn, against the other three as a team; 60-card decks' },
+  planechase: { name: 'Planechase (Commander)', life: 40, seats: 4, deck: 100, exact: true, copies: 1, commander: true, cmdDamage: 21, freeMull: true, legal: 'commander', sideboard: 0, bo3: false, planar: 'planechase', about: 'Commander on a deck of planes: everyone rolls the planar die once a turn (planeswalk, chaos or nothing)' },
   // Manual tables (manual.js): no rules engine, no AI. Players do everything by hand. seats is the default
   // table size; the setup screen picks 2–9 (Kingdoms 5–9). anyDeck: Commander lists and 60-card lists both load.
   manual: { name: 'Manual tabletop (2–9 players)', life: 40, seats: 4, minSeats: 2, maxSeats: 9, deck: 0, copies: 99, commander: true, anyDeck: true, cmdDamage: 21, freeMull: true, legal: null, sideboard: 0, bo3: false, manual: true, about: 'Fully manual: nothing is automated, every move is yours. Any decks, house rules, cards the engine can\'t read' },
@@ -49,6 +60,35 @@ const isBasic = c => /\bbasic\b/i.test(c.typeLine) && /\bland\b/i.test(c.typeLin
 
 // Deck checks for a format: size, copies, commander, sideboard and legality. Warnings only: an
 // illegal deck still plays (the game is for testing as much as for tournaments).
+// A companion's deck-building condition (702.139a), for the companions printed so far. A deck that breaks it
+// gets a warning (the game still lets the companion be used, as with every other deck check here).
+export function companionCheck(deck, f) {
+  const c = deck.companion;
+  const out = [];
+  const starting = [...deck.commanders, ...deck.cards.map(x => x.card)];
+  const nonland = starting.filter(x => !/\bland\b/i.test(x.typeLine.split('—')[0]));
+  const permanent = starting.filter(x => !/\b(instant|sorcery)\b/i.test(x.typeLine));
+  const bad = list => [...new Set(list.map(x => x.name))];
+  const name = c.name.split(',')[0];
+  const rule = {
+    'Lurrus of the Dream-Den': () => bad(permanent.filter(x => (x.cmc || 0) > 2)),
+    'Obosh, the Preypiercer': () => bad(nonland.filter(x => (x.cmc || 0) % 2 === 0)),
+    'Gyruda, Doom of Depths': () => bad(starting.filter(x => (x.cmc || 0) % 2 === 1)),
+    'Keruga, the Macrosage': () => bad(nonland.filter(x => (x.cmc || 0) < 3)),
+    'Kaheera, the Orphanguard': () => bad(starting.filter(x => /\bcreature\b/i.test(x.typeLine) && !/\b(cat|elemental|nightmare|dinosaur|beast)\b/i.test(x.typeLine))),
+    'Jegantha, the Wellspring': () => bad(starting.filter(x => { const syms = (x.manaCost || '').match(/\{[^}]+\}/g) || []; return syms.some((s, i) => !/^\{\d+\}$/.test(s) && syms.indexOf(s) !== i); })),
+    'Umori, the Collector': () => { const types = ['artifact', 'creature', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'battle']; return types.some(t => nonland.every(x => new RegExp(`\\b${t}\\b`, 'i').test(x.typeLine))) ? [] : ['nonland cards of different types']; },
+    'Lutri, the Spellchaser': () => bad(deck.cards.filter(x => x.qty > 1 && !/\bland\b/i.test(x.card.typeLine)).map(x => x.card)),
+    'Yorion, Sky Nomad': () => (starting.length + deck.cards.reduce((a, x) => a + x.qty - 1, 0) < f.deck + 20 ? [`fewer than ${f.deck + 20} cards`] : []),
+  }[c.name];
+  if (rule) { const b = rule(); if (b.length) out.push(`Companion ${name}'s condition isn't met: ${b.slice(0, 4).join(', ')}${b.length > 4 ? `, and ${b.length - 4} more` : ''}.`); }
+  // (in Commander, the companion must fit the commanders' color identity too)
+  if (f.commander && deck.commanders.length) {
+    const ci = new Set(deck.commanders.flatMap(x => x.colorIdentity || []));
+    if ((c.colorIdentity || []).some(x => !ci.has(x))) out.push(`Companion ${name} is outside the commander's colors.`);
+  }
+  return out;
+}
 export function checkDeck(deck, key) {
   const f = formatOf(key);
   const out = [];
@@ -61,6 +101,20 @@ export function checkDeck(deck, key) {
     if (!deck.commanders.some(c => /\bplaneswalker\b/i.test(c.typeLine))) out.push('Oathbreaker decks need a planeswalker as the oathbreaker.');
     if (!deck.commanders.some(c => /\b(instant|sorcery)\b/i.test(c.typeLine))) out.push('No signature spell: put an instant or sorcery under the "Commander" heading with the oathbreaker.');
   } else if (f.commander && f.cmdRule) for (const c of deck.commanders) if (!commanderOk(c, key)) out.push(`${c.name} can't be a ${f.name} commander.`);
+  // Two commanders must be a legal pair (702.124): both partners, "partner with" each other, both "friends forever",
+  // a "choose a background" commander with a Background, or a Doctor's companion with a Time Lord Doctor
+  if (f.commander && !f.signature && deck.commanders.length === 2) {
+    const [a, b] = deck.commanders;
+    const t = c => (c.text || '').toLowerCase();
+    const has = (c, re) => re.test(t(c));
+    const pw = (c, d) => t(c).includes(`partner with ${d.name.toLowerCase()}`);
+    const bg = (c, d) => has(c, /^choose a background\b/m) && /\bbackground\b/i.test(d.typeLine);
+    const doc = (c, d) => has(c, /^doctor's companion\b/m) && /\btime lord doctor\b/i.test(d.typeLine);
+    const ok = (has(a, /^partner\b(?! with)/m) && has(b, /^partner\b(?! with)/m)) || (pw(a, b) && pw(b, a))
+      || (has(a, /^friends forever\b/m) && has(b, /^friends forever\b/m)) || bg(a, b) || bg(b, a) || doc(a, b) || doc(b, a);
+    if (!ok) out.push(`${a.name} and ${b.name} can't be commanders together (no partner, background or companion pairing).`);
+  } else if (f.commander && !f.signature && deck.commanders.length > 2) out.push(`${deck.commanders.length} commanders: a deck can have at most two.`);
+  if (deck.companion) out.push(...companionCheck(deck, f));
   const side = (deck.sideboard || []).reduce((a, c) => a + c.qty, 0);
   if (side > f.sideboard) out.push(f.sideboard ? `Sideboard has ${side} cards (at most ${f.sideboard}).` : `${f.name} has no sideboard; its ${side} cards are left out.`);
   // Copies across the main deck and sideboard

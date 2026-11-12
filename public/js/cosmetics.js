@@ -19,6 +19,9 @@ export const AVATARS = [
   { id: 'phoenix', name: 'Phoenix', unlock: { badge: 'rank-mythic' }, url: svg(`${grad('g', '#ffcf7a', '#a12b0d')}<path d="M32 54c-4-8-4-14 0-20 4 6 4 12 0 20zM32 34C22 30 12 22 8 10c10 6 18 8 24 18 6-10 14-12 24-18-4 12-14 20-24 24z" fill="#fff0c9"/>`) },
   { id: 'tower', name: 'Stronghold', unlock: { games: 25 }, url: svg(`${grad('g', '#d4d0c8', '#4a463e')}<path d="M18 54V22h6v-6h4v6h8v-6h4v6h6v32z" fill="#f4f1ea"/><rect x="29" y="40" width="6" height="14" fill="#4a463e"/>`) },
   { id: 'moon', name: 'Moonwatch', unlock: { badge: 'streak-3' }, url: svg(`${grad('g', '#9fb4ff', '#141c44')}<path d="M40 12a20 20 0 1 0 12 30A16 16 0 1 1 40 12z" fill="#eef1ff"/><circle cx="16" cy="16" r="1.5" fill="#fff"/><circle cx="50" cy="52" r="1.2" fill="#fff"/>`) },
+  // (item 167: for the round 5 modes)
+  { id: 'blades', name: 'Crossed Blades', unlock: { badge: 'gauntlet-clear' }, url: svg(`${grad('g', '#e6edf5', '#3a4656')}<path d="M14 12l30 30-4 4L10 16zM50 12L20 42l4 4 30-30z" fill="#f7fbff"/><path d="M38 44l8 8M26 44l-8 8" stroke="#f7fbff" stroke-width="4" stroke-linecap="round"/>`) },
+  { id: 'lamp', name: 'Lantern of Riddles', unlock: { badge: 'daily-7' }, url: svg(`${grad('g', '#fff2b8', '#7a5a12')}<path d="M24 20h16l4 22H20z" fill="#fff9e0" stroke="#7a5a12" stroke-width="1.5"/><path d="M28 14h8v6h-8zM22 42h20v6H22z" fill="#7a5a12"/><circle cx="32" cy="31" r="5" fill="#ffd36b"/>`) },
   { id: 'dragon', name: 'Wyrm', unlock: { mastery: 10 }, url: svg(`${grad('g', '#ff9a9a', '#5a0f1e')}<path d="M10 44c10-2 14-12 22-16 6-3 12-2 16 2l6-4-2 8c2 4 0 10-6 12-6 2-10-2-16 2-6 4-12 6-20-4z" fill="#ffe3e3"/><circle cx="46" cy="34" r="1.8" fill="#5a0f1e"/>`) },
 ];
 
@@ -32,6 +35,8 @@ export const BACKS = [
   { id: 'gold', name: 'Gilded', unlock: { badge: 'rank-gold' }, css: 'repeating-linear-gradient(135deg, #b8862b 0 3px, #e3c36b 3px 5px, #8a5f12 5px 8px)' },
   { id: 'starfield', name: 'Starfield', unlock: { games: 50 }, css: 'radial-gradient(circle at 20% 30%, #fff 0 1px, transparent 2px), radial-gradient(circle at 70% 60%, #fff 0 1px, transparent 2px), radial-gradient(circle at 40% 80%, #cfd8ff 0 1px, transparent 2px), linear-gradient(#0b1030, #1c2460)' },
   { id: 'prism', name: 'Prism', unlock: { badge: 'rank-diamond' }, css: 'conic-gradient(from 45deg, #7aa7ff, #b07cff, #ff7ac8, #ffd36b, #7aff9e, #7aa7ff)' },
+  { id: 'league', name: 'Seven-star banner', unlock: { badge: 'league-7' }, css: 'radial-gradient(circle at 50% 50%, #ffe08a 0 6%, transparent 7%), repeating-conic-gradient(from 0deg at 50% 50%, #1e3a6b 0 25.7deg, #2a5296 25.7deg 51.4deg)' },
+  { id: 'cup', name: 'Friendship cup', unlock: { badge: 'cup-win' }, css: 'repeating-linear-gradient(0deg, #6b1e3a 0 6px, #8f2a50 6px 12px), #6b1e3a' },
   { id: 'mythic', name: 'Mythic flame', unlock: { badge: 'rank-mythic' }, css: 'radial-gradient(ellipse at 50% 100%, #ffd36b 0 25%, #ff7a45 26% 45%, #a12b0d 46% 70%, #2a0a05 71%)' },
 ];
 

@@ -4,11 +4,12 @@ import { formatOf, checkDeck, commanderOk } from './formats.js';
 import { randomSealed } from './limited.js';
 import { metaDeck, decklistByLink } from './cedhdata.js';
 import { combosIn } from './combos.js';
+import { preconText } from './precons.js';
 
 async function proxied(url, as = 'json') {
   const r = await fetch('/api/fetch?url=' + encodeURIComponent(url));
   if (!r.ok) {
-    const err = new Error(`HTTP ${r.status}`);
+    const err = /** @type {Error & { status?: number }} */ (new Error(`HTTP ${r.status}`));
     err.status = r.status;
     throw err;
   }
@@ -25,23 +26,38 @@ function parseArchidekt(j) {
     const cats = c.categories || [];
     const commander = cats.includes('Commander');
     const side = cats.some(x => /^sideboard$/i.test(x));
+    const companion = cats.some(x => /^companion$/i.test(x));
     if (cats.some(x => /^maybeboard$/i.test(x))) continue;
-    if (!commander && !side && cats.some(x => excluded.has(x))) continue;
+    if (!commander && !side && !companion && cats.some(x => excluded.has(x))) continue;
     const name = c.card?.oracleCard?.name;
-    entries.push({ qty: c.quantity || 1, commander, side, name, ident: c.card?.uid ? { id: c.card.uid } : { name } });
+    entries.push({ qty: c.quantity || 1, commander, side, companion, name, ident: c.card?.uid ? { id: c.card.uid } : { name } });
   }
   return { deckName: j.name, entries };
+}
+
+// Archidekt folders (item 156; its robots.txt allows them): a folder's decks and subfolders, and one deck as a list
+export async function archidektFolder(id) {
+  const j = await proxied(`https://archidekt.com/api/decks/folders/${Number(id)}/`);
+  return { name: j.name || 'Archidekt folder', owner: j.owner?.username || '', decks: (j.decks || []).map(d => ({ id: d.id, name: d.name, size: d.size || 0 })), subfolders: (j.subfolders || []).map(f => ({ id: f.id, name: f.name })) };
+}
+export async function archidektDeckText(id) {
+  const p = parseArchidekt(await proxied(`https://archidekt.com/api/decks/${Number(id)}/`));
+  const line = e => `${e.qty} ${e.name}`;
+  const cmd = p.entries.filter(e => e.commander && e.name), side = p.entries.filter(e => e.side && !e.commander && e.name), comp = p.entries.filter(e => e.companion && e.name);
+  const main = p.entries.filter(e => !e.commander && !e.side && !e.companion && e.name);
+  return { name: p.deckName || `Archidekt ${id}`, text: [...(cmd.length ? ['Commander', ...cmd.map(line), ''] : []), ...(comp.length ? ['Companion', ...comp.map(line), ''] : []), 'Deck', ...main.map(line), ...(side.length ? ['', 'Sideboard', ...side.map(line)] : [])].join('\n') };
 }
 
 function parseMoxfield(j) {
   const boards = j.boards || { mainboard: { cards: j.mainboard }, commanders: { cards: j.commanders } };
   const entries = [];
-  const add = (board, commander, side = false) => {
+  const add = (board, commander, side = false, companion = false) => {
     for (const x of Object.values(board?.cards || {})) {
       const c = x.card || {};
-      entries.push({ qty: x.quantity || 1, commander, side, name: c.name, ident: c.scryfall_id ? { id: c.scryfall_id } : { name: c.name } });
+      entries.push({ qty: x.quantity || 1, commander, side, companion, name: c.name, ident: c.scryfall_id ? { id: c.scryfall_id } : { name: c.name } });
     }
   };
+  add(boards.companions, false, false, true);
   add(boards.commanders, true);
   add(boards.mainboard, false);
   add(boards.sideboard || (j.sideboard ? { cards: j.sideboard } : null), false, true);
@@ -49,7 +65,8 @@ function parseMoxfield(j) {
 }
 
 const SIDE_SECTIONS = /^(sideboard|side)\b/i;
-const SKIP_SECTIONS = /^(maybeboard|maybe|considering|tokens?|companion)\b/i;
+const SKIP_SECTIONS = /^(maybeboard|maybe|considering|tokens?)\b/i;
+const COMPANION_SECTIONS = /^companions?\b/i;
 const CMD_SECTIONS = /^(commanders?|command zone)\b/i;
 const MAIN_SECTIONS = /^(deck|main ?deck|mainboard|main|creatures?|lands?|spells?|artifacts?|enchantments?|instants?|sorcery|sorceries|planeswalkers?|other)\b/i;
 
@@ -114,6 +131,7 @@ export function parseText(text, { commander: wantCommander = true } = {}) {
     const header = line.replace(/[:\s(\d)]+$/, '');
     if (!/^\d/.test(line)) {
       if (CMD_SECTIONS.test(header)) section = 'commander';
+      else if (COMPANION_SECTIONS.test(header)) section = 'companion';
       else if (SIDE_SECTIONS.test(header)) section = 'side';
       else if (SKIP_SECTIONS.test(header)) section = 'skip';
       else if (MAIN_SECTIONS.test(header)) section = 'main';
@@ -134,9 +152,9 @@ export function parseText(text, { commander: wantCommander = true } = {}) {
     else ident = { name };
     const side = sbLine || section === 'side';
     if (side) commander = false;
-    const entry = { qty: +m[1], commander, side, name, ident };
+    const entry = { qty: +m[1], commander, side, name, ident, ...(section === 'companion' ? { companion: true, commander: false } : {}) };
     entries.push(entry);
-    if (!side) blocks.at(-1).push(entry);
+    if (!side && !entry.companion) blocks.at(-1).push(entry);
   }
   if (!wantCommander) {
     // MTGO/Goldfish 60-card lists: the sideboard is the trailing block after a blank line
@@ -184,15 +202,20 @@ async function resolve(parsed, onStatus, format = 'commander') {
   const warnings = [];
   let commanders = [];
   const main = [], sideboard = [];
+  let companion = null;
   for (const e of entries) {
     const card = cards.get(key(e.ident));
     if (!card) { warnings.push(`Not found on Scryfall: ${e.name || JSON.stringify(e.ident)}`); continue; }
+    // A companion (702.139) starts outside the game: from a "Companion" section, or a companion in the sideboard
+    const isCompanion = /^companion\b/im.test(card.text || '');
+    if (e.companion && !isCompanion) { warnings.push(`${card.name} isn't a companion: left out`); continue; }
+    if (e.companion || (e.side && !companion && isCompanion)) { companion = card; if (!e.side) continue; }
     if (e.side) { if (f.sideboard) sideboard.push({ card, qty: e.qty }); }
     else if (e.commander && f.commander) commanders.push(card);
     else main.push({ card, qty: e.qty });
   }
   if (!f.commander) {
-    const deck = { deckName: parsed.deckName || `Imported ${f.name} deck`, commanders: [], cards: main, sideboard, warnings, format };
+    const deck = { deckName: parsed.deckName || `Imported ${f.name} deck`, commanders: [], cards: main, sideboard, warnings, format, companion };
     warnings.push(...checkDeck(deck, format));
     return deck;
   }
@@ -206,7 +229,7 @@ async function resolve(parsed, onStatus, format = 'commander') {
     if (--pick.qty <= 0) main.splice(main.indexOf(pick), 1);
     warnings.push(`No ${f.signature ? 'oathbreaker' : 'commander'} marked; guessed ${pick.card.name}.`);
   }
-  const deck = { deckName: parsed.deckName || `${commanders.map(c => c.name).join(' & ')}`, commanders, cards: main, sideboard: [], warnings, format };
+  const deck = { deckName: parsed.deckName || `${commanders.map(c => c.name).join(' & ')}`, commanders, cards: main, sideboard: [], warnings, format, companion };
   warnings.push(...checkDeck(deck, format));
   return deck;
 }
@@ -225,7 +248,7 @@ export async function loadDeck(source, onStatus, { bracket = null, budget = 'any
   if (!f.commander) return loadConstructed(s, onStatus, format);
   // Brawl, Pauper Commander, Oathbreaker: random decks for the variant (no brackets or EDHTop16 lists).
   // (Kingdoms decks are plain Commander decks.)
-  if (format !== 'commander' && !f.roles) {
+  if (format !== 'commander' && format !== 'commander1v1' && !f.roles && !f.planar) {
     if (!s || s.toLowerCase() === 'random') return { ...(await randomVariant(onStatus, format, { combosIn })), format };
     if (/^(edhtop16|cedh)$|^edhtop16:|edhtop16\.com|topdeck\.gg/i.test(s)) throw new Error(`EDHTop16 decks are Commander decks. Switch the format to Commander to use them.`);
   }
@@ -234,6 +257,12 @@ export async function loadDeck(source, onStatus, { bracket = null, budget = 'any
   // cEDH: "edhtop16" or "cedh" (a random meta deck), "edhtop16:Commander Name", or an EDHTop16 / TopDeck.gg decklist link
   if (/^(edhtop16|cedh)$/i.test(s)) return fromEdhtop16(null, onStatus);
   if ((m = s.match(/^edhtop16:\s*(.+)$/i))) return fromEdhtop16(m[1].trim(), onStatus);
+  // An official Commander precon from MTGJSON (item 146): "precon:<file name>"
+  if ((m = s.match(/^precon:\s*([\w-]+)$/i))) {
+    onStatus?.('Downloading the precon from MTGJSON…');
+    const p = await preconText(m[1]);
+    return { ...(await resolve(parseText(p.text), onStatus, format)), deckName: p.name };
+  }
   if ((m = s.match(/(?:edhtop16\.com\/tournament|topdeck\.gg\/deck)\/([\w-]+)\/(?:decklist\/)?([\w-]+)/i))) {
     onStatus?.('Downloading the tournament decklist from EDHTop16…');
     const { text, name } = await decklistByLink(m[1], m[2]);

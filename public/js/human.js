@@ -2,9 +2,10 @@
 // the important ones (main phase plays, attacks, blocks, responses, mulligans, truces) wait for
 // your clicks, and routine choices (what to discard, trigger targets, tutors) use the AI's pick.
 import { Agent } from './ai.js';
+import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
-import { needsTarget, costText } from './effects.js';
-import { esc } from './util.js';
+import { needsTarget, needsTargetIn, costText } from './effects.js';
+import { esc, makeRng } from './util.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
 const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx.kw.has('flash')
@@ -13,6 +14,9 @@ const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx
 // The action bar plus "click a card / click a player" picking
 export class HumanUI {
   constructor() {
+    // (the seat answering now in a hotseat game, and the page's hook that records each answer)
+    /** @type {number | null} */ this.seat = null;
+    /** @type {((who: any, i: number) => void) | null} */ this.onRecord = null;
     this.bar = document.getElementById('actionBar');
     this.text = document.getElementById('abText');
     this.buttons = document.getElementById('abButtons');
@@ -24,10 +28,56 @@ export class HumanUI {
       const board = e.target.closest('.board[data-player]');
       if (board && this.pending.players.has(+board.dataset.player) && !card) return this.finish({ player: +board.dataset.player });
     }, true);
+    // Payment preview (item 120): hovering a card you can cast right now outlines the lands and mana sources the
+    // automatic payment would tap. (To pay with others, tap those by hand first: tapped mana is spent first.)
+    const clearTaps = () => document.querySelectorAll('.card.will-tap').forEach(el => el.classList.remove('will-tap'));
+    document.addEventListener('pointerover', e => {
+      const el = /** @type {HTMLElement | null} */ (/** @type {any} */ (e.target).closest?.('.card[data-iid]'));
+      if (!el || !this.pending || !this.game || !this.view) return;
+      const o = this.pending.objs.get(+el.dataset.iid);
+      if (!o || o.zone === 'battlefield' || o.fx.type.land) return;
+      const g = this.game, p = g.players[o.owner];
+      try {
+        const mode = g.castMode(p, o);
+        if (!mode) return;
+        const { c, extra } = mode.alt ? { c: g.altCost(o, mode.alt), extra: 0 } : g.costOf(p, o);
+        const plan = g.planPayment(p, c, extra);
+        clearTaps();
+        for (const s of plan?.srcs || []) this.view.cards.get(s.iid)?.classList.add('will-tap');
+      } catch { /* a preview never gets in the way */ }
+    }, true);
+    document.addEventListener('pointerout', e => { if (/** @type {any} */ (e.target).closest?.('.card[data-iid]')) clearTaps(); }, true);
+    // Drag to attack (item 117): drop one of the highlighted creatures on an opponent's board while declaring
+    // attackers. It's answered as the same two clicks (the creature, then "Attack <player>"), so replays don't change.
+    let drag = null;
+    document.addEventListener('pointerdown', e => {
+      const card = /** @type {HTMLElement | null} */ (/** @type {any} */ (e.target).closest?.('[data-iid]'));
+      drag = this.pending && card && this.pending.objs.has(+card.dataset.iid) && /Declare attackers/.test(this.text.textContent) ? { iid: +card.dataset.iid, x: e.clientX, y: e.clientY } : null;
+    }, true);
+    document.addEventListener('pointerup', e => {
+      const d = drag; drag = null;
+      if (!d || !this.pending || Math.hypot(e.clientX - d.x, e.clientY - d.y) < 30) return;
+      const board = /** @type {HTMLElement | null} */ (document.elementFromPoint(e.clientX, e.clientY)?.closest('.board[data-player]'));
+      if (!board) return;
+      const target = +board.dataset.player;
+      this.autoNext = { button: target };
+      // (if the creature was already selected, the click would unselect it: answer the attack straight away instead)
+      const hasAttack = this.pending.buttons.some(b => b.value === target);
+      if (hasAttack && this.view?.cards.get(d.iid)?.classList.contains('chosen')) { this.autoNext = null; this.finish({ button: target }); }
+      else this.finish({ obj: this.pending.objs.get(d.iid) });
+    }, true);
   }
   // record: every answer given in this game, in order. When a game is rebuilt (replay, rewind, undo)
   // the recorded answers are replayed until they run out, then you're asked live again.
-  attach(game, view, record = []) { this.cancel(); this.game = game; this.view = view; this.record = record; this.pos = 0; }
+  attach(game, view, record = []) { this.cancel(); this.game = game; this.view = view; this.record = record; this.pos = 0; this.autoAnswers = new Map(); }
+  // Auto-answers (item 118): a yes/no-style question answered "always" is answered the same way for the rest of the
+  // game. The answers are still recorded one by one, so replays and undo don't change.
+  autoKey(text, buttons, objs) {
+    if (objs.length || buttons.length < 2 || buttons.length > 6) return null;
+    const plain = text.replace(/<[^>]+>/g, '').replace(/\d+/g, '#').trim();
+    if (/main phase|Declare attackers|being attacked|Respond|which face|how do you want|choose X|Mulligan|keep this hand|Opening hand|Keep it?/i.test(plain)) return null;
+    return plain;
+  }
   get replaying() { return this.pos < this.record.length; }
   // Show a question; resolves with {button}, {obj} or {player}
   ask(text, { buttons = [], objs = [], players = [] } = {}) {
@@ -50,6 +100,14 @@ export class HumanUI {
       };
       this.pending = { resolve: rec, buttons, objs: objMap, players: new Set(players) };
       this.waiting = true;
+      // (the second half of a drag-to-attack: answer at once if this question offers that attack)
+      const auto = this.autoNext;
+      this.autoNext = null;
+      if (auto && buttons.some(b => b.value === auto.button)) { setTimeout(() => this.finish(auto), 0); }
+      const key = this.autoKey(text, buttons, objs);
+      const always = key && this.autoAnswers?.get(key);
+      const preset = always && buttons.find(b => b.label === always);
+      if (preset) setTimeout(() => this.finish({ button: preset.value }), 0);
       this.text.innerHTML = text;
       this.buttons.innerHTML = '';
       // A long list (searching a library) gets a filter box and scrolls
@@ -71,8 +129,26 @@ export class HumanUI {
         if (/AI/.test(b.label)) el.dataset.ai = '1';
         if (/^(Cancel|Pass|No )/.test(b.label)) el.dataset.esc = '1';
         if (b.iid) el.dataset.iid = b.iid;
-        el.addEventListener('click', () => this.finish({ button: b.value }));
+        el.addEventListener('click', () => {
+          if (key && /** @type {HTMLInputElement | null} */ (this.buttons.querySelector('.ab-always input'))?.checked) this.autoAnswers.set(key, b.label);
+          this.finish({ button: b.value });
+        });
         this.buttons.append(el);
+      }
+      if (key) {
+        const lab = document.createElement('label');
+        lab.className = 'ab-always';
+        lab.title = 'Answer this question the same way for the rest of this game';
+        lab.innerHTML = '<input type="checkbox"> Always';
+        this.buttons.append(lab);
+      }
+      if (this.autoAnswers?.size) {
+        const chip = document.createElement('button');
+        chip.className = 'btn ab-autos keep';
+        chip.textContent = `Auto answers: ${this.autoAnswers.size} ✕`;
+        chip.title = [...this.autoAnswers].map(([q, a]) => `${q.slice(0, 60)} → ${a}`).join('\n') + '\n(click to stop answering these automatically)';
+        chip.addEventListener('click', e => { e.stopPropagation(); this.autoAnswers.clear(); chip.remove(); });
+        this.buttons.append(chip);
       }
       this.bar.hidden = false;
       this.highlight(true);
@@ -81,7 +157,14 @@ export class HumanUI {
   highlight(on) {
     if (!this.pending || !this.view) return;
     this.view.render();
-    for (const iid of this.pending.objs.keys()) this.view.cards.get(iid)?.classList.toggle('pickable', on);
+    // (keyboard and screen readers, item 126: the cards you can pick are focusable buttons with their names)
+    for (const [iid, o] of this.pending.objs) {
+      const el = this.view.cards.get(iid);
+      if (!el) continue;
+      el.classList.toggle('pickable', on);
+      if (on) { el.tabIndex = 0; el.setAttribute('role', 'button'); el.setAttribute('aria-label', `${o.card.name}${o.zone === 'hand' ? ', in your hand' : o.zone === 'battlefield' ? (o.tapped ? ', tapped' : '') : `, in ${o.zone}`}`); }
+      else { el.removeAttribute('tabindex'); el.removeAttribute('role'); }
+    }
     for (const b of this.view.boards) b.el.classList.toggle('pickable', on && this.pending.players.has(b.p.idx));
   }
   finish(value) {
@@ -106,6 +189,9 @@ export class HumanUI {
   // Keyboard: Space/Enter = main button, Esc = cancel, 1–9 = nth button, A = let the AI decide
   key(e) {
     if (!this.pending) return false;
+    // (a focused card you can pick: Enter or Space picks it; Tab moves between them)
+    const f = /** @type {HTMLElement | null} */ (document.activeElement);
+    if ((e.key === 'Enter' || e.key === ' ') && f?.classList?.contains('pickable') && f.dataset.iid) { e.preventDefault(); f.click(); return true; }
     const btns = [...this.buttons.children];
     let b = null;
     if (e.key === ' ' || e.key === 'Enter') b = btns.find(x => x.classList.contains('primary')) || btns[0];
@@ -162,6 +248,22 @@ export class HumanAgent extends Agent {
     this.stops = opts.stops || {}; this.full = !!opts.full; this.orderTriggersOn = opts.orderTriggers !== false;
     // Main-phase actions, for spotting a loop you've played twice (the loop shortcut)
     this.acts = [];
+    // Coach hints in the main phase (item 168; set by the page)
+    this.coach = false;
+  }
+
+  // Coach (item 168): what a plain AI of the same style would do here, and why. It runs on a random stream of its
+  // own, so asking never changes the game (or a replay of it).
+  coachNote(g, p, phase, canLand) {
+    const rand = g.rand;
+    g.rand = makeRng(((g.turn + 1) * 7919 + g.steps) >>> 0);
+    try {
+      const ai = new Agent(this.style);
+      const pick = /** @type {any} */ (ai.bestPlay(g, p, phase));
+      // ("casts X" → "would cast X")
+      const what = pick?.why ? pick.why.replace(/^goes\b/, 'go').replace(/^(\w+?)s\b/, '$1') : pick ? 'go for its combo' : canLand ? 'play a land and pass' : 'pass';
+      return `<br><span class="coach-tip">💡 Coach: the AI would ${esc(what)}.</span>`;
+    } catch { return ''; } finally { g.rand = rand; }
   }
 
   // Walking Ballista and friends: remove +1/+1 counters to deal 1 damage each (any target, one at a time)
@@ -187,6 +289,87 @@ export class HumanAgent extends Agent {
   async wantsAbilityCopy(g, p, o, ab) {
     const r = await this.ui.ask(`<b>Rings of Brighthearth:</b> pay {2} to copy ${esc(o.card.name)}'s ability (${esc((ab.text || '').slice(0, 60))})?`, { buttons: [{ label: 'Copy it ({2})', value: true, primary: true }, { label: 'No', value: false }] });
     return r.button === true;
+  }
+
+  // Your attacker is blocked by several creatures (or has trample): divide its damage
+  async assignCombatDamage(g, p, a, blockers, dmg, tr, dt) {
+    const plan = new Map(blockers.map(b => [b, 0]));
+    let left = dmg;
+    while (left > 0) {
+      const allLethal = blockers.every(b => plan.get(b) >= g.lethalFor(b, dt));
+      const r = await this.ui.ask(`<b>${esc(a.card.name)}</b> has <b>${left}</b> of ${dmg} damage left to assign. Click a blocker${tr ? (allLethal ? ', or send the rest to the player (trample)' : ' (trample: every blocker needs lethal damage before the player gets any)') : ''}. ${blockers.map(b => `${esc(b.card.name)}: ${plan.get(b)} (lethal ${g.lethalFor(b, dt)})`).join(' · ')}`, {
+        objs: blockers,
+        buttons: [...(tr && allLethal ? [{ label: `Rest to the player (${left})`, value: 'player', primary: true }] : []), { label: 'Assign it for me', value: 'ai' }],
+      });
+      if (r.button === 'player') return [...blockers.map(b => ({ obj: b, n: plan.get(b) })), { player: true, n: left }];
+      if (r.button === 'ai' || !r.obj) return super.assignCombatDamage(g, p, a, blockers, dmg, tr, dt);
+      const b = r.obj, need = Math.max(0, g.lethalFor(b, dt) - plan.get(b));
+      const amts = [...new Set([need, 1, 2, 3, left].filter(n => n >= 1 && n <= left))].sort((x, y) => x - y);
+      const c = await this.ui.ask(`How much damage to <b>${esc(b.card.name)}</b>?`, { buttons: [...amts.map(n => ({ label: n === need ? `${n} (lethal)` : n === left ? `${n} (all)` : `${n}`, value: n, primary: n === need })), { label: 'Back', value: 0 }] });
+      if (typeof c.button === 'number' && c.button > 0) { plan.set(b, plan.get(b) + c.button); left -= c.button; }
+    }
+    return blockers.map(b => ({ obj: b, n: plan.get(b) }));
+  }
+  // "Damage divided as you choose among …": pick targets and amounts
+  async divideDamageAsync(g, p, src, e, n, tgt) {
+    const plan = [];
+    let left = n;
+    const creatures = () => g.players.flatMap(q => q.battlefield.filter(o => o.fx.type.creature && g.canTarget(p, o)));
+    const key = x => (x.obj ? `o${x.obj.iid}` : `p${x.player}`);
+    while (left > 0) {
+      const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: ${left} of ${n} damage left to divide${plan.length ? ` (so far: ${plan.map(x => `${x.n} to ${esc(x.obj ? x.obj.card.name : g.players[x.player].name)}`).join(', ')})` : ''}. Click a creature${e.to === 'any target' ? ' or choose a player' : ''}.`, {
+        objs: creatures(),
+        buttons: [...(e.to === 'any target' ? g.alive().map(q => ({ label: q.name, value: { player: q.idx } })) : []), { label: 'Divide it for me', value: 'ai' }],
+      });
+      if (r.button === 'ai') return super.divideDamage(g, p, src, e, n, tgt);
+      const pick = r.obj ? { obj: r.obj } : r.button?.player != null ? { player: r.button.player } : null;
+      if (!pick) continue;
+      const have = plan.find(x => key(x) === key(pick));
+      if (!have && plan.length >= e.divided) continue;
+      const need = pick.obj ? Math.max(1, g.toughness(pick.obj) - pick.obj.damage) : left;
+      const amts = [...new Set([1, 2, 3, need, left].filter(k => k >= 1 && k <= left))].sort((a, b) => a - b);
+      const c = await this.ui.ask(`How much to <b>${esc(pick.obj ? pick.obj.card.name : g.players[pick.player].name)}</b>?`, { buttons: [...amts.map(k => ({ label: `${k}${pick.obj && k === need ? ' (lethal)' : k === left ? ' (all)' : ''}`, value: k, primary: k === need })), { label: 'Back', value: 0 }] });
+      if (typeof c.button !== 'number' || c.button <= 0) continue;
+      if (have) have.n += c.button; else plan.push({ ...pick, n: c.button });
+      left -= c.button;
+    }
+    return plan;
+  }
+  // Venture into the dungeon: which dungeon, then which room below
+  async chooseDungeonAsync(g, p, names) {
+    const r = await this.ui.ask('<b>Venture into the dungeon:</b> choose a dungeon', { buttons: names.map((n, i) => ({ label: n, value: n, primary: i === 0 })) });
+    return names.includes(r.button) ? r.button : names[0];
+  }
+  async chooseRoomAsync(g, p, d, rooms) {
+    const r = await this.ui.ask(`<b>${esc(d)}:</b> venture into which room?`, { buttons: rooms.map((n, i) => ({ label: `${n}: ${DUNGEONS[d].rooms[n].text}`, value: n, primary: i === 0 })) });
+    return rooms.includes(r.button) ? r.button : rooms[0];
+  }
+  // Your commander went to your graveyard or exile: move it to the command zone? (903.9a)
+  async commanderToCommandZoneAsync(g, p, o, zone) {
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b> went to your ${zone}. Move it to the command zone?`, { buttons: [{ label: 'Command zone', value: true, primary: true }, { label: `Leave it in the ${zone}`, value: false }] });
+    return r.button !== false;
+  }
+  // Madness: cast the card you just discarded for its madness cost?
+  async wantsMadnessAsync(g, p, o) {
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b> was discarded: cast it for its madness cost ${esc(o.fx.madness)}?`, { buttons: [{ label: `Cast it (${o.fx.madness})`, value: true, primary: true }, { label: 'No', value: false }] });
+    return r.button === true;
+  }
+  // X for a spell you cast: up to what the mana allows
+  async chooseSpellXAsync(g, p, o, max) {
+    const vals = max <= 12 ? Array.from({ length: max }, (_, i) => i + 1) : [...new Set([1, 2, 3, 4, 5, 6, 8, 10, Math.floor(max / 2), max - 1, max])].filter(v => v >= 1 && v <= max).sort((a, b) => a - b);
+    const ai = super.chooseSpellX(g, p, o, max);
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b>: choose X (you can pay up to ${max})`, { buttons: [...vals.map(v => ({ label: `X = ${v}`, value: v, primary: v === ai })), { label: 'X = 0', value: 0 }] });
+    return typeof r.button === 'number' ? r.button : ai;
+  }
+  // {X} in an ability's cost: how much X to pay (up to what the mana allows)
+  async chooseAbilityXAsync(g, p, o, ab, max) {
+    if (max <= 0) return 0;
+    const vals = max <= 12 ? Array.from({ length: max }, (_, i) => i + 1) : [...new Set([1, 2, 3, 4, 5, 6, 8, 10, Math.floor(max / 2), max - 1, max])].filter(v => v >= 1 && v <= max).sort((a, b) => a - b);
+    const ai = super.chooseAbilityX(g, p, o, ab, max);
+    const r = await this.ui.ask(`<b>${esc(o.card.name)}</b>: choose X for ${esc((ab.text || 'its ability').slice(0, 70))} (you can pay up to ${max})`, {
+      buttons: [...vals.map(v => ({ label: `X = ${v}`, value: v, primary: v === ai })), { label: 'X = 0', value: 0 }],
+    });
+    return typeof r.button === 'number' ? r.button : ai;
   }
 
   // ---------- priority stops (engine.stopFor) and trigger order
@@ -226,14 +409,14 @@ export class HumanAgent extends Agent {
   candidates(g, p, e, src) {
     const all = g.players.flatMap(q => q.battlefield);
     switch (e.k) {
-      case 'remove': return { objs: all.filter(o => this.matches(o, e.what) && g.canTarget(p, o)) };
-      case 'bounce': case 'flickerDelay': return { objs: all.filter(o => this.matches(o, e.what) && !o.fx.type.land && g.canTarget(p, o)) };
-      case 'steal': return { objs: all.filter(o => o.controller !== p.idx && this.matches(o, e.what) && g.canTarget(p, o)) };
-      case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && g.canTarget(p, o)) };
-      case 'blink': return { objs: p.battlefield.filter(o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent') && o !== src) };
+      case 'remove': return { objs: all.filter(o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
+      case 'bounce': case 'flickerDelay': return { objs: all.filter(o => this.matches(o, e.what, g) && !o.fx.type.land && g.canTarget(p, o)) };
+      case 'steal': return { objs: all.filter(o => o.controller !== p.idx && this.matches(o, e.what, g) && g.canTarget(p, o)) };
+      case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
+      case 'blink': return { objs: p.battlefield.filter(o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
       case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
       case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
-      case 'tap': return { objs: all.filter(o => this.matches(o, e.what) && g.canTarget(p, o)) };
+      case 'tap': return { objs: all.filter(o => this.matches(o, e.what, g) && g.canTarget(p, o)) };
       case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
       case 'damage': {
         const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
@@ -275,7 +458,7 @@ export class HumanAgent extends Agent {
     const targets = [];
     for (const e of effects) {
       if (e.k === 'counter' || e.k === 'counterAbility' || e.k === 'copySpell') { targets.push(extra.spellTarget ? { spell: extra.spellTarget } : null); continue; }
-      if (!needsTarget(e)) { targets.push(null); continue; }
+      if (!needsTargetIn(e, g.rules)) { targets.push(null); continue; }
       const t = await this.pickTarget(g, p, e, o);
       if (t === 'cancel') return false;
       targets.push(t);
@@ -360,17 +543,24 @@ export class HumanAgent extends Agent {
       // (and sources you tapped by hand whose mana is unspent: click to take the tap back)
       const backs = this.takeBacks(g, p);
       const pingers = this.pingers(g, p);
-      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers])];
+      // Morph and disguise cards that can be cast face down, and face-down permanents that can be turned up
+      const faceDowns = [...p.hand.filter(o => g.canCastFaceDown(p, o)), ...p.battlefield.filter(o => g.canTurnFaceUp(p, o))];
+      const rooms = p.battlefield.filter(o => g.canUnlock(p, o));
+      // Adventures and modal double-faced cards: the other face can be cast, or a land back played
+      // (and bestow or mutate, other ways to cast a creature)
+      const otherFaces = [...p.hand.filter(o => g.faceCastMode(p, o) || g.canPlayBackLand(p, o) || g.canBestow(p, o) || g.canMutate(p, o) || g.canCleave(p, o) || g.canFuse(p, o)), ...p.graveyard.filter(o => g.faceCastMode(p, o))];
+      const objs = [...new Set([...lands, ...spells, ...pws, ...equips, ...abilities, ...outlets, ...cyclers, ...graveAbs, ...vehicles, ...guides, ...manaSrcs, ...backs, ...pingers, ...faceDowns, ...otherFaces, ...rooms])];
       const loop = this.loopBlock();
       const fromGy = spells.some(o => o.zone === 'graveyard') || graveAbs.length;
       // (how many plays are still open, so a pass is never by accident)
       const drops = g.landDrops(p) - p.landsPlayed;
       const playable = objs.filter(o => !manaSrcs.includes(o) || abilities.includes(o) || vehicles.includes(o)).length;
-      const r = await this.ui.ask(`<b>Your ${phase === 'main1' ? 'first' : 'second'} main phase.</b> Click a highlighted card to play or use it, or a land or mana source to tap it for mana.${this.poolNote(g, p)}${drops > 1 && lands.length ? ` You have ${drops} land drops left.` : ''}${fromGy ? ' (Open your graveyard, or press G, to use the cards there.)' : ''}${top && g.topPlayable(p, top) ? ` Top of your library: ${g.cn(top)}.` : ''}`, {
+      const r = await this.ui.ask(`<b>Your ${phase === 'main1' ? 'first' : 'second'} main phase.</b> Click a highlighted card to play or use it, or a land or mana source to tap it for mana.${this.poolNote(g, p)}${drops > 1 && lands.length ? ` You have ${drops} land drops left.` : ''}${fromGy ? ' (Open your graveyard, or press G, to use the cards there.)' : ''}${top && g.topPlayable(p, top) ? ` Top of your library: ${g.cn(top)}.` : ''}${this.coach && !this.ui.replaying ? this.coachNote(g, p, phase, drops > 0 && lands.length > 0) : ''}`, {
         objs,
         buttons: [
           ...combos.map(c => ({ label: `Combo: ${c.combo.label}`, value: { combo: c.combo }, primary: true })),
           ...(canAnnounce(g, p) ? [{ label: announceLabel(p), value: 'announce' }] : []),
+          ...(g.canCompanion(p) ? [{ label: `Companion: ${p.companion.card.name} to hand ({3})`, value: 'companion' }] : []),
           ...(loop ? [{ label: `Repeat this loop ×10`, value: { repeat: 10 } }, { label: `Repeat ×99`, value: { repeat: 99 } }] : []),
           { label: `${phase === 'main1' ? 'Go to combat' : 'End turn'}${playable ? ` (${playable} playable)` : ''}`, value: 'pass', primary: !combos.length },
           { label: 'Let the AI play this phase', value: 'ai' },
@@ -379,12 +569,13 @@ export class HumanAgent extends Agent {
       if (r.button === 'pass' || r.button === 'cancel') return;
       if (r.button === 'ai') return super.mainPhase(g, p, phase);
       if (r.button === 'announce') { await announceHuman(g, p, this.ui); continue; }
+      if (r.button === 'companion') { g.useCompanion(p); continue; }
       if (r.button?.combo) { await g.goOff(p, r.button.combo); continue; }
       // (only the shortcut's own buttons: a text value has a .repeat function of its own)
       if (typeof r.button === 'object' && r.button?.repeat && loop) { await this.repeatLoop(g, p, loop, r.button.repeat); continue; }
       const o = r.obj;
       if (!o) continue;
-      document.getElementById('zoneModal')?.setAttribute('hidden', '');
+      globalThis.document?.getElementById('zoneModal')?.setAttribute('hidden', '');
       // A source you tapped by hand: take its mana back, unless you meant its ability (Basalt Monolith's untap)
       if (backs.includes(o)) {
         const both = abilities.includes(o);
@@ -409,6 +600,41 @@ export class HumanAgent extends Agent {
         if (c === 'exile') g.exileForMana(p, o);
         else if (c === 'cast') await this.castWithChoices(g, p, o);
         continue;
+      }
+      if (rooms.includes(o) && !abilities.includes(o)) { await g.unlockRoom(p, o); this.acts = []; continue; }
+      if (otherFaces.includes(o)) {
+        const f = o.card.altFace;
+        const opts = [
+          ...(spells.includes(o) ? [{ label: `Cast ${o.card.name}`, value: 'front', primary: true }] : []),
+          ...(f && g.faceCastMode(p, o) ? [{ label: `Cast ${f.name}${o.card.layout === 'adventure' ? ' (adventure)' : ''}`, value: 'face' }] : []),
+          ...(f && g.canPlayBackLand(p, o) ? [{ label: `Play ${f.name} (land)`, value: 'land' }] : []),
+          ...(g.canBestow(p, o) ? [{ label: `Bestow (${o.fx.bestow})`, value: 'bestow' }] : []),
+          ...(g.canMutate(p, o) ? [{ label: `Mutate (${o.fx.mutate})`, value: 'mutate' }] : []),
+          ...(faceDowns.includes(o) ? [{ label: 'Face down ({3})', value: 'down' }] : []),
+          ...(g.canCleave(p, o) ? [{ label: 'Cleave (' + o.fx.cleave + ')', value: 'cleave' }] : []),
+          ...(g.canFuse(p, o) ? [{ label: 'Fuse: cast both halves', value: 'fuse' }] : []),
+        ];
+        const c = opts.length === 1 ? opts[0].value : (await this.ui.ask(`<b>${esc(o.card.name)}${f ? ` // ${esc(f.name)}` : ''}</b>: how do you want to play it?`, { buttons: [...opts, { label: 'Cancel', value: 'cancel' }] })).button;
+        if (c === 'cleave' || c === 'fuse') { await g.cast(p, o, { mode: { alt: c } }); this.acts = []; continue; }
+        if (c === 'bestow') { await g.cast(p, o, { mode: { alt: 'bestow' } }); this.acts = []; continue; }
+        if (c === 'mutate') {
+          const t = await this.ui.ask(`<b>${esc(o.card.name)}</b>: mutate onto which creature? (on top: it takes this card's name and power/toughness)`, { objs: g.mutateTargets(p, o), buttons: [{ label: 'Cancel', value: 'cancel' }] });
+          if (t.obj) await g.cast(p, o, { mode: { alt: 'mutate' }, mutateOnto: t.obj });
+          this.acts = []; continue;
+        }
+        if (c === 'face') { await g.castFace(p, o); this.acts = []; continue; }
+        if (c === 'land') { await g.playLand(p, o); continue; }
+        if (c === 'down') { await g.cast(p, o, { mode: { alt: 'morph' } }); this.acts = []; continue; }
+        if (c !== 'front') continue;
+        await this.castWithChoices(g, p, o);
+        continue;
+      }
+      if (faceDowns.includes(o)) {
+        if (o.zone === 'battlefield') { await g.turnFaceUp(p, o); this.acts = []; continue; }
+        const normal = (spells.includes(o) && g.castMode(p, o)?.alt !== 'morph') || lands.includes(o);
+        const c = normal ? (await this.ui.ask(`<b>${esc(o.card.name)}</b>: ${lands.includes(o) ? 'play it' : 'cast it'}, or cast it face down as a 2/2 for {3}?`, { buttons: [{ label: lands.includes(o) ? 'Play it' : 'Cast it', value: 'normal', primary: true }, { label: 'Face down ({3})', value: 'down' }, { label: 'Cancel', value: 'cancel' }] })).button : 'down';
+        if (c === 'down') { await g.cast(p, o, { mode: { alt: 'morph' } }); this.acts = []; continue; }
+        if (c !== 'normal') continue;
       }
       if (lands.includes(o)) await g.playLand(p, o);
       else if (cyclers.includes(o) && (!spells.includes(o) || (await this.ui.ask(`<b>${esc(o.card.name)}</b>: cast it, or ${o.fx.cycling ? 'cycle' : 'channel'} it?`, { buttons: [{ label: 'Cast', value: 'cast', primary: true }, { label: o.fx.cycling ? `Cycle (${o.fx.cycling.cost})` : `Channel (${o.fx.channel.cost})`, value: 'cycle' }] })).button === 'cycle')) await g.cycle(p, o);
@@ -469,9 +695,12 @@ export class HumanAgent extends Agent {
     const chosen = new Set();
     for (;;) {
       const opps = g.opponents(p);
+      // (and the battles and planeswalkers they can attack)
+      const perms = g.alive().flatMap(q => q.battlefield.filter(o => g.attackable(p, o)));
       const r = await this.ui.ask(`<b>Declare attackers.</b> Click creatures to add or remove them (${chosen.size} selected), then choose who to attack.`, {
         objs: ready,
         buttons: [...(chosen.size ? opps.map(q => ({ label: `Attack ${q.name}${g.dealBetween(p.idx, q.idx) ? ' (breaks truce)' : ''}`, value: q.idx, primary: true })) : []),
+          ...(chosen.size ? perms.map(o => ({ label: `Attack ${o.card.name} (${o.fx.type.battle ? `${o.defense} defense` : `${o.loyalty} loyalty`})`, value: { attackObj: o.iid } })) : []),
           { label: 'Select all', value: 'all' }, { label: 'No attack', value: 'none' }],
       });
       for (const o of ready) this.ui.view?.cards.get(o.iid)?.classList.remove('chosen');
@@ -479,6 +708,10 @@ export class HumanAgent extends Agent {
       else if (r.button === 'all') ready.forEach(o => chosen.add(o));
       else if (r.button === 'none' || r.button === 'cancel') return [];
       else if (typeof r.button === 'number') return [...chosen].map(o => ({ o, target: r.button }));
+      else if (r.button?.attackObj) {
+        const t = g.objects.get(r.button.attackObj);
+        if (t) return [...chosen].map(o => ({ o, target: t.fx.type.battle ? t.protector : t.controller, obj: t }));
+      }
       for (const o of chosen) this.ui.view?.cards.get(o.iid)?.classList.add('chosen');
     }
   }
@@ -500,11 +733,32 @@ export class HumanAgent extends Agent {
   }
 
   // ---------- instant-speed windows: only ask when you actually have something to cast
-  instants(g, p, filter = () => true) {
+  instants(g, p, filter = (/** @type {any} */ _o) => true) {
     return p.hand.filter(o => !o.fx.type.land && instantSpeed(o) && g.canCast(p, o) && filter(o));
+  }
+  // Smart pass (item 119): "Pass to end of turn", "Pass to my turn", "Pass unless targeted". While one is on, response
+  // windows and stops are passed without asking (blocks and your own main phases are still asked). The choice is a
+  // recorded answer, so a replay sets the same mode at the same moment.
+  passButtons(g, q) {
+    return [{ label: 'Pass to end of turn', value: 'pass:eot' }, ...(g.active !== q.idx ? [{ label: 'Pass to my turn', value: 'pass:mine' }] : []), { label: 'Pass unless targeted', value: 'pass:target' }];
+  }
+  setPass(g, q, v) {
+    this.passMode = v === 'pass:eot' ? { kind: 'eot', turn: g.turn } : v === 'pass:mine' ? { kind: 'mine' } : v === 'pass:target' ? { kind: 'target', turn: g.turn } : null;
+  }
+  skipping(g, q, item = null) {
+    const m = this.passMode;
+    if (!m) return false;
+    if (m.kind === 'eot' && g.turn !== m.turn) { this.passMode = null; return false; }
+    if ((m.kind === 'mine' || m.kind === 'target') && g.active === q.idx && g.turn !== m.turn) { this.passMode = null; return false; }
+    if (m.kind === 'target' && item) {
+      const hit = (item.targets || []).some(t => t && (t.player === q.idx || t.obj?.controller === q.idx));
+      if (hit) return false;
+    }
+    return true;
   }
   async respond(g, q, item) {
     if (item.p === q) return null;
+    if (this.skipping(g, q, item)) return null;
     const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o));
     const what = item.ability ? `${esc(item.o.card.name)}'s ability` : esc(item.o.card.name);
     for (let k = 0; k < 30; k++) {
@@ -518,9 +772,10 @@ export class HumanAgent extends Agent {
       const mana = this.manaSources(g, q);
       const backs = this.takeBacks(g, q);
       const r = await this.ui.ask(`<b>${esc(item.p.name)}</b> ${item.ability ? 'uses' : 'casts'} <b>${what}</b>. ${options.length ? 'Respond?' : pingers.length ? `Ping with ${esc(pingers[0].card.name)} in response?` : 'You have nothing to respond with.'}${this.poolNote(g, q)}`, {
-        objs: [...options, ...pingers, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }, ...(g.kingdoms && q.role?.id === 'wizard' && !q.role.up && !item.ability ? [{ label: 'Announce: The Wizard (exile this spell)', value: 'wizard' }] : [])],
+        objs: [...options, ...pingers, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }, ...this.passButtons(g, q), ...(g.kingdoms && q.role?.id === 'wizard' && !q.role.up && !item.ability ? [{ label: 'Announce: The Wizard (exile this spell)', value: 'wizard' }] : [])],
       });
       if (r.button === 'wizard') return { announce: true };
+      if (typeof r.button === 'string' && r.button.startsWith('pass:')) { this.setPass(g, q, r.button); return null; }
       if (!r.obj) return null;
       if (backs.includes(r.obj)) { g.untapForMana(q, r.obj); continue; }
       if (pingers.includes(r.obj) && !options.includes(r.obj)) { await this.usePing(g, q, r.obj); continue; }
@@ -553,16 +808,21 @@ export class HumanAgent extends Agent {
   // always: ask even with nothing to cast (a stop you set, or Full control), for the first question
   async instantWindow(g, q, text, withAbilities = false, always = false) {
     let r = null;
+    if (this.skipping(g, q)) return null;
     for (let k = 0; k < 30 && !g.over; k++) {
       const options = this.instants(g, q, o => !o.fx.spell.some(e => e.k === 'counter' || e.k === 'counterAbility' || e.k === 'copySpell'));
       const abil = withAbilities ? this.instantAbilities(g, q).filter(o => !options.includes(o)) : [];
       // (Walking Ballista can ping at instant speed in every window)
       const pingers = this.pingers(g, q).filter(o => !options.includes(o));
-      if (!options.length && !abil.length && !pingers.length && !(always && k === 0)) return null;
+      // (turning a face-down permanent up is a special action: any time you have priority)
+      const faceUps = q.battlefield.filter(o => g.canTurnFaceUp(q, o));
+      if (!options.length && !abil.length && !pingers.length && !faceUps.length && !(always && k === 0)) return null;
       const mana = this.manaSources(g, q).filter(o => !abil.includes(o));
       const backs = this.takeBacks(g, q);
-      r = await this.ui.ask(`${text}${abil.length ? ' (or use an ability)' : ''}${pingers.length ? ` (or remove a counter from ${esc(pingers[0].card.name)} to ping)` : ''}${!options.length && !abil.length && !pingers.length ? ' (You have nothing to play right now.)' : ''}${this.poolNote(g, q)}`, { objs: [...options, ...abil, ...pingers, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }] });
+      r = await this.ui.ask(`${text}${abil.length ? ' (or use an ability)' : ''}${faceUps.length ? ' (or turn a face-down creature face up)' : ''}${pingers.length ? ` (or remove a counter from ${esc(pingers[0].card.name)} to ping)` : ''}${!options.length && !abil.length && !pingers.length && !faceUps.length ? ' (You have nothing to play right now.)' : ''}${this.poolNote(g, q)}`, { objs: [...options, ...abil, ...pingers, ...faceUps, ...mana, ...backs], buttons: [{ label: 'Pass', value: 'pass', primary: true }, ...this.passButtons(g, q)] });
+      if (typeof r.button === 'string' && r.button.startsWith('pass:')) { this.setPass(g, q, r.button); return null; }
       if (!r.obj) return null;
+      if (faceUps.includes(r.obj)) { await g.turnFaceUp(q, r.obj); r = null; continue; }
       if (backs.includes(r.obj)) {
         const both = abil.includes(r.obj);
         const c = both ? (await this.ui.ask(`<b>${esc(r.obj.card.name)}</b>: use its ability, or untap it and take its mana back?`, { buttons: [{ label: 'Use its ability', value: 'ab', primary: true }, { label: 'Take the mana back', value: 'back' }] })).button : 'back';
@@ -583,7 +843,7 @@ export class HumanAgent extends Agent {
     // Targets are chosen here so the engine can cast it straight away
     const effects = r.obj.fx.spell;
     const targets = [];
-    for (const e of effects) { const t = needsTarget(e) ? await this.pickTarget(g, q, e, r.obj) : null; if (t === 'cancel') return null; targets.push(t); }
+    for (const e of effects) { const t = needsTargetIn(e, g.rules) ? await this.pickTarget(g, q, e, r.obj) : null; if (t === 'cancel') return null; targets.push(t); }
     return { card: r.obj, targets, human: true };
   }
 
@@ -677,9 +937,10 @@ export class HumanAgent extends Agent {
     return r?.[0] || super.pickTutor(g, p, e);
   }
   async considerDeal(g, q, from, kind = 'truce', rounds = 2) {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = g.dealText(kind, from, q, kind === 'gangUp' ? g.players[g.archenemy] : null, rounds);
-    const r = await this.ui.ask(`<b>${esc(from.name)}</b> offers you a deal: ${esc(tmp.textContent)}.`, {
+    // (plain text of the deal; outside a browser, as in the fuzz tests, the tags are just dropped)
+    const plainText = html => (globalThis.document ? Object.assign(document.createElement('div'), { innerHTML: html }).textContent : String(html).replace(/<[^>]*>/g, ''));
+    const dealText = plainText(g.dealText(kind, from, q, kind === 'gangUp' ? g.players[g.archenemy] : null, rounds));
+    const r = await this.ui.ask(`<b>${esc(from.name)}</b> offers you a deal: ${esc(dealText)}.`, {
       buttons: [{ label: 'Accept', value: true, primary: true }, { label: 'Decline', value: false }],
     });
     return r.button === true;

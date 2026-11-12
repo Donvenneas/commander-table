@@ -26,6 +26,8 @@ export class TableView {
     this.cards = new Map();
     this.boards = [];
     this.revealHands = false;
+    /** @type {number} the seat played on this PC (set by main.js), -1 for none */
+    this.humanIdx = -1;
     this.pending = false;
     this.lastTurnLogged = null;
     els.table.innerHTML = '';
@@ -54,7 +56,7 @@ export class TableView {
     game.on('battle', d => { if (live()) { this.battle(d); Sound.combat(); } });
     game.on('combo', d => { if (live()) this.comboBanner(d); });
     game.on('turn', p => { if (live() && this.g.clock.speed !== undefined && this.g.clock.speed < 4) this.turnBanner(p); });
-    game.on('turn', p => { if (live() && document.body.classList.contains('follow')) this.boards[p.idx]?.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+    game.on('turn', p => { if (live() && document.body.classList.contains('follow')) this.boards[p.idx]?.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); if (live() && p.idx === this.humanIdx) Sound.play('yourTurn'); });
     document.querySelectorAll('.combo-banner, .combat-svg, .turn-banner').forEach(e => e.remove());
     this.banner = document.createElement('div');
     this.banner.className = 'combo-banner';
@@ -217,12 +219,21 @@ export class TableView {
 
   cardEl(o, small = false) {
     let el = this.cards.get(o.iid);
+    // (a card turned face down or face up is drawn again)
+    if (el && el.dataset.cname !== o.card.name) { el.remove(); el = null; }
     if (!el) {
       el = document.createElement('div');
       el.className = 'card enter';
       el.dataset.iid = o.iid;
+      el.dataset.cname = o.card.name;
       const src = HIDPI ? o.card.imgNormal : o.card.imgSmall;
-      if (src) {
+      if (o.faceDown) {
+        // Face down: a card back; its controller (or "Reveal hands") sees what it is
+        const peek = this.humanIdx === o.controller || this.revealHands;
+        el.classList.add('noimg', 'facedown');
+        el.innerHTML = `<div class="tkn fd"><b>Face down${peek ? `<br><small>${esc(o.faceCard.name)}</small>` : ''}</b></div>`;
+        if (peek) el.title = `${o.faceCard.name} (face down: ${o.faceDown})`;
+      } else if (src) {
         const img = new Image();
         img.src = src; img.alt = o.card.name; img.draggable = false; img.decoding = 'async';
         el.append(img);
@@ -253,6 +264,7 @@ export class TableView {
     }
     if (onBf && o.counters) badges += o.counters > 0 ? `<span class="bdg ctr" title="+1/+1 counters">+${o.counters}</span>` : `<span class="bdg ctr neg" title="-1/-1 counters">${o.counters}</span>`;
     if (onBf && o.fx.type.planeswalker) badges += `<span class="bdg loy">${o.loyalty}</span>`;
+    if (onBf && o.fx.type.battle && o.defense != null) badges += `<span class="bdg loy" title="Defense counters${o.protector != null ? ` (protected by ${esc(g.players[o.protector]?.name || '')})` : ''}">⛨${o.defense}</span>`;
     if (onBf && o.attachedTo) badges += `<span class="bdg att" title="Attached to ${esc(o.attachedTo.card.name)}">⛓</span>`;
     if (onBf) {
       // States from keywords: shields, goad, time/age counters, crewed vehicles, end-of-turn returns
@@ -275,11 +287,16 @@ export class TableView {
 
   sync(container, objs, opts = {}) {
     let i = 0;
-    let prevName = null;
+    let prevName = null, runStart = null, runLen = 0, prevKey = null;
+    const endRun = () => { if (runStart) { if (runLen > 1) runStart.dataset.count = `×${runLen}`; else delete runStart.dataset.count; } };
     for (const o of objs) {
       const el = this.cardEl(o);
-      el.classList.toggle('stacked', !!opts.stack && prevName === o.card.name);
+      const key = opts.stackBy ? opts.stackBy(o) : null;
+      const same = opts.stack ? prevName === o.card.name : !!key && key === prevKey;
+      el.classList.toggle('stacked', same);
+      if (opts.stackBy) { if (same) runLen++; else { endRun(); runStart = el; runLen = 1; } if (!same) delete el.dataset.count; }
       prevName = o.card.name;
+      prevKey = key;
       if (container.children[i] !== el) {
         // A card moving between zones (hand → battlefield, creature row → another player) glides there
         const from = el.isConnected && el.parentElement !== container && !this.g.clock.ff ? el.getBoundingClientRect() : null;
@@ -292,6 +309,7 @@ export class TableView {
       }
       i++;
     }
+    if (opts.stackBy) endRun();
     while (container.children.length > i) container.lastChild.remove();
   }
 
@@ -342,7 +360,11 @@ export class TableView {
         + (p.pacts || []).map(x => `<span class="polchip pact" title="${esc(x.name)}: pay ${esc(x.cost)} at the next upkeep or lose the game">⚖ Owes ${esc(x.cost)}</span>`).join('')
         + (p.battlefield.length >= 10 && p.battlefield.some(o => o.fx.ascend) ? '<span class="polchip" title="Ten or more permanents with ascend: the city\'s blessing">🏙 Blessing</span>' : '')
         + (p.battlefield.some(o => o.fx.noCastMyTurn) && g.active === p.idx ? '<span class="polchip" title="Opponents can\'t cast spells during this player\'s turn">🔇 No spells</span>' : '')
-        + (this.humanIdx === p.idx && p.battlefield.some(o => o.fx.seeTop) && p.library.length ? `<span class="polchip" data-iid="${p.library[p.library.length - 1].iid}" title="The top card of your library">👁 Top: ${esc(p.library[p.library.length - 1].card.name)}</span>` : '');
+        + (this.humanIdx === p.idx && p.battlefield.some(o => o.fx.seeTop) && p.library.length ? `<span class="polchip" data-iid="${p.library[p.library.length - 1].iid}" title="The top card of your library">👁 Top: ${esc(p.library[p.library.length - 1].card.name)}</span>` : '')
+        + (p.dungeon ? `<span class="polchip" title="Dungeon: ${esc(p.dungeon.name)}${p.dungeonsDone ? ` (${p.dungeonsDone} completed)` : ''}">🏰 ${esc(p.dungeon.room)}</span>` : '')
+        + (p.companion?.zone === 'outside' ? `<span class="polchip" data-iid="${p.companion.iid}" title="Companion: {3} puts it into hand once, at sorcery speed">🐾 ${esc(p.companion.card.name)}</span>` : '')
+        + (g.initiative === p.idx ? '<span class="polchip" title="Has the initiative: ventures into Undercity each upkeep; combat damage to this player takes it">⚑ Initiative</span>' : '')
+        + (g.dayNight && p.idx === g.active ? `<span class="polchip" title="Day or night (daybound and nightbound cards)">${g.dayNight === 'day' ? '☀ Day' : '☾ Night'}</span>` : '');
       const chips = politics + Object.entries(p.cmdDamage).map(([iid, n]) => {
         const src = g.objects.get(+iid);
         const owner = g.players[src.owner];
@@ -355,14 +377,17 @@ export class TableView {
       b.tax.textContent = taxes;
 
       const bf = p.battlefield;
-      const creatures = bf.filter(o => o.fx.type.creature);
+      // (identical tokens sit together, so they can be drawn as one overlapped pile with a count: item 121)
+      const tokenKey = o => (o.token && !o.counters && !o.attachedTo && o.attacking == null && o.blocking == null && !o.damage ? `${o.card.name}|${o.tapped ? 1 : 0}|${g.power(o)}/${g.toughness(o)}` : null);
+      const creatures = bf.filter(o => o.fx.type.creature).map((o, i) => ({ o, i, k: tokenKey(o) }))
+        .sort((a, c) => (a.k && c.k ? a.k.localeCompare(c.k) : 0) || (a.k ? 1 : 0) - (c.k ? 1 : 0) || a.i - c.i).map(x => x.o);
       const lands = bf.filter(o => o.fx.type.land && !o.fx.type.creature).sort((a, c) => a.card.name.localeCompare(c.card.name) || a.tapped - c.tapped);
       const others = bf.filter(o => !o.fx.type.creature && !(o.fx.type.land && !o.fx.type.creature));
       const n = creatures.length + others.length;
       // (larger in the Display window's "Larger text and cards" mode)
-      const cw = n > 22 ? 44 : n > 16 ? 50 : n > 10 ? 58 : 66;
+      const cw = n > 50 ? 34 : n > 34 ? 38 : n > 22 ? 44 : n > 16 ? 50 : n > 10 ? 58 : 66;
       b.el.style.setProperty('--cw', `${document.body.classList.contains('big') ? Math.round(cw * 1.2) : cw}px`);
-      this.sync(b.creatures, creatures);
+      this.sync(b.creatures, creatures, { stackBy: tokenKey });
       this.sync(b.others, others);
       this.sync(b.lands, lands, { stack: true });
 
@@ -425,7 +450,8 @@ export class TableView {
     }
   }
 
-  // Arrows from each attacker to the player it's attacking, and dashed lines from blockers
+  // Arrows from each attacker to the player (or planeswalker or battle) it's attacking, dashed lines from blockers,
+  // and dotted arrows from each spell or ability on the stack to its targets
   drawCombat() {
     const wrap = this.els.table.parentElement;
     if (!this.svg) {
@@ -435,7 +461,8 @@ export class TableView {
     }
     const g = this.g;
     const attackers = g.players.flatMap(p => p.battlefield.filter(o => o.attacking != null));
-    if (!attackers.length || g.clock.ff) { if (this.svg.innerHTML) this.svg.innerHTML = ''; return; }
+    const targeting = g.stack.filter(it => (it.targets || []).some(Boolean));
+    if ((!attackers.length && !targeting.length) || g.clock.ff) { if (this.svg.innerHTML) this.svg.innerHTML = ''; return; }
     const base = wrap.getBoundingClientRect();
     const center = el => { const r = el.getBoundingClientRect(); return [r.left + r.width / 2 - base.left, r.top + r.height / 2 - base.top]; };
     let html = '';
@@ -443,7 +470,8 @@ export class TableView {
       const el = this.cards.get(o.iid), board = this.boards[o.attacking];
       if (!el?.isConnected || !board) continue;
       // Aim at the defender's portrait, which is always visible (the life box can be squeezed on small boards)
-      const [x1, y1] = center(el), [x2, y2] = center(board.el.querySelector('.avatar'));
+      const aimed = o.attackingObj?.zone === 'battlefield' ? this.cards.get(o.attackingObj.iid) : null;
+      const [x1, y1] = center(el), [x2, y2] = center(aimed?.isConnected ? aimed : board.el.querySelector('.avatar'));
       const mx = (x1 + x2) / 2 + (y2 - y1) * 0.15, my = (y1 + y2) / 2 - (x2 - x1) * 0.15;
       const color = g.players[o.controller].color;
       html += `<path d="M${x1},${y1} Q${mx},${my} ${x2},${y2}" stroke="${color}" marker-end="url(#ah-${o.controller})"/>`;
@@ -454,6 +482,18 @@ export class TableView {
         html += `<path class="block" d="M${bx},${by} L${x1},${y1}"/>`;
       }
     }
+    // (stack targets: from the item's row in the stack panel, or its card, to each target)
+    const rows = this.stackPanel?.querySelectorAll('.sp-item') || [];
+    [...g.stack].reverse().forEach((it, i) => {
+      const from = rows[i] || this.cards.get(it.o.iid);
+      if (!from?.isConnected) return;
+      for (const t of (it.targets || []).filter(Boolean)) {
+        const to = t.obj ? this.cards.get(t.obj.iid) : t.player != null ? this.boards[t.player]?.el.querySelector('.avatar') : null;
+        if (!to?.isConnected) continue;
+        const [x1, y1] = center(from), [x2, y2] = center(to);
+        html += `<path class="target" d="M${x1},${y1} L${x2},${y2}" stroke="${it.p.color}" marker-end="url(#ah-${it.p.idx})"/>`;
+      }
+    });
     const defs = g.players.map(p => `<marker id="ah-${p.idx}" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="${p.color}" stroke="none"/></marker>`).join('');
     html = `<defs>${defs}</defs>${html}`;
     if (this.svg.innerHTML !== html) this.svg.innerHTML = html;
@@ -477,6 +517,7 @@ export class TableView {
       <div class="cap">${it.ability ? `${esc(it.o.card.name)}: ${esc(String(it.label).slice(0, 48))}` : `${esc(it.p.name)} casts ${esc(it.o.card.name)}`}</div></div>`).join('');
     if (this.els.spotlight.dataset.v !== html) { this.els.spotlight.innerHTML = html; this.els.spotlight.dataset.v = html; }
     this.renderStackPanel();
+    if (this.g.stack.length) this.drawCombat();
   }
 
   renderStackPanel() {
@@ -498,6 +539,11 @@ export class TableView {
 
   addLog(e) {
     const log = this.els.log;
+    // (screen readers hear what other players do: casts, combat, removal, eliminations)
+    if (['cast', 'combat', 'damage', 'removal', 'loss', 'combo'].includes(e.kind)) {
+      const sr = document.getElementById('srLog');
+      if (sr && !this.g.clock.ff) { const d = document.createElement('div'); d.innerHTML = e.html; sr.textContent = d.textContent; }
+    }
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
     const div = document.createElement('div');
     div.className = `le ${e.kind}`;
@@ -506,7 +552,7 @@ export class TableView {
     const who = new Set([...e.html.matchAll(/data-p="(\d)"/g)].map(m => m[1]));
     if (e.p != null) who.add(String(e.p));
     div.dataset.seats = [...who].join(' ');
-    div.innerHTML = e.html + (e.rule ? `<a class="rule" data-rule="${e.rule}" title="Comprehensive Rules ${e.rule}">${e.rule}</a>` : '');
+    div.innerHTML = Rules.glossify(e.html) + (e.rule ? `<a class="rule" data-rule="${e.rule}" title="Comprehensive Rules ${e.rule}">${e.rule}</a>` : '');
     log.append(div);
     while (log.children.length > 2500) log.firstChild.remove();
     if (atBottom) log.scrollTop = log.scrollHeight;
@@ -530,7 +576,7 @@ export class TableView {
     let list = [...p[zone]].reverse();
     if (zone === 'library') {
       const top = p.library[p.library.length - 1];
-      const mayLook = top && (p.battlefield.some(o => o.fx.seeTop) && (this.humanIdx === p.idx || this.revealAll));
+      const mayLook = top && (p.battlefield.some(o => o.fx.seeTop) && (this.humanIdx === p.idx || this.revealHands));
       list = mayLook ? [top] : [];
       grid.innerHTML = `<p class="muted">${p.library.length} card${p.library.length === 1 ? '' : 's'} left, face down.${mayLook ? ' The top card:' : ''}</p>`;
       if (!mayLook) { this.els.zoneModal.hidden = false; return; }
@@ -550,6 +596,8 @@ export class TableView {
 // ---------- sound effects, synthesized with Web Audio (no files to download)
 export const Sound = {
   enabled: false,
+  // Effects volume 0–1 (Display window; item 127), apart from the music's
+  volume: 1,
   ctx: null,
   last: 0,
   // The Sound switch turns the background music on and off with the effects
@@ -559,6 +607,7 @@ export const Sound = {
     cast: [[520, 0.06], [780, 0.08]], land: [[180, 0.07]], combat: [[140, 0.12], [110, 0.12]], damage: [[90, 0.15]],
     removal: [[400, 0.05], [260, 0.1]], death: [[220, 0.08], [150, 0.14]], combo: [[523, 0.08], [659, 0.08], [784, 0.08], [1047, 0.2]],
     win: [[523, 0.12], [659, 0.12], [784, 0.12], [1047, 0.35]], loss: [[300, 0.15], [200, 0.25]], politics: [[660, 0.06], [660, 0.06]],
+    yourTurn: [[440, 0.09], [660, 0.16]],
   },
   forLog(kind) { if (this.tones[kind]) this.play(kind); },
   play(kind) {
@@ -575,7 +624,7 @@ export const Sound = {
         osc.type = kind === 'damage' || kind === 'combat' ? 'triangle' : 'sine';
         osc.frequency.value = freq;
         gain.gain.setValueAtTime(0.0001, t);
-        gain.gain.exponentialRampToValueAtTime(0.12, t + 0.01);
+        gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, 0.12 * this.volume), t + 0.01);
         gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
         osc.connect(gain).connect(this.ctx.destination);
         osc.start(t);
@@ -589,6 +638,74 @@ export const Sound = {
 function ordinal(n) { return n ? `${n}${['th', 'st', 'nd', 'rd'][n % 10 > 3 || Math.floor(n / 10) === 1 ? 0 : n % 10]} place` : ''; }
 
 // ---------- hover preview (works for board cards, log names, zone viewers)
+// Card details (items 122 and 123): right-click any card (on the table, in a pile, in the stack panel, or its name in
+// the log) for its Oracle text, how the simulator reads each line, and Scryfall's rulings (fetched once, kept for
+// offline). Clicking a card name in the log points the card out on the table.
+const RULINGS_KEY = 'ct.rulings';
+async function rulingsFor(card) {
+  if (!card.id) return [];
+  let all = {};
+  try { all = JSON.parse(localStorage.getItem(RULINGS_KEY) || '{}'); } catch { all = {}; }
+  if (all[card.id]) return all[card.id];
+  const { sf } = await import('./scryfall.js');
+  const j = await sf(`/cards/${card.id}/rulings`);
+  const list = (j.data || []).map(r => ({ d: r.published_at, t: r.comment }));
+  all[card.id] = list;
+  const ids = Object.keys(all);
+  for (const id of ids.slice(0, Math.max(0, ids.length - 300))) delete all[id];
+  try { localStorage.setItem(RULINGS_KEY, JSON.stringify(all)); } catch { /* full: shown, not kept */ }
+  return list;
+}
+export function installDetails(getObject, getView) {
+  let box = document.getElementById('cardDetails');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'cardDetails';
+    box.className = 'card-details';
+    box.hidden = true;
+    document.body.append(box);
+    box.addEventListener('click', e => { if (e.target === box || /** @type {any} */ (e.target).closest?.('.cd-close')) box.hidden = true; });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') box.hidden = true; });
+  }
+  const open = o => {
+    const c = o.card;
+    const unread = new Set(o.fx.unread || []);
+    const lines = String(c.fullText || c.text || '').split('\n').filter(Boolean);
+    const reads = describeFx(o.fx);
+    box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close">✕</button>
+      <div class="cd-cols">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}
+      <div class="cd-text"><h3>${esc(c.name)}</h3><div class="muted">${esc(c.typeLine || '')} ${c.manaCost ? symbolize(c.manaCost) : ''}</div>
+      <h4>Oracle text</h4>${lines.map(l => `<p>${Rules.glossify(symbolize(esc(l)))}</p>`).join('') || '<p class="muted">(no text)</p>'}
+      <h4>How the simulator reads it</h4>${reads.length ? `<ul>${reads.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">Nothing beyond its type, power and toughness.</p>'}
+      ${unread.size ? `<p class="cd-unread">⚠ Not simulated: ${[...unread].map(esc).join(' / ')}</p>` : ''}
+      <h4>Rulings</h4><div class="cd-rulings muted">Loading…</div></div></div></div>`;
+    box.hidden = false;
+    rulingsFor(c).then(list => {
+      const el = box.querySelector('.cd-rulings');
+      if (!el) return;
+      el.classList.remove('muted');
+      el.innerHTML = list.length ? list.map(r => `<p><small class="muted">${esc(r.d)}</small> ${esc(r.t)}</p>`).join('') : '<p class="muted">Scryfall has no rulings for this card.</p>';
+    }).catch(() => { const el = box.querySelector('.cd-rulings'); if (el) el.textContent = "Couldn't reach Scryfall for the rulings."; });
+  };
+  document.addEventListener('contextmenu', ev => {
+    const t = /** @type {HTMLElement | null} */ (/** @type {any} */ (ev.target).closest?.('[data-iid]'));
+    const o = t && getObject(+t.dataset.iid);
+    if (!o) return;
+    ev.preventDefault();
+    open(o);
+  });
+  document.addEventListener('click', ev => {
+    const t = /** @type {HTMLElement | null} */ (/** @type {any} */ (ev.target).closest?.('.le .cn[data-iid]'));
+    if (!t) return;
+    const el = getView()?.cards.get(+t.dataset.iid);
+    if (!el?.isConnected) return;
+    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    el.classList.remove('pointed'); void el.offsetWidth; el.classList.add('pointed');
+    setTimeout(() => el.classList.remove('pointed'), 1600);
+  });
+  return open;
+}
+
 export function installPreview(getObject) {
   const pv = document.getElementById('preview');
   let current = null;
@@ -639,7 +756,7 @@ function previewHtml(o) {
     <div class="ptext">
       <h3><span>${esc(c.name)}</span><span>${symbolize(c.manaCost || '')}</span></h3>
       <div class="ptype">${esc(c.typeLine)}${pt ? ` · ${esc(pt)}` : ''}</div>
-      <div class="oracle">${symbolize(c.fullText || c.text || '')}</div>
+      <div class="oracle">${Rules.glossify(symbolize(c.fullText || c.text || ''))}</div>
       ${fx.length ? `<div class="sec"><h4>Simulator understands</h4><div class="fxl">${fx.map(esc).join('<br>')}</div></div>` : ''}
       ${o.fx.unread?.length ? `<div class="sec warn"><h4>⚠ Not simulated</h4><div class="fxl">${o.fx.unread.map(esc).join('<br>')}</div></div>` : ''}
       ${o.chosenType ? `<div class="sec"><h4>Chosen type</h4><div class="fxl">${esc(o.chosenType)}</div></div>` : ''}

@@ -1,0 +1,576 @@
+{
+ "version": "1.20.0",
+ "round": "Round 5",
+ "items": [
+  {
+   "n": 85,
+   "section": "Rules engine and card coverage",
+   "title": "X in activated ability costs (\"{X}, {T}: …\"): read X in parseCostText, the AI picks X by value, a human seat gets a number prompt. The biggest missing engine piece in item 82's notes.",
+   "done": "the cost and effects were already read, but every X was played as 0."
+  },
+  {
+   "n": 86,
+   "section": "Rules engine and card coverage",
+   "title": "Face-down cards: morph, megamorph, disguise, manifest, manifest dread and cloak as 2/2 face-down permanents, turning face up as a special action; hidden from opponents on the table, in friends' snapshots and in replays shared as web pages.",
+   "done": "effects.js reads \"morph/megamorph/disguise {cost}\" (fx.morph), \"when ~ is turned face up\" (fx.turnedUp) and manifest / manifest dread / cloak effects."
+  },
+  {
+   "n": 87,
+   "section": "Rules engine and card coverage",
+   "title": "Adventures and modal double-faced cards: cast the adventure, then the creature from exile; play an MDFC's back face as a land (the AI counts those as lands for mulligans and land drops).",
+   "done": "scryfall.js normalize keeps the second face of adventure, modal_dfc and split cards (card.altFace, with its own fx) and card.layout."
+  },
+  {
+   "n": 88,
+   "section": "Rules engine and card coverage",
+   "title": "Finish \"aura or creature\" cards: bestow end to end, mutate (merged stack with every ability), reconfigure.",
+   "done": "bestow wasn't read at all."
+  },
+  {
+   "n": 89,
+   "section": "Rules engine and card coverage",
+   "title": "Madness (finish), cleave, meld, split cards with fuse, and aftermath.",
+   "done": "madness and cleave are read as costs."
+  },
+  {
+   "n": 91,
+   "section": "Rules engine and card coverage",
+   "title": "Several replacement or prevention effects on one event: the affected player chooses the order (616.1); human seats are asked.",
+   "done": "counter, damage and life-gain modifiers were applied in battlefield order (Hardened Scales + Doubling Season gave 3 or 4 counters depending on which came first)."
+  },
+  {
+   "n": 92,
+   "section": "Rules engine and card coverage",
+   "title": "Triggers from several players at once go on the stack in APNAP order (603.3b), each player ordering their own (extends item 68).",
+   "done": "flushTriggers (rules 5) sorts triggers that have just triggered so the active player's go on the stack first and the last player's in turn order resolve first, and puts them above triggers still waiting from before (so a trigger's own trigg"
+  },
+  {
+   "n": 93,
+   "section": "Rules engine and card coverage",
+   "title": "Combat choices for human seats: damage assignment among several blockers, trample with deathtouch, and dividing damage from \"divided as you choose\" spells.",
+   "done": "an attacker blocked by several creatures, or with trample, has its damage divided by its controller (agent.assignCombatDamage, checked by Game.validDamagePlan: it must add up, and trample damage reaches the player only once every blocker ha"
+  },
+  {
+   "n": 94,
+   "section": "Rules engine and card coverage",
+   "title": "Initiative and dungeons (venture into the dungeon, Undercity), and day/night (daybound/nightbound).",
+   "done": "public/js/dungeons.js has the four dungeons as room maps; each room's ability is read by parseEffects (Twisted Caverns' \"can't attack\" isn't read and does nothing)."
+  },
+  {
+   "n": 95,
+   "section": "Rules engine and card coverage",
+   "title": "Companions: the companion line is read but the card is never used. Put it into hand for {3} as a special action and check the deck-building condition when the deck loads (a warning in formats.js).",
+   "done": "decks.js keeps the companion (a \"Companion\" heading in pasted lists, Moxfield's companions board, Archidekt's Companion category, or a companion in a 60-card sideboard) as deck.companion, outside the deck; saved deck text (replays, challeng"
+  },
+  {
+   "n": 96,
+   "section": "Rules engine and card coverage",
+   "title": "Commander zone choice: when a commander would go to the graveyard, exile, hand or library the owner chooses (903.9; the AI usually moves it, a human seat is asked). Check partner, Friends forever, Choose a Background and Doctor's companion pairings at load.",
+   "done": "(rules 5) a commander put into a graveyard or exile now really goes there (so \"dies\" and \"put into a graveyard\" triggers see it) and its owner chooses at the next state-based check (Game.commanderChoices, 903.9a); to a hand or library it's "
+  },
+  {
+   "n": 99,
+   "section": "Rules engine and card coverage",
+   "title": "Sagas, Classes, Battles (Sieges, with the protector chosen by the caster) and Rooms checked end to end with a puzzle each; fix what they show.",
+   "done": "Sagas and Classes already worked (39 chapters, 103 level-ups in the test)."
+  },
+  {
+   "n": 100,
+   "section": "Rules engine and card coverage",
+   "title": "Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).",
+   "done": "mana against cost — watchGame totals the mana units committed while a spell from hand or the command zone is cast for its mana cost and reports a cast that paid less than its cost after reductions and taxes (\"mana\" findings; alternative and"
+  },
+  {
+   "n": 185,
+   "section": "Rules engine and card coverage",
+   "title": "Card debugging pass (asked 2026-11-11): find cards that don't do what their text says, fix the cause, and test each fix with a small board.",
+   "done": "new tests/interactions.mjs (in CI) builds boards from card names (tests/scenario.mjs; extra card data in tests/interaction-cards.json) — 51 tests."
+  },
+  {
+   "n": 101,
+   "section": "AI",
+   "title": "Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same copied game and step budget as item 83.",
+   "done": "lookahead.js lookAheadRespond."
+  },
+  {
+   "n": 102,
+   "section": "AI",
+   "title": "Look-ahead for multiplayer attacks and blocks: whole-turn rollouts merged with combatai.js's simulation; tuned with the matchup grid in Commander pods.",
+   "done": "lookahead.js lookAheadAttacks."
+  },
+  {
+   "n": 103,
+   "section": "AI",
+   "title": "Adaptive look-ahead budget: more steps in 1v1 and late game, fewer in four-player cEDH. Still counted in steps, not ms, so replays stay exact.",
+   "done": "lookahead.js budgetFor (per decision; agent.budget overrides it)."
+  },
+  {
+   "n": 104,
+   "section": "AI",
+   "title": "X spells: pick X from what it achieves (lethal Fireball, Exsanguinate kills, enough Hydroid Krasis cards) rather than the most mana available.",
+   "done": "(rules 5) Game.cast asks the caster for X."
+  },
+  {
+   "n": 105,
+   "section": "AI",
+   "title": "Planeswalkers: choose + or − by the board, protect own walkers in blocks, attack opponents' walkers when that's worth more than face damage.",
+   "done": "the block search now counts damage aimed at our planeswalkers as loyalty lost (the walker's full worth when it would hit 0) instead of life, so blocks protect walkers worth keeping."
+  },
+  {
+   "n": 106,
+   "section": "AI",
+   "title": "Counter wars: respond to responses (counter the counterspell), cast Silence-style protection before a combo, hold Veil of Summer/Flusterstorm-style protection for the key turn.",
+   "done": "\"spells you control can't be countered this turn\" is now read (Veil of Summer, Autumn's Veil; before, Veil was only \"draw a card\" and Autumn's Veil a static that did nothing on an instant)."
+  },
+  {
+   "n": 107,
+   "section": "AI",
+   "title": "Graveyard plans beyond the Breach combo: reanimation targets, flashback and escape value, self-mill payoffs; the AI values its own graveyard as a resource and graveyard hate by what it stops.",
+   "done": "Agent.graveyardPlan values a card in its own graveyard (flashback, escape, unearth, embalm, eternalize, jump-start; big creatures when a reanimation spell is in hand or out; anything with Underworld Breach)."
+  },
+  {
+   "n": 108,
+   "section": "AI",
+   "title": "Threat assessment learned from batch games: which public board states lead to a win next round, used to pick the archenemy instead of fixed weights (frozen into the setup like learn.js data).",
+   "done": "threat.js."
+  },
+  {
+   "n": 109,
+   "section": "AI",
+   "title": "Reading human players: per-person tendencies (how often they hold counters, bluff open mana, chump block) kept in learn.js and frozen into each game's setup.",
+   "done": "the engine notes for each person seat (HumanAgent, by seat name) the turns they end with 2+ mana open and cards in hand, whether that mana is used before their next turn and whether on a counterspell, the combats they could block in, their "
+  },
+  {
+   "n": 110,
+   "section": "AI",
+   "title": "Learned mulligans: learn.js records keeps and mulligans per deck with simple hand features (lands, plan pieces, fast mana) and how those games went, and nudges planScore.",
+   "done": "the engine notes each kept seven's lands; learn.js keeps results per land count and adds them to the learned table (under \"#hands\", so it's saved with each game and replays stay exact)."
+  },
+  {
+   "n": 111,
+   "section": "AI",
+   "title": "One \"AI strength\" choice per seat (Beginner, Casual, Strong, Expert) that sets style noise, look-ahead and learning together; shown on the seat; the ladder rates each strength separately.",
+   "done": "setup screen \"AI strength\" (by bracket / Beginner / Casual / Strong / Expert), saved in prefs; each seat's noise, handicap and look-ahead are kept in the setup and replays; the log names the strength at the start; the ranked ladder rates op"
+  },
+  {
+   "n": 112,
+   "section": "AI",
+   "title": "Bluffing: casual pilots sometimes keep mana open for nothing; strong pilots hold up mana when an opponent is likely to attack into them.",
+   "done": "combatai.js trickFear (a blocked attacker that only just survives counts as at risk when the defender has 2+ open mana and cards in hand) and ai.js bluff (reserveFor keeps 2 mana up now and then with a full hand and opposing attackers)."
+  },
+  {
+   "n": 113,
+   "section": "AI",
+   "title": "Tuning tool: tools/tune.mjs (Node, no npm packages) runs seeded head-to-head grids over AI weights and writes a report, so tuning stops being done by hand in the browser pane.",
+   "done": "tools/tune.mjs."
+  },
+  {
+   "n": 114,
+   "section": "AI",
+   "title": "Kingdoms roles still missing: Schemer, Sellsword, Field Marshal, Straw Man abilities, War Bear {Q}, Wizard retarget, Champion scry (listed in README and KINGDOMS_AUTO).",
+   "done": "War Bears get \"{Q}: deals damage equal to its power to target creature\" (the +1/+1 counter part isn't played); the Champion scries 1 each upkeep; the Straw Man's Announce forces every opponent's creature to attack them until their next turn"
+  },
+  {
+   "n": 116,
+   "section": "AI",
+   "title": "Drafters for more sets: run tools/ratings_17lands.py for every set in 17Lands' public datasets (CC BY 4.0) and ship the small JSON files; improve the plain heuristic (removal, curve, two-color commitment) for unrated sets.",
+   "done": "tools/ratings_17lands.py run for 17 more sets: OTJ, MH3, LCI, ONE, BRO, SNC, NEO, VOW, MID, AFR, STX, KHM, DFT, TDM, FIN, EOE built (150,000 games each, 254–347 cards rated, 392 KB for all 23 sets); ZNR's public file answers 403."
+  },
+  {
+   "n": 117,
+   "section": "Playing and the table",
+   "title": "Drag to attack, block and target: drag a card onto a player, walker or creature; arrows on the table show what each stack item targets.",
+   "done": "drag one of your highlighted creatures onto an opponent's board while declaring attackers to attack them (with it and any already selected); it's answered as the same clicks, so replays and undo are unchanged."
+  },
+  {
+   "n": 118,
+   "section": "Playing and the table",
+   "title": "Auto-answers: \"always yes / always pay / never pay\" for a trigger or card this game (Rhystic Study taxes, \"you may\" triggers), listed so they can be undone; saved with the answers so replays stay exact.",
+   "done": "yes/no-style questions (2–6 buttons, no cards to click; not main-phase, attack, block, response or X questions) get an \"Always\" checkbox in the action bar; ticked, that answer is given automatically to the same question (numbers ignored, so"
+  },
+  {
+   "n": 119,
+   "section": "Playing and the table",
+   "title": "Smart pass: \"pass until something targets me or mine\", \"pass to my turn\", \"pass to end of turn\", working with the stops from item 67.",
+   "done": "response windows and stops get \"Pass to end of turn\", \"Pass to my turn\" (on others' turns) and \"Pass unless targeted\" (asked again only for spells and abilities that target you or your permanents, until your next turn)."
+  },
+  {
+   "n": 120,
+   "section": "Playing and the table",
+   "title": "Payment preview: before a cast is confirmed, highlight the sources that will tap and let the player swap one.",
+   "done": "hovering a card you can cast now outlines (yellow dashes) the lands and mana sources the automatic payment would tap."
+  },
+  {
+   "n": 121,
+   "section": "Playing and the table",
+   "title": "Big boards: identical tokens stack with a ×N count; rows shrink instead of overflowing at 50+ permanents.",
+   "done": "identical creature tokens (same name, power/toughness and tapped state, no counters, damage, attachments or combat) are drawn together as an overlapped pile with a ×N count on the first card; each token is still its own card for clicks and "
+  },
+  {
+   "n": 122,
+   "section": "Playing and the table",
+   "title": "Card details panel: Oracle text, Scryfall rulings (cached for offline), and how the engine reads each line, from any card on the table, in a pile or in the log.",
+   "done": "right-click any card (table, piles, stack panel, or its name in the log) for a details panel: image, Oracle text, how the simulator reads it (describeFx) and any unread lines, and Scryfall's rulings (fetched once per card, the last 300 kept"
+  },
+  {
+   "n": 123,
+   "section": "Playing and the table",
+   "title": "Clickable log: card names highlight the card on the table and open its details; a search box over the log.",
+   "done": "clicking a card name in the log points the card out on the table (scrolls to it, a gold pulse); right-click opens its details (item 122); a \"Search the log…\" box shows only lines with that text (turn headers stay)."
+  },
+  {
+   "n": 124,
+   "section": "Playing and the table",
+   "title": "Post-game report: life-total graph, damage dealt by and to each player, cards drawn and cast, the turn that decided the game and the biggest plays; kept in History.",
+   "done": "the results screen has a Game report: a life-total graph by turn (one line per player), spells cast, cards drawn, damage dealt and taken per player, the turn that decided it (where the winner's lead grew most) and the three biggest hits."
+  },
+  {
+   "n": 125,
+   "section": "Playing and the table",
+   "title": "The host's own table on phones and tablets (375 px wide, touch zoom on cards), not only the friend page.",
+   "done": "under 600 px the top toolbar and the timeline are single rows that scroll sideways (156 px tall together instead of 332 at 375 px wide), the page never scrolls sideways, the lesson coach panel moves to the top and stays short."
+  },
+  {
+   "n": 126,
+   "section": "Playing and the table",
+   "title": "Keyboard-only play and screen readers: every prompt reachable by keys, labels on cards, zones and prompts, announcements of other players' actions.",
+   "done": "the cards you can pick are focusable buttons named for screen readers (\"Forest, in your hand\"); Tab moves between them and Enter or Space picks the focused one (buttons already had Space/Enter, 1–9, Esc, A)."
+  },
+  {
+   "n": 127,
+   "section": "Playing and the table",
+   "title": "Sound effects made with WebAudio (our own, like music.js) for casts, combat, life loss and \"your turn\", with separate volumes for music and effects.",
+   "done": "synthesized effects already played for casts, lands, combat, damage, removal, deaths, combos, wins and losses; added a two-note \"your turn\" sound and separate Music volume and Effects volume sliders in the Display window (saved in prefs)."
+  },
+  {
+   "n": 128,
+   "section": "Playing and the table",
+   "title": "High-contrast theme, card text size setting, and the OS \"reduce motion\" setting turning on \"Fewer animations\".",
+   "done": "Display window: High contrast (black panels, white borders and text, yellow main buttons and pickable cards), Text size (Normal / Large / Larger), and Fewer animations starts on when the system asks for reduced motion (until the player chan"
+  },
+  {
+   "n": 129,
+   "section": "Playing and the table",
+   "title": "Finish translations: help paragraphs, the game log, the self-test page and the windows from rounds 3–4 (Expedition, builder, Draft, Updates) in es/fr/de/pt; add Italian and Japanese interfaces.",
+   "done": "Italian and Japanese interfaces (public/js/i18n_more.js: all 165 existing strings and the 9 patterns, card names and images from Scryfall in those languages), the Round 5 labels in all six languages, and the Round 3 setup buttons that had s"
+  },
+  {
+   "n": 130,
+   "section": "Playing and the table",
+   "title": "Puzzle editor: build a board by clicking (search cards, place them in any zone for any player, set life and counters), test it, save it as a file or a challenge link (item 77 has no button to make one from a board).",
+   "done": "Puzzles → Make a puzzle… has a name, goal, hint, 2–4 players (name, commander, life, commander out) and their battlefield, hand, graveyard and top of library, one card per line (\"*tapped*\" and \"(+2)\" for tapped cards and counters)."
+  },
+  {
+   "n": 131,
+   "section": "Playing and the table",
+   "title": "Rematch with changes: swap decks between seats, rotate seats or change one pilot, on the same seed.",
+   "done": "the results screen has \"Rotate decks, same seed\" (each deck moves one seat along, players and pilots stay) and \"Same seed, change setup…\" (back to the setup screen; the next game started uses this seed)."
+  },
+  {
+   "n": 132,
+   "section": "Playing and the table",
+   "title": "\"What if\" from the timeline: take over any seat from any point of a replay and play on; the branch is saved as its own replay.",
+   "done": "timeline \"Take over…\" (games of AI seats, or loaded replays): pick a seat; the game is rebuilt to this step and that seat is yours from there (setup.takeovers = [{ seat, step }], applied at that step in every rebuild and saved in replay fil"
+  },
+  {
+   "n": 133,
+   "section": "Playing and the table",
+   "title": "Save and resume: the game in progress is autosaved (setup + answers) so closing the app or a crash loses nothing; Resume on the start menu.",
+   "done": "the game in progress is saved in the browser profile (ct.autosave: the replay file plus how many steps it got to) at every turn start and every answer; a finished game clears it."
+  },
+  {
+   "n": 134,
+   "section": "Playing and the table",
+   "title": "Readable big tables: layouts and card sizes for 5–9 seat Kingdoms tables on a 1080p screen.",
+   "done": "5–6 and 7–9 seat tables had fixed card sizes (44 and 36 px) whatever the screen; they now follow the screen (clamp by width and height: 44–60 and 36–50 px)."
+  },
+  {
+   "n": 135,
+   "section": "Online",
+   "title": "Sideboard window on the friend page between best-of-three games (friends keep their deck today).",
+   "done": "between best-of-three games the host sends an online friend their deck and sideboard (RemoteUI.askSideboard); the friend page shows both lists, a click moves one copy across, \"Play these\" or \"Keep my deck\"."
+  },
+  {
+   "n": 136,
+   "section": "Online",
+   "title": "Draft and sealed with friends: friends draft in the same pod as AI drafters (picks over the room channel), then play the pod or one-on-one matches.",
+   "done": "with the lobby open, Draft / Sealed counts the friend seats among seats 2–4."
+  },
+  {
+   "n": 137,
+   "section": "Online",
+   "title": "Friends at 1v1 and Limited tables: test the friend page with two seats and fix what breaks (untested in 56–60).",
+   "done": "a Standard table with a friend seat played through server.py with a friend tab: two boards, the friend's questions, the game to the end, and a best-of-three into game 2."
+  },
+  {
+   "n": 138,
+   "section": "Online",
+   "title": "Tabletop with 3–4 friends tested and fixed (untested in item 76); save and load a tabletop.",
+   "done": "tested a 4-seat tabletop with three friend tabs (draws, life, dice, playing cards, all seen by the host)."
+  },
+  {
+   "n": 139,
+   "section": "Online",
+   "title": "Deals proposed from the chat are recorded with the answers, so rewinds and saved replays include them.",
+   "done": "`setup.chatDeals` keeps each offer with the step it was made; rebuilds and loaded replays offer it again at that step."
+  },
+  {
+   "n": 140,
+   "section": "Online",
+   "title": "Resume a room after the host's app closes: reopen from the autosave (item 133) and friends rejoin with the same seat keys.",
+   "done": "online games are autosaved too, with each friend seat's key; Resume reopens the room with those keys (room/open now takes \"seat=KEY\" in all three servers)."
+  },
+  {
+   "n": 141,
+   "section": "Online",
+   "title": "Hand a seat to someone else mid-game: give a dropped friend's seat to another person with a new key.",
+   "done": "\"New link for someone else\" in Invite (room/rekey in all three servers)."
+  },
+  {
+   "n": 142,
+   "section": "Online",
+   "title": "Streamer view: a spectator link with a delay (30 s–3 min) that shows every hand after the delay, in a clean layout for screen capture.",
+   "done": "seat -2 in every room; the host samples the whole table every 2 s and sends it only after the delay."
+  },
+  {
+   "n": 143,
+   "section": "Online",
+   "title": "Friend tournaments: Swiss or single elimination for 4–16 people across rooms, AI fill-ins, a standings page.",
+   "done": "Friend tournament (friendcup.js + a window on the table): entrants played by you, friends or the AI; Swiss or single elimination; AI fill-ins for short pods; pods with people played at the table (friends get links per match), AI pods at ful"
+  },
+  {
+   "n": 144,
+   "section": "Online",
+   "title": "Connection check for friends: a page on the host that tests the port and the tunnel from outside the PC and says what to fix (firewall, router, tunnel down).",
+   "done": "\"Check the connection\" in Invite: the server, each LAN address and port, the tunnel URL through Cloudflare, who has joined, with a fix for each failure."
+  },
+  {
+   "n": 145,
+   "section": "Decks and data",
+   "title": "Deck health: lands, curve and counts of ramp, card draw, removal and wipes against a Commander template (Scryfall's `otag:` tags, fetched once and cached), with suggestions.",
+   "done": "dechealth.js and a Deck health button in the deck viewer."
+  },
+  {
+   "n": 146,
+   "section": "Decks and data",
+   "title": "Commander precons from MTGJSON's deck files (free, open license): browse by set and seat one in a click; cached for offline.",
+   "done": "precons.js + \"Commander precons…\" on the setup screen (208 decks, by set, filter); a seat's source \"precon:<file>\" loads one."
+  },
+  {
+   "n": 147,
+   "section": "Decks and data",
+   "title": "Collection: import what you own (ManaBox, Deckbox or any CSV), mark owned cards in the builder, an \"only cards I own\" filter and a missing-cards list per deck. No prices.",
+   "done": "collection.js + Collection… on the setup screen (replace or add); builder ✓ badges, \"need N\" rows and an Only cards I own filter (Scryfall pages filtered here, reading up to 6 more pages); the deck viewer's missing list with Copy."
+  },
+  {
+   "n": 148,
+   "section": "Decks and data",
+   "title": "Library folders and tags, search by commander, colors and bracket, notes per deck, and version history with a diff between versions.",
+   "done": "folder, tags, colors, bracket and notes in each list's About section (loaders skip it; no server change); folder filter and multi-word search; Info panel with \"Work out colors and bracket\"; every save keeps the replaced list (last 10, in th"
+  },
+  {
+   "n": 149,
+   "section": "Decks and data",
+   "title": "Goldfish: sample hands with mulligans, and solo runs of the AI pilot over 1,000 seeds giving the average turn the commander comes down and the combo is assembled.",
+   "done": "goldfish.js + a Goldfish section in the deck viewer: sample hands (London mulligan, draws) and 100/250/1,000 solo runs against a lands-only opponent (commander turn, first combo attempt, win turn, lands after three turns, mulligans)."
+  },
+  {
+   "n": 150,
+   "section": "Decks and data",
+   "title": "Draw odds: chance of having a card or a category (ramp, a combo piece) by turn N, in the deck viewer.",
+   "done": "hypergeometric odds (goldfish.js atLeast) for a group or one card, at least 1–5, turns 1–10 on the draw and on the play."
+  },
+  {
+   "n": 151,
+   "section": "Decks and data",
+   "title": "Combos one card away: Commander Spellbook's \"almost included\" results in the deck viewer and the builder.",
+   "done": "combos.js almostCombos (find-my-combos' almostIncluded, one missing card, by popularity) in the deck viewer (with Spellbook links) and the builder (click the missing card to search it)."
+  },
+  {
+   "n": 152,
+   "section": "Decks and data",
+   "title": "Bracket estimate refresh: follow the current official bracket rules (tutors, extra turns, Game Changers from Scryfall) and explain each difference from Spellbook's estimate.",
+   "done": "late-game two-card combos (pieces over 6 mana together) are bracket 3, early ones 4; extra-turn chaining (2+ cards) and tutors (counted, no limit) are listed; bracketDifferences explains a gap with Spellbook on the chip and in a new Bracket"
+  },
+  {
+   "n": 153,
+   "section": "Decks and data",
+   "title": "More exports: MTGO .dek, Arena text and a printable text checklist.",
+   "done": "deckexport.js + Export buttons in the deck viewer."
+  },
+  {
+   "n": 154,
+   "section": "Decks and data",
+   "title": "\"Fully simulated only\" filter in the builder, so people can build decks the AI plays at full strength.",
+   "done": "a builder checkbox (effects.js ignoredText per result, reading on like the owned filter) and a ⚠ badge on partly simulated results."
+  },
+  {
+   "n": 155,
+   "section": "Decks and data",
+   "title": "EDHTop16 trends: commander share and win rate over time from the cached answers, charted in the meta browser.",
+   "done": "a Trends tab: share across the year/6-month/3-month/month windows with a sparkline and rising/falling, win rates, and a daily snapshot history (ct.metaTrend, a year) shown as \"Your visits\" from the second day."
+  },
+  {
+   "n": 156,
+   "section": "Decks and data",
+   "title": "More deck sites, where their terms and robots allow it and no bot check is in the way (TappedOut, MTGGoldfish, Archidekt folders).",
+   "done": "Archidekt folders (robots.txt allows them; the folder API goes through the existing proxy, no server change): Import an Archidekt folder… in the library, with subfolders, saving each chosen deck into a library folder."
+  },
+  {
+   "n": 157,
+   "section": "Decks and data",
+   "title": "Printings offline: the optional \"Default Cards\" bulk file so set searches for Draft / Sealed and printings work without Scryfall (item 81 still sends e: and is:booster there).",
+   "done": "bulk.js downloadPrints/loadPrints/removePrints (paper printings, kept in a separate IndexedDB) and set, cn and is:booster terms plus order=set and unique=cards/prints in the local search."
+  },
+  {
+   "n": 158,
+   "section": "Decks and data",
+   "title": "\"Download images for my library\": fetch every image for library decks into data\\images with progress, and let the 400 MB cap be changed.",
+   "done": "/api/imgcache (folder size and cap, kept in data\\image-cache-mb.txt) in all three servers; server.ps1 now trims the folder too."
+  },
+  {
+   "n": 159,
+   "section": "Modes and progression",
+   "title": "Two-Headed Giant: shared 30 life, shared turns and team combat, with AI teammates that plan together.",
+   "done": "format twohg (formats.js; random decks from Standard's pool)."
+  },
+  {
+   "n": 160,
+   "section": "Modes and progression",
+   "title": "Archenemy (the format) and Planechase with Scryfall's scheme and plane cards: a scheme set in motion each turn, the planar die, AI that plays both sides.",
+   "done": "planar.js and two formats."
+  },
+  {
+   "n": 161,
+   "section": "Modes and progression",
+   "title": "Duel Commander (1v1, 20 life, `legal:duel`) and 1v1 Commander at 40 life.",
+   "done": "two formats (formats.js), random Duel Commander decks from legal:duel (randomVariant), and 1v1 Commander taking any Commander deck."
+  },
+  {
+   "n": 162,
+   "section": "Modes and progression",
+   "title": "Gauntlet: beat a chain of rivals in a row (EDHTop16 top 8, a cube's AI decks or the library); one loss ends it; best run shown in Progress.",
+   "done": "a Gauntlet tab in Progress: pools EDHTop16 top 8 (1v1 Commander), your library, or random decks of the format (cube decks left out: the cube's AI decks are built per draft); one-on-one fights with your seat-1 deck, a result counted once, be"
+  },
+  {
+   "n": 163,
+   "section": "Modes and progression",
+   "title": "Expedition: more events, run modifiers of our own, a fourth act, Hard runs tested to the end, and seeded runs shareable as a code.",
+   "done": "four more events (8), three run modifiers of our own (Glass cannon, Laden pack, Forced march), a fourth act (The Starlit Peak, the Star Herald) for new runs, and run codes (set, difficulty, modifier, seed) that replay the same road."
+  },
+  {
+   "n": 164,
+   "section": "Modes and progression",
+   "title": "Story: four more chapters of The Lantern Road, balanced like the first four.",
+   "done": "chapters V–VIII (The Glass Desert, Under the Wolf Moon, The Clockwork Tide, The Last Lantern), original text and boards."
+  },
+  {
+   "n": 165,
+   "section": "Modes and progression",
+   "title": "Puzzle of the day, found in batch replays (a position where the active player had lethal), checked by the engine to have a solution and picked by date.",
+   "done": "tools/dailypuzzles.mjs saves the board at the winner's last first main phase in AI games (the cEDH decks, fixed seeds) and keeps it only when an AI pilot wins from it on three shuffles: 91 of 120 games (71 combo wins, 20 damage)."
+  },
+  {
+   "n": 166,
+   "section": "Modes and progression",
+   "title": "Limited ladder: Elo from draft and sealed results, and a league record per draft (best of seven wins). No entry fees.",
+   "done": "seating a one-on-one Limited deck starts a league for that pool (the other three drafters' decks in turn, until 7 match wins or 3 losses); each decided match counts once for a Limited Elo rating; the results screen shows the record and \"Nex"
+  },
+  {
+   "n": 167,
+   "section": "Modes and progression",
+   "title": "More badges, avatars and card backs (original SVG/CSS) for the new modes, and a page showing progress toward each unlock.",
+   "done": "six badges (puzzle of the day x2, Gauntlet x2, Limited league, friend tournament), two original SVG avatars and two CSS card backs, and an Unlocks tab in Progress with a progress bar per locked item (badges report their own progress)."
+  },
+  {
+   "n": 168,
+   "section": "Modes and progression",
+   "title": "Coach: for a human seat, show what the AI would play and why (the Explain text) before you decide; off in Ranked.",
+   "done": "a Coach checkbox; HumanAgent.coachNote asks a fresh Agent of the deck's style for its best play on a separate random stream and adds its reason to the main-phase prompt."
+  },
+  {
+   "n": 169,
+   "section": "Speed, testing and tooling",
+   "title": "Run games in a Web Worker so the table stays smooth during long AI turns and look-ahead.",
+   "done": "the live table stays in the page (the board, prompts, undo and replays all read the game object directly, so moving it to a worker would mean rebuilding the whole table around messages)."
+  },
+  {
+   "n": 170,
+   "section": "Speed, testing and tooling",
+   "title": "Batch, matchup grid and tournaments on every CPU core with several workers; results identical to one worker for the same seeds.",
+   "done": "batch runs, the matchup grid and the AI tournament play on every core (batchworker.js, a module worker per core; each loads the decks from their card lists and plays a list of fixed seeds with the learned tables taken at the start)."
+  },
+  {
+   "n": 171,
+   "section": "Speed, testing and tooling",
+   "title": "Profile the engine: a speed row in the self-test (games per second on fixed seeds) and speed-ups of the hottest paths (abilitiesOf, statics, cloneGame).",
+   "done": "profiled in Node: the combat planner spent most of its time in attachments(), has(), power() and toughness()."
+  },
+  {
+   "n": 172,
+   "section": "Speed, testing and tooling",
+   "title": "Golden card readings: tests/cards.mjs runs the effects parser over a saved snapshot of the 3,500 cards and fails when a card's reading changes without the snapshot being updated on purpose.",
+   "done": "tests/cards-snapshot.json (3,500 cards, Scryfall fields normalize() reads; --fetch refreshes it) and tests/card-readings.json (type, what is understood, lines not read; --update accepts)."
+  },
+  {
+   "n": 173,
+   "section": "Speed, testing and tooling",
+   "title": "Golden replays: saved replays from each version in tests/ that CI replays and checks for the same result, so outcome-changing edits are caught and replay versions are bumped on purpose.",
+   "done": "tests/golden.mjs plays 12 AI games (the four built-in decks, fixed seeds) under rules 4 and rules 5 and compares winner, rounds, steps and a log hash with tests/golden-games.json; card data is saved in tests/golden-cards.json so it runs off"
+  },
+  {
+   "n": 174,
+   "section": "Speed, testing and tooling",
+   "title": "Fuzz games: random decks plus random answers to every human prompt, under the invariants watcher, in CI with a fixed seed list.",
+   "done": "tests/fuzz.mjs (random Commander decks from the card snapshot; seat 1 is a HumanAgent whose UI answers at random; 12 fixed seeds in CI, more with --games/--seed)."
+  },
+  {
+   "n": 175,
+   "section": "Speed, testing and tooling",
+   "title": "Type-check baseline from 124 findings to 0, then strict null checks for engine.js and effects.js.",
+   "done": "105 → 0 findings."
+  },
+  {
+   "n": 178,
+   "section": "Speed, testing and tooling",
+   "title": "Local bug reports: \"Report a problem\" saves the replay, log, version and console errors into data\\bugs\\<time>.zip with personal details stripped, for the user to share by hand. Nothing is uploaded.",
+   "done": "the replay with seat numbers for names, the last 400 log lines, version, browser, screen, the last 40 errors and warnings (kept from page load) and a note."
+  },
+  {
+   "n": 179,
+   "section": "Speed, testing and tooling",
+   "title": "Storage: move the large ct.* keys from localStorage to IndexedDB, show how much each feature uses in Updates, with clean-up buttons.",
+   "done": "util.js keeps 14 large keys (the unfinished game, history, deck learning, library versions, learned threat and people, the collection, card caches, scheme and plane cards) in IndexedDB."
+  },
+  {
+   "n": 180,
+   "section": "Speed, testing and tooling",
+   "title": "Determinism check in the self-test: the same seeds played twice, with and without look-ahead and in a different order, give identical logs (catches stray Math.random or Date).",
+   "done": "a self-test row: 3 seeds with and without look-ahead seats, then again in the opposite order; logs compared."
+  },
+  {
+   "n": 181,
+   "section": "Help and packaging",
+   "title": "Rules glossary: hovering a keyword in card text or the log shows its Comprehensive Rules entry from cache/.",
+   "done": "Rules.keywordIndex/glossify (702 keyword abilities and the rarer 701 actions, 242 names) mark keywords in log lines, card previews and card details; one page tooltip shows the rule and its first subrule."
+  },
+  {
+   "n": 182,
+   "section": "Help and packaging",
+   "title": "\"What's new\" window after an update, built from this file's Done notes for the new VERSION.",
+   "done": "tools/whatsnew.mjs writes public/data/whatsnew.json (newest round's finished items, first sentence of each Done note, VERSION); the page shows it once when the version changed since the last start, and from Updates."
+  },
+  {
+   "n": 183,
+   "section": "Help and packaging",
+   "title": "Update checksums: release.yml publishes a SHA-256 next to each release zip; the installer shows and checks it and refuses a mismatch.",
+   "done": "release.yml attaches commander-table.zip.sha256; the update check in all three servers hashes the download, fetches <address>.sha256 and refuses a mismatch (nothing saved); Updates shows the hash and whether it matched."
+  },
+  {
+   "n": 184,
+   "section": "Help and packaging",
+   "title": "Help window inside the app: README's sections with a search box, translated where item 129 covers them.",
+   "done": "tools/help.mjs builds public/data/help.json from README's sections (make-shareable-zip.ps1 refreshes it); Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that ranks sections and high"
+  }
+ ]
+}

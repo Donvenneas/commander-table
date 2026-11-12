@@ -104,6 +104,21 @@ $Rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 function New-SeatKey { $b = New-Object byte[] 10; $Rng.GetBytes($b); -join ($b | ForEach-Object { 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[$_ % 32] }) }
 function New-Seat { @{ State = 'null'; Question = 'null'; Answer = $null; Name = ''; Seen = $null; LastChat = [DateTime]::MinValue; UndoAsk = $null; UndoReply = $null; Deck = $null; Key = (New-SeatKey) } }
 function JsStr([string]$s) { if ($null -eq $s) { $s = '' }; '"' + ($s -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace "`t", ' ') + '"' }
+# The image folder's cap: data\image-cache-mb.txt (set in the app), else 400 MB; the oldest go when it's over
+$script:ImagesSaved = 0
+function Get-ImageCap {
+  $f = Join-Path $PSScriptRoot 'data\image-cache-mb.txt'; $mb = 0
+  if ((Test-Path $f) -and [int]::TryParse(([IO.File]::ReadAllText($f)).Trim(), [ref]$mb)) { return [long][Math]::Max(100, [Math]::Min(20000, $mb)) * 1MB }
+  return 400MB
+}
+function Trim-Images {
+  $dir = Join-Path $PSScriptRoot 'data\images'
+  if (-not (Test-Path $dir)) { return }
+  $files = @(Get-ChildItem -LiteralPath $dir -File | Sort-Object LastWriteTimeUtc)
+  $total = ($files | Measure-Object -Property Length -Sum).Sum; $cap = Get-ImageCap
+  if ($total -le $cap) { return }
+  foreach ($f in $files) { if ($total -le $cap * 0.8) { break }; $total -= $f.Length; try { Remove-Item -LiteralPath $f.FullName } catch { } }
+}
 function Start-Lan {
   if ($script:Lan) { return $true }
   foreach ($port in 8800..8820) {
@@ -151,13 +166,19 @@ function Room-Call([string]$method, [string]$action, [int]$seat, [string]$code, 
       if (-not (Start-Lan)) { return @(500, '{"error":"Couldn''t open a port for other players (8800-8820 are busy)."}') }
       $Room.Code = ([Guid]::NewGuid().ToString('N').Substring(0, 6)).ToUpper()
       $Room.Seats = @{}; $Room.Chat.Clear(); $Room.Fails.Clear()
-      foreach ($part in $body.Split(',')) { $n = 0; if ([int]::TryParse($part.Trim(), [ref]$n)) { $Room.Seats[$n] = New-Seat } }
+      # ("seat" or "seat=KEY": a resumed game reopens its room with the same keys, so friends' links still work)
+      foreach ($part in $body.Split(',')) {
+        $bits = $part.Trim().Split('='); $n = 0
+        if ([int]::TryParse($bits[0], [ref]$n)) { $s = New-Seat; if ($bits.Count -gt 1 -and $bits[1] -cmatch '^[A-HJ-NP-Z2-9]{10}$') { $s.Key = $bits[1] }; $Room.Seats[$n] = $s }
+      }
       $keys = foreach ($k in $Room.Seats.Keys) { "$(JsStr "$k"):$(JsStr $Room.Seats[$k].Key)" }
       $ips = [Net.Dns]::GetHostAddresses([Net.Dns]::GetHostName()) | Where-Object { $_.AddressFamily -eq 'InterNetwork' -and -not [Net.IPAddress]::IsLoopback($_) -and -not $_.ToString().StartsWith('169.254.') } | ForEach-Object { JsStr $_.ToString() }
       return @(200, "{`"code`":$(JsStr $Room.Code),`"keys`":{$($keys -join ',')},`"port`":$LanPort,`"ips`":[$($ips -join ',')]}")
     }
     'close' { $Room.Code = $null; $Room.Seats = @{}; $Room.Chat.Clear(); return @(200, '{}') }
     'tunnel' { if ($method -eq 'POST') { Start-Tunnel }; Update-Tunnel; return @(200, "{`"status`":$(JsStr $Tunnel.Status),`"url`":$(JsStr $Tunnel.Url),`"error`":$(JsStr $Tunnel.Error)}") }
+    # (hand a seat to someone else: a new key, so the old link stops working)
+    'rekey' { $s = $Room.Seats[$seat]; if (-not $s) { return @(404, '{"error":"No such seat."}') }; $s.Key = New-SeatKey; $s.Name = ''; $s.Seen = $null; $s.Answer = $null; return @(200, "{`"key`":$(JsStr $s.Key)}") }
     'state' { if ($Room.Seats[$seat]) { $Room.Seats[$seat].State = if ($body) { $body } else { 'null' } }; return @(200, '{}') }
     'ask' { if ($Room.Seats[$seat]) { $Room.Seats[$seat].Question = if ($body) { $body } else { 'null' }; $Room.Seats[$seat].Answer = $null }; return @(200, '{}') }
     'deck' { $s = $Room.Seats[$seat]; if ($s -and $null -ne $s.Deck) { $d = $s.Deck; $s.Deck = $null; return @(200, $d) }; return @(200, '') }
@@ -344,6 +365,27 @@ try {
         $resp.Close()
         Send-Response $ctx $code 'application/json' $ms.ToArray()
       }
+      elseif ($path -eq '/api/imgcache') {
+        # GET: how much the image folder holds; POST (from the app only) a new cap in MB (same as the .exe)
+        $bad = $null
+        if ($req.HttpMethod -eq 'POST') {
+          $reader = New-Object IO.StreamReader($req.InputStream); $mb = 0
+          if ($req.Headers['X-Commander-Table'] -ne 'images') { $bad = 'Use the Updates window in the app.' }
+          elseif (-not [int]::TryParse($reader.ReadToEnd().Trim(), [ref]$mb)) { $bad = 'The cap is a number of MB.' }
+          else {
+            $dataDir = Join-Path $PSScriptRoot 'data'
+            if (-not (Test-Path $dataDir)) { New-Item -ItemType Directory $dataDir | Out-Null }
+            [IO.File]::WriteAllText((Join-Path $dataDir 'image-cache-mb.txt'), [string][Math]::Max(100, [Math]::Min(20000, $mb)))
+          }
+        }
+        if ($bad) { Send-Text $ctx 400 $bad }
+        else {
+          $imgDir = Join-Path $PSScriptRoot 'data\images'
+          $files = if (Test-Path $imgDir) { @(Get-ChildItem -LiteralPath $imgDir -File) } else { @() }
+          $bytes = ($files | Measure-Object -Property Length -Sum).Sum; if (-not $bytes) { $bytes = 0 }
+          Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes("{`"files`":$($files.Count),`"bytes`":$bytes,`"capMB`":$([int]((Get-ImageCap) / 1MB))}"))
+        }
+      }
       elseif ($path -eq '/api/img') {
         # Card images from Scryfall, kept in data\images so the table has its art offline (same as the .exe)
         $target = $req.QueryString['u']
@@ -363,7 +405,7 @@ try {
           else {
             $r = Get-Remote $u.AbsoluteUri
             if ($r.Status -eq 200 -and $r.Body.Length) {
-              try { if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; [IO.File]::WriteAllBytes($file, $r.Body) } catch { }
+              try { if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }; [IO.File]::WriteAllBytes($file, $r.Body); $script:ImagesSaved++; if ($script:ImagesSaved % 200 -eq 0) { Trim-Images } } catch { }
               Send-Response $ctx 200 $type $r.Body $keep
             } else { Send-Response $ctx $r.Status $r.Type $r.Body }
           }
@@ -439,10 +481,18 @@ try {
             if ($r.Status -ne 200) { Send-Text $ctx 502 "The update address answered HTTP $($r.Status)." }
             elseif ($r.Body.Length -lt 4 -or $r.Body[0] -ne 80 -or $r.Body[1] -ne 75) { Send-Text $ctx 400 "That address didn't give a .zip file." }
             else {
-              [IO.File]::WriteAllBytes($zipFile, $r.Body)
-              $info = & $inspect $zipFile
-              if ($info.Error) { Remove-Item -LiteralPath $zipFile; Send-Text $ctx 400 $info.Error }
-              else { Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ version = $info.Version; current = $local; files = $info.Count; size = $r.Body.Length } -Compress))) }
+              # (item 183) the zip's SHA-256, checked against a published "<address>.sha256" when there is one
+              $digest = ([BitConverter]::ToString([Security.Cryptography.SHA256]::Create().ComputeHash($r.Body)) -replace '-', '').ToLower()
+              $s = Get-Remote ($u.AbsoluteUri + '.sha256')
+              $published = ''
+              if ($s.Status -eq 200 -and ([Text.Encoding]::UTF8.GetString($s.Body) -match '\b([0-9a-fA-F]{64})\b')) { $published = $Matches[1].ToLower() }
+              if ($published -and $published -ne $digest) { Send-Text $ctx 400 "The download doesn't match its published checksum (SHA-256 $($digest.Substring(0, 16))…, expected $($published.Substring(0, 16))…). Nothing was installed." }
+              else {
+                [IO.File]::WriteAllBytes($zipFile, $r.Body)
+                $info = & $inspect $zipFile
+                if ($info.Error) { Remove-Item -LiteralPath $zipFile; Send-Text $ctx 400 $info.Error }
+                else { Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ version = $info.Version; current = $local; files = $info.Count; size = $r.Body.Length; sha256 = $digest; verified = [bool]$published } -Compress))) }
+              }
             }
           }
         } elseif ($req.QueryString['step'] -eq 'apply') {

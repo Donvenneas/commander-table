@@ -206,6 +206,26 @@ export class Tabletop {
     }
   }
 
+  // Save and load (item 138): the whole table as plain data; a loaded table carries on from where it was
+  save() {
+    const { turn, active, phase, log, peek, kingdoms, winners, players } = this;
+    return { v: 1, turn, active, phase, log, peek, kingdoms, winners, players };
+  }
+  static load(data) {
+    if (!data || data.v !== 1 || !Array.isArray(data.players) || data.players.length < 2) throw new Error('not a saved tabletop');
+    const t = Object.create(Tabletop.prototype);
+    Object.assign(t, JSON.parse(JSON.stringify(data)));
+    delete t.v;
+    // (friends' move numbers start again with the new room)
+    t.acks = {};
+    for (const p of t.players) for (const z of ZONES) if (!Array.isArray(p.zones?.[z])) throw new Error('not a saved tabletop');
+    let max = 0;
+    for (const p of t.players) for (const z of ZONES) for (const c of p.zones[z]) max = Math.max(max, +c.id || 0);
+    nextId = Math.max(nextId, max + 1);
+    t.say('The table was loaded from a save.');
+    return t;
+  }
+
   // What one seat sees: everything public, their own hand, peek and role (seat -1: nobody's hidden cards)
   view(seat) {
     const me = this.players[seat];

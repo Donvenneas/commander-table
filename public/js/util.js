@@ -36,7 +36,63 @@ const HOSTED = typeof location !== 'undefined' && ['localhost', '127.0.0.1'].inc
 export const imgUrl = u => (HOSTED && u && /^https:\/\/(cards|svgs)\.scryfall\.io\//.test(u) ? `/api/img?u=${encodeURIComponent(u)}` : u);
 export const unproxy = u => (u && u.startsWith('/api/img?u=') ? decodeURIComponent(u.slice(11)) : u);
 
+// Large saved data lives in IndexedDB (item 179), where there's room for it; the rest stays in localStorage. The large
+// keys are read once when the page starts (this module waits for that, so every module that saves things finds them
+// loaded) and kept in memory as JSON text, so store() stays synchronous: a write updates memory at once and is saved
+// in the background. Other tabs of the game hear about each write. Without IndexedDB (an old browser, Node, a worker)
+// everything stays in localStorage as before. The first start after this change moves the keys over.
+const BIG = new Set(['ct.autosave', 'ct.learn', 'ct.history', 'ct.libVersions', 'ct.threat', 'ct.people', 'ct.collection',
+  'ct.otags2', 'ct.precons', 'ct.preconList', 'ct.rulings', 'ct.i18nCards2', 'ct.planar.archenemy', 'ct.planar.planechase']);
+/** @type {Map<string, string>} */
+const bigVals = new Map();
+/** @type {IDBDatabase | null} */
+let bigDb = null;
+/** @type {BroadcastChannel | null} */
+let bigChan = null;
+function bigPut(k, v) { try { bigDb?.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch { /* saved again on the next write */ } }
+async function loadBig() {
+  if (typeof window === 'undefined' || typeof indexedDB === 'undefined') return;
+  try {
+    /** @type {IDBDatabase} */
+    const db = await Promise.race([
+      new Promise((res, rej) => { const r = indexedDB.open('ct-store', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('IndexedDB did not open')), 4000)),
+    ]);
+    const st = db.transaction('kv', 'readonly').objectStore('kv');
+    await Promise.all([...BIG].map(k => new Promise(res => { const q = st.get(k); q.onsuccess = () => { if (typeof q.result === 'string') bigVals.set(k, q.result); res(undefined); }; q.onerror = () => res(undefined); })));
+    // (moving keys from localStorage: removed there only once IndexedDB has them)
+    const move = [];
+    for (const k of BIG) { let v = null; try { v = localStorage.getItem(k); } catch { /* blocked */ } if (v != null) move.push([k, v]); }
+    if (move.length) {
+      const tx = db.transaction('kv', 'readwrite');
+      for (const [k, v] of move) if (!bigVals.has(k)) { bigVals.set(k, v); tx.objectStore('kv').put(v, k); }
+      tx.oncomplete = () => { for (const [k] of move) try { localStorage.removeItem(k); } catch { /* blocked */ } };
+    }
+    bigDb = db;
+    if (typeof BroadcastChannel === 'function') {
+      bigChan = new BroadcastChannel('ct-store');
+      bigChan.onmessage = ({ data }) => { if (data && BIG.has(data.k) && typeof data.v === 'string') bigVals.set(data.k, data.v); };
+    }
+  } catch { bigDb = null; }
+}
+await loadBig();
+// Where the large keys are kept now ('IndexedDB' or 'localStorage'), and how big a key is in bytes (UTF-16, as browsers count)
+export const storeWhere = () => (bigDb ? 'IndexedDB' : 'localStorage');
+export const storeIsBig = k => !!bigDb && BIG.has(k);
+export function storeSize(key) {
+  if (bigDb && BIG.has(key)) { const v = bigVals.get(key); return v ? (v.length + key.length) * 2 : 0; }
+  try { const v = localStorage.getItem(key); return v ? (v.length + key.length) * 2 : 0; } catch { return 0; }
+}
+
 export function store(key, value) {
+  if (bigDb && BIG.has(key)) {
+    if (value === undefined) { try { return JSON.parse(bigVals.get(key) || 'null'); } catch { return null; } }
+    const s = JSON.stringify(value);
+    bigVals.set(key, s);
+    bigPut(key, s);
+    bigChan?.postMessage({ k: key, v: s });
+    return;
+  }
   try {
     if (value === undefined) return JSON.parse(localStorage.getItem(key) || 'null');
     localStorage.setItem(key, JSON.stringify(value));

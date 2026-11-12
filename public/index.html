@@ -23,6 +23,7 @@
       <button id="btnDecks" class="btn ghost">Decks</button>
       <button id="btnBatch" class="btn ghost" title="Run many games at full speed and compare the decks">Batch</button>
       <button id="btnTourney" class="btn ghost" title="Pit more than four decks against each other in pods">Tournament</button>
+      <button id="btnCup" class="btn ghost" title="A tournament for you and friends (Swiss or single elimination), with AI players to fill the field">Friend tournament</button>
       <button id="btnTheme" class="btn ghost" title="Switch between dark and light">☀</button>
       <button id="btnDisplay" class="btn ghost" title="Board background, colors for color blindness, larger text">Display</button>
       <button id="btnHistory" class="btn ghost" title="Results of every game you've played">History</button>
@@ -56,10 +57,13 @@
     <input id="tlRange" type="range" min="0" max="0" value="0" aria-label="Game timeline">
     <button id="tlNext" class="btn small" title="Skip to the next turn">Turn ▶</button>
     <button id="tlEnd" class="btn small" title="Skip to the end of the game">⏭</button>
+    <button id="tlTakeover" class="btn small" title="What if: take over an AI seat from this point and play on (Save replay first to keep the original game)">Take over…</button>
+    <span id="tlTakeoverMenu" class="takeover-menu" hidden></span>
     <span id="tlLabel" class="tl-label muted"></span>
     <button id="tlUndo" class="btn small" title="Undo your last decision (U)" hidden>↶ Undo</button>
     <button id="tlInvite" class="btn small primary" title="Links for friends to join or watch this game">Invite</button>
     <button id="btnSaveReplay" class="btn small ghost" title="Download this game as a replay file">Save replay</button>
+    <button id="btnReport" class="btn small ghost" title="Save a problem report (this game's replay, the log, the version and recent errors) to share by hand">Report a problem</button>
     <span id="undoAsk" class="undo-ask" hidden><span id="undoAskText"></span> <button class="btn small primary" id="btnUndoAllow">Allow</button> <button class="btn small ghost" id="btnUndoDeny">No</button></span>
     <button id="btnShareReplay" class="btn small ghost" title="Save this game as a single web page anyone can open and play back, with nothing to install">Share as web page</button>
     <button id="btnSavePuzzle" class="btn small ghost" title="Save the board as it is now as a puzzle file (seat 1 to move)">Save board as puzzle</button>
@@ -83,7 +87,9 @@
             <option value="removal">Removal and deaths</option><option value="combo">Combos</option><option value="politics">Politics and chat</option><option value="why">AI explanations</option>
           </select>
           <select id="logSeat" class="sbracket" title="Show only lines about one player"><option value="">All players</option></select>
+          <input id="logSearch" class="input small" placeholder="Search the log…" title="Show only log lines with this text (card or player names, words)" autocomplete="off">
         </div>
+        <div id="srLog" class="sr-only" aria-live="polite"></div>
         <div id="log" class="log"><div class="log-empty">Load four decks to begin.</div></div>
         <div id="chatBox" class="chatbox" hidden>
           <div class="emotes"><button data-say="👍">👍</button><button data-say="😮">😮</button><button data-say="😂">😂</button><button data-say="🤔">🤔</button><button data-say="Nice!">Nice!</button><button data-say="GG">GG</button><button id="btnDealOpen" title="Offer another player a deal">🤝 Deal</button></div>
@@ -105,8 +111,8 @@
 
   <div id="preview" class="preview" hidden></div>
 
-  <div id="actionBar" class="action-bar" hidden>
-    <div id="abText" class="ab-text"></div>
+  <div id="actionBar" class="action-bar" hidden role="region" aria-label="Your decision">
+    <div id="abText" class="ab-text" aria-live="polite"></div>
     <div id="abButtons" class="ab-buttons"></div>
   </div>
 
@@ -118,6 +124,7 @@
         <p class="muted" id="smTagline">Play Magic against AI pilots, with friends, or on your own.</p>
       </div>
       <div class="sm-grid">
+        <button class="sm-btn sm-main" data-go="resume" id="smResume" hidden><b>Resume</b><small id="smResumeWhat">Your unfinished game</small></button>
         <button class="sm-btn sm-main" data-go="play"><b>Play</b><small>Seat decks and start a game</small></button>
         <button class="sm-btn" data-go="learn"><b>Learn to play</b><small>Seven short lessons</small></button>
         <button class="sm-btn" data-go="story"><b>Story</b><small>The Lantern Road</small></button>
@@ -129,11 +136,12 @@
         <button class="sm-btn" data-go="builder"><b>Deck builder</b><small>Every card on Scryfall</small></button>
         <button class="sm-btn" data-go="library"><b>Deck library</b><small>Your saved decks</small></button>
         <button class="sm-btn" data-go="progress"><b>Progress</b><small id="smProgress">Ladder, challenges, badges</small></button>
+        <button class="sm-btn" data-go="help"><b>Help</b><small>How everything works, with search</small></button>
         <button class="sm-btn" data-go="display"><b>Settings</b><small>Display, language, avatars</small></button>
         <button class="sm-btn" data-go="updates"><b>Updates</b><small id="smUpdates">New card sets, game updates</small></button>
       </div>
       <div class="sm-news" id="smNews"></div>
-      <div class="sm-foot"><span class="muted" id="smVersion"></span><button class="btn ghost small" data-go="tour">Tour</button><button class="btn ghost small" data-go="selftest">Self-test</button><button class="btn ghost small" data-go="exit">Exit</button></div>
+      <div class="sm-foot"><span class="muted" id="smVersion"></span><button class="btn ghost small" data-go="report" title="Save a problem report to share by hand">Report a problem</button><button class="btn ghost small" data-go="tour">Tour</button><button class="btn ghost small" data-go="selftest">Self-test</button><button class="btn ghost small" data-go="exit">Exit</button></div>
     </div>
   </div>
 
@@ -151,12 +159,16 @@
             <label class="table-bracket" id="tableLifeWrap" hidden title="Starting life at the manual table (Kingdoms: 40, the King +10)">Starting life <select id="tableLife" class="sbracket"><option value="20">20</option><option value="25">25</option><option value="30">30</option><option value="40" selected>40</option></select></label>
             <label class="table-bracket" id="rankedWrap" title="Ranked: games you play count toward your rating on this format's ladder (one seat played by you, no friends online; undo, Reveal hands and Explain are off)"><input type="checkbox" id="rankedSel"> Ranked</label>
             <label class="table-bracket" id="lookaheadWrap" title="AI look-ahead: before each main-phase play, the AI tries its best few options on a copy of the game (the rest of the turn and the opponents' next attacks) and picks the one that leaves it best off. Stronger, but batches and grids run slower. Casual pilots (brackets 1 and 2) never look ahead."><input type="checkbox" id="lookaheadSel"> AI look-ahead</label>
+            <label class="table-bracket" id="strengthWrap" title="AI strength for every AI seat: Beginner and Casual pilots make some loose plays on purpose, Strong pilots play their best without looking ahead, Expert pilots also look ahead. 'By bracket' keeps the old behaviour (casual pilots in brackets 1–2). The ranked ladder rates each strength separately."><select id="aiStrength"><option value="auto">AI strength: by bracket</option><option value="beginner">AI strength: Beginner</option><option value="casual">AI strength: Casual</option><option value="strong">AI strength: Strong</option><option value="expert">AI strength: Expert</option></select></label>
+            <label class="table-bracket" title="Coach: in your main phase, see what the AI would play there and why (off in Ranked games and puzzles)"><input type="checkbox" id="coachOn"> Coach</label>
             <span class="muted" id="formatAbout"></span>
           </div>
         </div>
         <div class="setup-actions">
           <button class="btn ghost" id="btnAllRandom">Fill empty seats with random decks</button>
           <button class="btn ghost" id="btnCedh" title="Kinnan, Kess, Thrasios + Tymna and Heliod: fast mana, tutors, free counterspells and compact combos">Seat a cEDH table</button>
+          <button class="btn ghost" id="btnCollection" title="The cards you own: import a ManaBox or Deckbox export, then see what each deck is missing">Collection…</button>
+          <button class="btn ghost" id="btnPrecons" title="The official preconstructed Commander decks, from MTGJSON">Commander precons…</button>
           <button class="btn ghost" id="btnMeta" title="Real tournament decks from EDHTop16 and archetypes from the cEDH Decklist Database">Browse the cEDH meta…</button>
           <label class="table-bracket">Bracket for every seat <select id="tableBracket" class="sbracket"></select></label>
           <label class="table-bracket" title="What random decks may use (by rarity and the Reserved List; no prices)">Random decks <select id="budgetMode" class="sbracket"><option value="any">Any cards</option><option value="noRL">No Reserved List</option><option value="pauper">Commons and uncommons</option></select></label>
@@ -167,9 +179,11 @@
           <input type="file" id="puzzleFile" accept=".json,application/json" hidden>
           <button class="btn ghost" id="btnLimited" title="Open packs from a real set, build a deck and play it against AI decks from the same packs">Draft / Sealed…</button>
           <button class="btn ghost" id="btnLearn" title="Short guided lessons for people new to Magic">Learn to play</button>
-          <button class="btn ghost" id="btnStory" title="An original story in four chapters, each a game from a special board">Story</button>
+          <button class="btn ghost" id="btnStory" title="An original story in eight chapters, each a game from a special board">Story</button>
           <button class="btn ghost" id="btnExpedition" title="A solo roguelike: three acts of duels, events and bosses, building your deck as you go">Expedition</button>
           <button class="btn ghost" id="btnTabletop" title="A manual table: nothing automated, for house rules (with friends online too)">Tabletop</button>
+          <button class="btn ghost" id="btnTabletopLoad" title="Carry on a tabletop saved with Save table">Load table…</button>
+          <input type="file" id="tabletopFile" accept=".json,application/json" hidden>
           <button class="btn ghost" id="btnBuilder" title="Build a deck from every card on Scryfall, with search, filters and a live mana curve">Deck builder</button>
           <button class="btn ghost" id="btnChallenge" title="Share this table setup as a link or code, or open one">Challenge link…</button>
           <button class="btn ghost" id="btnTour" title="A short guided look at the main controls">Tour</button>
@@ -208,6 +222,8 @@
       <div class="modal-foot">
         <button class="btn ghost" id="btnChangeDecks">Change decks</button>
         <button class="btn" id="btnWatchReplay" title="Watch this game again from the start">Watch replay</button>
+        <button class="btn" id="btnRotateDecks" title="Play again with the same shuffle, each deck moved one seat along (the players and pilots stay put)">Rotate decks, same seed</button>
+        <button class="btn" id="btnSameSeed" title="Change seats, decks or pilots on the setup screen; the next game uses this game's seed">Same seed, change setup…</button>
         <button class="btn primary big" id="btnNextGame" hidden>Next game</button>
         <button class="btn primary big" id="btnRematch">Rematch</button>
       </div>
@@ -240,6 +256,8 @@
       </div>
       <div class="batch-controls">
         <label>Games <select id="batchCount"><option>10</option><option>25</option><option selected>50</option><option>100</option><option>250</option></select></label>
+        <label title="Games are played on this many CPU cores at once. The same seed gives the same results whatever the number">Cores <select id="batchCores"><option value="0">All</option><option>1</option><option>2</option><option>4</option></select></label>
+        <label title="Leave empty for new games each time; the same number repeats a batch exactly">Seed <input id="batchSeed" class="input" inputmode="numeric" size="8" placeholder="any"></label>
         <button class="btn primary" id="btnBatchRun">Run</button>
         <button class="btn" id="btnBatchTune" title="Every seat tries every play style; the report suggests the best one">Tune styles</button>
         <button class="btn ghost" id="btnBatchStop" hidden>Stop</button>
@@ -247,6 +265,53 @@
         <span id="batchStatus" class="muted"></span>
       </div>
       <div id="batchResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="helpModal" class="modal" hidden>
+    <div class="modal-card batch-card help-card">
+      <div class="modal-head"><div><h2>Help</h2><p class="muted">The game's manual (README.md in the game folder), in English. Search, or pick a section.</p></div><button class="btn ghost" id="btnHelpClose">Close</button></div>
+      <input id="helpSearch" class="input" placeholder="Search the help, e.g. friends, brackets, replay, deck library…" autocomplete="off">
+      <div class="help-cols"><nav id="helpToc" class="help-toc"></nav><div id="helpBody" class="help-body"></div></div>
+    </div>
+  </div>
+
+  <div id="whatsNewModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head"><div><h2 id="whatsNewTitle">What's new</h2><p class="muted" id="whatsNewIntro"></p></div><button class="btn ghost" id="btnWhatsNewClose">Close</button></div>
+      <input id="whatsNewSearch" class="input" placeholder="Filter…" autocomplete="off">
+      <div id="whatsNewBody" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="collectionModal" class="modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h2>Your collection</h2>
+          <p class="muted">Import the cards you own: a ManaBox or Deckbox CSV export, any CSV with a name and a quantity column, or a list like <code>4 Lightning Bolt</code>. Printings don't matter. The deck builder then marks cards you own (and can show only those), and the deck viewer lists what a deck is missing. Nothing leaves this PC.</p>
+        </div>
+        <button class="btn ghost" id="btnCollectionClose">Close</button>
+      </div>
+      <p id="collectionSummary"></p>
+      <textarea id="collectionText" class="input" rows="8" spellcheck="false" placeholder="Paste an export here, or choose a file"></textarea>
+      <div class="batch-controls"><input type="file" id="collectionFile" accept=".csv,.txt,text/csv,text/plain">
+        <label class="muted"><input type="checkbox" id="collectionAdd"> Add to the collection (instead of replacing it)</label>
+        <button class="btn primary" id="btnCollectionImport">Import</button><button class="btn ghost" id="btnCollectionClear">Forget the collection</button></div>
+    </div>
+  </div>
+
+  <div id="preconModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Commander precons</h2>
+          <p class="muted">Every official preconstructed Commander deck, from <a href="https://mtgjson.com/" target="_blank" rel="noopener">MTGJSON</a>'s free deck files. Pick a seat number to put a deck in that seat; a deck seated once also loads offline.</p>
+        </div>
+        <button class="btn ghost" id="btnPreconClose">Close</button>
+      </div>
+      <div class="meta-tools"><input id="preconSearch" class="input" placeholder="Filter by deck name, set code or year…" autocomplete="off"> <span id="preconStatus" class="muted"></span></div>
+      <div id="preconBody" class="batch-results"></div>
     </div>
   </div>
 
@@ -259,7 +324,7 @@
         </div>
         <button class="btn ghost" id="btnMetaClose">Close</button>
       </div>
-      <nav class="tabs meta-tabs"><button data-mt="top" class="active">EDHTop16: top commanders</button><button data-mt="ddb">cEDH Decklist Database</button></nav>
+      <nav class="tabs meta-tabs"><button data-mt="top" class="active">EDHTop16: top commanders</button><button data-mt="ddb">cEDH Decklist Database</button><button data-mt="trend">Trends</button></nav>
       <div class="meta-tools">
         <input id="metaSearch" class="input" placeholder="Filter by commander, archetype or colors…" autocomplete="off">
         <span class="meta-filters" id="metaFilters">
@@ -323,9 +388,21 @@
     <div class="modal-card results-card">
       <h2>Puzzles</h2>
       <p class="muted">You get one turn, starting in your first main phase. Win it. Puzzles are small files: save any game's board with <b>Save board as puzzle</b> on the timeline, and load boards that others share.</p>
+      <div id="puzzleDaily"></div>
       <div id="puzzleList"></div>
       <p id="puzzleStatus" class="muted"></p>
-      <div class="modal-foot"><button class="btn" id="btnPuzzleLoad">Load a puzzle file…</button><button class="btn ghost" id="btnPuzzleClose">Close</button></div>
+      <div class="modal-foot"><button class="btn" id="btnPuzzleEdit">Make a puzzle…</button><button class="btn" id="btnPuzzleLoad">Load a puzzle file…</button><button class="btn ghost" id="btnPuzzleClose">Close</button></div>
+    </div>
+  </div>
+
+  <div id="puzzleEditModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <h2>Make a puzzle</h2>
+      <p class="muted">Seat 1 gets one turn from its first main phase. One card per line; add <code>*tapped*</code> or <code>(+2)</code> for a tapped card or +1/+1 counters, like <code>Grizzly Bears *tapped* (+1)</code>. Names are checked against Scryfall when you test it.</p>
+      <div class="pe-head"><label>Name <input id="peName" class="input" value="My puzzle"></label><label>Goal <input id="peGoal" class="input" value="win this turn"></label><label>Hint <input id="peHint" class="input" placeholder="(optional)"></label><label>Players <select id="pePlayers" class="input"><option>2</option><option>3</option><option>4</option></select></label></div>
+      <div id="pePlayersBox" class="pe-players"></div>
+      <p id="peStatus" class="muted"></p>
+      <div class="modal-foot"><button class="btn primary" id="btnPeTest">Test it</button><button class="btn" id="btnPeSave">Save as file</button><button class="btn" id="btnPeLink">Copy a challenge link</button><button class="btn" id="btnPeFromBoard">From the current board</button><button class="btn ghost" id="btnPeClose">Close</button></div>
     </div>
   </div>
 
@@ -395,7 +472,11 @@
         </select></label>
       <label class="disp-row"><input type="checkbox" id="dispCb"> Colors for color blindness <span class="muted">(seat colors that stay distinct with red-green or blue-yellow color blindness, and seat numbers on every board)</span></label>
       <label class="disp-row"><input type="checkbox" id="dispBig"> Larger text and cards</label>
-      <label class="disp-row"><input type="checkbox" id="dispCalm"> Fewer animations</label>
+      <label class="disp-row"><input type="checkbox" id="dispCalm"> Fewer animations <span class="muted">(on by default when your system asks for reduced motion)</span></label>
+      <label class="disp-row"><input type="checkbox" id="dispContrast"> High contrast</label>
+      <label class="disp-row">Text size <select id="dispText" class="input"><option value="">Normal</option><option value="1.12">Large</option><option value="1.25">Larger</option></select></label>
+      <label class="disp-row">Music volume <input type="range" id="volMusic" min="0" max="100" step="5"></label>
+      <label class="disp-row">Effects volume <input type="range" id="volFx" min="0" max="100" step="5"></label>
       <div class="disp-row disp-block"><b>Your avatar</b> <span class="muted">(on the seats you play; earn more by playing)</span><div id="dispAvatars" class="cosm-grid"></div></div>
       <div class="disp-row disp-block"><b>Card backs</b> <span class="muted">(every face-down card on the table)</span><div id="dispBacks" class="cosm-grid"></div></div>
       <div class="modal-foot"><button class="btn primary" id="btnDisplayClose">Done</button></div>
@@ -412,11 +493,23 @@
       <h3>Card sets</h3>
       <p class="muted">Checks Scryfall for new and upcoming Magic sets (once a day when the game starts, and whenever you click). When a new set is out, saved card data is fetched again as decks need it (legalities and Standard rotation change), and the newest sets show up in Draft / Sealed and the Expedition.</p>
       <div id="setsBody" class="muted"></div>
-      <p><button class="btn" id="btnSetsCheck">Check for new sets</button> <label class="muted"><input type="checkbox" id="setsAuto" checked> Check once a day at startup</label></p>
+      <p><button class="btn" id="btnSetsCheck">Check for new sets</button> <button class="btn ghost" id="btnWhatsNew">What's new in this version</button> <label class="muted"><input type="checkbox" id="setsAuto" checked> Check once a day at startup</label></p>
       <h3>Card file</h3>
       <p class="muted">Keeps Scryfall's free card file (every card, about 25 MB to download, about 40 MB saved) in the game's browser data. Random decks, the deck builder and loading decks by card name then work without asking Scryfall card by card, and offline. When it's on, a newer file is fetched at most once a day at startup. Searches it can't answer (a set's cards, other printings) still ask Scryfall.</p>
       <div id="bulkBody" class="muted"></div>
       <p><button class="btn" id="btnBulk">Download the card file</button> <button class="btn ghost" id="btnBulkOff" hidden>Turn off and remove</button></p>
+      <h3>Storage</h3>
+      <p class="muted">What the game keeps in this browser profile, by feature. Clearing a cache only means it's fetched again when needed; clearing your own records (progress, history, the deck learning) can't be undone.</p>
+      <div id="storageBody" class="muted"></div>
+      <h3>Card images</h3>
+      <p class="muted">Card pictures are kept in this folder (data\images) after they are first shown, so the table has its art offline. The oldest go when the folder is over its cap.</p>
+      <div id="imgBody" class="muted"></div>
+      <p><label class="muted">Cap <select id="imgCap" class="sbracket"><option value="200">200 MB</option><option value="400">400 MB</option><option value="800">800 MB</option><option value="1500">1.5 GB</option><option value="3000">3 GB</option><option value="6000">6 GB</option></select></label>
+        <button class="btn" id="btnImgLibrary">Download images for my library</button> <button class="btn ghost" id="btnImgStop" hidden>Stop</button></p>
+      <h3>Printings file</h3>
+      <p class="muted">Optional and larger: Scryfall's file of every paper printing (about 80 MB to download and about 105,000 printings; the browser keeps it compressed, roughly 40 MB). With it, a set's cards for Draft / Sealed and searches by set or collector number work without Scryfall too. It isn't refreshed by itself: download it again after a new set comes out.</p>
+      <div id="printsBody" class="muted"></div>
+      <p><button class="btn" id="btnPrints">Download the printings file</button> <button class="btn ghost" id="btnPrintsOff" hidden>Turn off and remove</button></p>
       <div class="modal-foot">
         <button class="btn" id="btnUpdCheck">Download and check</button>
         <button class="btn primary" id="btnUpdApply" hidden>Install</button>
@@ -437,7 +530,7 @@
 
   <div id="storyModal" class="modal" hidden>
     <div class="modal-card batch-card">
-      <div class="modal-head"><div><h2>The Lantern Road</h2><p class="muted">An original story in four chapters. Each chapter is a whole game, one on one, from a special starting board. Win to open the next.</p></div><button class="btn ghost" id="btnStoryClose">Close</button></div>
+      <div class="modal-head"><div><h2>The Lantern Road</h2><p class="muted">An original story in eight chapters. Each chapter is a whole game, one on one, from a special starting board. Win to open the next.</p></div><button class="btn ghost" id="btnStoryClose">Close</button></div>
       <div id="storyList"></div>
       <p id="storyStatus" class="muted"></p>
     </div>
@@ -466,6 +559,7 @@
     <div class="mt-bar"><b>Tabletop</b> <span class="muted">Nothing is automated: click a card for its moves, use the buttons for life, draws and turns.</span>
       <span id="tabletopNet" class="muted"></span>
       <button class="btn small" id="btnTabletopInvite" hidden>Invite</button>
+      <button class="btn small" id="btnTabletopSave" title="Save this table to a file, to carry on later with Load table">Save table</button>
       <button class="btn small ghost" id="btnTabletopClose">Leave the table</button></div>
     <div id="tabletopBody"></div>
   </div>
@@ -496,6 +590,8 @@
         <button class="btn small prog-tab" data-tab="ladder">Ladder</button>
         <button class="btn small prog-tab" data-tab="challenges">Challenges</button>
         <button class="btn small prog-tab" data-tab="rivals">Rivals</button>
+        <button class="btn small prog-tab" data-tab="gauntlet">Gauntlet</button>
+        <button class="btn small prog-tab" data-tab="unlocks">Unlocks</button>
         <button class="btn small prog-tab" data-tab="badges">Badges</button>
       </div>
       <div id="progressBody" class="batch-results meta-body"></div>
@@ -518,8 +614,10 @@
         <div><h2>Deck library</h2><p class="muted">Decks saved in this game folder (data\decks), so they come along when the folder is copied to another PC.</p></div>
         <button class="btn ghost" id="btnLibraryClose">Close</button>
       </div>
-      <div class="meta-tools"><input id="librarySearch" class="input" placeholder="Filter…" autocomplete="off">
+      <div class="meta-tools"><input id="librarySearch" class="input" placeholder="Search name, commander, tags, notes, colors (wub), bracket (b3) or a card…" autocomplete="off">
+        <select id="libFolder" class="sbracket"><option value="">All folders</option></select>
         <label class="muted">Games per pairing <select id="gridGames" class="sbracket"><option>2</option><option selected>4</option><option>10</option></select></label>
+        <button class="btn" id="btnArchFolder" title="Copy the decks of a public Archidekt folder into your library">Import an Archidekt folder…</button>
         <button class="btn" id="btnGrid" title="Every deck shown plays every other one head to head (up to 8 decks)">Matchup grid</button>
         <span id="libraryStatus" class="muted"></span></div>
       <div id="libraryBody" class="batch-results meta-body"></div>
@@ -547,6 +645,19 @@
         </div>
       </div>
       <div id="tourneyResults" class="batch-results"></div>
+    </div>
+  </div>
+
+  <div id="cupModal" class="modal" hidden>
+    <div class="modal-card batch-card">
+      <div class="modal-head">
+        <div>
+          <h2>Friend tournament</h2>
+          <p class="muted">4 to 16 players: you, friends online and AI decks, in the table's format. Pods are a table's worth of players; a short pod gets AI fill-ins, who score nothing. Pods with people are played at this table one at a time (friends get an invite link each match); pods of AI players are played at full speed.</p>
+        </div>
+        <button class="btn ghost" id="btnCupClose">Close</button>
+      </div>
+      <div id="cupBody"></div>
     </div>
   </div>
 

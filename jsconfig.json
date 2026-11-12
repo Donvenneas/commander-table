@@ -11,5 +11,5 @@
     "strict": false,
     "skipLibCheck": true
   },
-  "include": ["public/js/*.js"]
+  "include": ["public/js/*.js", "types/*.d.ts"]
 }

@@ -5,6 +5,9 @@
 // newer file. Searches it can't answer (sets, printings, syntax it doesn't know) still go to Scryfall.
 //
 // Only what the game uses is kept from each card (no prices, shop links or extra image sizes).
+// Printings (item 157): the optional "Default Cards" file (every paper printing, about 80 MB to download) answers set
+// searches (e:, is:booster, cn:) too, so Draft / Sealed and printing searches work offline. It's kept apart and
+// is only downloaded when asked for.
 
 const DB = 'ct-bulk', STORE = 'chunks', META = 'ct.bulk', CHUNK = 2000, PAGE = 175;
 const DAY = 20 * 3600 * 1000;
@@ -20,11 +23,11 @@ const writeMeta = m => { try { localStorage.setItem(META, JSON.stringify(m)); } 
 export const bulkInfo = () => readMeta();
 export const bulkEnabled = () => !!readMeta()?.on;
 
-function openDb() {
+function openDb(name = DB) {
   if (!('indexedDB' in globalThis)) return Promise.resolve(null);
   return new Promise(res => {
     try {
-      const req = indexedDB.open(DB, 1);
+      const req = indexedDB.open(name, 1);
       req.onupgradeneeded = () => req.result.createObjectStore(STORE);
       req.onsuccess = () => res(req.result);
       req.onerror = () => res(null);
@@ -37,17 +40,19 @@ function slimImages(u) {
 }
 // The fields normalize() and the searches below read
 function slim(c) {
+  /** @type {Record<string, any>} */
   const out = {
     id: c.id, oracle_id: c.oracle_id, name: c.name, layout: c.layout, mana_cost: c.mana_cost, cmc: c.cmc,
-    type_line: c.type_line, oracle_text: c.oracle_text, power: c.power, toughness: c.toughness, loyalty: c.loyalty,
+    type_line: c.type_line, oracle_text: c.oracle_text, power: c.power, toughness: c.toughness, loyalty: c.loyalty, defense: c.defense,
     colors: c.colors, color_identity: c.color_identity, keywords: c.keywords, produced_mana: c.produced_mana,
     image_uris: slimImages(c.image_uris), set: c.set, set_name: c.set_name, collector_number: c.collector_number,
     artist: c.artist, rarity: c.rarity, scryfall_uri: c.scryfall_uri, legalities: c.legalities,
     game_changer: c.game_changer, reserved: c.reserved, edhrec_rank: c.edhrec_rank, games: c.games, digital: c.digital,
+    ...(c.booster ? { booster: true } : {}),
   };
   if (c.card_faces) out.card_faces = c.card_faces.map(f => ({
     name: f.name, mana_cost: f.mana_cost, type_line: f.type_line, oracle_text: f.oracle_text, colors: f.colors,
-    power: f.power, toughness: f.toughness, loyalty: f.loyalty, image_uris: slimImages(f.image_uris),
+    power: f.power, toughness: f.toughness, loyalty: f.loyalty, defense: f.defense, image_uris: slimImages(f.image_uris),
   }));
   return out;
 }
@@ -56,8 +61,16 @@ function slim(c) {
 
 // Downloads the file and saves it. onStatus gets short progress messages. Returns the card count.
 export async function downloadBulk(onStatus) {
+  const { list, info } = await fetchFile('oracle-cards', c => !SKIP_LAYOUTS.has(c.layout), onStatus);
+  await saveList(DB, list, onStatus);
+  writeMeta({ on: true, at: Date.now(), updated: info.updated_at, count: list.length });
+  use(list);
+  return list.length;
+}
+// One of Scryfall's bulk files, read as a stream into slim cards (keep: which cards to keep)
+async function fetchFile(kind, keep, onStatus) {
   onStatus?.('Asking Scryfall for its card file…');
-  const metaR = await fetch('https://api.scryfall.com/bulk-data/oracle-cards', { headers: { Accept: 'application/json' } });
+  const metaR = await fetch(`https://api.scryfall.com/bulk-data/${kind}`, { headers: { Accept: 'application/json' } });
   if (!metaR.ok) throw new Error(`Scryfall answered HTTP ${metaR.status}`);
   const info = await metaR.json();
   const url = info.jsonl_download_uri || info.download_uri;
@@ -86,7 +99,7 @@ export async function downloadBulk(onStatus) {
     l = l.trim().replace(/^\[/, '').replace(/,?\]?$/, '');
     if (!l.startsWith('{')) return;
     const c = JSON.parse(l);
-    if (!SKIP_LAYOUTS.has(c.layout)) list.push(slim(c));
+    if (keep(c)) list.push(slim(c));
   };
   for (;;) {
     const { done, value } = await text.read();
@@ -98,8 +111,11 @@ export async function downloadBulk(onStatus) {
   }
   line(buf);
   if (list.length < 10000) throw new Error(`The card file looks incomplete (${list.length} cards)`);
+  return { list, info };
+}
+async function saveList(name, list, onStatus) {
   onStatus?.(`Saving ${list.length} cards…`);
-  const db = await openDb();
+  const db = await openDb(name);
   if (!db) throw new Error('This browser can\'t save the card file (no IndexedDB)');
   await new Promise((res, rej) => {
     const tx = db.transaction(STORE, 'readwrite');
@@ -110,9 +126,44 @@ export async function downloadBulk(onStatus) {
     tx.onerror = tx.onabort = () => rej(tx.error || new Error('Saving the card file failed'));
   });
   db.close();
-  writeMeta({ on: true, at: Date.now(), updated: info.updated_at, count: list.length });
-  use(list);
+}
+
+// ---------- printings (item 157)
+const PDB = 'ct-prints', PMETA = 'ct.prints';
+let prints = null, pLoading = null;
+const readPMeta = () => { try { return JSON.parse(localStorage.getItem(PMETA) || 'null'); } catch { return null; } };
+const writePMeta = m => { try { localStorage.setItem(PMETA, JSON.stringify(m)); } catch { /* no storage */ } };
+export const printsInfo = () => readPMeta();
+export async function downloadPrints(onStatus) {
+  // (paper printings only: digital-only cards never come in a paper booster)
+  const { list, info } = await fetchFile('default-cards', c => !SKIP_LAYOUTS.has(c.layout) && !c.digital && (c.games || []).includes('paper'), onStatus);
+  await saveList(PDB, list, onStatus);
+  writePMeta({ on: true, at: Date.now(), updated: info.updated_at, count: list.length });
+  prints = list;
   return list.length;
+}
+export function loadPrints() {
+  if (prints) return Promise.resolve(prints);
+  if (!readPMeta()?.on || !readPMeta()?.count) return Promise.resolve(null);
+  pLoading ||= (async () => {
+    const db = await openDb(PDB);
+    if (!db) return null;
+    const chunks = await new Promise(res => {
+      try { const r = db.transaction(STORE, 'readonly').objectStore(STORE).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); } catch { res([]); }
+    });
+    db.close();
+    prints = chunks.flat();
+    return prints.length ? prints : null;
+  })();
+  return pLoading;
+}
+export async function removePrints() {
+  writePMeta({ on: false });
+  prints = null; pLoading = null;
+  const db = await openDb(PDB);
+  if (!db) return;
+  await new Promise(res => { try { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).clear(); tx.oncomplete = tx.onerror = tx.onabort = () => res(); } catch { res(); } });
+  db.close();
 }
 
 function use(list) {
@@ -247,6 +298,8 @@ function setCmp(op, have, want) {
   if (op === '>') return sup && have.size > want.size;
   return !(sub && sup);
 }
+// (set, collector number and booster terms are answered only from the printings file)
+let printMode = false;
 const canBeCommander = c => (/legendary/.test(types(c)) && /creature/.test(types(c).split(' // ')[0])) || /can be your commander/.test(text(c));
 
 function atom(t) {
@@ -269,6 +322,7 @@ function atom(t) {
       if (val === 'digital') return c => !!c.digital;
       if (val === 'gamechanger') return c => !!c.game_changer;
       if (val === 'reserved') return c => !!c.reserved;
+      if (val === 'booster') return printMode ? c => !!c.booster : no('is:booster');
       return no(`is:${val}`);
     case 't': case 'type':
       return c => types(c).includes(val);
@@ -290,6 +344,12 @@ function atom(t) {
       if (!/^\d+(\.\d+)?$/.test(val)) no('mana value');
       return c => cmp(op, c.cmc ?? 0, +val);
     }
+    case 'e': case 's': case 'set': case 'edition':
+      if (!printMode || (op !== ':' && op !== '=')) no('set');
+      return c => c.set === val;
+    case 'cn': case 'number':
+      if (!printMode) no('collector number');
+      return c => cmp(op, parseInt(c.collector_number, 10) || 0, parseInt(val, 10) || 0);
     case 'produces': {
       const want = colorSet(val);
       const need = want.size ? [...want] : ['C'];
@@ -303,26 +363,39 @@ const ORDERS = {
   name: (a, b) => a.name.localeCompare(b.name),
   edhrec: (a, b) => (a.edhrec_rank ?? 1e9) - (b.edhrec_rank ?? 1e9) || a.name.localeCompare(b.name),
   cmc: (a, b) => (a.cmc ?? 0) - (b.cmc ?? 0) || a.name.localeCompare(b.name),
+  set: (a, b) => (a.set || '').localeCompare(b.set || '') || (parseInt(a.collector_number, 10) || 0) - (parseInt(b.collector_number, 10) || 0),
 };
 
 // Matching cards for a query over a card list (exported for the self-test)
-export function searchCards(list, q, order = 'name') {
-  const f = parse(q);
+export function searchCards(list, q, order = 'name', { printings = false, unique = 'cards' } = {}) {
+  printMode = printings;
+  let f;
+  try { f = parse(q); } finally { printMode = false; }
   const extras = /\bt(?:ype)?[:=]"?(plane|phenomenon|scheme|vanguard)/i.test(q);
   const sort = ORDERS[order] || no(`order ${order}`);
-  return list.filter(c => (extras || !EXTRA_LAYOUTS.has(c.layout)) && f(c)).sort(sort);
+  const found = list.filter(c => (extras || !EXTRA_LAYOUTS.has(c.layout)) && f(c)).sort(sort);
+  if (!printings || unique === 'prints') return found;
+  // (one printing of each card, the first in the order, as Scryfall's unique=cards)
+  const seen = new Set();
+  return found.filter(c => { const k = c.oracle_id || c.name; if (seen.has(k)) return false; seen.add(k); return true; });
 }
+// Does a search need the printings file? (set, collector number or booster terms)
+const NEEDS_PRINTS = /(?:^|[\s(-])(?:e|s|set|edition|cn|number)(?::|=|<|>)|is:booster/i;
 
 // Answers a Scryfall API path from the file, like api.scryfall.com would; null to ask Scryfall instead
 export async function bulkAnswer(path, rand = Math.random) {
-  if (!/^\/cards\/(search|random)\?/.test(path) || !(await loadBulk())) return null;
+  if (!/^\/cards\/(search|random)\?/.test(path)) return null;
   const url = new URL(path, 'https://api.scryfall.com');
   const p = url.searchParams;
   for (const k of p.keys()) if (!['q', 'order', 'page', 'unique', 'format'].includes(k)) return null;
-  if (p.get('unique') && p.get('unique') !== 'cards') return null;
   const q = p.get('q') || '';
+  const printings = NEEDS_PRINTS.test(q);
+  const list = printings ? await loadPrints() : await loadBulk();
+  if (!list) return null;
+  const unique = p.get('unique') || 'cards';
+  if (unique !== 'cards' && !(printings && unique === 'prints')) return null;
   let found;
-  try { found = searchCards(cards, q, url.pathname === '/cards/random' ? 'name' : p.get('order') || 'name'); } catch (e) { if (e instanceof Unsupported) return null; throw e; }
+  try { found = searchCards(list, q, url.pathname === '/cards/random' ? 'name' : p.get('order') || 'name', { printings, unique }); } catch (e) { if (e instanceof Unsupported) return null; throw e; }
   if (!found.length) throw new Error('No cards match that search (from the saved Scryfall card file).');
   if (url.pathname === '/cards/random') return found[Math.floor(rand() * found.length)];
   const page = Math.max(1, +(p.get('page') || 1));

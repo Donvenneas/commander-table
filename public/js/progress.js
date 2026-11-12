@@ -133,7 +133,7 @@ export function recordChallenges(r) {
   const done = [];
   for (const c of [...s.daily, ...s.weekly]) {
     if (c.done) continue;
-    const t = templ(c.id);
+    const t = /** @type {any} */ (templ(c.id));
     if (!t) continue;
     if (t.distinct) {
       const v = t.distinct(r);
@@ -169,7 +169,24 @@ export const BADGE_LIST = [
   { id: 'rank-mythic', name: 'Mythic', text: 'Reach Mythic on the ladder', test: (s, l) => Object.values(l.formats).some(f => f.games >= PLACEMENT && f.peak >= 1900) },
   { id: 'mastery-5', name: 'Seasoned', text: 'Get a deck to mastery level 5', test: (s, l, m) => m >= 5 },
   { id: 'mastery-10', name: 'Old Friend', text: 'Get a deck to mastery level 10', test: (s, l, m) => m >= 10 },
+  // The round 5 modes (item 167). progress: [have, need] for the Unlocks page
+  { id: 'daily-1', name: 'Puzzler', text: 'Solve a puzzle of the day', test: () => dailySolved() >= 1, progress: () => [Math.min(1, dailySolved()), 1] },
+  { id: 'daily-7', name: 'Daily Riddler', text: 'Solve the puzzle of the day 7 days in a row', test: () => dailyStreak() >= 7, progress: () => [Math.min(7, dailyStreak()), 7] },
+  { id: 'gauntlet-3', name: 'Gauntlet Runner', text: 'Beat 3 rivals in a row in a Gauntlet', test: () => gauntletBest() >= 3, progress: () => [Math.min(3, gauntletBest()), 3] },
+  { id: 'gauntlet-clear', name: 'Untouchable', text: 'Clear a whole Gauntlet', test: () => Object.values(store('ct.gauntlet')?.best || {}).some(b => b.cleared), progress: () => [0, 1] },
+  { id: 'league-7', name: 'Seven Wins', text: 'Win 7 matches in one Limited league', test: () => (store('ct.limLadder')?.leagues || []).some(x => x.wins >= 7), progress: () => [Math.min(7, Math.max(store('ct.limLadder')?.current?.wins || 0, ...(store('ct.limLadder')?.leagues || []).map(x => x.wins))), 7] },
+  { id: 'cup-win', name: 'Champion of Friends', text: 'Win a friend tournament', test: () => !!store('ct.cupWon'), progress: () => [store('ct.cupWon') ? 1 : 0, 1] },
 ];
+// (the puzzle of the day records solved days by day number)
+function dailySolved() { return Object.values(store('ct.daily') || {}).filter(v => v === 'solved').length; }
+function dailyStreak() {
+  const rec = store('ct.daily') || {};
+  const days = Object.keys(rec).filter(d => rec[d] === 'solved').map(Number).sort((a, b) => a - b);
+  let best = 0, run = 0;
+  days.forEach((d, i) => { run = i && d === days[i - 1] + 1 ? run + 1 : 1; best = Math.max(best, run); });
+  return best;
+}
+function gauntletBest() { return Math.max(0, ...Object.values(store('ct.gauntlet')?.best || {}).map(b => b.wins || 0), store('ct.gauntlet')?.run?.beaten || 0); }
 export function badges() { return store(BADGES) || {}; }
 // Checks every badge; returns the names of the ones just earned. maxMastery: the best deck level known.
 export function checkBadges(s = challengeState(), maxMastery = 0) {

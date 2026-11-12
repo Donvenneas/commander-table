@@ -8,15 +8,16 @@ const post = (url, body) => fetch(url, { method: 'POST', body: typeof body === '
 const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
 
 export class Room {
-  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; }
+  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; /** @type {any} */ this.presence = null; }
   // A seat's join code: its own secret key, then the seat number (spectators: 0), like "K7Q2XF9ABM-2".
   // Each seat has its own key, so changing the seat number in a link doesn't open another player's hand.
   joinCode(seat) { return `${this.keys[seat] || ''}-${seat + 1}`; }
   // Opens the room for the given seat numbers; returns false if this isn't running in Commander Table.exe
-  async open(seats) {
+  // keys: { seat: key } to reopen a room with the same join codes (a resumed game, item 140)
+  async open(seats, keys = null) {
     this.seats = seats;
     try {
-      const r = await post('/api/room/open', seats.join(','));
+      const r = await post('/api/room/open', seats.map(s => (keys?.[s] ? `${s}=${keys[s]}` : s)).join(','));
       if (!r.ok) throw new Error((await r.json()).error || r.status);
       Object.assign(this, await r.json());
       return true;
@@ -27,7 +28,7 @@ export class Room {
   }
   close() { this.code = null; return post('/api/room/close', '').catch(() => {}); }
   // Join links: one per network address, plus the internet address once the tunnel is up
-  // (seat -1 is the spectators' link)
+  // (seat -1 is the spectators' link, seat -2 the delayed streamer view)
   links() {
     return this.seats.map(s => ({
       seat: s,
@@ -60,6 +61,13 @@ export class Room {
   undoAck(seat, allowed) { return post(`/api/room/undoack?seat=${seat}`, allowed ? 'yes' : 'no').catch(() => {}); }
   // Seconds since a friend's page last checked in (-1: never joined)
   seen(seat) { return this.presence?.[seat]?.seen ?? -1; }
+  // Hand a seat to someone else (item 141): the seat gets a new key; the old link stops working
+  async rekey(seat) {
+    const r = await post(`/api/room/rekey?seat=${seat}`, '');
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || String(r.status));
+    this.keys[seat] = (await r.json()).key;
+    return this.keys[seat];
+  }
   state(seat, snap) { return post(`/api/room/state?seat=${seat}`, snap).catch(() => {}); }
   ask(seat, q) { return post(`/api/room/ask?seat=${seat}`, q).catch(() => {}); }
   async answer(seat) { try { return await (await fetch(`/api/room/answer?seat=${seat}`)).json(); } catch { return null; } }
@@ -82,6 +90,7 @@ export class RemoteUI {
     // (the bank starts with one turn's worth)
     this.bank = this.clockMode === 'off' ? null : TURN_CLOCKS[this.clockMode].add;
     this.nudges = 0;
+    /** @type {((who: any, i: number) => void) | null} */ this.onRecord = null;
   }
   // A new turn of theirs: top the bank up
   refill() {
@@ -170,6 +179,31 @@ export class RemoteUI {
     if (ans.player != null) return { player: ans.player };
     return { button: buttons[ans.button]?.value ?? 'cancel' };
   }
+  // Best of three (item 135): the friend sideboards between games. Sends their deck and sideboard, waits for the lists
+  // back (the same cards in total, at least the minimum deck size), and returns them; null keeps the deck as it was.
+  async askSideboard(deck, minMain) {
+    if (this.offline || this.cancelled) return null;
+    const list = cards => cards.map(c => [c.card.name, c.qty]);
+    const id = `${this.seat}-sb-${++this.n}-${Date.now()}`;
+    const q = { id, text: '<b>Sideboard</b> for the next game: click a card to move one copy across.', buttons: [{ label: 'Play these', primary: true }, { label: 'Keep my deck', primary: false }], objs: [], players: [], timeout: 180, sideboard: { main: list(deck.cards), side: list(deck.sideboard || []), min: minMain } };
+    await this.room.ask(this.seat, q);
+    const t0 = Date.now();
+    let ans = null;
+    while (!this.cancelled && !this.offline && Date.now() - t0 < 180000) {
+      await new Promise(r => setTimeout(r, 400));
+      const a = await this.room.answer(this.seat);
+      if (a && a.id === id) { ans = a; break; }
+    }
+    await this.room.ask(this.seat, null);
+    if (!ans || ans.button !== 0 || !ans.sideboard) return null;
+    // (only the same cards, moved between the two lists)
+    const pool = new Map();
+    for (const c of [...deck.cards, ...(deck.sideboard || [])]) { const p = pool.get(c.card.name) || { card: c.card, n: 0 }; p.n += c.qty; pool.set(c.card.name, p); }
+    const take = (rows) => { const out = []; for (const [name, qty] of Array.isArray(rows) ? rows : []) { const p = pool.get(name); const k = Math.min(+qty || 0, p ? p.n : 0); if (!p || k <= 0) continue; p.n -= k; out.push({ card: p.card, qty: k }); } return out; };
+    const main = take(ans.sideboard.main), side = take(ans.sideboard.side);
+    if ([...pool.values()].some(p => p.n !== 0) || main.reduce((a, c) => a + c.qty, 0) < minMain) return null;
+    return { ...deck, cards: main, sideboard: side };
+  }
   aiPick(buttons) {
     const ai = buttons.findIndex(b => /AI/.test(b.label));
     const main = buttons.findIndex(b => b.primary);
@@ -178,8 +212,29 @@ export class RemoteUI {
   }
 }
 
+// Drafting with friends (item 136): a friend's pick from a pack over the room channel. Returns the card, or null when
+// they don't answer in time (the AI drafter picks for them then).
+let draftN = 0;
+export async function askDraftPick(room, seat, pack, picks, label, timeout = 90) {
+  const id = `${seat}-draft-${++draftN}-${Date.now()}`;
+  const q = { id, text: `<b>${label}</b>: pick a card. The rest of the pack goes to the next player.`, buttons: [], objs: [], players: [], timeout,
+    draft: { pack: pack.map(c => ({ name: c.name, img: unproxy(c.imgNormal || c.imgSmall || '') })), picks: picks.map(c => c.name) } };
+  await room.ask(seat, q);
+  const t0 = Date.now();
+  let ans = null;
+  while (Date.now() - t0 < timeout * 1000) {
+    await new Promise(r => setTimeout(r, 400));
+    const a = await room.answer(seat);
+    if (a && a.id === id) { ans = a; break; }
+  }
+  await room.ask(seat, null);
+  return ans ? pack.find(c => c.name === ans.draftPick) || null : null;
+}
+
 // One seat's view of the table: everything public, plus that player's own hand
 export function snapshot(g, seat) {
+  // (seat -2 is the streamer view, item 142: every hand and face-down card, sent to it only after a delay)
+  const all = seat === -2;
   // (friends load images from Scryfall themselves: the host's image cache isn't reachable from their side)
   const card = (o, extra = {}) => ({
     iid: o.iid, name: o.card.name, img: unproxy(o.card.imgNormal || o.card.imgSmall || ''), art: unproxy(o.card.art || ''), text: o.card.fullText || o.card.text || '',
@@ -190,13 +245,15 @@ export function snapshot(g, seat) {
     commander: o.isCommander, counters: o.counters, loyalty: o.fx.type.planeswalker ? o.loyalty : null,
     pt: o.fx.type.creature ? `${g.power(o)}/${g.toughness(o)}` : null, damage: o.damage,
     zone: o.fx.type.creature ? 'creatures' : o.fx.type.land ? 'lands' : 'others',
+    // (a face-down permanent's controller knows what it is; nobody else does)
+    ...(o.faceDown ? { faceDown: true, ...(o.controller === seat || all ? { peek: o.faceCard.name } : {}) } : {}),
   });
   return {
     seat, turn: g.turn, round: g.round, phase: g.phase, active: g.active, over: g.over, winner: g.winner?.idx ?? null, winners: (g.winners || []).map(w => w.idx), archenemy: g.archenemy,
     players: g.players.map(p => ({
       idx: p.idx, name: p.name, color: p.color, deckName: p.deckName, life: p.life, lost: p.lost, lossReason: p.lossReason,
       art: unproxy(p.command[0]?.card.art || p.art || ''),
-      hand: p.idx === seat ? p.hand.map(o => card(o)) : p.hand.length,
+      hand: p.idx === seat || all ? p.hand.map(o => card(o)) : p.hand.length,
       library: p.library.length, graveyard: p.graveyard.length, exile: p.exile.length,
       command: p.command.map(o => card(o, { tax: 2 * (p.castCount[o.iid] || 0) })),
       battlefield: p.battlefield.map(perm),

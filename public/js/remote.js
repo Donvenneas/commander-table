@@ -12,6 +12,7 @@ const params = new URLSearchParams(location.search);
 // 0 for spectators) can be typed instead
 let code = params.get('code'), seat = +params.get('seat');
 if (!code && params.get('j')) [code, seat] = parseJoin(params.get('j'));
+/** @returns {[string | null, number]} */
 function parseJoin(s) {
   const m = String(s).toUpperCase().replace(/[\s-]/g, '').match(/^([A-Z0-9]{10})(\d)$/);
   return m ? [m[1], +m[2] - 1] : [null, NaN];
@@ -32,8 +33,13 @@ $('btnTheme').addEventListener('click', () => { prefs.theme = document.documentE
 
 // ---------- joining
 $('joinName').value = store('ct.name') || '';
-// Seat -1 is a spectator: the whole table, no hands, no decisions
-const watching = seat === -1;
+// Seat -1 is a spectator: the whole table, no hands, no decisions. Seat -2 is the streamer view (item 142): every
+// hand, a minute or so late, without the chat and buttons
+const watching = seat < 0, streamer = seat === -2;
+if (streamer) {
+  document.body.classList.add('streamer');
+  store('ct.joined', `${code}/${seat}`);
+}
 if (watching) {
   document.querySelector('.topbar .tag').textContent = 'spectator';
   $('joinModal').querySelector('h2').textContent = 'Watch the game';
@@ -74,7 +80,7 @@ function cardHtml(c, extra = '') {
   if (c.pt) badges += `<span class="bdg pt">${c.pt}</span>`;
   if (c.counters) badges += `<span class="bdg ctr">+${c.counters}</span>`;
   if (c.loyalty != null) badges += `<span class="bdg loy">${c.loyalty}</span>`;
-  const face = c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
+  const face = c.faceDown ? `<div class="tkn fd"><b>Face down${c.peek ? `<br><small>${esc(c.peek)}</small>` : ''}</b></div>` : c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
   return `<div class="${cls}${c.img ? '' : ' noimg'}" data-iid="${c.iid}">${face}<div class="badges">${badges}</div></div>`;
 }
 function rowHtml(cards, stack) {
@@ -135,6 +141,8 @@ async function pumpManual() {
 function render() {
   if (!snap) return;
   if (snap.lobby) return renderLobby();
+  // (deals belong to rules-engine games; the tabletop has none)
+  $('btnDealOpen').hidden = watching || !!snap.manual;
   if (snap.manual) { renderManual(); pumpManual(); return; }
   if ($('table').dataset.lobby === '1') { $('table').dataset.lobby = ''; $('table').innerHTML = ''; boardHtml.clear(); }
   const me = snap.players[seat];
@@ -145,7 +153,7 @@ function render() {
     // Seen from your own seat: you at the bottom left, the next players clockwise from there
     const n = snap.players.length;
     table.dataset.n = n;
-    const pos = i => (watching ? i : n > 4 ? (i - seat + n) % n : [2, 0, 1, 3][(i - seat + n) % n] ?? i);
+    const pos = i => (seat < 0 ? i : n > 4 ? (i - seat + n) % n : [2, 0, 1, 3][(i - seat + n) % n] ?? i);
     table.innerHTML = snap.players.map(p => `<div class="board-slot ${p.idx === seat ? 'me' : ''}" data-slot="${p.idx}" style="order:${pos(p.idx)}"></div>`).join('');
     boardHtml.clear();
   }
@@ -154,7 +162,7 @@ function render() {
     const n = bf.filter(c => c.zone !== 'lands').length;
     const cw = n > 22 ? '44px' : n > 16 ? '50px' : n > 10 ? '58px' : '66px';
     const hand = Array.isArray(p.hand)
-      ? `<span class="zlabel">Your hand</span>${rowHtml(p.hand)}`
+      ? `<span class="zlabel">${p.idx === seat ? 'Your hand' : 'Hand'}</span>${rowHtml(p.hand)}`
       : `<span class="zlabel">Hand · ${p.hand}</span>${'<span class="back"></span>'.repeat(Math.min(p.hand, 15))}`;
     const chips = (p.roleChip || '') + (snap.archenemy === p.idx && !p.lost ? '<span class="polchip arch">🎯 Archenemy</span>' : '')
       + p.cmdDamage.map(c => `<span class="cmdchip ${c.n >= (snap.cmdLimit || 21) - 6 ? 'hot' : ''}" style="--cc:var(--bad)">⚔ ${esc(c.name.split(',')[0])} ${c.n}/${snap.cmdLimit || 21}</span>`).join('');
@@ -265,9 +273,53 @@ $('btnDealSend').addEventListener('click', () => {
 });
 
 // ---------- your decisions
+// Sideboarding between best-of-three games (item 135): two lists, click a card to move one copy across
+let sbDraft = null;
+function renderSideboard() {
+  const sb = question.sideboard;
+  if (!sbDraft || sbDraft.id !== question.id) sbDraft = { id: question.id, main: sb.main.map(x => [...x]), side: sb.side.map(x => [...x]) };
+  const count = rows => rows.reduce((a, [, n]) => a + n, 0);
+  const col = (rows, from) => rows.filter(([, n]) => n > 0).map(([name, n]) => `<button class="btn small sb-card" data-from="${from}" data-name="${esc(name)}">${n} ${esc(name)}</button>`).join('');
+  const short = count(sbDraft.main) < sb.min;
+  $('abText').innerHTML = `<b>Sideboard</b> for the next game: click a card to move one copy across. Deck ${count(sbDraft.main)}${short ? ` (at least ${sb.min})` : ''} · sideboard ${count(sbDraft.side)}
+    <div class="sb-cols"><div><b>Deck</b><div>${col(sbDraft.main, 'main')}</div></div><div><b>Sideboard</b><div>${col(sbDraft.side, 'side')}</div></div></div>`;
+  const btns = `<button class="btn primary" data-sb="play" ${short ? 'disabled' : ''}>Play these</button><button class="btn" data-sb="keep">Keep my deck</button>`;
+  $('abButtons').innerHTML = btns; $('abButtons').dataset.v = '';
+  $('actionBar').hidden = false;
+}
+document.addEventListener('click', e => {
+  const tg = /** @type {any} */ (e.target);
+  const c = tg.closest?.('.sb-card');
+  if (c && sbDraft) {
+    const from = c.dataset.from === 'main' ? sbDraft.main : sbDraft.side, to = c.dataset.from === 'main' ? sbDraft.side : sbDraft.main;
+    const row = from.find(([n]) => n === c.dataset.name);
+    if (row && row[1] > 0) { row[1]--; const t = to.find(([n]) => n === c.dataset.name); if (t) t[1]++; else to.push([c.dataset.name, 1]); }
+    renderSideboard();
+    return;
+  }
+  const b = tg.closest?.('[data-sb]');
+  if (b && sbDraft && question?.sideboard) answer(b.dataset.sb === 'play' ? { button: 0, sideboard: { main: sbDraft.main.filter(([, n]) => n > 0), side: sbDraft.side.filter(([, n]) => n > 0) } } : { button: 1 });
+});
+// Drafting with friends (item 136): the pack in front of you; click a card to pick it
+let draftShown = null;
+function renderDraftPick() {
+  const d = question.draft;
+  draftShown = question.id;
+  $('abText').innerHTML = `${question.text.replace(/<(?!\/?b>)[^>]*>/g, '')} <span class="muted">(${d.picks.length} picked so far)</span>
+    <div class="lim-grid draft-pack">${d.pack.map(c => `<div class="lim-card" data-pick="${esc(c.name)}" title="${esc(c.name)}">${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
+    ${d.picks.length ? `<p class="muted">Your picks: ${d.picks.map(esc).join(', ')}</p>` : ''}`;
+  $('abButtons').innerHTML = ''; $('abButtons').dataset.v = '';
+  $('actionBar').hidden = false;
+}
+document.addEventListener('click', e => {
+  const c = /** @type {any} */ (e.target).closest?.('[data-pick]');
+  if (c && question?.draft && question.id !== answered) answer({ draftPick: c.dataset.pick });
+});
 function renderQuestion() {
   document.querySelectorAll('.pickable').forEach(e => e.classList.remove('pickable'));
   if (!question || question.id === answered) { $('actionBar').hidden = true; return; }
+  if (question.sideboard) { if (sbDraft?.id !== question.id) renderSideboard(); return; }
+  if (question.draft) { if (draftShown !== question.id) renderDraftPick(); return; }
   if (seenAt === 0) seenAt = Date.now();
   // The host sends bold text only; anything else is stripped
   const text = question.text.replace(/<(?!\/?b>)[^>]*>/g, '');

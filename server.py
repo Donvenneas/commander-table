@@ -8,6 +8,7 @@ The same endpoints as Commander Table.exe and server.ps1, using only Python's st
   * /api/edhtop16   EDHTop16's public GraphQL API (its registered queries only)
   * /api/rules      the Comprehensive Rules from Wizards of the Coast, cached for a week
   * /api/img        Scryfall card images, kept in data/images for offline play
+  * /api/imgcache   the image folder's size and its cap (data/image-cache-mb.txt; 400 MB unless changed)
   * /api/library    your deck library in data/decks
   * /api/update     updates, only when you ask, from an address you choose
   * /api/room/...   online seats for friends (on ports 8800-8820), plus the free Cloudflare tunnel
@@ -198,8 +199,13 @@ def room(method, action, seat, code, body, local):
             ROOM['chat'] = []
             ROOM['fails'] = []
             for part in body.split(','):
+                # ("seat" or "seat=KEY": a resumed game reopens its room with the same keys, so friends' links still work)
+                num, _, key = part.strip().partition('=')
                 try:
-                    ROOM['seats'][int(part.strip())] = Seat()
+                    seat = Seat()
+                    if len(key) == 10 and all(ch in KEY_CHARS for ch in key):
+                        seat.key = key
+                    ROOM['seats'][int(num)] = seat
                 except ValueError:
                     pass
             keys = {str(k): v.key for k, v in ROOM['seats'].items()}
@@ -213,6 +219,13 @@ def room(method, action, seat, code, body, local):
             if method == 'POST':
                 start_tunnel()
             return 200, json.dumps({'status': TUNNEL['status'], 'url': TUNNEL['url'], 'error': TUNNEL['error']})
+        if action == 'rekey':
+            # (hand a seat to someone else: a new key, so the old link stops working)
+            s = ROOM['seats'].get(seat)
+            if not s:
+                return 404, '{"error":"No such seat."}'
+            s.key, s.name, s.seen, s.answer = seat_key(), '', 0.0, None
+            return 200, json.dumps({'key': s.key})
         if action == 'state':
             if seat in ROOM['seats']:
                 ROOM['seats'][seat].state = body or 'null'
@@ -349,16 +362,32 @@ def card_image(url):
 _trim_count = [0]
 
 
+def image_cap():
+    """The image folder's cap in bytes: data/image-cache-mb.txt (set in the app), else 400 MB."""
+    try:
+        mb = int(open(os.path.join(DATA, 'image-cache-mb.txt'), encoding='utf-8').read().strip())
+        return max(100, min(20000, mb)) * 1024 * 1024
+    except (OSError, ValueError):
+        return IMAGE_CACHE_MAX
+
+
+def image_usage():
+    folder = os.path.join(DATA, 'images')
+    files = [os.path.join(folder, f) for f in os.listdir(folder)] if os.path.isdir(folder) else []
+    return len(files), sum(os.path.getsize(f) for f in files)
+
+
 def trim_images(folder):
     _trim_count[0] += 1
     if _trim_count[0] % 200:
         return
+    cap = image_cap()
     files = [os.path.join(folder, f) for f in os.listdir(folder)]
     total = sum(os.path.getsize(f) for f in files)
-    if total <= IMAGE_CACHE_MAX:
+    if total <= cap:
         return
     for f in sorted(files, key=os.path.getmtime):
-        if total <= IMAGE_CACHE_MAX * 0.8:
+        if total <= cap * 0.8:
             break
         total -= os.path.getsize(f)
         try:
@@ -516,6 +545,19 @@ class Handler(BaseHTTPRequestHandler):
             if path == '/api/img':
                 status, ctype, body = card_image(q.get('u'))
                 return self.send(status, ctype, body, {'Cache-Control': 'public, max-age=2592000'} if status == 200 else None)
+            if path == '/api/imgcache':
+                # GET: how much the image folder holds; POST (from the app only) a new cap in MB
+                if self.command == 'POST':
+                    if self.headers.get('X-Commander-Table') != 'images':
+                        return self.text(400, 'Use the Updates window in the app.')
+                    try:
+                        mb = max(100, min(20000, int(self.body().strip())))
+                    except ValueError:
+                        return self.text(400, 'The cap is a number of MB.')
+                    os.makedirs(DATA, exist_ok=True)
+                    open(os.path.join(DATA, 'image-cache-mb.txt'), 'w', encoding='utf-8').write(str(mb))
+                n, size = image_usage()
+                return self.send(200, 'application/json', json.dumps({'files': n, 'bytes': size, 'capMB': image_cap() // (1024 * 1024)}))
             if path == '/api/library':
                 return self.library(q)
             if path == '/api/update':
@@ -603,13 +645,19 @@ class Handler(BaseHTTPRequestHandler):
                     return self.text(502, f'The update address answered HTTP {status}.')
                 if body[:2] != b'PK':
                     return self.text(400, "That address didn't give a .zip file.")
+                # (item 183) the zip's SHA-256, checked against a published "<address>.sha256" when there is one
+                digest = hashlib.sha256(body).hexdigest()
+                s_status, _, s_body = get_remote(url + '.sha256', timeout=30)
+                published = re.search(r'\b[0-9a-fA-F]{64}\b', s_body.decode('utf-8', 'replace')).group(0).lower() if s_status == 200 and re.search(r'\b[0-9a-fA-F]{64}\b', s_body.decode('utf-8', 'replace')) else ''
+                if published and published != digest:
+                    return self.text(400, f"The download doesn't match its published checksum (SHA-256 {digest[:16]}…, expected {published[:16]}…). Nothing was installed.")
                 open(zip_file, 'wb').write(body)
                 try:
                     _, version, count = inspect_update(zip_file)
                 except ValueError:
                     os.remove(zip_file)
                     raise
-                return self.send(200, 'application/json', json.dumps({'version': version, 'current': local_version(), 'files': count, 'size': len(body)}))
+                return self.send(200, 'application/json', json.dumps({'version': version, 'current': local_version(), 'files': count, 'size': len(body), 'sha256': digest, 'verified': bool(published)}))
             if step == 'apply':
                 if not os.path.exists(zip_file):
                     return self.text(400, 'Check for an update first.')
