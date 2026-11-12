@@ -229,6 +229,29 @@ export class Agent {
     return cs.sort((a, b) => this.value(g, a) + this.pieceWorth(g, p, a) - this.value(g, b) - this.pieceWorth(g, p, b))[0] || null;
   }
 
+  // (rules 7, combo audit) Demonic Consultation / Tainted Pact: exile the whole library when that wins — Laboratory
+  // Maniac or Jace already out, or Thassa's Oracle in hand with the mana to cast it right after
+  wantsEmptyLibrary(g, p, src) {
+    if (p.battlefield.some(o => o.fx.labMan)) return true;
+    const oracle = [...p.hand, ...p.command].find(o => o !== src && o.fx.etb.some(e => e.k === 'if' && e.cond?.c === 'oracle'));
+    return !!oracle && g.canCast(p, oracle);
+  }
+  // Tainted Pact: take the first spell (a land only when the library is nearly gone), unless emptying the library
+  takePactCard(g, p, c, wantEmpty) { return !wantEmpty && (!c.fx.type.land || p.library.length < 4); }
+  // Chain of Smog: copy it back at ourselves while magecraft drains the table (and stop once a copy changes nothing)
+  chainCopyTarget(g, p, src) {
+    if (p.chainNoProgress) { p.chainNoProgress = false; return null; }
+    const drains = p.battlefield.some(s => s.fx.onCast && /cast or copy/.test(s.card.text || '') && s.fx.onCast.effects.some(e => ['drain', 'damage', 'loseLife'].includes(e.k)));
+    return drains && g.opponents(p).length ? p.idx : null;
+  }
+  // (rules 7) A permanent of ours that keeps a combo loop going when it's untapped or blinked: a tapped one whose {T}
+  // ability copies a creature (Kiki-Jiki, a creature enchanted with Splinter Twin), or a planeswalker that has used its
+  // copy ability this turn (Saheeli Rai). Returns null in older games.
+  loopEngine(g, p, src) {
+    if (g.rules < 7) return null;
+    const copies = es => (es || []).some(e => e.k === 'copyToken');
+    return p.battlefield.find(o => o !== src && ((o.tapped && g.abilitiesOf(o).some(ab => ab.tap && copies(ab.effects))) || (o.fx.type.planeswalker && o.usedPW && o.fx.pw.some(a => copies(a.effects))))) || null;
+  }
   // Tutors finish our own combos first, then look for an answer to an opponent's combo
   pickTutor(g, p, e = {}) {
     const okType = o => !e.types?.length || e.types.some(t => o.fx.type[t]);
@@ -423,6 +446,7 @@ export class Agent {
       case 'planeswalker': return t.planeswalker;
       case 'creature or planeswalker': return t.creature || t.planeswalker;
       case 'artifact or enchantment': return t.artifact || t.enchantment;
+      case 'artifact or creature': return g && g.rules >= 7 ? t.artifact || t.creature : t.creature;
       case 'nonland permanent': return !t.land;
       case 'permanent': return true;
       default: return t.creature;
@@ -473,10 +497,20 @@ export class Agent {
       case 'silence': { const q = [...g.opponents(p)].sort((a, b) => this.threat(g, p, b) - this.threat(g, p, a))[0]; return q ? { player: q.idx } : null; }
       // Mill whoever is closest to running out
       case 'mill': { const q = [...g.opponents(p)].sort((a, b) => a.library.length - b.library.length)[0]; return q ? { player: q.idx } : null; }
-      case 'copyToken': { const o = this.bestOwn(g, p, x => this.matches(x, e.what, g) && !x.fx.type.legendary); return o ? { obj: o, v: this.value(g, o) } : null; }
+      case 'copyToken': {
+        // (rules 7: Saheeli Rai copies "target artifact or creature"; a creature that blinks or untaps the loop engine first)
+        const what = (g.rules >= 7 && e.what7) || e.what;
+        const eng = g.rules >= 7 && this.loopEngine(g, p, src);
+        const partner = eng && p.battlefield.find(x => x !== eng && this.matches(x, what, g) && !x.fx.type.legendary && x.fx.etb.some(y => ['blink', 'untapAll', 'steal'].includes(y.k)));
+        const o = partner || this.bestOwn(g, p, x => this.matches(x, what, g) && !x.fx.type.legendary);
+        return o ? { obj: o, v: this.value(g, o) } : null;
+      }
       // (rules 6: only a creature now: not Heliod below its devotion, so Heliod's counter goes on Walking Ballista)
       case 'pump': case 'counters': case 'protect': case 'doublePT': { const o = this.bestOwn(g, p, g.rules >= 6 ? x => x.fx.type.creature && !g.dormant(x) : undefined); return o ? { obj: o } : null; }
       case 'blink': {
+        // (rules 7) Restoration Angel, Felidar Guardian copies: blink the loop engine (Kiki-Jiki, Saheeli Rai)
+        const eng = this.loopEngine(g, p, src);
+        if (eng && (e.what !== 'creature' || eng.fx.type.creature)) return { obj: eng, v: 10 };
         // The creature whose enters-the-battlefield effect is worth the most to repeat
         let best = null, bv = 0;
         for (const o of p.battlefield) {
@@ -488,10 +522,14 @@ export class Agent {
         }
         return best ? { obj: best, v: bv } : null;
       }
-      case 'steal':
+      case 'steal': {
+        // (rules 7) Zealous Conscripts copies: "gain control of" our own tapped Kiki-Jiki just untaps it
+        const eng = e.temp && this.loopEngine(g, p, src);
+        if (eng?.tapped) return { obj: eng, v: 10 };
         // A creature borrowed for a turn is only worth taking if it can swing hard
         return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land
           && (!e.temp || (o.fx.type.creature && g.power(o) >= 3 && !g.has(o, 'defender'))));
+      }
       case 'flickerDelay': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land && !o.token);
       case 'fight': {
         const mine = src.zone === 'battlefield' && src.fx.type.creature ? src : this.bestOwn(g, p);
@@ -1100,6 +1138,9 @@ export class Agent {
       case 'untapAll': {
         const kinds = { 'nonland permanents': o => !o.fx.type.land, artifacts: o => o.fx.type.artifact, creatures: o => o.fx.type.creature, lands: o => o.fx.type.land };
         const ok = kinds[e.what] || (() => true);
+        // (rules 7) Deceiver Exarch, Pestermite copies: untapping the loop engine is the whole point
+        const eng = this.loopEngine(g, p, src);
+        if (eng?.tapped && ok(eng)) return 10;
         let tapped = p.battlefield.filter(o => o.tapped && o.fx.mana && ok(o)).map(o => o.fx.mana.amount).sort((a, b) => b - a);
         if (e.n) tapped = tapped.slice(0, e.n);
         const back = tapped.reduce((a, b) => a + b, 0) - (src.card.cmc || 0);

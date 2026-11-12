@@ -21,7 +21,7 @@ export const PHASES = [
 export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
-export const RULES = 6;
+export const RULES = 7;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -51,6 +51,7 @@ export class Game {
     // (set as the game goes: recent trigger signatures for loop detection, tokens to sacrifice at end of turn, the
     // page's chat log for friends, and whether AI reasons are logged)
     /** @type {string[] | undefined} */ this.trigSig = undefined;
+    /** @type {{ turn: number, seen: Set<string> } | undefined} (rules 7: game states seen while triggers repeat, triggers.loopRepeats) */ this.loopStates = undefined;
     /** @type {any} (the read-only cache while the AI plans combat: withEvalCache) */ this._ev = null;
     /** @type {any[] | undefined} */ this.endSac = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
@@ -357,6 +358,16 @@ export class Game {
   pacified(o) { return this.attachments(o).some(a => a.fx.pacify); }
   // Its own activated abilities, plus any it borrows (Marvin, Murderous Mimic; Necrotic Ooze)
   abilitiesOf(o) {
+    // (rules 7) abilities read in the combo audit (Isochron Scepter, Grand Architect, fx.abilities7) and ones an Aura
+    // grants its creature (Splinter Twin). Kept apart so older games, and the AI's card values, see the old reading.
+    if (this.rules >= 7) {
+      const extra = o.fx.abilities7 || [];
+      const granted = o.zone === 'battlefield' && o.fx.type.creature ? this.attachments(o).flatMap(a => a.fx.grants || []) : [];
+      if (extra.length || granted.length) return [...this.abilitiesOf0(o), ...extra, ...granted];
+    }
+    return this.abilitiesOf0(o);
+  }
+  abilitiesOf0(o) {
     const b = o.fx.borrow;
     if (!b || o.zone !== 'battlefield') return o.fx.abilities;
     const p = this.players[o.controller];
@@ -400,7 +411,15 @@ export class Game {
     const m = what.match(/^(\w+)s you control$/);
     return m ? this.countControlled(p, m[1]) : null;
   }
-  colorsOf(o) { return o.card.colors || []; }
+  colorsOf(o) {
+    const base = o.card.colors || [];
+    if (this.rules < 7) return base;
+    // (rules 7) Grand Architect's "becomes blue", Painter's Servant's chosen color on every card and permanent
+    const more = [];
+    if (o.tempColor?.turn === this.turn) more.push(o.tempColor.color);
+    for (const q of this.alive()) for (const s of q.battlefield) if (s.fx.paintAll && s.chosenColor) more.push(s.chosenColor);
+    return more.length ? [...new Set([...base, ...more])] : base;
+  }
   canTarget(p, o) {
     if (!o || o.zone !== 'battlefield') return false;
     if (this.has(o, 'shroud')) return false;
@@ -560,6 +579,7 @@ export class Game {
 
   // The last 60 triggers are one short pattern (period 1 to 6) repeated over and over
   periodicTriggers() { return triggers.periodicTriggers(this); }
+  loopRepeats() { return triggers.loopRepeats(this); }
   // Priority stops (people only): the steps where a seat played here asked to stop, or every step
   // with Full control. The AI pilots have no stopAt, so this changes nothing for them.
   async stopFor(step, active) { return triggers.stopFor(this, step, active); }
@@ -884,12 +904,15 @@ export class Game {
     // (Yawgmoth's Will: a card cast from the graveyard this way is exiled instead of returning there)
     const gone = mode.alt === 'flashback' || mode.alt === 'jumpstart' || o.castAftermath || (o.castFrom === 'graveyard' && (p.gyCast?.turn === this.turn || o.gyOnceExile)) ? 'exile' : buyback ? 'hand' : 'graveyard';
     o.gyOnceExile = false;
+    // (a copy of a card cast from Isochron Scepter ceases to exist as it leaves the stack: 707.10a)
+    const cease = () => { o.zone = 'gone'; this.objects.delete(o.iid); };
+    if (o.spellCopy && item.countered) { cease(); return true; }
     if (item.countered) { this.move(o, item.toExile ? 'exile' : item.toHand ? 'hand' : gone === 'hand' ? 'graveyard' : gone); await this.beat(0.4); return true; }
     // A spell whose every target has become illegal doesn't resolve
     const chosen = targets.filter(Boolean);
     if (!o.fx.type.permanent && chosen.length && chosen.every(t => !this.validTarget(t, p))) {
       this.log(`${this.cn(o)} fizzles: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
-      this.move(o, gone === 'hand' ? 'graveyard' : gone);
+      if (o.spellCopy) cease(); else this.move(o, gone === 'hand' ? 'graveyard' : gone);
       await this.sba();
       return true;
     }
@@ -915,6 +938,7 @@ export class Game {
       if (imprint && imprint.zone === 'hand') {
         this.move(imprint, 'exile');
         o.imprinted = cardKey(imprint.card);
+        o.imprintedObj = imprint;
         this.log(`${this.cn(o)} imprints ${this.cn(imprint)}`, { kind: 'minor' });
       }
       if (auraTarget) {
@@ -957,7 +981,7 @@ export class Game {
       // Rebound (702.88): cast from hand, it's exiled and cast again at the next upkeep
       if (o.zone === 'stack' && (o.fx.rebound || o.reboundGrant) && fromHand && !mode.alt) {
         o.reboundGrant = false; this.move(o, 'exile'); (p.rebounds ||= []).push(o); this.log(`${this.cn(o)} is exiled with rebound`, { kind: 'minor', rule: '702.88a' }); }
-      if (o.zone === 'stack') this.move(o, gone);
+      if (o.zone === 'stack') { if (o.spellCopy) cease(); else this.move(o, gone); }
     }
     await this.sba();
     return true;
@@ -1450,6 +1474,8 @@ export class Game {
     try { return this.canActivateRaw(p, o, ab); } finally { this.payingFor = prev; }
   }
   canActivateRaw(p, o, ab) {
+    // (abilities read for a later rules version don't exist in older games)
+    if (ab.minRules && this.rules < ab.minRules) return false;
     if (ab.tap && (o.tapped || !this.canTapNow(p, o))) return false;
     // (rules 6) Deathrite Shaman: the card it exiles from a graveyard is a target, so one must be there (602.2b)
     if (this.rules >= 6 && !this.gyTargetOk(ab)) return false;
@@ -1916,16 +1942,18 @@ export class Game {
     await this.payCosts(p, o, ab.costs || { life: ab.life || 0, discard: ab.discard ? { n: ab.discard, types: [] } : null, sacSelf: !!ab.sacSelf });
     // Rings of Brighthearth: pay {2} to copy an ability that isn't a mana ability (the copy resolves first).
     // Copying "untap ~" gains nothing here, since mana can't be made between the copy and the original.
-    const copyable = !(ab.effects || []).some(e => e.k === 'addMana' || e.k === 'untapSelf');
+    // (rules 7: an untap ability is copied too; the untapped permanent can tap for mana again before the original
+    // resolves, which is the Basalt Monolith loop)
+    const copyable = !(ab.effects || []).some(e => e.k === 'addMana' || (e.k === 'untapSelf' && this.rules < 7));
     if (copyable && p.battlefield.some(s => s.fx.copyAbility)) {
       const plan2 = this.planPayment(p, { generic: 2, pips: [], x: 0 });
       if (plan2 && (await (p.agent.wantsAbilityCopy?.(this, p, o, ab) ?? true))) {
         this.commitPayment(p, plan2);
         this.log(`${this.pn(p)} pays {2}: Rings of Brighthearth copies ${this.cn(o)}'s ability`, { kind: 'minor' });
-        await this.stackAbility(p, o, ab.effects, `${ab.text || 'ability'} (copy)`, 'ability', null, x);
+        await this.stackAbility(p, o, this.rules >= 7 ? ab.effects.map(e => (e.k === 'untapSelf' ? { ...e, retap: true } : e)) : ab.effects, `${ab.text || 'ability'} (copy)`, 'ability', null, x);
       }
     }
-    await this.stackAbility(p, o, ab.effects, ab.text, 'ability', null, x);
+    await this.stackAbility(p, o, (this.rules >= 7 && ab.effects7) || ab.effects, ab.text, 'ability', null, x);
     await this.sba();
     return true;
   }

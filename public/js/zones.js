@@ -33,15 +33,17 @@ export function move(g, o, to, opts = {}) {
   // (the table animates draws, discards, deaths and exiles; it reads the card's spot before it moves)
   g.emit('move', { iid: o.iid, owner: o.owner, from, to, died, token: !!o.token });
   // A permanent sits on its controller's battlefield, which isn't always its owner's
+  // (rules 7) undying and persist granted by another permanent (Mikaeus, the Unhallowed) count as it leaves (603.10a)
+  const granted = from === 'battlefield' && g.rules >= 7 ? { undying: g.has(o, 'undying'), persist: g.has(o, 'persist') } : null;
   const fromArr = from === 'battlefield' ? g.players[o.controller].battlefield : p[from];
   if (Array.isArray(fromArr)) { const i = fromArr.indexOf(o); if (i >= 0) fromArr.splice(i, 1); }
   let snap = null;
   if (from === 'battlefield') {
     // What the permanent was like as it left (undying, persist, modular and "when it leaves" look back at it)
     const ctl = g.players[o.controller];
-    snap = { counters: o.counters, minus: !!o.hadMinus, controller: o.controller, blitzed: !!o.blitzed };
+    snap = { counters: o.counters, minus: !!o.hadMinus, controller: o.controller, blitzed: !!o.blitzed, granted };
     ctl.leftTurn = g.turn;
-    for (const w of o.fx.watch || []) if (w.ev === 'ltb' || (w.ev === 'selfGy' && to === 'graveyard')) g.queue.push({ o, effects: w.effects, label: w.ev === 'ltb' ? 'leaves the battlefield' : 'put into a graveyard', p: ctl });
+    for (const w of [...(o.fx.watch || []), ...(g.rules >= 7 ? o.fx.watch7 || [] : [])]) if (w.ev === 'ltb' || (w.ev === 'selfGy' && to === 'graveyard')) g.queue.push({ o, effects: w.effects, label: w.ev === 'ltb' ? 'leaves the battlefield' : 'put into a graveyard', p: ctl });
     if (died) for (const a of g.attachments(o)) for (const w of a.fx.watch || []) if (w.ev === 'attachedDies') g.queue.push({ o: a, effects: w.effects, label: `${o.card.name} died`, p: g.players[a.controller], trig: { o, p: o.controller } });
     g.fire('leaveBf', { o, p: o.controller, ctl: o.controller, to });
     o.lastCounters = o.counters;
@@ -295,8 +297,10 @@ export function noteDeath(g, o, snap = {}) {
   g.trigger(o, 'dies');
   const p = g.players[o.owner];
   // Undying and persist bring it back with a counter, if it didn't already have one (702.93, 702.79)
-  if (!o.token && o.fx.kw.has('undying') && !(snap.counters > 0)) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: 1 }], label: 'undying', p });
-  else if (!o.token && o.fx.kw.has('persist') && !snap.minus) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: -1 }], label: 'persist', p });
+  const undying = snap.granted ? snap.granted.undying : o.fx.kw.has('undying');
+  const persist = snap.granted ? snap.granted.persist : o.fx.kw.has('persist');
+  if (!o.token && undying && !(snap.counters > 0)) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: 1 }], label: 'undying', p });
+  else if (!o.token && persist && !snap.minus) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: -1 }], label: 'persist', p });
   if (o.fx.kwN?.modular && snap.counters > 0) o.lastCounters = snap.counters;
   if (snap.blitzed) g.queue.push({ o, effects: [{ k: 'draw', n: 1 }], label: 'blitz', p });
   for (const q of g.alive()) for (const w of q.battlefield) {

@@ -486,14 +486,15 @@ export class HumanAgent extends Agent {
   }
 
   // ---------- your turn
-  // A loop you've just played twice in a row: the last k actions (abilities and mana taps) repeat the k before
+  // A loop you've just played twice in a row: the last k actions (abilities and mana taps; with rules 7 also
+  // sacrifices to an outlet and creature spells cast again) repeat the k before
   loopBlock() {
     const a = this.acts;
-    const same = (x, y) => x.k === y.k && x.iid === y.iid && x.i === y.i;
+    const same = (x, y) => x.k === y.k && x.iid === y.iid && x.i === y.i && x.name === y.name && x.zone === y.zone;
     for (let k = 1; k <= 6 && a.length >= 2 * k; k++) {
       const last = a.slice(-k), prev = a.slice(-2 * k, -k);
       // (at least one ability: tapping lands alone isn't a loop)
-      if (last.every((x, i) => same(x, prev[i])) && last.some(x => x.k === 'ab')) return last;
+      if (last.every((x, i) => same(x, prev[i])) && last.some(x => x.k !== 'mana')) return last;
     }
     return null;
   }
@@ -503,9 +504,23 @@ export class HumanAgent extends Agent {
     let done = 0, why = '';
     for (; done < n && !g.over && !p.lost; done++) {
       for (const x of block) {
+        // (rules 7) a creature spell cast again from the zone it was cast from last time (Squee from exile, Gravecrawler)
+        if (x.k === 'cast') {
+          const c = p[x.zone]?.find(y => y.card.name === x.name);
+          if (!c || !g.canCast(p, c)) { why = `${x.name} can't be cast from your ${x.zone} now`; break; }
+          await g.cast(p, c);
+          continue;
+        }
         const o = g.objects.get(x.iid);
         if (!o || o.zone !== 'battlefield' || o.controller !== p.idx) { why = `${o?.card.name || 'a card'} isn't on your battlefield any more`; break; }
         if (x.k === 'mana') { if (o.tapped || !g.tapForMana(p, o)) { why = `${o.card.name} can't be tapped for mana`; break; } continue; }
+        // (rules 7) the same creature sacrificed to the same outlet
+        if (x.k === 'sac') {
+          const v = p.battlefield.find(y => y.card.name === x.name && y.fx.type.creature && (y !== o || !o.fx.sacOutlet?.other));
+          if (!v || !o.fx.sacOutlet || (o.fx.sacOutlet.tap && o.tapped)) { why = `${x.name} can't be sacrificed to ${o.card.name}`; break; }
+          await g.sacTo(p, o, v);
+          continue;
+        }
         const ab = g.abilitiesOf(o)[x.i];
         if (!ab || !g.canActivate(p, o, ab)) { why = `${o.card.name}'s ability can't be paid for or used`; break; }
         await g.activate(p, o, ab);
@@ -638,8 +653,12 @@ export class HumanAgent extends Agent {
       }
       if (lands.includes(o)) await g.playLand(p, o);
       else if (cyclers.includes(o) && (!spells.includes(o) || (await this.ui.ask(`<b>${esc(o.card.name)}</b>: cast it, or ${o.fx.cycling ? 'cycle' : 'channel'} it?`, { buttons: [{ label: 'Cast', value: 'cast', primary: true }, { label: o.fx.cycling ? `Cycle (${o.fx.cycling.cost})` : `Channel (${o.fx.channel.cost})`, value: 'cycle' }] })).button === 'cycle')) await g.cycle(p, o);
-      else if (spells.includes(o)) await this.castWithChoices(g, p, o);
-      else if (graveAbs.includes(o)) await g.useGraveAbility(p, o, g.graveAbility(p, o));
+      else if (spells.includes(o)) {
+        const from = o.zone;
+        const done = await this.castWithChoices(g, p, o);
+        // (rules 7) a creature spell with nothing to choose can be part of a loop (Food Chain + Squee)
+        if (g.rules >= 7 && done && o.fx.type.creature && !o.fx.type.aura && !(o.card.manaCost || '').includes('{X}')) { this.acts.push({ k: 'cast', name: o.card.name, zone: from }); if (this.acts.length > 24) this.acts.shift(); continue; }
+      } else if (graveAbs.includes(o)) await g.useGraveAbility(p, o, g.graveAbility(p, o));
       else if (vehicles.includes(o) && !abilities.includes(o)) {
         const crew = [];
         for (;;) {
@@ -659,7 +678,11 @@ export class HumanAgent extends Agent {
         if (c.obj) await g.equip(p, o, c.obj);
       } else if (o.fx.sacOutlet && outlets.includes(o)) {
         const c = await this.ui.ask(`<b>${esc(o.card.name)}</b>: sacrifice which creature?`, { objs: p.battlefield.filter(x => x.fx.type.creature && (x !== o || !o.fx.sacOutlet.other)), buttons: [{ label: 'Cancel', value: 'cancel' }] });
-        if (c.obj) await g.sacTo(p, o, c.obj);
+        if (c.obj) {
+          const name = c.obj.card.name;
+          await g.sacTo(p, o, c.obj);
+          if (g.rules >= 7) { this.acts.push({ k: 'sac', iid: o.iid, name }); if (this.acts.length > 24) this.acts.shift(); continue; }
+        }
       } else if (abilities.includes(o)) {
         const abs = g.abilitiesOf(o).filter(ab => usable(o, ab));
         let ab = abs[0];
@@ -935,6 +958,35 @@ export class HumanAgent extends Agent {
     if (!lib.length) return null;
     const r = await this.chooseCardsAsync(g, p, lib, 1, `<b>Search your library</b>${e.types?.length ? ` for a ${e.types.join(' or ')} card` : ''}${e.gy ? ' (it goes to your graveyard)' : e.bf ? ' (onto the battlefield)' : e.top ? ' (it goes on top)' : ''}`);
     return r?.[0] || super.pickTutor(g, p, e);
+  }
+  // (rules 7) Demonic Consultation: name a card in your library, or one that isn't there (exiling the whole library)
+  async chooseConsultNameAsync(g, p, src, wantEmpty) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: choose a card name. Cards are exiled from the top until that card is revealed.`, {
+      buttons: [{ label: 'Name a card in my library', value: 'lib', primary: !wantEmpty }, { label: "Name a card that isn't there (exile my whole library)", value: 'none', primary: wantEmpty }],
+    });
+    if (r.button === 'none') return null;
+    const seen = new Set();
+    const lib = p.library.filter(o => !seen.has(o.card.name) && seen.add(o.card.name));
+    const pick = lib.length ? (await this.chooseCardsAsync(g, p, lib, 1, `<b>${esc(src.card.name)}</b>: name a card`))?.[0] : null;
+    return pick?.card.name || null;
+  }
+  // (rules 7) Tainted Pact: take this card, or keep exiling
+  async takePactCardAsync(g, p, c, wantEmpty) {
+    const r = await this.ui.ask(`<b>Tainted Pact</b> exiled <b>${esc(c.card.name)}</b> (${p.library.length} cards left in your library). Put it into your hand?`, {
+      buttons: [{ label: 'Take it', value: 'take', primary: !wantEmpty }, { label: 'Keep exiling', value: 'more', primary: wantEmpty }],
+    });
+    return r.button === 'take';
+  }
+  // (rules 7) Chain of Smog: copy it (choosing a new target), or let it end
+  async chainCopyTarget(g, p, src) {
+    const opts = g.alive().map(q => ({ label: q === p ? 'Copy it, targeting me' : `Copy it, targeting ${q.name}`, value: q.idx }));
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: you may copy it and choose a new target.`, { buttons: [{ label: "Don't copy", value: 'no', primary: true }, ...opts] });
+    return typeof r.button === 'number' ? r.button : null;
+  }
+  // (rules 7) "You may pay {4}. If you do, …" (Nim Deathmantle)
+  async confirmPayAsync(g, p, src, cost, what) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: pay ${esc(cost)} to ${esc(what)}?`, { buttons: [{ label: `Pay ${cost}`, value: 'pay', primary: true }, { label: "Don't pay", value: 'no' }] });
+    return r.button === 'pay';
   }
   async considerDeal(g, q, from, kind = 'truce', rounds = 2) {
     // (plain text of the deal; outside a browser, as in the fuzz tests, the tags are just dropped)

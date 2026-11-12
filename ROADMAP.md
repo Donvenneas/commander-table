@@ -536,6 +536,30 @@ on top of the ones above:
     harmless or read by a whole-line pattern; see the notes below), The Scarab God and Abyssal Harvester copy a
     battlefield creature instead of the exiled card, Twinflame copies nothing, Humility/Opalescence (item 90), a
     target that stops being a creature isn't rechecked on resolution (608.2b).
+- [x] 186. Combo interaction audit (asked 2026-11-11): every combo played with the real cards step by step, not only
+  through the combo shortcut; no fixed limits on legitimate loops; regression tests for each.
+  - Done (rules 7; replays at rules 4, 5 and 6 play exactly as before, golden games for all four): probes of each
+    built-in combo with its cards found these broken and fixed them: (1) Demonic Consultation and Tainted Pact were
+    plain tutors (Oracle/Lab Man only won through the shortcut); they now exile from the top (the AI names a missing
+    card when Oracle is castable or Lab Man/Jace is out; people choose). (2) Curiosity/Ophidian Eye only saw combat
+    damage, so Niv-Mizzet loops never ran; its draw is optional (no self-decking). (3) Kiki-Jiki copies of Zealous
+    Conscripts, Deceiver Exarch, Restoration Angel and Felidar Guardian never untapped/blinked Kiki (Agent.loopEngine;
+    Conscripts on your own permanent untaps it). (4) Splinter Twin granted nothing (fx.grants). (5) Saheeli Rai copied
+    "artifact" only. (6) Isochron Scepter's ability was unread (castImprint casts a copy; copies cease to exist).
+    (7) Rings of Brighthearth didn't copy Basalt Monolith's untap (now +1 mana per loop). (8) Food Chain made 1 mana
+    whatever was exiled; its mana is creature-only; Eternal Scourge/Misthollow Griffin cast from exile. (9) Undying
+    and persist granted by another permanent (Mikaeus + Triskelion) were ignored. (10) Grindstone never repeated;
+    Painter's Servant colors. (11) Chain of Smog copies + magecraft. (12) Grand Architect's {U} and "blue creature"
+    checks (colors were never matched by isA). (13) Temur Sabertooth's bounce, Reveillark's leave trigger, Nim
+    Deathmantle's return. Loops: the 300/600 trigger caps are replaced by detection (same triggers + a game state seen
+    before = draw, 104.4b) and a 20,000 backstop; Exquisite Blood + Sanguine Bond vs 1,000 life now finishes. The
+    human loop shortcut also repeats sacrifices to an outlet and creature spells cast again. New fields stay out of
+    old games' AI values (abilities7, watch7, effects7). Tests: interactions 139 (41 combo tests, 46 shortcut
+    sweeps, loop tests), cards (2 readings changed), golden 24, fuzz 12 + 60, hidden 0, type check 0, self-test 19/19.
+    Still open: Deadeye Navigator and Tandem Lookout soulbond, Worldgorger Dragon + Animate Dead, Scrap Trawler,
+    Dualcaster Mage + Twinflame by hand (Twinflame copies only through the shortcut), Underworld Breach + LED by hand
+    (escape is read; LED + Brain Freeze sequencing untested), optional "may" loops the AI keeps choosing are judged a
+    draw like mandatory ones once the state repeats.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

@@ -56,17 +56,26 @@ export async function flushTriggers(g) {
     // (the last triggers' sources, to tell an endless loop from a long but finite chain)
     (g.trigSig ||= []).push(`${o?.iid}:${t.label || kind}`);
     if (g.trigSig.length > 60) g.trigSig.shift();
-    if (++g.trigCount.n > 600) {
+    // (rules 7) An endless loop of mandatory triggers is a draw (104.4b) as soon as it is recognised: the same few
+    // triggers repeating while the game comes back to the same state. A loop that changes something each time
+    // (life totals, cards drawn) runs until it ends by itself; LOOP_BACKSTOP only guards against an engine fault.
+    if (g.rules >= 7 && g.trigCount.n > 60 && g.periodicTriggers() && g.loopRepeats()) {
+      g.log('The same triggers keep repeating with nothing changing, and no player can stop them: the game is a draw', { kind: 'loss', rule: '104.4b' });
+      g.queue.length = 0;
+      g.finish(null, 'a loop nobody could stop (a draw)');
+      return;
+    }
+    if (++g.trigCount.n > (g.rules >= 7 ? LOOP_BACKSTOP : 600)) {
       // The same few triggers repeating with nothing else happening: a loop of mandatory actions
       // nobody can stop is a draw (104.4b). Otherwise (a huge chain of different triggers) the
       // rest of the waiting triggers are skipped, as before
-      if (g.trigCount.n === 601 && g.periodicTriggers()) {
+      if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 600) + 1 && g.periodicTriggers()) {
         g.log('The same triggers keep repeating and no player can stop them: the game is a draw', { kind: 'loss', rule: '104.4b' });
         g.queue.length = 0;
         g.finish(null, 'a loop nobody could stop (a draw)');
         return;
       }
-      if (g.trigCount.n === 601) g.log('Trigger limit for this turn reached: the rest of the waiting triggers are skipped (a loop would never end)', { kind: 'minor' });
+      if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 600) + 1) g.log('Trigger limit for this turn reached: the rest of the waiting triggers are skipped (a loop would never end)', { kind: 'minor' });
       g.queue.length = 0;
       return;
     }
@@ -81,6 +90,19 @@ export async function flushTriggers(g) {
   }
 }
 
+// (rules 7) Triggers in one turn before the engine gives up on a chain as a fault rather than a loop
+export const LOOP_BACKSTOP = 20000;
+// (rules 7) The game state a loop leaves behind: if it comes back to one it has been in, while the triggers repeat,
+// the loop can never end on its own
+/** @param {import('./engine.js').Game} g */
+export function loopRepeats(g) {
+  const sig = g.players.map(q => [q.lost ? 'x' : q.life, q.poison, q.library.length, q.hand.length, q.graveyard.length, q.exile.length,
+    q.battlefield.map(o => `${o.card.name}${o.tapped ? 't' : ''}${o.counters}${o.damage}`).join(','), (q.pool || []).length].join('/')).join('|');
+  if (g.loopStates?.turn !== g.turn) g.loopStates = { turn: g.turn, seen: new Set() };
+  if (g.loopStates.seen.has(sig)) return true;
+  g.loopStates.seen.add(sig);
+  return false;
+}
 // The last 60 triggers are one short pattern (period 1 to 6) repeated over and over
 /** @param {import('./engine.js').Game} g */
 export function periodicTriggers(g) {
@@ -136,8 +158,9 @@ export function fire(g, ev, info = {}) {
       if (!r) continue;
       // "Whenever one or more …" triggers once for a batch of events still waiting to resolve
       if (w.once && g.queue.some(it => it.w === w && it.o === s)) continue;
-      if (++g.trigCount.n > 300) {
-        if (g.trigCount.n === 301) g.log('Trigger limit for this turn reached: further triggers are skipped (a loop would never end)', { kind: 'minor' });
+      // (rules 7: no fixed cap on legitimate loops; flushTriggers tells an endless mandatory loop from a long chain)
+      if (++g.trigCount.n > (g.rules >= 7 ? LOOP_BACKSTOP : 300)) {
+        if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 300) + 1) g.log('Trigger limit for this turn reached: further triggers are skipped (a loop would never end)', { kind: 'minor' });
         return;
       }
       g.queue.push({ o: s, effects: w.effects, label: g.watchLabel(ev, info), p: q, trig: r === true ? info : r, w, ev });
@@ -257,7 +280,9 @@ export function watchMatches(g, w, s, q, info) {
       return info.o.controller === q.idx && (!w.other || info.o !== s) && (!w.commander || info.o.isCommander) && g.fits(info.o, w.what, w.with);
     case 'countered': return info.p === q.idx;
     case 'allyCombat': return info.o.controller === q.idx && (!w.other || info.o !== s) && (!w.commander || info.o.isCommander) && g.fits(info.o, w.what, w.with);
-    case 'attachedAttacks': case 'attachedDamage': return s.attachedTo === info.o;
+    case 'attachedAttacks': return s.attachedTo === info.o;
+    // (rules 7) Curiosity: "deals damage to an opponent" counts noncombat damage too, but only to an opponent
+    case 'attachedDamage': return s.attachedTo === info.o && (!info.noncombat || (!!w.anyDamage && info.target !== q.idx));
     case 'anyCast':
       if (w.who && !g.whoOk(w, q, info.p)) return false;
       if (w.nth && info.nth !== w.nth) return false;

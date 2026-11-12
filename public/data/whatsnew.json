@@ -1,5 +1,5 @@
 {
- "version": "1.20.0",
+ "version": "1.21.0",
  "round": "Round 5",
  "items": [
   {
@@ -85,6 +85,12 @@
    "section": "Rules engine and card coverage",
    "title": "Card debugging pass (asked 2026-11-11): find cards that don't do what their text says, fix the cause, and test each fix with a small board.",
    "done": "new tests/interactions.mjs (in CI) builds boards from card names (tests/scenario.mjs; extra card data in tests/interaction-cards.json) — 51 tests."
+  },
+  {
+   "n": 186,
+   "section": "Rules engine and card coverage",
+   "title": "Combo interaction audit (asked 2026-11-11): every combo played with the real cards step by step, not only through the combo shortcut; no fixed limits on legitimate loops; regression tests for each.",
+   "done": "probes of each built-in combo with its cards found these broken and fixed them: (1) Demonic Consultation and Tainted Pact were plain tutors (Oracle/Lab Man only won through the shortcut); they now exile from the top (the AI names a missing "
   },
   {
    "n": 101,

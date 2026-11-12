@@ -67,7 +67,20 @@ export async function doEffect(g, p, src, e, ctx, i) {
         // (Folio of Fancies: as many as the cards in their hand)
         let n2 = e.n?.dyn === 'theirHand' ? q.hand.length * (ctx.copies || 1) : e.n?.dyn === 'theirGy' ? q.graveyard.length : n;
         for (const r of g.opponents(q)) for (const s of r.battlefield) if (s.fx.millMore) n2 = s.fx.millMore.double ? n2 * 2 : n2 + s.fx.millMore.plus;
-        const k = Math.min(n2, q.library.length);
+        let k = Math.min(n2, q.library.length);
+        // (rules 7) Grindstone: repeat while the two cards milled share a color (Painter's Servant makes them all share one)
+        if (g.rules >= 7 && e.repeatShared) {
+          k = 0;
+          for (let more = true; more && q.library.length;) {
+            const two = q.library.slice(-2).reverse();
+            for (const c of two) g.move(c, 'graveyard');
+            k += two.length;
+            const [a, b] = two.map(c => g.colorsOf(c));
+            more = two.length === 2 && a.some(c => b.includes(c));
+          }
+          g.log(`${g.pn(q)} mills ${k} card${k === 1 ? '' : 's'}${q.library.length ? '' : ', emptying their library'} (${S}, repeating while the pair shares a color)`, { kind: k >= 20 ? 'removal' : 'minor', rule: '701.13a' });
+          continue;
+        }
         for (let j = 0; j < k; j++) g.move(q.library[q.library.length - 1], e.exile ? 'exile' : 'graveyard');
         g.log(`${g.pn(q)} mills ${k} card${k === 1 ? '' : 's'}${q.library.length ? '' : ', emptying their library'} (${S})`, { kind: k >= 20 ? 'removal' : 'minor', rule: '701.13a' });
       }
@@ -79,9 +92,12 @@ export async function doEffect(g, p, src, e, ctx, i) {
       const ok = kinds[e.what] || (() => true);
       // "untap target …": the most useful ones (mana sources first)
       let list = p.battlefield.filter(o => o.tapped && ok(o));
+      // (rules 7) the AI untaps the combo loop's engine first (Kiki-Jiki with a Deceiver Exarch copy)
+      const eng = g.rules >= 7 && !p.agent.chooseCostAsync && p.agent.loopEngine?.(g, p, src);
+      if (eng && list.includes(eng)) list = [eng, ...list.filter(o => o !== eng)];
       // (you choose which ones in your seat; the AI takes the best mana sources)
       if (e.n && list.length > e.n) list = p.agent.chooseCostAsync ? await p.agent.chooseCostAsync(g, p, list, e.n, `${S}: choose ${e.n === 1 ? 'a permanent' : `up to ${e.n} permanents`} to untap`)
-        : list.sort((a, b) => (b.fx.mana?.amount || 0) - (a.fx.mana?.amount || 0)).slice(0, e.n);
+        : eng && list[0] === eng ? list.slice(0, e.n) : list.sort((a, b) => (b.fx.mana?.amount || 0) - (a.fx.mana?.amount || 0)).slice(0, e.n);
       for (const o of list) o.tapped = false;
       if (list.length) g.log(`${S} untaps ${list.length === 1 ? g.cn(list[0]) : `${list.length} of ${g.pn(p)}'s permanents`}`, { kind: 'minor' });
       break;
@@ -146,6 +162,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
     }
     case 'steal': {
       const o = tgt?.obj;
+      // (rules 7) Zealous Conscripts on your own permanent: you already control it, but it still untaps and gains haste
+      if (o && o.controller === p.idx && e.temp && g.rules >= 7 && o.zone === 'battlefield') { Object.assign(o, { tapped: false, tempKw: new Set([...(o.tempKw || []), 'haste']) }); g.log(`${S} untaps ${g.cn(o)}`, { kind: 'minor' }); break; }
       if (!o || o.controller === p.idx) break;
       const from = g.players[o.controller];
       from.battlefield.splice(from.battlefield.indexOf(o), 1);
@@ -181,6 +199,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
         const cards = (await q.agent.chooseDiscard(g, q, Math.min(n, q.hand.length))) || [];
         g.discard(q, cards);
       }
+      // (rules 7) Chain of Smog: the player who discarded may copy it, and each copy triggers magecraft
+      if (g.rules >= 7 && e.chainCopy && victims.length === 1) await chainCopies(g, victims[0], src, e);
       break;
     }
     case 'copyToken':
@@ -200,7 +220,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'addMana':
       // ("RG": one mana of either color, Orcish Lumberjack)
-      for (const c of e.syms) p.pool.push({ colors: c === '*' ? [...COLORS] : c.split('') });
+      for (const c of e.syms) p.pool.push({ colors: c === '*' ? [...COLORS] : c.split(''), ...(g.rules >= 7 && e.only ? { only: e.only } : {}) });
       g.log(`${g.pn(p)} adds ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`, { kind: 'minor' });
       break;
     case 'sacSelf':
@@ -237,7 +257,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     // An X draw never decks its own caster (matters with infinite mana)
-    case 'draw': g.draw(p, e.n === 'X' ? Math.min(X(e.n), Math.max(0, p.library.length - 1)) : X(e.n)); break;
+    // (rules 7) "you may draw a card" (Curiosity): nobody draws from an empty library on purpose without Laboratory Maniac
+    case 'draw': if (g.rules >= 7 && e.may && !p.library.length && !p.battlefield.some(o => o.fx.labMan)) break; g.draw(p, e.n === 'X' ? Math.min(X(e.n), Math.max(0, p.library.length - 1)) : X(e.n)); break;
     case 'gain': { const n = g.lifeGain(p, X(e.n)); p.life += n; g.emit('life', { p: p.idx, d: n }); g.log(`${g.pn(p)} gains ${n} life (${S})`, { kind: 'minor' }); break; }
     case 'drain': {
       const n = X(e.n) * (e.times || 1);
@@ -346,6 +367,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
     case 'treasure': { const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createTreasure(p, src); g.log(`${g.pn(p)} creates ${n} Treasure`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, 'treasure', src); break; }
     case 'rampLand': await g.fetchLands(p, e, src); break;
     case 'tutor': {
+      // (rules 7) Demonic Consultation and Tainted Pact exile from the top instead of searching (combo audit)
+      if (g.rules >= 7 && (e.consult || e.pact)) { await exileUntil(g, p, src, e); break; }
       g.fire('search', { p: p.idx });
       // Transmute: a card with the same mana value
       let c = e.sameMv ? (await g.pickCards(p, p.library.filter(x => (x.card.cmc || 0) === (src.card.cmc || 0)), 1, `${S}: choose a card with mana value ${src.card.cmc || 0}`))[0]
@@ -471,6 +494,62 @@ function exileFromGraveyard(g, p, src, types) {
   }
   g.log(`${g.cn(src)}: no ${types.join(' or ')} card in a graveyard`, { kind: 'minor' });
   return false;
+}
+// (rules 7) Demonic Consultation (e.consult: the number exiled first) and Tainted Pact (e.pact): cards come off the top
+// one at a time, so naming a card that isn't there (or taking none) exiles the whole library, for Thassa's Oracle,
+// Laboratory Maniac and Jace. The AI only asks what it already knows: its own library's contents, never their order.
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} src @param {any} e */
+async function exileUntil(g, p, src, e) {
+  const S = g.cn(src);
+  const wantEmpty = !!p.agent.wantsEmptyLibrary?.(g, p, src);
+  const top = () => p.library[p.library.length - 1];
+  if (e.consult) {
+    // (null: a name that isn't in the library)
+    const name = p.agent.chooseConsultNameAsync ? await p.agent.chooseConsultNameAsync(g, p, src, wantEmpty)
+      : wantEmpty ? null : p.agent.pickTutor(g, p, { types: [] })?.card.name || null;
+    g.log(`${S}: ${g.pn(p)} names ${name ? esc(name) : "a card that isn't in their library"}`, { kind: 'minor' });
+    let n = 0, found = null;
+    for (let k = 0; k < e.consult && p.library.length; k++) { g.move(top(), 'exile'); n++; }
+    while (p.library.length) {
+      if (name && top().card.name === name) { found = top(); break; }
+      g.move(top(), 'exile'); n++;
+    }
+    if (found) g.move(found, 'hand');
+    g.log(`${S} exiles ${n} card${n === 1 ? '' : 's'}${found ? ` and puts ${g.cn(found)} into ${g.pn(p)}'s hand` : ` — ${g.pn(p)}'s library is now empty`}`, { kind: found ? 'minor' : 'removal' });
+    return;
+  }
+  const seen = new Set();
+  let n = 0;
+  while (p.library.length && !g.over) {
+    const c = top();
+    g.move(c, 'exile');
+    n++;
+    if (seen.has(c.card.name)) { g.log(`${S} exiles a second ${g.cn(c)} and stops (${n} cards exiled)`, { kind: 'minor' }); return; }
+    seen.add(c.card.name);
+    const take = p.agent.takePactCardAsync ? await p.agent.takePactCardAsync(g, p, c, wantEmpty) : !!p.agent.takePactCard?.(g, p, c, wantEmpty);
+    if (take) { g.move(c, 'hand'); g.log(`${S}: ${g.pn(p)} puts ${g.cn(c)} into their hand (${n} card${n === 1 ? '' : 's'} exiled)`, { kind: 'minor' }); return; }
+  }
+  g.log(`${S} exiles ${n} card${n === 1 ? '' : 's'} — ${g.pn(p)}'s library is now empty`, { kind: 'removal' });
+}
+// (rules 7) Chain of Smog: the player who discarded may copy it (choosing a new target), again and again. Copying an
+// instant or sorcery triggers magecraft (Professor Onyx, Witherbloom Apprentice), which is the combo. The player decides
+// each time; the AI stops when a copy no longer changes anyone's life total.
+/** @param {import('./engine.js').Game} g @param {any} q @param {any} src @param {any} e */
+async function chainCopies(g, q, src, e) {
+  while (!g.over && !q.lost) {
+    const t = q.agent.chainCopyTarget ? await q.agent.chainCopyTarget(g, q, src, e) : null;
+    if (t == null || g.players[t]?.lost) return;
+    const before = g.players.map(x => x.life).join();
+    g.log(`${g.pn(q)} copies ${g.cn(src)}, targeting ${g.pn(g.players[t])}`, { kind: 'cast', p: q.idx, rule: '707.10' });
+    for (const s of q.battlefield) if (s.fx.onCast && ['instant or sorcery', 'any', src.fx.type.instant ? 'instant' : 'sorcery'].includes(s.fx.onCast.what) && /cast or copy/.test(s.card.text || '')) g.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${src.card.name} was copied`, p: q, trig: { o: src, p: q.idx } });
+    await g.flushTriggers();
+    await g.sba();
+    const v = g.players[t];
+    if (g.over || v.lost) return;
+    g.discard(v, (await v.agent.chooseDiscard(g, v, Math.min(e.n, v.hand.length))) || []);
+    q.chainNoProgress = g.players.map(x => x.life).join() === before;
+    q = v;
+  }
 }
 export function extraTokens(g, p, kind, src) {
   for (const s of p.battlefield) {
@@ -744,8 +823,11 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'addManaN': {
-      const n = Math.min(X(e.n), 30);
-      for (let k = 0; k < n; k++) p.pool.push({ colors: e.color ? [e.color] : [...COLORS] });
+      // (rules 7) Food Chain: X counts the exiled creature's mana value (the "1 plus" is the {any} after it),
+      // and the mana is for creature spells only
+      const r7 = g.rules >= 7 && e.exiledMv;
+      const n = r7 ? p.lastExiledMv || 0 : Math.min(X(e.n), 30);
+      for (let k = 0; k < n; k++) p.pool.push({ colors: e.color ? [e.color] : [...COLORS], ...(r7 && e.only ? { only: e.only } : {}) });
       if (n) g.log(`${g.pn(p)} adds ${n} mana (${S})`, { kind: 'minor' });
       break;
     }
@@ -769,6 +851,23 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'payFor': {
+      // (rules 7) Nim Deathmantle: pay to return the creature that died to the battlefield, then attach to it
+      if (g.rules >= 7 && e.returnTrig) {
+        const card = ctx.trig?.o;
+        const plan = card?.zone === 'graveyard' && g.planPayment(p, parseCost(e.cost), 0);
+        if (!plan) break;
+        const c = parseCost(e.cost);
+        const worth = p.agent.value(g, card) + card.fx.etb.reduce((s, x) => s + p.agent.effectValue(g, p, card, x, false), 0) + (card.fx.etb.some(x => x.k === 'untapAll' && x.what === 'lands') ? 4 : 0);
+        const yes = p.agent.confirmPayAsync ? await p.agent.confirmPayAsync(g, p, src, e.cost, `return ${card.card.name} to the battlefield`) : worth > (c.generic + c.pips.length) * 0.6;
+        if (!yes) break;
+        g.commitPayment(p, plan);
+        g.log(`${g.pn(p)} pays ${esc(e.cost)} (${S})`, { kind: 'minor' });
+        g.move(card, 'battlefield', { under: p.idx });
+        g.log(`${S} returns ${g.cn(card)} to the battlefield`, { kind: 'minor' });
+        if (src.zone === 'battlefield') { src.attachedTo = card; g.log(`${S} is attached to ${g.cn(card)}`, { kind: 'minor' }); }
+        g.trigger(card, 'etb');
+        break;
+      }
       const plan = g.planPayment(p, parseCost(e.cost), 0);
       const worth = e.effects.reduce((s, x) => s + p.agent.effectValue(g, p, src, x, false), 0);
       const c = parseCost(e.cost);
@@ -894,7 +993,46 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     case 'untapSelf':
       if (src.zone === 'battlefield' && src.tapped) { src.tapped = false; g.log(`${S} untaps`, { kind: 'minor' }); }
+      // (rules 7) Basalt Monolith + Rings of Brighthearth: with the copy resolved first, the untapped Monolith can
+      // be tapped for mana again (a mana ability, while the original still waits on the stack)
+      if (g.rules >= 7 && e.retap && !src.tapped && src.fx.mana && p.agent.retapForMana?.(g, p, src) !== false) g.tapForMana(p, src);
       break;
+    // ---- rules 7 (combo audit)
+    case 'castImprint': {
+      // Isochron Scepter: copy the imprinted card and cast the copy without paying its mana cost
+      if (g.rules < 7) break;
+      const card = src.imprintedObj?.card;
+      if (!card) { g.log(`${S} has nothing imprinted`, { kind: 'minor' }); break; }
+      const copy = g.mk(card, p, { token: true });
+      copy.zone = 'copy';
+      copy.spellCopy = true;
+      g.log(`${g.pn(p)} copies ${g.cn(copy)} (${S})`, { kind: 'minor', rule: '707.12' });
+      await g.cast(p, copy, { mode: { alt: 'free' } });
+      break;
+    }
+    case 'bounceOther': {
+      // Temur Sabertooth: return another creature you control to its owner's hand
+      if (g.rules < 7) break;
+      const pool = p.battlefield.filter(o => o !== src && g.isA(o, e.what || 'creature'));
+      const pick = p.agent.chooseCardsAsync ? (await g.pickCards(p, pool, 1, `${S}: return another creature you control to its owner's hand`))[0]
+        : [...pool].sort((a, b) => (b.fx.etb.length ? 1 : 0) - (a.fx.etb.length ? 1 : 0) || (a.token ? 1 : 0) - (b.token ? 1 : 0) || (a.card.cmc || 0) - (b.card.cmc || 0))[0];
+      if (pick) { g.move(pick, 'hand'); g.log(`${S} returns ${g.cn(pick)} to ${pick.token ? 'nowhere (a token)' : 'its owner\'s hand'}`, { kind: 'minor' }); }
+      break;
+    }
+    case 'returnLowPower': {
+      // Reveillark: up to two creature cards with power 2 or less from your graveyard to the battlefield
+      const pool = p.graveyard.filter(o => o.fx.type.creature && o !== src && g.basePower(o.card) <= e.maxPower);
+      const picks = await g.pickCards(p, pool, e.n, `${S}: return up to ${e.n} creature cards with power ${e.maxPower} or less`);
+      for (const o of picks) { g.move(o, 'battlefield'); g.log(`${S} returns ${g.cn(o)} to the battlefield`, { kind: 'minor' }); g.trigger(o, 'etb'); }
+      break;
+    }
+    case 'makeColor': {
+      // Grand Architect: target artifact creature becomes blue until end of turn
+      const pool = p.battlefield.filter(o => g.isA(o, e.what) && !g.colorsOf(o).includes(e.color));
+      const o = tgt?.obj && pool.includes(tgt.obj) ? tgt.obj : [...pool].sort((a, b) => g.abilitiesOf(b).length - g.abilitiesOf(a).length)[0];
+      if (o) { o.tempColor = { turn: g.turn, color: e.color }; g.log(`${g.cn(o)} becomes ${{ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' }[e.color]} until end of turn (${S})`, { kind: 'minor' }); }
+      break;
+    }
     case 'evade': {
       const o = e.self ? src : tgt?.obj;
       if (o?.zone === 'battlefield') { o.tempKw = new Set([...(o.tempKw || []), 'unblockable']); g.log(`${g.cn(o)} can't be blocked this turn`, { kind: 'minor' }); }
@@ -1509,6 +1647,8 @@ export function damagePlayer(g, q, n, src, combat) {
   if (g.kingdoms && !g.has(src, 'infect') && !g.noPrevent()) n = K.damageHook(g, q, n, src, combat);
   if (n <= 0 || q.lost) return;
   if (!combat && sc != null && sc !== q.idx) g.fire('noncombat', { o: src, p: sc, n, target: q.idx });
+  // (rules 7) Curiosity on Niv-Mizzet: noncombat damage to an opponent by the enchanted creature
+  if (!combat && g.rules >= 7 && sc != null && sc !== q.idx && src?.zone === 'battlefield') g.fire('attachedDamage', { o: src, p: sc, n, target: q.idx, noncombat: true });
   // Infect deals damage to players as poison counters (702.90b); toxic adds poison on top (702.164)
   if (g.has(src, 'infect')) { q.poison += n; g.log(`${g.pn(q)} gets ${n} poison counter${n === 1 ? '' : 's'} (${q.poison}/10)`, { kind: 'damage', rule: '702.90b' }); }
   else { q.life -= n; g.emit('life', { p: q.idx, d: -n }); }

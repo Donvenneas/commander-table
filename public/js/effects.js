@@ -1830,7 +1830,80 @@ export function analyzeCard(card) {
     if (!fx.mana && produced.length) fx.mana = { amount: 1, colors: produced, sac: false };
     if (!produced.length && /search your library for/.test(t)) fx.fetch = true;
   }
+  comboReadings(t, fx);
   return fx;
+}
+
+// Combo pieces read in full (rules 7, the combo audit). Everything added here is a field only rules 7 code looks at
+// (abilities7, watch7, effects7, grants and flags on effects), so games at rules 6 and older play exactly as before,
+// and the AI's card values (which count abilities and triggers) don't change for them either.
+function comboReadings(t, fx) {
+  let m;
+  const read = re => { fx.unread = fx.unread.filter(u => !re.test(u)); };
+  // Demonic Consultation: name a card, exile six, then reveal until the named card (all of it if it isn't there)
+  if ((m = t.match(/choose a card name\. exile the top (\w+) cards of your library, then reveal cards from the top of your library until you reveal a card with the chosen name/))) {
+    for (const e of fx.spell) if (e.k === 'tutor') e.consult = num(m[1]);
+  }
+  // Tainted Pact: exile one at a time; take one, or stop at the first repeated name
+  if (/exile the top card of your library\. you may put that card into your hand unless it has the same name as another card exiled this way/.test(t)) {
+    for (const e of fx.spell) if (e.k === 'tutor') e.pact = true;
+  }
+  // Food Chain: X is 1 plus the exiled creature's mana value, and the mana is only for creature spells
+  if (/add x mana of any one color, where x is 1 plus the exiled creature's mana value/.test(t)) {
+    const only = /spend this mana only to cast creature spells/.test(t) ? 'creatureSpell' : null;
+    for (const ab of fx.abilities) if (ab.costs?.exileOwn && ab.effects.some(e => e.k === 'addManaN' && e.n === 'X')) {
+      for (const e of ab.effects) {
+        if (e.k === 'addManaN') e.exiledMv = true;
+        if (only && (e.k === 'addManaN' || e.k === 'addMana')) e.only = only;
+      }
+    }
+  }
+  // Eternal Scourge, Misthollow Griffin: "You may cast ~ from exile."
+  if (/^you may cast ~ from exile\.?$/m.test(t)) { fx.exileCast = true; read(/^you may cast ~ from exile/); }
+  // Isochron Scepter: copy the imprinted instant and cast the copy for free
+  if (fx.imprint && (m = t.match(/^((?:\{[^}]+\})+), \{t\}: you may copy the exiled card\. if you do, you may cast the copy without paying its mana cost\.?$/m))) {
+    (fx.abilities7 ||= []).push({ cost: m[1].toUpperCase(), tap: true, effects: [{ k: 'castImprint' }], text: 'copy the exiled card and cast the copy without paying its mana cost.', sorcery: false,
+      costs: { mana: m[1].toUpperCase(), tap: true, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null }, sacSelf: false, life: 0, discard: 0, minRules: 7 });
+    read(/you may copy the exiled card/);
+  }
+  // Splinter Twin and kin: the enchanted creature gets "{T}: Create a token that's a copy of this creature…"
+  if ((m = t.match(/^enchanted creature has "\{t\}: create a token that's a copy of ~, except it has haste\. exile that token at the beginning of the next end step\.?"\.?$/m))) {
+    fx.grants = [{ cost: '', tap: true, effects: [{ k: 'copyToken', of: '~', haste: true, temp: 'exile' }], text: "create a token that's a copy of this creature with haste (exiled at the next end step).", sorcery: false,
+      costs: { mana: '', tap: true, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null }, sacSelf: false, life: 0, discard: 0, minRules: 7 }];
+    read(/^enchanted creature has "\{t\}: create a token that's a copy/);
+  }
+  // Temur Sabertooth: the bounce half of "return another creature you control to its owner's hand. If you do, …"
+  if (/you may return another creature you control to its owner's hand\. if you do, ~ gains indestructible/.test(t)) {
+    for (const ab of fx.abilities) if (/return another creature you control/.test(ab.text)) ab.effects7 = [{ k: 'bounceOther', what: 'creature' }, ...ab.effects];
+  }
+  // Reveillark: "When ~ leaves the battlefield, return up to two target creature cards with power 2 or less…"
+  if ((m = t.match(/^when ~ leaves the battlefield, return up to (\w+) target creature cards with power (\d+) or less from your graveyard to the battlefield\.?$/m))) {
+    (fx.watch7 ||= []).push({ ev: 'ltb', self: true, effects: [{ k: 'returnLowPower', n: num(m[1]), maxPower: +m[2] }] });
+    read(/^when ~ leaves the battlefield, return up to/);
+  }
+  // Grand Architect: "{U}: Target artifact creature becomes blue until end of turn."
+  if ((m = t.match(/^((?:\{[^}]+\})+): target artifact creature becomes blue until end of turn\.?$/m))) {
+    (fx.abilities7 ||= []).push({ cost: m[1].toUpperCase(), tap: false, effects: [{ k: 'makeColor', color: 'U', what: 'artifact creature' }], text: 'target artifact creature becomes blue until end of turn.', sorcery: false,
+      costs: { mana: m[1].toUpperCase(), tap: false, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null }, sacSelf: false, life: 0, discard: 0, minRules: 7 });
+    read(/becomes blue until end of turn/);
+  }
+  // Curiosity, Ophidian Eye: any damage to an opponent counts, not only combat damage
+  if (/^whenever enchanted creature deals damage to an opponent/m.test(t)) {
+    for (const w of fx.watch) if (w.ev === 'attachedDamage') {
+      w.anyDamage = true;
+      if (/deals damage to an opponent, you may draw a card/.test(t)) for (const e of w.effects) if (e.k === 'draw') e.may = true;
+    }
+  }
+  // Painter's Servant: everything is also the chosen color
+  if (/all cards that aren't on the battlefield, spells, and permanents are the chosen color in addition to their other colors/.test(t)) { fx.paintAll = true; read(/are the chosen color in addition/); }
+  // Grindstone: repeat while the two milled cards share a color
+  if (/if two cards that share a color were milled this way, repeat this process/.test(t)) for (const ab of fx.abilities) for (const e of ab.effects) if (e.k === 'mill') e.repeatShared = true;
+  // Nim Deathmantle: "you may pay {4}. If you do, return that card to the battlefield and attach ~ to it"
+  if (/you may pay \{\d+\}\. if you do, return that card to the battlefield and attach ~ to it/.test(t)) for (const w of fx.watch) for (const e of w.effects) if (e.k === 'payFor') e.returnTrig = true;
+  // Saheeli Rai: "a copy of target artifact or creature you control" (read as artifact only before rules 7)
+  if (/create a token that's a copy of target artifact or creature you control/.test(t)) for (const a of fx.pw) for (const e of a.effects) if (e.k === 'copyToken') e.what7 = 'artifact or creature';
+  // Chain of Smog and the other chain spells: the target player may copy it
+  if (/^target player discards two cards\. that player may copy (?:this spell|~) and may choose a new target for that copy\.?$/m.test(t)) for (const e of fx.spell) if (e.k === 'discard') e.chainCopy = true;
 }
 
 // How a counted amount reads: 3, X, "your devotion to B", "# creatures you control"
@@ -1920,6 +1993,10 @@ const EFFECT_TEXT = {
   modal: e => `choose ${e.n >= 99 ? 'any' : e.n}: ${e.modes.map(list).join(' / ')}`,
   doubleCounters: e => `double the +1/+1 counters on ${e.on}`,
   returnSelfHand: () => 'return it to hand',
+  castImprint: () => 'copy the imprinted card and cast the copy free',
+  bounceOther: e => `return another ${e.what} you control to hand`,
+  returnLowPower: e => `return up to ${e.n} creature cards with power ${e.maxPower} or less from your graveyard to the battlefield`,
+  makeColor: e => `a ${e.what} you control becomes ${{ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' }[e.color]} this turn`,
   fog: () => 'prevent all combat damage this turn',
   win: () => 'win the game',
   exileSelf: () => 'exile this',
@@ -2046,7 +2123,13 @@ export function describeFx(fx) {
   if (fx.attachBuff) out.push(`attached: ${fx.attachBuff.p >= 0 ? '+' : ''}${fx.attachBuff.p}/${fx.attachBuff.t >= 0 ? '+' : ''}${fx.attachBuff.t}${fx.attachBuff.kw.length ? ' ' + fx.attachBuff.kw.join(', ') : ''}`);
   if (fx.pacify) out.push("enchanted creature can't attack");
   if (fx.equip) out.push(`equip ${fx.equip}`);
-  for (const a of fx.abilities) out.push(`ability ${a.costs ? costText(a.costs) : `${a.cost}${a.tap ? '{T}' : ''}`}: ${list(a.effects)}`);
+  for (const a of fx.abilities) out.push(`ability ${a.costs ? costText(a.costs) : `${a.cost}${a.tap ? '{T}' : ''}`}: ${list(a.effects7 || a.effects)}`);
+  // (rules 7, the combo audit)
+  for (const a of fx.abilities7 || []) out.push(`ability ${costText(a.costs)}: ${list(a.effects)}`);
+  for (const a of fx.grants || []) out.push(`enchanted creature has: ${costText(a.costs)}: ${list(a.effects)}`);
+  for (const w of fx.watch7 || []) out.push(`when it leaves the battlefield: ${list(w.effects)}`);
+  if (fx.exileCast) out.push('can be cast from exile');
+  if (fx.paintAll) out.push('every card, spell and permanent is also the chosen color');
   if (fx.addCost) out.push(`additional cost: ${costText(fx.addCost)}`);
   for (const a of fx.pw) out.push(`[${a.cost > 0 ? '+' : ''}${a.cost}] ${a.effects.length ? list(a.effects) : '(not modelled)'}`);
   for (const k of ['unblockable', 'cantblock']) if (fx.kw.has(k)) out.push(k === 'unblockable' ? "can't be blocked" : "can't block");

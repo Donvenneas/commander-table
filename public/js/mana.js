@@ -235,6 +235,7 @@ export function spellIs(g, o, what) {
 // How many permanents p controls of a type or subtype ("creature", "elf", "artifact creature")
 /** @param {import('./engine.js').Game} g */
 export function countControlled(g, p, what) { return p.battlefield.filter(o => g.isA(o, what)).length; }
+const COLOR_WORDS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 /** @param {import('./engine.js').Game} g */
 export function isA(g, o, what) {
   if (!what || what === 'permanent' || what === 'any') return true;
@@ -244,6 +245,8 @@ export function isA(g, o, what) {
     if (w === 'nonland') return !o.fx.type.land;
     if (w === 'noncreature') return !o.fx.type.creature;
     if (w in o.fx.type) return o.fx.type[w];
+    // (rules 7) colors: "blue creature" (Grand Architect), "white permanent"…
+    if (g.rules >= 7 && w in COLOR_WORDS) return g.colorsOf(o).includes(COLOR_WORDS[w]);
     return o.fx.subtypes.includes(w) || o.fx.subtypes.includes(w.replace(/s$/, '')) || (o.fx.type.creature && (o.fx.kw.has('changeling') || o.fx.allTypes || !!g.players[o.controller]?.battlefield.some(s => s.fx.allTypesTeam)));
   });
 }
@@ -359,7 +362,7 @@ export function castModeRaw(g, p, o) {
     if (o.fx.foretell) return g.planPayment(p, parseCost(o.fx.foretell), 0) ? { alt: 'foretold' } : null;
     return g.active === p.idx && (g.phase === 'main1' || g.phase === 'main2') && !g.stack.length ? { alt: 'free' } : null;
   }
-  if (o.zone === 'exile' && !(o.mayPlay && o.mayPlay.p === p.idx && o.mayPlay.until >= g.turn) && !(o.fx.gyCastSelf?.exile && o.owner === p.idx)) return null;
+  if (o.zone === 'exile' && !(o.mayPlay && o.mayPlay.p === p.idx && o.mayPlay.until >= g.turn) && !(o.fx.gyCastSelf?.exile && o.owner === p.idx) && !(g.rules >= 7 && o.fx.exileCast && o.owner === p.idx)) return null;
   // Urza, Lord High Artificer: the exiled card may be played without paying its mana cost
   if (o.zone === 'exile' && o.mayPlay?.free && o.mayPlay.p === p.idx) return { alt: 'free' };
   // Lavinia: opponents can't cast noncreature spells costing more than their land count
