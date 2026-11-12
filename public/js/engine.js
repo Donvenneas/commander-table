@@ -21,7 +21,7 @@ export const PHASES = [
 export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
-export const RULES = 8;
+export const RULES = 9;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -554,7 +554,7 @@ export class Game {
   entered(o) { return zones.entered(this, o); }
   leaveBattlefield(o) { return zones.leaveBattlefield(this, o); }
   draw(p, n = 1, quiet = false) { return zones.draw(this, p, n, quiet); }
-  destroy(o) { return zones.destroy(this, o); }
+  destroy(o, noRegen = false) { return zones.destroy(this, o, noRegen); }
   // A regeneration shield (701.15): instead of being destroyed, tap it, remove its damage and take it out of combat
   regenerate(o) { return zones.regenerate(this, o); }
   // A creature died (700.4): its own "when ~ dies" and every "whenever a creature dies" watcher trigger
@@ -668,8 +668,9 @@ export class Game {
       await this.sba();
       return true;
     }
-    this.move(o, 'battlefield', { tapped: o.fx.entersTapped });
-    this.log(`${this.pn(p)} plays ${this.cn(o)}${o.fx.entersTapped ? ' (tapped)' : ''}`, { kind: 'land' });
+    const payLife = await this.askPayForLand(p, o);
+    this.move(o, 'battlefield', { tapped: o.fx.entersTapped, payLife });
+    this.log(`${this.pn(p)} plays ${this.cn(o)}${(this.rules >= 9 ? o.tapped : o.fx.entersTapped) ? ' (tapped)' : ''}`, { kind: 'land' });
     this.fire('landPlay', { o, p: p.idx });
     await this.beat(0.6);
     if (o.fx.fetch) {
@@ -1007,7 +1008,7 @@ export class Game {
     let extort = 0;
     for (const s of p.battlefield) {
       if (s.fx.kw.has('prowess') && !t.creature) { s.tempP++; s.tempT++; this.log(`${this.cn(s)} gets +1/+1 (prowess)`, { kind: 'minor', rule: '702.108a' }); }
-      if (s.fx.onCast && (!s.fx.onCast.notHand || o.castFrom !== 'hand') && (!s.fx.onCast.fromHand || o.castFrom === 'hand') && (!s.fx.onCast.minPower || this.basePower(o.card) >= s.fx.onCast.minPower) && (s.fx.onCast.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[s.fx.onCast.what] ?? this.spellIs(o, s.fx.onCast.what)) && s !== o) this.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
+      if (s.fx.onCast && (!s.fx.onCast.notHand || o.castFrom !== 'hand') && (!s.fx.onCast.fromHand || o.castFrom === 'hand') && (!s.fx.onCast.minPower || this.basePower(o.card) >= s.fx.onCast.minPower) && (s.fx.onCast.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[s.fx.onCast.what] ?? this.spellIs(o, s.fx.onCast.what)) && s !== o && (!s.fx.onCast.turnOnce9 || this.onceOk(s, 'cast'))) this.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
       if (s.fx.kw.has('extort')) extort++;
     }
     // Extort (702.101): pay {1} per extort permanent to drain each opponent for 1, while there's spare mana
@@ -1599,6 +1600,46 @@ export class Game {
   useFace(o, face) {
     if (!o.baseCard) o.baseCard = o.card;
     o.card = face; o.fx = face.fx; o.altFaceOn = true;
+  }
+  // ---------- (rules 9) lands that enter tapped unless something holds (shock, check, fast, slow, reveal lands)
+  // pay: the player's answer to "pay N life?" when it was asked already (playLand, fetchLands); else the AI's choice
+  entersTappedNow(o, p, pay) {
+    const c = o.fx.enterCond9, others = p.battlefield.filter(x => x !== o && x.fx.type.land);
+    const any = (/** @type {string[]} */ what) => what.some(w => p.battlefield.some(x => x !== o && this.isA(x, w)));
+    switch (c.k) {
+      case 'pay': {
+        const yes = p.life >= c.n && (pay ?? p.agent.payForUntappedLand(this, p, o, c.n));
+        if (!yes) return true;
+        p.life -= c.n; this.emit('life', { p: p.idx, d: -c.n });
+        this.log(`${this.pn(p)} pays ${c.n} life so ${this.cn(o)} enters untapped`, { kind: 'minor' });
+        return false;
+      }
+      case 'reveal': return !p.hand.some(x => c.what.some((/** @type {string} */ w) => this.isA(x, w)));
+      case 'fewer': return others.length > c.n;
+      case 'count': return p.battlefield.filter(x => (!c.other || x !== o) && this.isA(x, c.what)).length < c.n;
+      case 'opps': return this.opponents(p).length < c.n;
+      case 'oppLands': return this.opponents(p).reduce((s, q) => s + q.battlefield.filter(x => x.fx.type.land).length, 0) < c.n;
+      case 'early': return this.turnsOf(p) > c.n;
+      case 'control': return !any(c.what);
+    }
+    return false;
+  }
+  // (rules 9) "This ability triggers only once each turn": true the first time this turn (and marks it used). The
+  // marks are one string, so the look-ahead's copied games never share them with the real one.
+  onceOk(s, key) {
+    if (this.rules < 9) return true;
+    const tag = `|${this.turn}:${key}|`;
+    if ((s.onceUsed || '').includes(tag)) return false;
+    s.onceUsed = (s.onceUsed || '').startsWith(`|${this.turn}:`) ? s.onceUsed + tag.slice(1) : tag;
+    return true;
+  }
+  // (a player's turns so far: every player takes one turn each round)
+  turnsOf(p) { return this.round; }
+  // (rules 9) a person is asked "pay N life?" before the land moves; the AI decides inside entersTappedNow
+  async askPayForLand(p, o) {
+    const c = this.rules >= 9 ? o.fx.enterCond9 : null;
+    if (c?.k !== 'pay' || p.life < c.n || !p.agent.confirmPayAsync) return undefined;
+    return p.agent.confirmPayAsync(this, p, o, `${c.n} life`, `have ${o.card.name} enter untapped`);
   }
   mainFace(o) {
     if (!o.altFaceOn) return;

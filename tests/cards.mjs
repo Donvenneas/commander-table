@@ -7,7 +7,7 @@
 //   node tests/cards.mjs --fetch    download a fresh snapshot from Scryfall (then run --update)
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { normalize } from '../public/js/scryfall.js';
-import { describeFx } from '../public/js/effects.js';
+import { describeFx, droppedSentences } from '../public/js/effects.js';
 
 const SNAP = new URL('./cards-snapshot.json', import.meta.url), GOLD = new URL('./card-readings.json', import.meta.url);
 const args = new Set(process.argv.slice(2));
@@ -41,7 +41,9 @@ const reading = raw => {
   const c = normalize({ ...raw, legalities: raw.legalities || {}, image_uris: {} });
   const fx = c.fx || {};
   const types = Object.entries(fx.type || {}).filter(([, v]) => v).map(([k]) => k).join(' ');
-  return [`type: ${types}`, ...describeFx(fx), ...(fx.unread || []).map(l => `not read: ${l}`)].join('\n');
+  return [`type: ${types}`, ...describeFx(fx), ...(fx.unread || []).map(l => `not read: ${l}`),
+    // (item 188: sentences skipped inside a line that was read)
+    ...droppedSentences(c).map(l => `not read: ${l}`)].join('\n');
 };
 const now = Object.fromEntries(cards.map(c => [c.name, reading(c)]));
 

@@ -1,6 +1,6 @@
 // Playtester-style table view: four boards, a stack spotlight, a game log and card previews.
 import { PHASES } from './engine.js';
-import { describeFx } from './effects.js';
+import { describeFx, droppedSentences } from './effects.js';
 import { STYLES } from './ai.js';
 import { combosFor, RESULT_TEXT } from './combos.js';
 import { esc, symbolize } from './util.js';
@@ -669,7 +669,8 @@ export function installDetails(getObject, getView) {
   }
   const open = o => {
     const c = o.card;
-    const unread = new Set(o.fx.unread || []);
+    // (lines not read at all, then sentences skipped inside lines that were read)
+    const unread = new Set([...(o.fx.unread || []), ...droppedSentences(c)]);
     const lines = String(c.fullText || c.text || '').split('\n').filter(Boolean);
     const reads = describeFx(o.fx);
     box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close">✕</button>
@@ -758,7 +759,7 @@ function previewHtml(o) {
       <div class="ptype">${esc(c.typeLine)}${pt ? ` · ${esc(pt)}` : ''}</div>
       <div class="oracle">${Rules.glossify(symbolize(c.fullText || c.text || ''))}</div>
       ${fx.length ? `<div class="sec"><h4>Simulator understands</h4><div class="fxl">${fx.map(esc).join('<br>')}</div></div>` : ''}
-      ${o.fx.unread?.length ? `<div class="sec warn"><h4>⚠ Not simulated</h4><div class="fxl">${o.fx.unread.map(esc).join('<br>')}</div></div>` : ''}
+      ${(() => { const miss = [...(o.fx.unread || []), ...droppedSentences(c)]; return miss.length ? `<div class="sec warn"><h4>⚠ Not simulated</h4><div class="fxl">${miss.map(esc).join('<br>')}</div></div>` : ''; })()}
       ${o.chosenType ? `<div class="sec"><h4>Chosen type</h4><div class="fxl">${esc(o.chosenType)}</div></div>` : ''}
       ${combos.length ? `<div class="sec"><h4>Known combos</h4><div class="fxl">${combos.map(k => `<b>${esc(k.label)}</b>: ${esc(RESULT_TEXT[k.result])}`).join('<br>')}</div></div>` : ''}
       ${kwRules.length ? `<div class="sec"><h4>Rules</h4>${kwRules.map(r => `<div class="kwr"><b>${r.id}</b> ${esc(r.text)}</div>`).join('')}</div>` : ''}

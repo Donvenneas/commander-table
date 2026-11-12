@@ -720,6 +720,84 @@ await test('Dazzling Theater // Prop Room: one door unlocked has that door\'s ma
   eq(o.card.cmc, 7, 'back in hand'); noErrors(g);
 });
 
+// ---------- Sentences the reader used to skip (rules 9, item 188)
+const handN = (g, i) => P(g, i).hand.length;
+const killBears = async (g, n) => { for (let k = 0; k < n; k++) { const b = find(g, 1, 'Grizzly Bears'); g.destroy(b); await settle(g); } };
+await test('Morbid Opportunist: "triggers only once each turn" — three deaths, one card', async () => {
+  const g = await scenario([{ battlefield: ['Morbid Opportunist'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }]);
+  const before = handN(g, 0);
+  await killBears(g, 3);
+  eq(handN(g, 0) - before, 1, 'cards drawn this turn'); noErrors(g);
+});
+await test('Morbid Opportunist: the next turn it triggers again', async () => {
+  const g = await scenario([{ battlefield: ['Morbid Opportunist'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }]);
+  const before = handN(g, 0);
+  await killBears(g, 1);
+  g.turn++;
+  await killBears(g, 1);
+  eq(handN(g, 0) - before, 2, 'one card each turn');
+});
+await test('Morbid Opportunist under rules 8 (old replays): a card for every death, as before', async () => {
+  const g = await scenario([{ battlefield: ['Morbid Opportunist'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }], { rules: 8 });
+  const before = handN(g, 0);
+  await killBears(g, 3);
+  eq(handN(g, 0) - before, 3, 'cards drawn');
+});
+const landIn = async (g, name, opts = {}) => { const o = find(g, 0, name, 'hand'); ok(o, `${name} in hand`); g.move(o, 'battlefield', opts); await settle(g); return o; };
+await test('Watery Grave: paying 2 life lets it enter untapped; not paying, tapped', async () => {
+  const g = await scenario([{ hand: ['Watery Grave', 'Watery Grave'] }, {}]);
+  const a = await landIn(g, 'Watery Grave', { payLife: true });
+  eq([a.tapped, P(g, 0).life], [false, 38], 'paid');
+  const b = await landIn(g, 'Watery Grave', { payLife: false });
+  eq([b.tapped, P(g, 0).life], [true, 38], 'not paid'); noErrors(g);
+});
+await test('Watery Grave: the AI pays when it has a spell to cast with the mana, and not at low life', async () => {
+  const g = await scenario([{ hand: ['Watery Grave', 'Lightning Bolt'] }, {}]);
+  g.active = 0;
+  const a = await landIn(g, 'Watery Grave');
+  eq([a.tapped, P(g, 0).life], [false, 38], 'paid for Lightning Bolt');
+  const h = await scenario([{ hand: ['Watery Grave', 'Lightning Bolt'], life: 9 }, {}]);
+  h.active = 0;
+  const b = await landIn(h, 'Watery Grave');
+  eq([b.tapped, P(h, 0).life], [true, 9], 'kept life at 9');
+});
+await test('Watery Grave under rules 8 (old replays): untapped for free, as before', async () => {
+  const g = await scenario([{ hand: ['Watery Grave'] }, {}], { rules: 8 });
+  const a = await landIn(g, 'Watery Grave', { payLife: false });
+  eq([a.tapped, P(g, 0).life], [false, 40], 'free and untapped');
+});
+await test('Check, fast and "two or more opponents" lands check their condition as they enter', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island', 'Island'], hand: ['Drowned Catacomb', 'Isolated Chapel', 'Blooming Marsh', 'Sea of Clouds'] }, {}, {}]);
+  eq((await landIn(g, 'Drowned Catacomb')).tapped, false, 'Drowned Catacomb with an Island');
+  eq((await landIn(g, 'Isolated Chapel')).tapped, true, 'Isolated Chapel without Plains or Swamp');
+  eq((await landIn(g, 'Blooming Marsh')).tapped, true, 'Blooming Marsh with five other lands');
+  eq((await landIn(g, 'Sea of Clouds')).tapped, false, 'Sea of Clouds with two opponents');
+  const h = await scenario([{ hand: ['Blooming Marsh', 'Sea of Clouds'] }, {}]);
+  eq((await landIn(h, 'Blooming Marsh')).tapped, false, 'Blooming Marsh as the first land');
+  eq((await landIn(h, 'Sea of Clouds')).tapped, true, 'Sea of Clouds with one opponent'); noErrors(g); noErrors(h);
+});
+await test('Terminate: "it can\'t be regenerated" goes through a regeneration shield', async () => {
+  const g = await scenario([{ hand: ['Terminate'] }, { battlefield: ['Grizzly Bears'] }]);
+  const v = find(g, 1, 'Grizzly Bears'); v.regen = 1;
+  await spell(g, 0, 'Terminate', [tgtObj(v)]);
+  eq(v.zone, 'graveyard', 'Grizzly Bears zone'); noErrors(g);
+});
+await test('Terminate under rules 8 (old replays): the shield saves it, as before', async () => {
+  const g = await scenario([{ hand: ['Terminate'] }, { battlefield: ['Grizzly Bears'] }], { rules: 8 });
+  const v = find(g, 1, 'Grizzly Bears'); v.regen = 1;
+  await spell(g, 0, 'Terminate', [tgtObj(v)]);
+  eq(v.zone, 'battlefield', 'Grizzly Bears zone');
+});
+await test('Skipped sentences are reported (Tainted Wood, Mob Rule) and read ones are not', async () => {
+  const { droppedSentences, ignoredText } = await import('../public/js/effects.js');
+  const g = await scenario([{ battlefield: ['Tainted Wood', 'Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection', 'Mob Rule'] }, {}]);
+  const d = n => droppedSentences(find(g, 0, n).card);
+  eq(d('Tainted Wood'), ['Activate only if you control a Swamp.'], 'Tainted Wood');
+  ok(/^partly read: /.test(ignoredText(find(g, 0, 'Tainted Wood').card) || ''), 'Tainted Wood counts as partly read');
+  ok(d('Mob Rule').includes('They gain haste until end of turn.'), 'Mob Rule haste');
+  for (const n of ['Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection']) eq(d(n), [], n);
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

@@ -889,12 +889,15 @@ export function parseEffects(t) {
   const out = [];
   /** @type {any} (set by flush below: the plain effects just before an "if … instead" sentence) */
   let lastPlain = null;
-  let plain = [], lastIf = null;
+  let plain = [], lastIf = null, noRegen = false;
   const flush = () => { if (plain.length) { lastPlain = parseFlat(plain.join(' ')); out.push(...lastPlain); plain = []; } };
   for (let s of t.split(/(?<=\.)\s+/)) {
     s = s.replace(/^(?!choose )[a-z0-9',! ]{3,30} — (?=if |\w)/, '');
     // (limits on how often something happens don't change what it does)
     if (/^this ability triggers only once each turn|^activate only once each turn|^activate only as a sorcery|^this effect doesn't remove/.test(s)) continue;
+    // (rules 9) "It can't be regenerated" / "They can't be regenerated": the destruction before it ignores shields
+    // (marked once the whole text is read, so the sentences around it still read together: Pongify's token)
+    if (/^(?:it|they) can't be regenerated\.?$/.test(s)) { noRegen = true; continue; }
     // ("If a card would be put into your graveyard …, exile it instead" is a replacement, not a condition)
     let m = /^if [^,]* would /.test(s) ? null : s.match(/^(?:if|as long as) (?!you do\b|you don't\b|it's|that\b|they\b|a player does\b|no one does\b)(.+?), (.+)$/);
     let instead = false;
@@ -918,6 +921,10 @@ export function parseEffects(t) {
     plain.push(s);
   }
   flush();
+  if (noRegen) {
+    const mark = (/** @type {any[]} */ es) => { for (const x of es) { if (x.k === 'remove' || x.k === 'wipe' || x.k === 'wipeOpp') x.noRegen9 = true; if (x.effects) mark(x.effects); } };
+    mark(out);
+  }
   return out;
 }
 
@@ -1073,8 +1080,20 @@ export function analyzeCard(card) {
     gate = null;
   };
   const openGate = (kind, n) => { gate = { kind, n, a: fx.abilities.length, w: fx.watch.length, mana: !!fx.mana }; };
+  // (rules 9) "This ability triggers only once each turn" / "Do this only once each turn": the triggers that line
+  // made fire once a turn per permanent (Game.onceOk)
+  let onceMark = null;
+  const applyOnce = () => {
+    if (!onceMark) return;
+    for (const w of fx.watch.slice(onceMark.w)) w.turnOnce9 = true;
+    if (fx.onDeath && fx.onDeath !== onceMark.death) fx.onDeath.turnOnce9 = true;
+    if (fx.onCast && fx.onCast !== onceMark.cast) fx.onCast.turnOnce9 = true;
+    onceMark = null;
+  };
   for (let li = 0; li < lines.length; li++) {
     check();
+    applyOnce();
+    if (/\b(?:this ability triggers|do this) only once each turn\b/.test(lines[li])) onceMark = { w: fx.watch.length, death: fx.onDeath, cast: fx.onCast };
     applyGate();
     applyBg();
     if (classLevel > 1) openGate('level', classLevel);
@@ -1673,7 +1692,12 @@ export function analyzeCard(card) {
     }
     // Lands that enter tapped unless a condition holds (check lands, shock lands, fast lands): the simulator
     // lets them in untapped, which is how they're played most of the time
-    if (type.land && /^(?:~ enters(?: the battlefield)? tapped unless|as ~ enters(?: the battlefield)?, you may (?:pay \d+ life|reveal)|if you control two or more other lands, ~ enters tapped)/.test(line)) { pending = null; continue; }
+    if (type.land && /^(?:~ enters(?: the battlefield)? tapped unless|as ~ enters(?: the battlefield)?, you may (?:pay \d+ life|reveal)|if you control two or more other lands, ~ enters tapped)/.test(line)) {
+      // (rules 9) the condition is checked as it enters (Game.entersTappedNow); one not read here stays reported
+      const cond = enterCond(line);
+      if (cond) { fx.enterCond9 = cond; pending = null; }
+      continue;
+    }
     if (/^you have no maximum hand size/.test(line)) { fx.noMaxHand = true; continue; }
     if ((m = line.match(/^you may play (an additional land|two additional lands|any number of lands) on each of your turns/))) { fx.extraLands = m[1] === 'an additional land' ? 1 : m[1].startsWith('two') ? 2 : 9; continue; }
     // "As ~ enters, choose a creature type": the type that matters most in the deck (see Game.entered)
@@ -1822,6 +1846,7 @@ export function analyzeCard(card) {
     }
   }
   check();
+  applyOnce();
   applyGate();
   applyBg();
   // (colored: only colored mana hurts, as the painland also has a painless {C} line)
@@ -2032,6 +2057,9 @@ export function ignoredText(card) {
 
   // Any line of its text the simulator couldn't read (see analyzeCard)
   if (fx.unread?.length) return `not read: ${fx.unread.map(l => l.length > 70 ? l.slice(0, 68) + '…' : l).join(' / ')}`;
+  // (item 188) a line that was read but with a sentence skipped
+  const dropped = droppedSentences(card);
+  if (dropped.length) return `partly read: ${dropped.map(l => l.length > 70 ? l.slice(0, 68) + '…' : l).join(' / ')}`;
   if (fx.type.land) return null;
   // Keyword-only lines ("flying, vigilance", "flash", "ward {2}") are handled
   const kwLine = l => keywordLine(l, { kw: new Set(), kwN: {}, dies: [], etb: [], abilities: [] })
@@ -2039,6 +2067,70 @@ export function ignoredText(card) {
   const rest = lines.filter(l => !kwLine(l));
   if (!rest.length) return null;
   return describeFx(fx).length ? null : 'its abilities';
+}
+
+// (rules 9) When a land with "enters tapped unless …" or "as it enters, you may pay N life / reveal …" enters
+// untapped (Game.entersTappedNow checks it then)
+const WORDN = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+export function enterCond(line) {
+  let m;
+  if ((m = line.match(/^as ~ enters(?: the battlefield)?, you may pay (\d+) life\. if you don't, (?:~|it) enters tapped\.?$/))) return { k: 'pay', n: +m[1] };
+  if ((m = line.match(/^as ~ enters(?: the battlefield)?, you may reveal an? (.+?) card from your hand\. (?:if you don't, (?:~|it) enters tapped|~ enters tapped unless you revealed an? .+? card this way|.*)\.?$/))) return { k: 'reveal', what: m[1].split(/ or an? | or /) };
+  if ((m = line.match(/^if you control (\w+) or more other lands, ~ enters tapped\.?$/)) && WORDN[m[1]]) return { k: 'fewer', n: WORDN[m[1]] - 1 };
+  if (!(m = line.match(/^~ enters(?: the battlefield)? tapped unless (.+?)\.?$/))) return null;
+  const c = m[1];
+  if ((m = c.match(/^you control (\w+) or fewer other lands$/)) && WORDN[m[1]] != null) return { k: 'fewer', n: WORDN[m[1]] };
+  if ((m = c.match(/^you control (\w+) or more (other )?(basic lands|lands|plains|islands|swamps|mountains|forests)$/)) && WORDN[m[1]]) return { k: 'count', n: WORDN[m[1]], other: !!m[2], what: m[3] === 'lands' ? 'land' : m[3] === 'basic lands' ? 'basic land' : m[3] === 'plains' ? 'plains' : m[3].replace(/s$/, '') };
+  if ((m = c.match(/^you have (\w+) or more opponents$/)) && WORDN[m[1]]) return { k: 'opps', n: WORDN[m[1]] };
+  if ((m = c.match(/^your opponents control (\w+) or more lands$/)) && WORDN[m[1]]) return { k: 'oppLands', n: WORDN[m[1]] };
+  if (/^it's your first, second, or third turn of the game$/.test(c)) return { k: 'early', n: 3 };
+  if ((m = c.match(/^you control an? ([a-z ]+?)(?: or an? ([a-z ]+))?$/))) return { k: 'control', what: [m[1], m[2]].filter(Boolean) };
+  return null;
+}
+
+// Sentences of a line the reader skipped although the line as a whole was read (item 188): each sentence of a
+// line with more than one is taken out in turn and the card read again; when its reading comes out the same, the
+// sentence changed nothing. (Reminder text is left out; quoted granted abilities stay with their sentence.)
+const dropCache = new WeakMap();
+// (sentences that change nothing the simulator models: library order after a search, an instant-speed timing note,
+// rounding, and the option to keep a copy's targets, which is always a legal choice)
+const HARMLESS = /^(?:then (?:that player )?shuffles?|(?:you may )?shuffle|then shuffle|put the rest on the bottom of (?:your|their) library in (?:a )?random order|activate only as an instant|round (?:up|down) each time|you may choose new targets for the cop(?:y|ies)|if you search your library this way, shuffle)\.?$/i;
+const fxPrint = fx => JSON.stringify(fx, (k, v) => (k === 'unread' ? undefined : v instanceof Set ? [...v].sort() : v));
+export function sentencesOf(line) {
+  const out = [];
+  let cur = '', quote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    cur += ch;
+    if (ch === '"' || ch === '“' || ch === '”') quote = ch === '“' ? true : ch === '”' ? false : !quote;
+    if (!quote && ch === '.' && (i === line.length - 1 || /\s/.test(line[i + 1]))) { out.push(cur.trim()); cur = ''; }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+export function droppedSentences(card) {
+  if (!card?.fx || !card.text) return [];
+  if (dropCache.has(card)) return dropCache.get(card);
+  const out = [];
+  const lines = card.text.replace(/\([^)]*\)/g, '').split('\n');
+  const unread = new Set(card.fx.unread || []);
+  const whole = fxPrint(analyzeCard({ ...card, text: lines.join('\n') }));
+  // (a threaten effect untaps what it takes and gives it haste by itself: resolve.js 'steal', 'insurrection')
+  const threaten = /"k":"steal"[^{}]*"temp":true|"k":"insurrection"/.test(whole);
+  const covered = (/** @type {string} */ x) => HARMLESS.test(x) || (threaten && /^(?:untap (?:that|those|them|it)\b[^.]*|(?:they|it) gains? haste until end of turn)\.?$/i.test(x));
+  lines.forEach((line, li) => {
+    const ss = sentencesOf(line.trim());
+    if (ss.length < 2) return;
+    // (a line the reader skipped entirely is already reported as unread)
+    if (unread.has(cleanText(line, card.frontName || card.name).trim())) return;
+    const same = drop => fxPrint(analyzeCard({ ...card, text: lines.map((l, k) => (k === li ? ss.filter((_, j) => !drop.includes(j)).join(' ') : l)).join('\n') })) === whole;
+    const cand = ss.map((_, si) => si).filter(si => same([si]));
+    // (two sentences that each say enough on their own, like a shockland's "pay 2 life" and "if you don't, it enters
+    // tapped", aren't dropped: only one that can go together with any other candidate is)
+    for (const si of cand) if (!covered(ss[si]) && !(card.fx.mana && /^\{t\}: add [^.]*\.$/i.test(ss[si])) && cand.every(sj => sj === si || same([si, sj]))) out.push(ss[si]);
+  });
+  dropCache.set(card, out);
+  return out;
 }
 
 // Coverage for a whole deck: share of cards with understood text, and which ones aren't

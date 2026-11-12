@@ -715,6 +715,15 @@ export class Agent {
     return lands.sort((a, b) => score(b) - score(a))[0];
   }
 
+  // (rules 9) Shock lands and the like: pay N life for the land to enter untapped when its mana is wanted this turn
+  // (a spell in hand or the command zone that the extra mana makes castable) and life isn't short
+  payForUntappedLand(g, p, o, n) {
+    if (p.life - n < Math.max(6, g.startLife ? g.startLife / 4 : 10)) return false;
+    if (g.active !== p.idx || g.phase === 'end') return false;
+    const avail = g.availableMana(p) + 1;
+    return p.hand.concat(p.command).some(x => x !== o && !x.fx.type.land && x.card.manaCost && (x.card.cmc || 0) <= avail && (x.card.cmc || 0) >= avail - 1);
+  }
+
   // Mana to keep open after main phase 2: counterspells first, then instant-speed answers.
   // Whatever isn't needed gets spent at the end of an opponent's turn (endOfTurn).
   reserveFor(g, p) {

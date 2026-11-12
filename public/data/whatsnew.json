@@ -1,5 +1,5 @@
 {
- "version": "1.22.0",
+ "version": "1.23.0",
  "round": "Round 5",
  "items": [
   {
@@ -97,6 +97,12 @@
    "section": "Rules engine and card coverage",
    "title": "Card data audit, multi-faced cards (asked 2026-11-12): check how Scryfall data becomes game cards and fix characteristics that come out wrong for transforming, modal double-faced, split, adventure and Room cards.",
    "done": "normalize() gave every face Scryfall's keyword list for the whole card, so 9 snapshot cards had a back face's keywords on the front (Westvale Abbey had flying, lifelink, indestructible and haste as a land; Etali indestructible; Sephiroth, K"
+  },
+  {
+   "n": 188,
+   "section": "Rules engine and card coverage",
+   "title": "Skipped sentences (asked 2026-11-12): find sentences the reader skips inside lines it counts as read, report them as not simulated, and fix the most common ones.",
+   "done": "effects.js droppedSentences reads a card again with each sentence of a multi-sentence line taken out; a sentence whose removal changes nothing (also when taken out with any other such sentence, so two that each say enough aren't counted) is"
   },
   {
    "n": 101,

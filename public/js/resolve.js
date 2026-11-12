@@ -308,7 +308,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // (what the target was as it last existed on the battlefield: its power and controller, 608.2h)
       const v = tgt.obj, q = g.players[v.controller], pow = g.power(v), mv = v.card.cmc || 0;
       if (e.mode === 'exile') { g.log(`${S} exiles ${tName(tgt)}`, { kind: 'removal' }); g.move(v, 'exile'); }
-      else if (g.destroy(v)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
+      else if (g.destroy(v, g.rules >= 9 && !!e.noRegen9)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
       else g.log(`${tName(tgt)} is indestructible`, { rule: '702.12' });
       if (g.rules >= 6) {
         if (e.comp) await compensate(g, q, src, e.comp, pow);
@@ -339,7 +339,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
           'nontoken creatures': t.creature && !o.token, 'nonartifact creatures': t.creature && !t.artifact, "creatures you don't control": t.creature && theirs, 'creatures your opponents control': t.creature && theirs,
           "nonland permanents you don't control": !t.land && theirs, planeswalkers: t.planeswalker, lands: t.land }[e.what];
         if (!hit) continue;
-        if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o)) n++;
+        if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o, g.rules >= 9 && !!e.noRegen9)) n++;
       }
       g.log(`${S} ${e.mode === 'exile' ? 'exiles' : 'destroys'} all ${e.what} — ${n} permanent${n === 1 ? '' : 's'} gone`, { kind: 'removal' });
       await g.beat(0.8);
@@ -541,7 +541,7 @@ async function chainCopies(g, q, src, e) {
     if (t == null || g.players[t]?.lost) return;
     const before = g.players.map(x => x.life).join();
     g.log(`${g.pn(q)} copies ${g.cn(src)}, targeting ${g.pn(g.players[t])}`, { kind: 'cast', p: q.idx, rule: '707.10' });
-    for (const s of q.battlefield) if (s.fx.onCast && ['instant or sorcery', 'any', src.fx.type.instant ? 'instant' : 'sorcery'].includes(s.fx.onCast.what) && /cast or copy/.test(s.card.text || '')) g.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${src.card.name} was copied`, p: q, trig: { o: src, p: q.idx } });
+    for (const s of q.battlefield) if (s.fx.onCast && ['instant or sorcery', 'any', src.fx.type.instant ? 'instant' : 'sorcery'].includes(s.fx.onCast.what) && /cast or copy/.test(s.card.text || '') && (!s.fx.onCast.turnOnce9 || g.onceOk(s, 'cast'))) g.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${src.card.name} was copied`, p: q, trig: { o: src, p: q.idx } });
     await g.flushTriggers();
     await g.sba();
     const v = g.players[t];
@@ -1317,7 +1317,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
         if (e.mode === 'bounce') g.move(o, 'hand');
         else if (e.mode === 'damage') g.damageObj(o, X(e.n), src);
         else if (e.mode === 'exile') g.move(o, 'exile');
-        else g.destroy(o);
+        else g.destroy(o, g.rules >= 9 && !!e.noRegen9);
       }
       g.log(`${S} (overloaded) hits ${objs.length} of the opponents' ${e.what || 'creature'}s`, { kind: 'removal', rule: '702.96a' });
       break;

@@ -158,6 +158,8 @@ export function fire(g, ev, info = {}) {
       if (!r) continue;
       // "Whenever one or more …" triggers once for a batch of events still waiting to resolve
       if (w.once && g.queue.some(it => it.w === w && it.o === s)) continue;
+      // (rules 9) "This ability triggers only once each turn"
+      if (w.turnOnce9 && !g.onceOk(s, `w${ws.indexOf(w)}`)) continue;
       // (rules 7: no fixed cap on legitimate loops; flushTriggers tells an endless mandatory loop from a long chain)
       if (++g.trigCount.n > (g.rules >= 7 ? LOOP_BACKSTOP : 300)) {
         if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 300) + 1) g.log('Trigger limit for this turn reached: further triggers are skipped (a loop would never end)', { kind: 'minor' });

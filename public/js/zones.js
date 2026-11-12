@@ -112,6 +112,8 @@ export function move(g, o, to, opts = {}) {
     // Authority of the Consuls, Blind Obedience: opponents' creatures (and more) enter tapped
     const kinds = { creatures: x => x.fx.type.creature, 'creatures and nonbasic lands': x => x.fx.type.creature || (x.fx.type.land && !x.fx.type.basic), 'artifacts and creatures': x => x.fx.type.creature || x.fx.type.artifact, permanents: () => true, 'nonbasic lands': x => x.fx.type.land && !x.fx.type.basic, artifacts: x => x.fx.type.artifact };
     if (g.opponents(g.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
+    // (rules 9) shock, check, fast and reveal lands: tapped unless their condition holds as they enter
+    if (g.rules >= 9 && o.fx.enterCond9 && from !== 'battlefield' && !opts.tapped && g.entersTappedNow(o, g.players[o.controller], opts.payLife)) opts = { ...opts, tapped: true };
   }
   else if (to === 'library' && opts.bottom) p.library.unshift(o);
   else if (to === 'library' && opts.third) p.library.splice(Math.max(0, p.library.length - 2), 0, o);
@@ -128,6 +130,8 @@ export function move(g, o, to, opts = {}) {
   }
   if (to === 'battlefield') {
     o.lore = 0;
+    // (a new object: its once-each-turn abilities haven't triggered yet, 400.7)
+    if (o.onceUsed) o.onceUsed = '';
     o.tapped = !!opts.tapped; o.sick = true; o.damage = 0; o.usedPW = false;
     o.counters = typeof o.fx.entersCounters === 'number' ? g.moreCounters(o, o.fx.entersCounters) : 0;
     o.enteredTurn = g.turn;
@@ -271,9 +275,10 @@ export function draw(g, p, n = 1, quiet = false) {
   if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
 }
 /** @param {import('./engine.js').Game} g */
-export function destroy(g, o) {
+export function destroy(g, o, noRegen = false) {
   if (g.has(o, 'indestructible')) return false;
-  if (g.regenerate(o)) return false;
+  // ("It can't be regenerated": rules 9, see effects.js)
+  if (!noRegen && g.regenerate(o)) return false;
   // Umbra armor (702.89): the aura is destroyed instead, and the damage is removed
   const umbra = g.attachments(o).find(a => a.fx.umbra);
   if (umbra) { o.damage = 0; o.deathtouched = false; g.move(umbra, 'graveyard'); g.log(`${g.cn(umbra)} is destroyed instead of ${g.cn(o)} (umbra armor)`, { kind: 'minor', rule: '702.89a' }); return false; }
@@ -311,6 +316,7 @@ export function noteDeath(g, o, snap = {}) {
     if (d.nontoken && o.token) continue;
     if (d.what && !g.isA(o, d.what)) continue;
     if (d.without && o.fx.kw.has(d.without)) continue;
+    if (d.turnOnce9 && !g.onceOk(w, 'death')) continue;
     g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died`, p: q, trig: { o, p: o.controller } });
     // Teysa Karlov: death triggers happen an additional time
     if (q.battlefield.some(x => x.fx.deathTwice)) g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died (again)`, p: q, trig: { o, p: o.controller } });
@@ -412,10 +418,11 @@ export async function fetchLands(g, p, e, src) {
     const picked = await p.agent.chooseCardsAsync(g, p, cands, n, `<b>${src ? g.cn(src) : 'Search'}</b>: search your library for ${n > 1 ? `up to ${n} ${what} cards` : `a ${what} card`}${where}`);
     if (picked) got = picked;
   }
-  got.forEach((o, i) => {
+  for (const [i, o] of got.entries()) {
     const toBf = e.bf && !(e.split && i > 0);
-    g.move(o, toBf ? 'battlefield' : 'hand', { tapped: e.tapped });
-  });
+    const payLife = toBf && !e.tapped ? await g.askPayForLand(p, o) : undefined;
+    g.move(o, toBf ? 'battlefield' : 'hand', { tapped: e.tapped, payLife });
+  }
   shuffle(p.library, g.rand);
   if (got.length) g.log(`${g.pn(p)} searches for ${got.map(o => g.cn(o)).join(', ')}${e.bf ? '' : ' (to hand)'}`, { kind: 'minor' });
 }

@@ -572,6 +572,25 @@ on top of the ones above:
     interactions 145 (6 new, with rules 7 checks), cards 0 changed, golden 30, fuzz 12 + 60 and hidden 0 problems,
     type check 0, self-test 19/19, 20 browser games with these cards (0 errors, no rule broken). Still open: prototype
     (no reading), meld (no melded back face), a split half's mana value while its cost is worked out (601.2f).
+- [x] 188. Skipped sentences (asked 2026-11-12): find sentences the reader skips inside lines it counts as read, report
+  them as not simulated, and fix the most common ones.
+  - Done (rules 9; replays at rules 4–8 play exactly as before, golden games for all six): effects.js droppedSentences
+    reads a card again with each sentence of a multi-sentence line taken out; a sentence whose removal changes nothing
+    (also when taken out with any other such sentence, so two that each say enough aren't counted) is reported, except
+    harmless ones (shuffles, random bottom order, "activate only as an instant", rounding, keeping a copy's targets, a
+    threaten effect's untap and haste, mana already read from Scryfall's produced list). ignoredText, the deck coverage
+    figure, the card details and tests/cards.mjs now count them: the snapshot is 79.6% fully read (2,786 of 3,500), not
+    the 88.4% reported before (308 cards had a hidden skipped sentence). Fixed families: "This ability triggers only once
+    each turn" / "Do this only once each turn" (Morbid Opportunist, Welcoming Vampire, Jin-Gitaxias and other watch, death and cast triggers:
+    Game.onceOk, kept in a string so look-ahead copies don't share it); shock, check, fast, slow, reveal, battlebond,
+    "opponents control eight or more lands" and "first three turns" lands, which all entered untapped for free
+    (enterCond, Game.entersTappedNow: people are asked to pay the life, the AI pays when the mana lets it cast something
+    that turn); "It/They can't be regenerated" (Terminate, Putrefy, Snuff Out, Pongify…). Tests: interactions 155 (10
+    new, with rules 8 checks), cards 0 changed after accepting the flags (0 other reading changes), golden 36, fuzz
+    12 + 60 and hidden 0 problems, type check 0, self-test 19/19, 20 browser games with these lands (0 errors, no rule
+    broken; the AI paid 2 life 31 times). Still open: 325 cards with a skipped sentence, mostly one of a kind (Memory
+    Lapse puts the spell on top, Tainted lands' Swamp condition, channel lands' cost reduction, Mob Rule's untap and
+    haste, mana spending restrictions), Multiversal Passage.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
