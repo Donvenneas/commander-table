@@ -334,6 +334,8 @@ In a seat's style menu, choose **You play this seat**. Your hand is shown face u
 
 **Long and endless loops:** a loop that changes something each time (life totals, cards drawn) runs until it ends by itself, with no fixed trigger limit. When the same triggers keep repeating and the game comes back to a position it has already been in, with nobody able to stop it, the game ends in a draw (rule 104.4b). Replays saved by older versions keep the old limits (a draw or a stop after 600 triggers in a turn).
 
+**Cards with two faces:** each face has only its own keywords (Westvale Abbey no longer flies as a land), and a split card's half has its own mana value while it is a spell (Wear is 2, not 3), as does a Room with one door unlocked. Older replays play as they were recorded.
+
 **Deals:** when you play a seat, **🤝 Deal** under the game log offers another player a truce, a gang-up on the archenemy, a no-counterspell pact, or tribute. It's put to them at the start of the next turn.
 
 **Hotseat:** choose **You play this seat** for two or more seats to share one PC. Before each person's decision, every hand is hidden behind a "Pass to …" screen; after **I'm ready**, only that person's hand shows.

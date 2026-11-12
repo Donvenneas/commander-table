@@ -21,7 +21,7 @@ export const PHASES = [
 export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
-export const RULES = 7;
+export const RULES = 8;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -183,6 +183,8 @@ export class Game {
   async beat(w = 1) { this.steps++; this.emit('update'); await this.clock.beat(w); }
 
   mk(card, p, x = {}) {
+    // (rules 8) multi-faced cards use their corrected reading (scryfall.js normalize)
+    if (this.rules >= 8 && card.v8) card = card.v8;
     /** @type {any} (an object in play: its fields are filled in as it moves between zones) */
     const o = {
       iid: this.nextId++, card, fx: card.fx, owner: p.idx, controller: p.idx, zone: null, tapped: false, sick: false,
@@ -854,6 +856,8 @@ export class Game {
     const zoneArr = p[o.zone];
     if (Array.isArray(zoneArr)) zoneArr.splice(zoneArr.indexOf(o), 1);
     o.zone = 'stack';
+    // (rules 8) A split card's first half is on the stack alone, with its own mana value (709.3b); fused, both (709.4d)
+    if (this.rules >= 8 && o.card.frontHalf && mode.alt !== 'fuse') this.useFace(o, o.card.frontHalf);
     const item = { o, p, x, targets, effects, auraTarget, countered: false, combo: !!choice.combo, response: choice.response || null };
     // "The next spell you cast this turn can't be countered"
     if (p.uncounterTurn === this.turn) { item.uncounterable = true; p.uncounterTurn = 0; }
@@ -1720,7 +1724,7 @@ export class Game {
   lockedDoor(o) {
     if (!this.isRoom(o) || o.roomUnlocked || o.zone !== 'battlefield') return null;
     const main = o.baseCard || o.card;
-    return o.altFaceOn ? main : main.altFace;
+    return o.altFaceOn && o.card !== main.frontHalf ? main : main.altFace;
   }
   canUnlock(p, o) {
     const d = this.lockedDoor(o);
@@ -1738,6 +1742,8 @@ export class Game {
       else if (fx[k] == null || fx[k] === false || fx[k] === 0) fx[k] = v;
     }
     o.fx = fx;
+    // (rules 8) fully unlocked, it has both doors' mana costs again (709.5)
+    if (this.rules >= 8 && o.baseCard) o.card = o.baseCard;
     o.roomUnlocked = true;
     this.log(`${this.pn(p)} pays ${door.manaCost} and unlocks ${esc(door.name)}`, { kind: 'cast', p: p.idx, rule: '709.5' });
     if (door.fx.onUnlock?.length) this.queue.push({ o, effects: door.fx.onUnlock, label: `unlocked ${door.name}`, p });

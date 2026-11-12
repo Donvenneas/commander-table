@@ -37,8 +37,30 @@ export async function sf(path, init = {}) {
   return j;
 }
 
+// A mana cost's mana value (202.3): {2/W} counts 2, X counts 0, every other symbol 1
+export function costMv(cost) {
+  return [...String(cost || '').matchAll(/\{([^}]+)\}/g)].reduce((s, [, x]) => s + (/^\d+$/.test(x) ? +x : /^[XYZ]$/.test(x) ? 0 : /^\d+\//.test(x) ? parseInt(x, 10) : 1), 0);
+}
+// The keywords one face has: Scryfall lists one set for the whole card, so a face keeps only those it has as an
+// ability of its own (a keyword line such as "Flying, haste" or "Ward {2}"), not ones its other face has
+export function faceKeywords(keywords, text) {
+  const parts = String(text || '').replace(/\([^)]*\)/g, '').toLowerCase().split('\n').flatMap(l => l.split(/[,;]/).map(s => s.trim()));
+  return (keywords || []).filter(k => { const kl = k.toLowerCase(); return parts.some(s => s === kl || (s.startsWith(kl) && /^[\s{—\-.:\d]/.test(s.slice(kl.length)))); });
+}
+
 export function normalize(raw) {
   if (byId.has(raw.id)) return byId.get(raw.id);
+  const card = build(raw, false);
+  // (rules 8) The corrected reading of a card with more than one face, used by games at rules 8 and later (Game.mk):
+  // each face has only its own keywords, a split card's half is cast with its own mana value (709.3b), and the
+  // other half's mana value counts hybrid {2/W} as 2. Older games keep the reading above, so replays stay exact.
+  if ((raw.card_faces || []).length > 1) Object.defineProperty(card, 'v8', { value: build(raw, true), enumerable: false });
+  byId.set(raw.id, card);
+  return card;
+}
+
+/** @returns {any} */
+function build(raw, r8) {
   const faces = raw.card_faces || [];
   const front = faces.length && !raw.oracle_text && faces[0].oracle_text !== undefined ? faces[0] : raw;
   const img = raw.image_uris || faces[0]?.image_uris || {};
@@ -71,12 +93,15 @@ export function normalize(raw) {
     gameChanger: !!raw.game_changer,
     canBeCommander: /can be your commander/i.test(raw.oracle_text || faces.map(f => f.oracle_text).join(' ')),
   };
+  const multi = r8 && front !== raw;
+  if (multi) card.keywords = faceKeywords(raw.keywords, front.oracle_text);
   card.fx = analyzeCard(card);
   // The back face of a transforming card, for "transform ~"
   if (faces.length > 1 && /transform|flip|meld/.test(raw.layout || '') && faces[1].oracle_text !== undefined) {
     const b = faces[1];
     /** @type {any} */
     const back = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: '', text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, imgNormal: card.backNormal || card.imgNormal, canBeCommander: false };
+    if (multi) back.keywords = faceKeywords(raw.keywords, b.oracle_text);
     back.fx = analyzeCard(back);
     Object.defineProperty(card, 'backCard', { value: back, enumerable: false });
   }
@@ -85,14 +110,23 @@ export function normalize(raw) {
   if (faces.length > 1 && /^(adventure|modal_dfc|split)$/.test(raw.layout || '') && faces[1].oracle_text !== undefined) {
     const b = faces[1];
     const cost = b.mana_cost || '';
-    const mv = [...cost.matchAll(/\{([^}]+)\}/g)].reduce((s, [, x]) => s + (/^\d+$/.test(x) ? +x : x === 'X' ? 0 : 1), 0);
+    const mv = r8 ? costMv(cost) : [...cost.matchAll(/\{([^}]+)\}/g)].reduce((s, [, x]) => s + (/^\d+$/.test(x) ? +x : x === 'X' ? 0 : 1), 0);
     const dfc = raw.layout === 'modal_dfc';
     /** @type {any} */
-    const alt = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: cost, cmc: mv, text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, keywords: [], produced: dfc ? card.produced : [], imgNormal: dfc ? card.backNormal || card.imgNormal : card.imgNormal, imgSmall: dfc ? card.backNormal || card.imgSmall : card.imgSmall, canBeCommander: false, isAltFace: raw.layout };
+    const alt = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: cost, cmc: mv, text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, keywords: multi ? faceKeywords(raw.keywords, b.oracle_text) : [], produced: dfc ? card.produced : [], imgNormal: dfc ? card.backNormal || card.imgNormal : card.imgNormal, imgSmall: dfc ? card.backNormal || card.imgSmall : card.imgSmall, canBeCommander: false, isAltFace: raw.layout };
     alt.fx = analyzeCard(alt);
     Object.defineProperty(card, 'altFace', { value: alt, enumerable: false });
   }
-  byId.set(raw.id, card);
+  // (rules 8) A split card's first half as a spell: only its own mana value exists on the stack (709.3b), and a Room
+  // on the battlefield with only that door unlocked has only that door's mana cost (709.5); everywhere else the
+  // card's mana value is both halves' (709.4b)
+  if (r8 && raw.layout === 'split' && faces.length > 1) {
+    /** @type {any} */
+    const half = { ...card, cmc: costMv(card.manaCost) };
+    Object.defineProperty(half, 'altFace', { value: card.altFace, enumerable: false });
+    Object.defineProperty(half, 'wholeCard', { value: card, enumerable: false });
+    Object.defineProperty(card, 'frontHalf', { value: half, enumerable: false });
+  }
   return card;
 }
 

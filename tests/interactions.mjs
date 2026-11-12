@@ -669,6 +669,57 @@ await test('An endless mandatory loop that changes nothing is a draw as soon as 
   eq([g.over, g.winner], [true, null], 'game over as a draw'); ok(g.trigCount.n < 200, `found early (${g.trigCount.n} triggers)`);
 });
 
+// ---------- Cards with more than one face (rules 8): each face has only its own keywords and mana value
+await test('Westvale Abbey: the land has none of Ormendahl\'s keywords (rules 8)', async () => {
+  const g = await scenario([{ battlefield: ['Westvale Abbey'] }, {}]);
+  const o = find(g, 0, 'Westvale Abbey');
+  eq(['flying', 'lifelink', 'indestructible', 'haste'].map(k => g.has(o, k)), [false, false, false, false], 'front face keywords');
+  eq(['flying', 'lifelink', 'indestructible', 'haste'].map(k => o.card.backCard.fx.kw.has(k)), [true, true, true, true], 'back face keywords');
+  noErrors(g);
+});
+await test('Westvale Abbey under rules 7 (old replays): the front has the back\'s keywords, as before', async () => {
+  const g = await scenario([{ battlefield: ['Westvale Abbey'] }, {}], { rules: 7 });
+  ok(g.has(find(g, 0, 'Westvale Abbey'), 'flying'), 'old reading kept');
+});
+await test('Lunarch Veteran and Etali: front faces without back-face flying/indestructible (rules 8)', async () => {
+  const g = await scenario([{ battlefield: ['Lunarch Veteran', 'Etali, Primal Conqueror'] }, {}]);
+  eq(g.has(find(g, 0, 'Lunarch Veteran'), 'flying'), false, 'Lunarch Veteran flying');
+  eq(g.has(find(g, 0, 'Etali, Primal Conqueror'), 'indestructible'), false, 'Etali indestructible');
+  eq(g.has(find(g, 0, 'Etali, Primal Conqueror'), 'trample'), true, 'Etali trample');
+  ok(find(g, 0, 'Lunarch Veteran').card.backCard.fx.kw.has('flying'), 'Luminous Phantom flies');
+});
+const stackMv = g => { const seen = []; g.on('cast', ({ o }) => seen.push([o.card.name, o.card.cmc])); return seen; };
+await test('Wear // Tear: Wear on the stack has mana value 2, the card 3 everywhere else (709.3b, 709.4b)', async () => {
+  const g = await scenario([{ hand: ['Wear // Tear'] }, { battlefield: ['Sol Ring'] }]);
+  mana(g, 0);
+  const seen = stackMv(g), o = find(g, 0, 'Wear // Tear', 'hand');
+  eq(o.card.cmc, 3, 'in hand');
+  await cast(g, 0, 'Wear // Tear');
+  eq(seen, [['Wear // Tear', 2]], 'on the stack');
+  eq([o.zone, o.card.cmc], ['graveyard', 3], 'in the graveyard');
+  eq(find(g, 1, 'Sol Ring'), undefined, 'Sol Ring destroyed'); noErrors(g);
+});
+await test('Wear // Tear under rules 7 (old replays): mana value 3 on the stack, as before', async () => {
+  const g = await scenario([{ hand: ['Wear // Tear'] }, { battlefield: ['Sol Ring'] }], { rules: 7 });
+  mana(g, 0);
+  const seen = stackMv(g);
+  await cast(g, 0, 'Wear // Tear');
+  eq(seen, [['Wear // Tear', 3]], 'on the stack');
+});
+await test('Dazzling Theater // Prop Room: one door unlocked has that door\'s mana value, both doors the sum (709.5)', async () => {
+  const g = await scenario([{ hand: ['Dazzling Theater // Prop Room'] }, {}]);
+  mana(g, 0);
+  await cast(g, 0, 'Dazzling Theater // Prop Room');
+  const o = find(g, 0, 'Dazzling Theater // Prop Room');
+  ok(o, 'Room on the battlefield');
+  eq(o.card.cmc, 4, 'Dazzling Theater unlocked');
+  eq(g.lockedDoor(o)?.name, 'Prop Room', 'locked door');
+  ok(await g.unlockRoom(P(g, 0), o), 'unlocks Prop Room');
+  eq([o.card.cmc, g.lockedDoor(o)], [7, null], 'fully unlocked');
+  g.move(o, 'hand');
+  eq(o.card.cmc, 7, 'back in hand'); noErrors(g);
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

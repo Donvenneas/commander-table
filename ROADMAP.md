@@ -560,6 +560,18 @@ on top of the ones above:
     Dualcaster Mage + Twinflame by hand (Twinflame copies only through the shortcut), Underworld Breach + LED by hand
     (escape is read; LED + Brain Freeze sequencing untested), optional "may" loops the AI keeps choosing are judged a
     draw like mandatory ones once the state repeats.
+- [x] 187. Card data audit, multi-faced cards (asked 2026-11-12): check how Scryfall data becomes game cards and fix
+  characteristics that come out wrong for transforming, modal double-faced, split, adventure and Room cards.
+  - Done (rules 8; replays at rules 4–7 play exactly as before, golden games for all five): normalize() gave every face
+    Scryfall's keyword list for the whole card, so 9 snapshot cards had a back face's keywords on the front (Westvale
+    Abbey had flying, lifelink, indestructible and haste as a land; Etali indestructible; Sephiroth, Kefka and Lunarch
+    Veteran flying) and back faces had the front's; each face now keeps only its own keyword lines (faceKeywords).
+    A split card's half was cast with both halves' mana value (Wear 3, Dusk 9): it now has its own on the stack
+    (709.3b), and a Room has only its unlocked door's mana value until both are unlocked (709.5); a second half's
+    hybrid {2/W} now counts 2 (costMv). The corrected reading is card.v8, used by Game.mk at rules 8. Tests:
+    interactions 145 (6 new, with rules 7 checks), cards 0 changed, golden 30, fuzz 12 + 60 and hidden 0 problems,
+    type check 0, self-test 19/19, 20 browser games with these cards (0 errors, no rule broken). Still open: prototype
+    (no reading), meld (no melded back face), a split half's mana value while its cost is worked out (601.2f).
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
