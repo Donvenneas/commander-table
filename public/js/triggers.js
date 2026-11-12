@@ -2,7 +2,7 @@
 // Split out of engine.js (Round 5, item 176): each function is one of Game's methods, with the game as `g`; Game keeps
 // a one-line method that calls it, so nothing else changes.
 import { parseCost, COLORS, Abort } from './engine.js';
-import { analyzeCard, needsTarget, condText } from './effects.js';
+import { analyzeCard, needsTarget, needsTargetIn, condText } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import * as K from './kingdomsPlay.js';
@@ -11,12 +11,15 @@ import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 /** @param {import('./engine.js').Game} g */
 export function trigger(g, o, kind) {
   // (a card stopped on its way in, by Grafdigger's Cage, never entered)
-  if (kind === 'etb' && (o.zone !== 'battlefield' || g.etbSuppressed(g.players[o.controller]))) return;
+  if (kind === 'etb' && (o.zone !== 'battlefield' || g.etbSuppressed(g.players[o.controller]) || creatureTriggersStopped(g, o, 'noEtbCreature'))) return;
   if (o.fx[kind]?.length || (kind === 'etb' && o.fx.etbModes)) g.queue.push({ o, kind, p: g.players[o.controller] });
 }
 // Elesh Norn, Mother of Machines (and Torpor Orb-style effects): entering doesn't trigger this player's abilities
 /** @param {import('./engine.js').Game} g */
 export function etbSuppressed(g, q) { return !!q && g.opponents(q).some(x => x.battlefield.some(s => s.fx.noEtbOpp)); }
+// Torpor Orb, Hushbringer (rules 6): a creature entering (noEtbCreature) or dying (noDieCreature) triggers nothing
+/** @param {import('./engine.js').Game} g @param {any} o @param {string} flag */
+export function creatureTriggersStopped(g, o, flag) { return g.rules >= 6 && !!o?.fx.type.creature && g.alive().some(q => q.battlefield.some(s => s.fx[flag])); }
 /** @param {import('./engine.js').Game} g */
 export async function flushTriggers(g) {
   while (g.queue.length && !g.over) {
@@ -122,6 +125,7 @@ export function extraTriggers(g, t) {
 export function fire(g, ev, info = {}) {
   if (g.over) return;
   if (g.trigCount.turn !== g.turn) g.trigCount = { turn: g.turn, n: 0 };
+  if (ev === 'enter' && creatureTriggersStopped(g, info.o, 'noEtbCreature')) return;
   for (const q of g.alive()) for (const s of q.battlefield) {
     const ws = s.fx.watch;
     if (!ws?.length) continue;
@@ -315,7 +319,7 @@ export async function stackAbility(g, p, src, effects, label, kind = 'ability', 
   // (the X already paid, for players choosing targets for "X damage")
   g.xNow = x || null;
   try {
-    for (const e of effects) targets.push(needsTarget(e) ? await (p.agent.chooseTargetAsync?.(g, p, e, src) ?? p.agent.chooseTarget(g, p, e, src)) : null);
+    for (const e of effects) targets.push(needsTargetIn(e, g.rules) ? await (p.agent.chooseTargetAsync?.(g, p, e, src) ?? p.agent.chooseTarget(g, p, e, src)) : null);
   } finally { g.xNow = null; }
   if (!g.payWard(p, targets, src)) return;
   for (const t of targets) if (t?.obj) g.fire('targeted', { o: t.obj, p: p.idx });

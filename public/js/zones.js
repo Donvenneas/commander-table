@@ -290,6 +290,8 @@ export function regenerate(g, o) {
 // A creature died (700.4): its own "when ~ dies" and every "whenever a creature dies" watcher trigger
 /** @param {import('./engine.js').Game} g @param {any} o @param {any} [snap] */
 export function noteDeath(g, o, snap = {}) {
+  // (Hushbringer, rules 6: a creature dying triggers nothing, its own undying and persist included)
+  if (g.rules >= 6 && o.fx.type.creature && g.alive().some(q => q.battlefield.some(s => s.fx.noDieCreature))) { if (o.fx.kwN?.modular && snap.counters > 0) o.lastCounters = snap.counters; return; }
   g.trigger(o, 'dies');
   const p = g.players[o.owner];
   // Undying and persist bring it back with a counter, if it didn't already have one (702.93, 702.79)

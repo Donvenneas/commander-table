@@ -33,7 +33,9 @@ passes with 0 simulator errors, and stop every `Commander Table` and `cloudflare
 
 Card readings: `node tests/cards.mjs` (CI runs it too) compares how the effects parser reads 3,500 saved cards with `tests/card-readings.json`; when a change to effects.js is meant to change readings, accept them with `node tests/cards.mjs --update` (and `--fetch` for a fresh card snapshot).
 
-Golden games: `node tests/golden.mjs` (CI runs it too) plays 12 AI games under rules 4 and 5 and compares results and log hashes with `tests/golden-games.json`. A rules 4 difference breaks old replays: gate new behaviour behind `this.rules >= 5` (or a new RULES version). Accept a deliberate change with `--update`.
+Golden games: `node tests/golden.mjs` (CI runs it too) plays 18 AI games under rules 4, 5 and 6 and compares results and log hashes with `tests/golden-games.json`. A rules 4 or 5 difference breaks old replays (1.19.0 and earlier): gate new behaviour behind `this.rules >= 6` (or a new RULES version). Accept a deliberate change with `--update`.
+
+Card and interaction tests: `node tests/interactions.mjs [name filter]` (CI runs it too) builds small boards from card names (`tests/scenario.mjs`) and checks one card or interaction each. Every card fix gets a test here. Card data the snapshots lack goes in `tests/interaction-cards.json` via `node tests/fetch-interaction-cards.mjs "Card Name"`.
 
 Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for more) plays random decks with one seat answering every prompt at random, under the rules watcher.
 

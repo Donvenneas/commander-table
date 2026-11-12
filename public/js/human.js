@@ -4,7 +4,7 @@
 import { Agent } from './ai.js';
 import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
-import { needsTarget, costText } from './effects.js';
+import { needsTarget, needsTargetIn, costText } from './effects.js';
 import { esc, makeRng } from './util.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
@@ -409,14 +409,14 @@ export class HumanAgent extends Agent {
   candidates(g, p, e, src) {
     const all = g.players.flatMap(q => q.battlefield);
     switch (e.k) {
-      case 'remove': return { objs: all.filter(o => this.matches(o, e.what) && g.canTarget(p, o)) };
-      case 'bounce': case 'flickerDelay': return { objs: all.filter(o => this.matches(o, e.what) && !o.fx.type.land && g.canTarget(p, o)) };
-      case 'steal': return { objs: all.filter(o => o.controller !== p.idx && this.matches(o, e.what) && g.canTarget(p, o)) };
-      case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && g.canTarget(p, o)) };
-      case 'blink': return { objs: p.battlefield.filter(o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent') && o !== src) };
+      case 'remove': return { objs: all.filter(o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
+      case 'bounce': case 'flickerDelay': return { objs: all.filter(o => this.matches(o, e.what, g) && !o.fx.type.land && g.canTarget(p, o)) };
+      case 'steal': return { objs: all.filter(o => o.controller !== p.idx && this.matches(o, e.what, g) && g.canTarget(p, o)) };
+      case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
+      case 'blink': return { objs: p.battlefield.filter(o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
       case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
       case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
-      case 'tap': return { objs: all.filter(o => this.matches(o, e.what) && g.canTarget(p, o)) };
+      case 'tap': return { objs: all.filter(o => this.matches(o, e.what, g) && g.canTarget(p, o)) };
       case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
       case 'damage': {
         const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
@@ -458,7 +458,7 @@ export class HumanAgent extends Agent {
     const targets = [];
     for (const e of effects) {
       if (e.k === 'counter' || e.k === 'counterAbility' || e.k === 'copySpell') { targets.push(extra.spellTarget ? { spell: extra.spellTarget } : null); continue; }
-      if (!needsTarget(e)) { targets.push(null); continue; }
+      if (!needsTargetIn(e, g.rules)) { targets.push(null); continue; }
       const t = await this.pickTarget(g, p, e, o);
       if (t === 'cancel') return false;
       targets.push(t);
@@ -843,7 +843,7 @@ export class HumanAgent extends Agent {
     // Targets are chosen here so the engine can cast it straight away
     const effects = r.obj.fx.spell;
     const targets = [];
-    for (const e of effects) { const t = needsTarget(e) ? await this.pickTarget(g, q, e, r.obj) : null; if (t === 'cancel') return null; targets.push(t); }
+    for (const e of effects) { const t = needsTargetIn(e, g.rules) ? await this.pickTarget(g, q, e, r.obj) : null; if (t === 'cancel') return null; targets.push(t); }
     return { card: r.obj, targets, human: true };
   }
 

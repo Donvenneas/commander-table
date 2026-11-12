@@ -409,8 +409,13 @@ export class Agent {
   }
 
   // ---------- targeting
-  matches(o, what) {
+  matches(o, what, g = null) {
     const t = o.fx.type;
+    // (rules 6: "target land" means a land, and a God below its devotion or an uncharged Spacecraft isn't a creature)
+    if (g && g.rules >= 6) {
+      if (what === 'land') return t.land;
+      if (t.creature && g.dormant(o) && /creature/.test(what || 'creature')) return what === 'creature or planeswalker' ? t.planeswalker : false;
+    }
     switch (what) {
       case 'creature': return t.creature;
       case 'artifact': return t.artifact;
@@ -456,11 +461,11 @@ export class Agent {
     const N0 = v => (v === 'X' ? xGuess() : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
     const n = N0(e.n);
     switch (e.k) {
-      case 'remove': return this.bestEnemy(g, p, o => this.matches(o, e.what) && (e.mode === 'exile' || !g.has(o, 'indestructible')) && (e.maxMv == null || ((o.card.cmc || 0) <= e.maxMv && !o.token))
+      case 'remove': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && (e.mode === 'exile' || !g.has(o, 'indestructible')) && (e.maxMv == null || ((o.card.cmc || 0) <= e.maxMv && !o.token))
         // ("nonartifact, nonblack creature")
         && !(e.not || []).some(w => o.fx.type[w] || (o.card.colors || []).includes({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[w])));
-      case 'bounce': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land);
-      case 'tuck': return this.bestEnemy(g, p, o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent') && !o.fx.type.land);
+      case 'bounce': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land);
+      case 'tuck': return this.bestEnemy(g, p, o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && !o.fx.type.land);
       // (an untapped creature that could block, or attack)
       case 'noBlock': return this.bestEnemy(g, p, o => o.fx.type.creature && !o.tapped);
       case 'loseLife': { const q = this.weakestOpponent(g, p); return q ? { player: q.idx } : null; }
@@ -468,14 +473,15 @@ export class Agent {
       case 'silence': { const q = [...g.opponents(p)].sort((a, b) => this.threat(g, p, b) - this.threat(g, p, a))[0]; return q ? { player: q.idx } : null; }
       // Mill whoever is closest to running out
       case 'mill': { const q = [...g.opponents(p)].sort((a, b) => a.library.length - b.library.length)[0]; return q ? { player: q.idx } : null; }
-      case 'copyToken': { const o = this.bestOwn(g, p, x => this.matches(x, e.what) && !x.fx.type.legendary); return o ? { obj: o, v: this.value(g, o) } : null; }
-      case 'pump': case 'counters': case 'protect': case 'doublePT': { const o = this.bestOwn(g, p); return o ? { obj: o } : null; }
+      case 'copyToken': { const o = this.bestOwn(g, p, x => this.matches(x, e.what, g) && !x.fx.type.legendary); return o ? { obj: o, v: this.value(g, o) } : null; }
+      // (rules 6: only a creature now: not Heliod below its devotion, so Heliod's counter goes on Walking Ballista)
+      case 'pump': case 'counters': case 'protect': case 'doublePT': { const o = this.bestOwn(g, p, g.rules >= 6 ? x => x.fx.type.creature && !g.dormant(x) : undefined); return o ? { obj: o } : null; }
       case 'blink': {
         // The creature whose enters-the-battlefield effect is worth the most to repeat
         let best = null, bv = 0;
         for (const o of p.battlefield) {
           // (a blinker never blinks itself: its own enter trigger would start over and over)
-          if (!this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent') || o.token || o === src || o.fx.etb.some(x => x.k === 'blink')) continue;
+          if (!this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) || o.token || o === src || o.fx.etb.some(x => x.k === 'blink')) continue;
           // (blink-on-ETB creatures like Restoration Angel aren't counted, or the valuation would recurse)
           const v = o.fx.etb.filter(x => x.k !== 'blink').reduce((s, x) => s + this.effectValue(g, p, o, x, false), 0);
           if (v > bv) { bv = v; best = o; }
@@ -484,9 +490,9 @@ export class Agent {
       }
       case 'steal':
         // A creature borrowed for a turn is only worth taking if it can swing hard
-        return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land
+        return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land
           && (!e.temp || (o.fx.type.creature && g.power(o) >= 3 && !g.has(o, 'defender'))));
-      case 'flickerDelay': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.fx.type.land && !o.token);
+      case 'flickerDelay': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land && !o.token);
       case 'fight': {
         const mine = src.zone === 'battlefield' && src.fx.type.creature ? src : this.bestOwn(g, p);
         if (!mine) return null;
@@ -494,7 +500,7 @@ export class Agent {
       }
       case 'shrink': return this.bestEnemy(g, p, o => o.fx.type.creature && g.toughness(o) <= N0(e.t));
       case 'minus': return this.bestEnemy(g, p, o => o.fx.type.creature && g.toughness(o) <= N0(e.n)) || this.bestEnemy(g, p, o => o.fx.type.creature);
-      case 'tap': return this.bestEnemy(g, p, o => this.matches(o, e.what) && !o.tapped && !o.fx.type.land);
+      case 'tap': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.tapped && !o.fx.type.land);
       case 'goad': return this.bestEnemy(g, p, o => o.fx.type.creature && g.power(o) >= 2);
       case 'regen': { const o = this.bestOwn(g, p); return o ? { obj: o } : null; }
       case 'copySpell': {

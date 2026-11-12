@@ -1,5 +1,5 @@
 {
- "version": "1.19.0",
+ "version": "1.20.0",
  "round": "Round 5",
  "items": [
   {
@@ -79,6 +79,12 @@
    "section": "Rules engine and card coverage",
    "title": "Rules check timing: invariants.js also checks sorcery-speed casts (own main phase, empty stack), land drops per turn, mana spent against cost, and that an AI decision never reads hidden information (cards it can't see).",
    "done": "mana against cost — watchGame totals the mana units committed while a spell from hand or the command zone is cast for its mana cost and reports a cast that paid less than its cost after reductions and taxes (\"mana\" findings; alternative and"
+  },
+  {
+   "n": 185,
+   "section": "Rules engine and card coverage",
+   "title": "Card debugging pass (asked 2026-11-11): find cards that don't do what their text says, fix the cause, and test each fix with a small board.",
+   "done": "new tests/interactions.mjs (in CI) builds boards from card names (tests/scenario.mjs; extra card data in tests/interaction-cards.json) — 51 tests."
   },
   {
    "n": 101,

@@ -1,5 +1,5 @@
 // Four-player Commander game engine. Rule numbers in the log refer to the Comprehensive Rules.
-import { analyzeCard, needsTarget, condText } from './effects.js';
+import { analyzeCard, needsTarget, needsTargetIn, condText } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import { learnedBonus, learnedPerson } from './learn.js';
@@ -21,7 +21,7 @@ export const PHASES = [
 export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
-export const RULES = 5;
+export const RULES = 6;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -767,7 +767,7 @@ export class Game {
     const spent = c.generic + c.pips.length + extra + x * (c.x || 0);
     // Overloaded: "target" becomes "each" (the opponents' permanents for removal, bounce and damage)
     if (mode.alt === 'overload') effects = effects.map(e => ({ remove: { k: 'wipeOpp', mode: e.mode, what: e.what }, bounce: { k: 'wipeOpp', mode: 'bounce', what: e.what }, damage: { k: 'wipeOpp', mode: 'damage', n: e.n, what: 'creature' }, tap: { k: 'tapAll', what: 'creatures' }, pump: { k: 'teamPump', p: e.p, t: e.t, kw: e.kw }, counters: { ...e, on: 'each creature you control' } }[e.k] || e));
-    const targets = choice.targets || effects.map(e => (needsTarget(e) ? p.agent.chooseTarget(this, p, e, o) : null));
+    const targets = choice.targets || effects.map(e => (needsTargetIn(e, this.rules) ? p.agent.chooseTarget(this, p, e, o) : null));
     let auraTarget = null;
     if (o.fx.type.aura) { auraTarget = choice.auraTarget || p.agent.chooseAuraTarget(this, p, o); if (!auraTarget) return false; }
     p.casting = o;   // (Lion's Eye Diamond discards the hand, but not the spell it pays for)
@@ -908,7 +908,8 @@ export class Game {
     if (o.bestowed && !(auraTarget?.zone === 'battlefield')) { this.unbestow(o); auraTarget = null; }
     if (o.fx.type.permanent) {
       this.move(o, 'battlefield', { tapped: o.fx.entersTapped && !o.fx.type.creature });
-      if (o.fx.entersCounters === 'X') o.counters = x;
+      // (rules 6: "enters with X counters" is counters put on it, so Hardened Scales and Doubling Season apply, 614.1c)
+      if (o.fx.entersCounters === 'X') o.counters = this.rules >= 6 ? this.moreCounters(o, x) : x;
       if (o.kicked && o.fx.kickCounters) o.counters += this.moreCounters(o, o.fx.kickCounters);
       const imprint = choice.imprint || (o.fx.imprint && p.agent.chooseImprint(this, p, o));
       if (imprint && imprint.zone === 'hand') {
@@ -1366,6 +1367,11 @@ export class Game {
     return o;
   }
 
+  // An ability that exiles "target <type> card from a graveyard" needs such a card (rules 6)
+  gyTargetOk(ab) {
+    const need = (ab.effects || []).map((/** @type {any} */ e) => (e.k === 'gyExile' ? e.types : e.k === 'remove' && e.gyCard ? ['land'] : null)).filter(Boolean);
+    return need.every((/** @type {string[]} */ types) => this.alive().some(q => q.graveyard.some((/** @type {any} */ c) => types.some(t => c.fx.type[t]))));
+  }
   // Puresteel Paladin: equip {0} (with metalcraft)
   equipCost(p, eq) {
     const free = p.battlefield.some(s => s.fx.freeEquip != null && p.battlefield.filter(x => x.fx.type.artifact).length >= s.fx.freeEquip);
@@ -1445,6 +1451,8 @@ export class Game {
   }
   canActivateRaw(p, o, ab) {
     if (ab.tap && (o.tapped || !this.canTapNow(p, o))) return false;
+    // (rules 6) Deathrite Shaman: the card it exiles from a graveyard is a target, so one must be there (602.2b)
+    if (this.rules >= 6 && !this.gyTargetOk(ab)) return false;
     if (ab.gate && !this.gateOk(o, ab.gate)) return false;
     if (ab.levelTo && (o.level || 1) !== ab.levelTo - 1) return false;
     if (this.abilityLocked(p, o)) return false;
@@ -2448,7 +2456,8 @@ export class Game {
       if (n > 0) { p.life -= n; this.emit('life', { p: p.idx, d: -n }); this.draw(p, n, true); this.log(`${this.pn(p)} pays ${n} life to Necropotence for ${n} cards`, { kind: 'minor' }); }
     }
     // Mobilize tokens are sacrificed at the end step
-    for (const o of (this.endSac || []).splice(0)) if (o.zone === 'battlefield') this.sacrifice(this.players[o.controller], o);
+    // (and token copies "exiled at the beginning of the next end step", rules 6: Twinflame, Heat Shimmer)
+    for (const o of (this.endSac || []).splice(0)) if (o.zone === 'battlefield') { if (o.endExile) this.move(o, 'exile'); else this.sacrifice(this.players[o.controller], o); }
     // Cards exiled "until the next end step" come back
     for (const o of this.delayed.splice(0)) {
       if (o.zone !== 'exile') continue;

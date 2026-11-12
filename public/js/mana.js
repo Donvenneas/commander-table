@@ -147,6 +147,8 @@ export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null,
   const units = g.units(p, exclude).concat(help);
   const used = new Set();
   const srcs = new Set();
+  // (the units that paid a colored pip: a painland tapped for colored mana hurts, for {C} it doesn't)
+  const colored = new Set();
   const pick = (ok, generic = false) => {
     let best = -1, bs = -1e9;
     units.forEach((u, i) => {
@@ -165,12 +167,13 @@ export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null,
     });
     if (best < 0) return false;
     used.add(best);
+    if (!generic) colored.add(best);
     if (units[best].src) srcs.add(units[best].src);
     return true;
   };
   for (const pip of [...cost.pips].sort((a, b) => a.length - b.length)) if (!pick(u => pip.some(c => u.colors.includes(c)))) return null;
   for (let i = 0; i < cost.generic + extra; i++) if (!pick(() => true, true)) return null;
-  return { units, used, srcs: [...srcs] };
+  return { units, used, srcs: [...srcs], colored };
 }
 /** @param {import('./engine.js').Game} g */
 export function commitPayment(g, p, plan) {
@@ -182,6 +185,12 @@ export function commitPayment(g, p, plan) {
     s.tapped = true;
     if (s.fx.watch?.length || p.battlefield.some(x => x.fx.watch?.some(w => w.ev === 'tapped'))) g.fire('tapped', { o: s, p: p.idx });
     plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only }); });
+    // (rules 6) Painlands, Talismans: colored mana deals damage to you; Ancient Tomb, Mana Confluence: any mana
+    const pain = s.fx.mana?.pain;
+    if (pain && g.rules >= 6 && plan.units.some((u, i) => u.src === s && !u.convoke && (!pain.colored || !plan.used.has(i) || (plan.colored?.has(i) && u.colors.some(c => c !== 'C'))))) {
+      if (pain.life) { p.life -= pain.n; g.emit('life', { p: p.idx, d: -pain.n }); g.log(`${g.pn(p)} pays ${pain.n} life for ${g.cn(s)}'s mana`, { kind: 'minor' }); }
+      else { g.damagePlayer(p, pain.n, s, false); g.log(`${g.cn(s)} deals ${pain.n} damage to ${g.pn(p)}`, { kind: 'minor' }); }
+    }
     if (s.fx.mana?.sac) { g.move(s, 'graveyard'); g.fire('sac', { o: s, p: p.idx }); }
     if (s.fx.mana?.discardHand) {
       const hand = p.hand.filter(c => c !== p.casting);

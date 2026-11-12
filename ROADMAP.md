@@ -513,6 +513,29 @@ on top of the ones above:
     blocks, responses) with each opponent's hand and library scrambled, on the same random stream, and fails if one
     changes: 24 games, 14,102 decisions, 0 changed. A planted pilot that peeked at an opponent's hand was caught
     (235 of 1,007 plays changed).
+- [x] 185. Card debugging pass (asked 2026-11-11): find cards that don't do what their text says, fix the cause, and
+  test each fix with a small board.
+  - Done (rules 6; replays at rules 4 and 5 play exactly as before, golden games for all three): new
+    tests/interactions.mjs (in CI) builds boards from card names (tests/scenario.mjs; extra card data in
+    tests/interaction-cards.json) — 51 tests. Fixed: (1) "destroy target artifact or enchantment" was read twice by
+    two patterns, so Disenchant, Naturalize, Reclamation Sage and ~20 others destroyed a second permanent (readRiders
+    marks the copy dup). (2) The AI's and the human seat's target filter had no "land" case, so Strip Mine, Wasteland
+    and Ghost Quarter destroyed the best creature, and Deathrite Shaman's mana ability exiled one; Wasteland now
+    skips basics, and Deathrite needs a land, instant/sorcery or creature card in a graveyard. (3) Removal and
+    counterspell riders were dropped: Swords to Plowshares' life, Path to Exile's land, Beast Within / Generous Gift /
+    Pongify / Swan Song tokens, An Offer You Can't Refuse's Treasures, Nature's Claim's life (e.comp). (4) Gray
+    Merchant, Exsanguinate, Kokusho gain the life lost; Reanimate and Feed the Swarm cost life. (5) Kiki-Jiki, Feldon,
+    Twinflame, Heat Shimmer, Helm of the Host copies: haste, not legendary, sacrificed or exiled at the end step.
+    (6) "Enters with X counters" now counts as putting counters (Hardened Scales, Doubling Season on Walking Ballista).
+    (7) A God below its devotion was picked as "target creature", so Heliod put its own counter on itself and the
+    Heliod + Ballista loop died. (8) Painlands, Talismans, Ancient Tomb, Elves of Deep Shadow, Mana Confluence now
+    cost their life. (9) Torpor Orb and Hushbringer are read. Found with a sentence scan of the 3,500-card snapshot
+    (lines counted as read while one sentence was dropped) and board probes. Tests: interactions 51/51, cards (130
+    readings changed on purpose), golden 18 (rules 4 and 5 unchanged), fuzz 12 + 60 games and hidden 0 problems,
+    type check 0, browser self-test 19/19. Still open: about 740 cards with a dropped sentence by the scan (many are
+    harmless or read by a whole-line pattern; see the notes below), The Scarab God and Abyssal Harvester copy a
+    battlefield creature instead of the exiled card, Twinflame copies nothing, Humility/Opalescence (item 90), a
+    target that stops being a creature isn't rechecked on resolution (608.2b).
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

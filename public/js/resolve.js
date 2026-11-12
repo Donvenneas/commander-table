@@ -2,7 +2,7 @@
 // Split out of engine.js (Round 5, item 176): each function is one of Game's methods, with the game as `g`; Game keeps
 // a one-line method that calls it, so nothing else changes.
 import { parseCost, COLORS } from './engine.js';
-import { needsTarget, condText } from './effects.js';
+import { needsTarget, needsTargetIn, condText } from './effects.js';
 import { shuffle, esc } from './util.js';
 import * as K from './kingdomsPlay.js';
 
@@ -33,8 +33,10 @@ export async function doEffect(g, p, src, e, ctx, i) {
   // X from the mana paid, or a counted amount (devotion, creatures you control) checked on resolution
   const X = v => (v === 'X' ? ctx.x || 0 : v && typeof v === 'object' ? g.dynValue(p, v, { ...ctx, src }) : v);
   const S = g.cn(src);
+  // (rules 6: a second reading of the same words does nothing; see readRiders in effects.js)
+  if (e.dup && g.rules >= 6) return;
   let tgt = ctx.targets?.[i];
-  if (needsTarget(e) && !g.validTarget(tgt, p)) {
+  if (needsTargetIn(e, g.rules) && !g.validTarget(tgt, p)) {
     // A spell's chosen target that became illegal is skipped, never swapped for a new one (608.2b)
     if (ctx.strict && tgt) { g.log(`${S}: ${g.tname(tgt)} is no longer a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
     tgt = p.agent.chooseTarget(g, p, e, src);
@@ -128,6 +130,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
         // Reprieve, Remand-style: the spell goes back to its owner's hand
         if (e.toHand) tgt.spell.toHand = true;
         g.log(`${g.cn(tgt.spell.o)}${tgt.spell.ability ? "'s ability" : ''} is countered`, { kind: 'removal', rule: '701.6a' });
+        // (rules 6) Swan Song's Bird, An Offer You Can't Refuse's Treasures: for the countered spell's controller
+        if (e.comp && g.rules >= 6 && tgt.spell.p && !tgt.spell.p.lost) await compensate(g, tgt.spell.p, src, e.comp, 0);
         g.emit('update');
       }
       break;
@@ -183,10 +187,11 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // "A token that's a copy of equipped creature / it" has no target
       if (e.of) tgt = { obj: e.of === '~' ? src : e.of === 'equipped creature' || e.of === 'enchanted creature' ? src.attachedTo : ctx.trig?.o || src };
       // (Skyclave Relic: two tapped copies of itself)
-      for (let k = 1; k < (e.n || 1) && tgt?.obj?.zone === 'battlefield'; k++) { const c2 = g.createCopy(p, tgt.obj, false); if (e.tapped) c2.tapped = true; g.trigger(c2, 'etb'); }
+      for (let k = 1; k < (e.n || 1) && tgt?.obj?.zone === 'battlefield'; k++) { const c2 = g.createCopy(p, tgt.obj, false); if (e.tapped) c2.tapped = true; if (g.rules >= 6) tokenCopyRiders(g, c2, e); g.trigger(c2, 'etb'); }
       if (tgt?.obj && tgt.obj.zone === 'battlefield') {
         const copy = g.createCopy(p, tgt.obj, false);
         if (e.tapped) copy.tapped = true;
+        if (g.rules >= 6) tokenCopyRiders(g, copy, e);
         // Offspring: the copy is a 1/1
         if (e.small) copy.card = { ...copy.card, power: '1', toughness: '1' };
         g.log(`${g.pn(p)} creates a ${e.small ? '1/1 ' : ''}token copy of ${g.cn(tgt.obj)}`, { kind: 'minor', rule: '707.2' });
@@ -238,7 +243,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       const n = X(e.n) * (e.times || 1);
       for (const q of g.opponents(p)) { q.life -= n; q.grudge[p.idx] += n; g.emit('life', { p: q.idx, d: -n }); }
       // (Debt to the Deathless: you gain what they lost)
-      if (e.gain) { const gained = g.lifeGain(p, n * g.opponents(p).length); p.life += gained; g.emit('life', { p: p.idx, d: gained }); }
+      // (and Gray Merchant, Exsanguinate from rules 6: "you gain life equal to the life lost this way")
+      if (e.gain || (e.gainLost && g.rules >= 6)) { const gained = g.lifeGain(p, n * g.opponents(p).length); p.life += gained; g.emit('life', { p: p.idx, d: gained }); }
       g.log(`${S}: each opponent loses ${n} life`); break;
     }
     case 'loseLife': if (tgt?.player != null) { const q = g.players[tgt.player]; const n = X(e.n); q.life -= n; g.emit('life', { p: q.idx, d: -n }); g.log(`${S}: ${g.pn(q)} loses ${n} life`); } break;
@@ -274,11 +280,25 @@ export async function doEffect(g, p, src, e, ctx, i) {
       else if (tgt?.player != null) { g.damagePlayer(g.players[tgt.player], n, src, false); g.log(`${S} deals ${n} damage to ${tName(tgt)}`); }
       break;
     }
-    case 'remove':
+    case 'remove': {
+      // (rules 6) Deathrite Shaman: "exile target land card from a graveyard" is a card, not a land on the battlefield
+      if (e.gyCard && g.rules >= 6) { exileFromGraveyard(g, p, src, ['land']); break; }
       if (!tgt?.obj) { g.log(`${S} has no legal target`, { kind: 'minor' }); break; }
-      if (e.mode === 'exile') { g.log(`${S} exiles ${tName(tgt)}`, { kind: 'removal' }); g.move(tgt.obj, 'exile'); }
-      else if (g.destroy(tgt.obj)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
+      // (what the target was as it last existed on the battlefield: its power and controller, 608.2h)
+      const v = tgt.obj, q = g.players[v.controller], pow = g.power(v), mv = v.card.cmc || 0;
+      if (e.mode === 'exile') { g.log(`${S} exiles ${tName(tgt)}`, { kind: 'removal' }); g.move(v, 'exile'); }
+      else if (g.destroy(v)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
       else g.log(`${tName(tgt)} is indestructible`, { rule: '702.12' });
+      if (g.rules >= 6) {
+        if (e.comp) await compensate(g, q, src, e.comp, pow);
+        // Feed the Swarm: you lose life equal to its mana value
+        if (e.loseMv && mv > 0) { p.life -= mv; g.emit('life', { p: p.idx, d: -mv }); g.log(`${g.pn(p)} loses ${mv} life (${S})`, { kind: 'minor' }); }
+      }
+      break;
+    }
+    case 'gyExile':
+      // (rules 6) Deathrite Shaman's other abilities: they need a card of that type in a graveyard
+      if (g.rules >= 6) exileFromGraveyard(g, p, src, e.types);
       break;
     case 'bounce':
       if (tgt?.obj) {
@@ -386,6 +406,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
         g.move(c, 'battlefield', { under: p.idx });
         g.log(`${S} puts ${g.cn(c)} onto the battlefield from ${theirs ? `${g.pn(g.players[c.owner])}'s` : 'the'} graveyard`);
         g.trigger(c, 'etb');
+        // (rules 6) Reanimate: you lose life equal to its mana value
+        if (e.loseMv && g.rules >= 6 && c.card.cmc) { p.life -= c.card.cmc; g.emit('life', { p: p.idx, d: -c.card.cmc }); g.log(`${g.pn(p)} loses ${c.card.cmc} life (${S})`, { kind: 'minor' }); }
       }
       }
       break;
@@ -413,6 +435,43 @@ export async function doEffect(g, p, src, e, ctx, i) {
 }
 // Xorn, Academy Manufactor, Peregrin Took: making tokens makes an extra artifact token too
 /** @param {import('./engine.js').Game} g */
+// (rules 6) What a removal spell's or counterspell's target controller gets: Swords to Plowshares' life (its power as
+// it last existed), Path to Exile's basic land, Beast Within's token, An Offer You Can't Refuse's Treasures
+/** @param {import('./engine.js').Game} g @param {any} q @param {any} src @param {any} comp @param {number} pow */
+async function compensate(g, q, src, comp, pow) {
+  if (!q || q.lost) return;
+  const S = g.cn(src);
+  if (comp.gain) {
+    const gained = g.lifeGain(q, comp.gain === 'power' ? Math.max(0, pow) : comp.gain);
+    if (gained > 0) { q.life += gained; g.emit('life', { p: q.idx, d: gained }); g.log(`${g.pn(q)} gains ${gained} life (${S})`, { kind: 'minor' }); }
+  }
+  if (comp.land) await g.fetchLands(q, { n: 1, basic: true, bf: true, tapped: comp.land.tapped }, src);
+  if (comp.token) {
+    const n = Math.min(g.tokenCount(q, comp.token.n), 40);
+    for (let k = 0; k < n; k++) g.createToken(q, { k: 'token', ...comp.token }, src);
+    if (n) g.log(`${g.pn(q)} creates ${n} ${comp.token.p}/${comp.token.t} ${comp.token.desc} token${n === 1 ? '' : 's'} (${S})`, { kind: 'minor' });
+  }
+  for (let k = 0; k < (comp.treasure || 0); k++) g.createTreasure(q, src);
+  if (comp.treasure) g.log(`${g.pn(q)} creates ${comp.treasure} Treasure${comp.treasure === 1 ? '' : 's'} (${S})`, { kind: 'minor' });
+}
+// (rules 6) A token copy "except it has haste" (part of the copy, 707.9b), "isn't legendary" (Helm of the Host),
+// sacrificed or exiled at the beginning of the next end step (Kiki-Jiki, Twinflame, Heat Shimmer)
+/** @param {import('./engine.js').Game} g @param {any} copy @param {any} e */
+function tokenCopyRiders(g, copy, e) {
+  if (e.haste) copy.permKw = new Set([...(copy.permKw || []), 'haste']);
+  if (e.notLegend) { copy.card = { ...copy.card, typeLine: (copy.card.typeLine || '').replace(/\bLegendary /, '') }; copy.fx = { ...copy.fx, type: { ...copy.fx.type, legendary: false } }; }
+  if (e.temp) { if (e.temp === 'exile') copy.endExile = true; (g.endSac ||= []).push(copy); }
+}
+// (rules 6) "Exile target <type> card from a graveyard": an opponent's card first (Deathrite Shaman)
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} src @param {string[]} types */
+function exileFromGraveyard(g, p, src, types) {
+  for (const q of [...g.opponents(p), p]) {
+    const c = q.graveyard.find((/** @type {any} */ o) => types.some(t => o.fx.type[t]));
+    if (c) { g.move(c, 'exile'); g.log(`${g.cn(src)} exiles ${g.cn(c)} from ${g.pn(q)}'s graveyard`, { kind: 'minor' }); return true; }
+  }
+  g.log(`${g.cn(src)}: no ${types.join(' or ')} card in a graveyard`, { kind: 'minor' });
+  return false;
+}
 export function extraTokens(g, p, kind, src) {
   for (const s of p.battlefield) {
     const k = s.fx.extraToken;
