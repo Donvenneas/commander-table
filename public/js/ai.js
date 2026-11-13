@@ -1632,6 +1632,15 @@ export class Agent {
     return null;
   }
 
+  // (rules 12) A cost with Phyrexian symbols that can be paid more than one way: how many to pay with 2 life each.
+  // options: the numbers that make a complete payment (0 = all with mana). The AI keeps its mana and pays life while
+  // that leaves it at half its starting life or more; below that, as much mana as it can.
+  /** @param {any} g @param {any} p @param {any} src @param {{ options: number[] }} info */
+  phyrexianLife(g, p, src, info) {
+    const most = Math.max(...info.options), least = Math.min(...info.options);
+    return p.life - 2 * most >= (g.startLife || 40) / 2 ? most : least;
+  }
+
   // (rules 10) A loop of triggers with an optional ("you may") trigger of ours that never ends by itself: how many
   // more times to repeat it (0 stops it, loops.js). A loop that changes nothing is stopped at once; one that helps
   // us (its value from public numbers only: loops.loopValue) goes on until AI_LOOP_REPS repetitions, then stops.

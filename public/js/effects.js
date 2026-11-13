@@ -854,7 +854,8 @@ function keywordLine(line, fx) {
     // Miracle: castable for its miracle cost on the turn it's drawn as that turn's first card
     if ((m = s.match(/^(miracle|entwine) ((?:\{[^}]+\})+)$/))) { fx[m[1]] = m[2].toUpperCase(); fx.kw.add(m[1]); continue; }
     if (s === 'exploit') { fx.exploit = true; fx.kw.add('exploit'); fx.etb.push({ k: 'exploit' }); continue; }
-    // Compleated only changes loyalty when life is paid for its Phyrexian mana, which the simulator pays with mana
+    // Compleated only changes loyalty when life is paid for its Phyrexian mana (payable with life from rules 12, mana.js;
+    // the lower loyalty that brings isn't modelled yet)
     if (s === 'compleated') continue;
     if (KEYWORDS.some(k => s === k) || /^(enchant|protection from|convoke|delve)\b/.test(s)) continue;
     all = false;

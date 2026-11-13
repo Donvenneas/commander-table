@@ -145,6 +145,61 @@ export function availableMana(g, p) { return g.infinite(p) ? 99 : g.units(p).len
 export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null, help = []) {
   if (g.infinite(p)) return { free: true };
   const units = g.units(p, exclude).concat(help);
+  // (rules 12) Phyrexian and two-brid symbols have two ways to be paid: planTagged tries them
+  if (g.rules >= 12 && cost.pips.some((/** @type {any} */ x) => x.phy || x.two)) return planTagged(g, p, units, cost, extra, avoid);
+  return greedyPlan(units, cost.pips, cost.generic + extra, avoid);
+}
+// How many Phyrexian symbols p can pay with life: 2 life each, never going below 1 life (Phase 2D's rule; the
+// Comprehensive Rules (119.4) would let a player pay down to 0)
+export const lifeSymbolsMax = p => Math.max(0, Math.floor(((p.life || 0) - 1) / 2));
+// (rules 12) A cost with Phyrexian ({B/P}: its color or 2 life) or two-brid ({2/W}: its color or {2}) symbols. Every way
+// of paying is checked before anything is paid; the plan says how much life (plan.life) goes with the mana.
+//   g.payLife: how many Phyrexian symbols the payer chose to pay with life (Game.choosePhyrexian); unset, as few as
+//   possible (mana first). Two-brid symbols: the plan that taps the fewest new sources (mana already floating first),
+//   then the one using the fewest mana units, so {2/W} takes a {W} when there is one and {2} otherwise.
+/** @param {import('./engine.js').Game} g */
+function planTagged(g, p, units, cost, extra, avoid) {
+  const phy = cost.pips.filter((/** @type {any} */ x) => x.phy);
+  const two = cost.pips.filter((/** @type {any} */ x) => x.two && !x.phy);
+  const plain = cost.pips.filter((/** @type {any} */ x) => !x.phy && !x.two);
+  const most = Math.min(phy.length, lifeSymbolsMax(p));
+  const ks = g.payLife != null ? [g.payLife] : Array.from({ length: most + 1 }, (_, k) => k);
+  // (which symbols, not just how many: Reaper King with a Plains and an Island pays {2/W} and {2/U} with them and the
+  // other three with {2}; every subset is tried, and costs have few such symbols)
+  const subsets = n => Array.from({ length: 2 ** n }, (_, m) => m);
+  const bits = m => { let c = 0; for (; m; m &= m - 1) c++; return c; };
+  for (const k of ks) {
+    if (k < 0 || k > most) continue;
+    let best = null;
+    for (const lm of subsets(phy.length)) {
+      if (bits(lm) !== k) continue;
+      const phyMana = phy.filter((_, i) => !(lm & (1 << i)));
+      for (const tm of subsets(two.length)) {
+        const generic = cost.generic + extra + two.filter((_, i) => tm & (1 << i)).reduce((/** @type {number} */ s, /** @type {any} */ x) => s + x.two, 0);
+        const plan = greedyPlan(units, [...plain, ...two.filter((_, i) => !(tm & (1 << i))), ...phyMana], generic, avoid);
+        if (!plan) continue;
+        const fresh = [...plan.used].filter(i => !units[i].pool).length;
+        if (!best || fresh < best.fresh || (fresh === best.fresh && plan.used.size < best.plan.used.size)) best = { plan, fresh };
+      }
+    }
+    if (best) return { ...best.plan, life: 2 * k, lifeSymbols: k };
+  }
+  return null;
+}
+// (rules 12) The numbers of Phyrexian symbols that could be paid with life for this cost, each a complete payment
+/** @param {import('./engine.js').Game} g */
+export function phyrexianOptions(g, p, cost, extra = 0, exclude = null, help = []) {
+  if (g.infinite(p)) return [0];
+  const out = [];
+  const prev = g.payLife;
+  try {
+    for (let k = 0; k <= Math.min(cost.pips.filter((/** @type {any} */ x) => x.phy).length, lifeSymbolsMax(p)); k++) { g.payLife = k; if (g.planPayment(p, cost, extra, exclude, null, help)) out.push(k); }
+  } finally { g.payLife = prev; }
+  return out;
+}
+// The greedy plan: colored pips first (the narrowest first), then generic, preferring floating mana, the same
+// source again, and sources that make one color
+function greedyPlan(units, pips, generic, avoid) {
   const used = new Set();
   const srcs = new Set();
   // (the units that paid a colored pip: a painland tapped for colored mana hurts, for {C} it doesn't)
@@ -171,13 +226,20 @@ export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null,
     if (units[best].src) srcs.add(units[best].src);
     return true;
   };
-  for (const pip of [...cost.pips].sort((a, b) => a.length - b.length)) if (!pick(u => pip.some(c => u.colors.includes(c)))) return null;
-  for (let i = 0; i < cost.generic + extra; i++) if (!pick(() => true, true)) return null;
+  for (const pip of [...pips].sort((a, b) => a.length - b.length)) if (!pick(u => pip.some(c => u.colors.includes(c)))) return null;
+  for (let i = 0; i < generic; i++) if (!pick(() => true, true)) return null;
   return { units, used, srcs: [...srcs], colored };
 }
 /** @param {import('./engine.js').Game} g */
 export function commitPayment(g, p, plan) {
   if (plan.free) return;
+  // (rules 12) Phyrexian symbols paid with life: paid, not dealt as damage; it is life lost (119.4, 119.3) and
+  // triggers "whenever you lose life". The plan was checked whole before anything is paid.
+  if (plan.life) {
+    p.life -= plan.life;
+    g.emit('life', { p: p.idx, d: -plan.life });
+    g.log(`${g.pn(p)} pays ${plan.life} life for ${plan.lifeSymbols === 1 ? 'a Phyrexian mana symbol' : `${plan.lifeSymbols} Phyrexian mana symbols`}`, { kind: 'minor', rule: '107.4f' });
+  }
   const usedPool = new Set();
   plan.units.forEach((u, i) => { if (u.pool && plan.used.has(i)) usedPool.add(u.ref); });
   p.pool = p.pool.filter(x => !usedPool.has(x));

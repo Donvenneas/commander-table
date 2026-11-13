@@ -1,5 +1,5 @@
 {
- "version": "1.26.0",
+ "version": "1.27.0",
  "round": "Round 5",
  "items": [
   {
@@ -121,6 +121,12 @@
    "section": "Rules engine and card coverage",
    "title": "Combos played out with the real cards (asked 2026-11-12, Phase 2C of the engine audit): no combo result granted from its description; every built-in and Commander Spellbook combo gets a status and a reason.",
    "done": "Game.goOff still casts the pieces for real, then comboplay.js plays the loop with the cards' own abilities instead of the shortcut (abstract repetitions, life set directly, lethal noncombat \"attack\" damage, a library spliced into the gravey"
+  },
+  {
+   "n": 192,
+   "section": "Rules engine and card coverage",
+   "title": "Phyrexian, hybrid and two-brid mana (asked 2026-11-13, Phase 2D of the engine audit): {B/P} payable with 2 life, {2/W} with {2}, with the player choosing and no partial payments.",
+   "done": "parseCost read {B/P} as {B} and {2/W} as {W}, so Dismember needed {1}{B}{B}, Gitaxian Probe needed {U} and Reaper King one mana of each color."
   },
   {
    "n": 101,

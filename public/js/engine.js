@@ -24,12 +24,19 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
 // (rules 10: loops of triggers are classified by loops.js; replays at 4–9 keep the old loop handling)
 // (rules 11: combos are played out with the real cards, comboplay.js; replays at 4–10 keep the combo shortcut)
-export const RULES = 11;
+// (rules 12: Phyrexian symbols can be paid with 2 life and two-brid {2/W} symbols with {2}: mana.js; replays at 4–11
+// pay them with their color, as before)
+export const RULES = 12;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
+// A mana cost as { generic, pips, x }: each pip lists the colors that can pay it ({W/U} → [W, U], {C} → [C]).
+// Two kinds of pip are tagged (Phase 2D), and the planner uses the tags from rules 12 on (mana.js planPayment):
+//   phy: true   a Phyrexian symbol ({B/P}, {G/W/P}): one mana of a listed color, or 2 life (107.4f)
+//   two: 2      a two-brid symbol ({2/W}): one mana of that color, or two generic mana (107.4e)
+// Before rules 12 a tagged pip is just its colors (so {B/P} was {B} and {2/W} was {W}), which old replays keep.
 export function parseCost(str) {
-  /** @type {{ generic: number, pips: string[][], x: number }} */
+  /** @type {{ generic: number, pips: any[], x: number }} */
   const cost = { generic: 0, pips: [], x: 0 };
   for (const [, s] of (str || '').matchAll(/\{([^}]+)\}/g)) {
     const u = s.toUpperCase();
@@ -38,13 +45,19 @@ export function parseCost(str) {
     else if (u === 'C' || COLORS.includes(u)) cost.pips.push([u]);
     else if (u.includes('/')) {
       const parts = u.split('/');
-      if (parts[1] === 'P') cost.pips.push([parts[0]]);
-      else if (/^\d$/.test(parts[0])) cost.pips.push([parts[1]]);
-      else cost.pips.push(parts.filter(c => COLORS.includes(c)));
+      /** @type {any} */
+      let pip;
+      if (parts[1] === 'P') pip = [parts[0]];
+      else if (/^\d$/.test(parts[0])) { pip = [parts[1]]; pip.two = +parts[0]; }
+      else pip = parts.filter(c => COLORS.includes(c));
+      if (parts.includes('P')) pip.phy = true;
+      cost.pips.push(pip);
     } else cost.generic += 1;
   }
   return cost;
 }
+/** Does a cost have a Phyrexian symbol? */
+export const hasPhyrexian = cost => !!cost?.pips?.some(x => x.phy);
 
 const basePT = v => { const n = parseInt(v, 10); return Number.isNaN(n) ? (String(v || '').includes('*') ? 2 : 0) : n; };
 
@@ -60,6 +73,7 @@ export class Game {
     /** @type {any} (rules 10: the loop being watched in the current chain of triggers, triggers.loopWatch) */ this.loop10 = undefined;
     /** (a recognised loop is played without the clock's waits; the steps stay the same) */ this.loopFast = false;
     /** (how many flushTriggers calls are running, nested: the chain of triggers is over when the outermost ends) */ this._flushDepth = 0;
+    /** @type {number | undefined} (rules 12: Phyrexian symbols the payer chose to pay with life, while a plan is made: mana.js) */ this.payLife = undefined;
     /** @type {any[]} (what the loop watcher found and decided, one entry per loop: triggers.loopWatch) */ this.loopLog = [];
     /** @type {any[] | undefined} */ this.endSac = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
@@ -522,6 +536,25 @@ export class Game {
    */
   planPayment(p, cost, extra = 0, exclude = null, avoid = null, help = []) { return mana.planPayment(this, p, cost, extra, exclude, avoid, help); }
   commitPayment(p, plan) { return mana.commitPayment(this, p, plan); }
+  // (rules 12) Paying a cost with Phyrexian symbols: when they can be paid more than one way (mana, or 2 life each), the
+  // payer chooses how many to pay with life, the AI (Agent.phyrexianLife) and people (HumanAgent.phyrexianLifeAsync)
+  // through the same call, and the plan is made with that choice. given: a choice made already (cast/activate
+  // options). Any other cost, or an older rules version: the plan as before.
+  async withPhyrexianChoice(p, src, cost, extra, given, help, exclude, makePlan) {
+    if (this.rules < 12 || !hasPhyrexian(cost) || this.infinite(p)) return makePlan();
+    const options = mana.phyrexianOptions(this, p, cost, extra, exclude, help);
+    if (!options.length) return null;
+    let k = options[0];
+    if (given != null && options.includes(given)) k = given;
+    else if (options.length > 1) {
+      const info = { options, symbols: cost.pips.filter(x => x.phy).length, colors: cost.pips.filter(x => x.phy).map(x => x.join('/')), life: p.life };
+      const want = p.agent.phyrexianLifeAsync ? await p.agent.phyrexianLifeAsync(this, p, src, info) : p.agent.phyrexianLife ? p.agent.phyrexianLife(this, p, src, info) : options[0];
+      if (options.includes(want)) k = want;
+    }
+    const prev = this.payLife;
+    this.payLife = k;
+    try { return makePlan(); } finally { this.payLife = prev; }
+  }
   // Convoke creatures and delve cards that can help pay for this spell
   helpUnits(p, o) { return mana.helpUnits(this, p, o); }
   // A spell description from card text: "black", "green permanent", "aura, equipment, or vehicle", "zombie"
@@ -797,7 +830,8 @@ export class Game {
       // (an AI pilot doesn't cast an X spell for X = 0: it would do nothing)
       if (this.rules >= 5 && x === 0 && choice.x == null && !p.agent.human && !o.fx.type.permanent) return false;
     }
-    const plan = this.planPayment(p, c, extra + x * c.x, null, choice.avoid, help);
+    // (rules 12) Phyrexian symbols: the caster chooses which to pay with life, before anything is paid
+    const plan = await this.withPhyrexianChoice(p, o, c, extra + x * c.x, choice.phyLife, help, null, () => this.planPayment(p, c, extra + x * c.x, null, choice.avoid, help));
     if (!plan) return false;
     let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : o.fx.spell);
     if (entwined) this.log(`${this.pn(p)} pays the entwine cost for ${this.cn(o)}: all modes`, { kind: 'minor', rule: '702.42a' });
@@ -2027,7 +2061,8 @@ export class Game {
       x = Math.max(0, Math.min(max, want ?? 0));
     }
     this.payingFor = { o, ability: true };
-    const plan = this.planPayment(p, this.abilityCost(p, o, ab), x * (cost0.x || 0), ab.tap ? o : null);
+    // (rules 12) Phyrexian symbols in an ability's cost (Birthing Pod's {G/P}): the same choice as for spells
+    const plan = await this.withPhyrexianChoice(p, o, this.abilityCost(p, o, ab), x * (cost0.x || 0), opts.phyLife, [], ab.tap ? o : null, () => this.planPayment(p, this.abilityCost(p, o, ab), x * (cost0.x || 0), ab.tap ? o : null));
     if (!plan) { this.payingFor = null; return false; }
     this.commitPayment(p, plan);
     if (ab.tap) { o.tapped = true; this.fire('tapped', { o, p: p.idx }); }

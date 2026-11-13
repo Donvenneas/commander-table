@@ -45,6 +45,8 @@ Loops: `node tests/loops.mjs` (CI runs it too) checks the loop watcher (`loops.j
 
 Combos: `node tests/combos.mjs` (CI runs it too) checks that combos are played out with the real cards at rules 11 (life events and triggers, the damage system with prevention and lifelink, real combat with blockers and Fog, mills through `Game.move`), that every built-in and Commander Spellbook combo has a status and a reason (`combos.js` `comboPlay`, `readSpellbook`), and that rules 10 keeps the old combo shortcut for replays. A combo the engine can't play out is marked partial or unsupported, never granted its result.
 
+Mana: `node tests/mana.mjs` (CI runs it too) checks Phyrexian ({B/P}: color or 2 life), hybrid and two-brid ({2/W}: color or {2}) payments at rules 12 with real cards (Dismember, Gitaxian Probe, Phyrexian Metamorph, Kitchen Finks, Spectral Procession, Reaper King): `parseCost` tags the symbols, `mana.js` `planTagged` tries every way of paying before anything is paid, and `Game.withPhyrexianChoice` asks the AI or the person how many symbols to pay with life.
+
 Hidden information: `node tests/hidden.mjs` (CI runs it too) asks every AI decision again with the opponents' hands and libraries scrambled and fails if one changes (an AI must never read hidden cards).
 
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). The baseline is empty now, and engine.js, effects.js and the engine's section modules must also pass `--strictNullChecks`. It fails on any type error not in

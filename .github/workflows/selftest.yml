@@ -40,6 +40,8 @@ jobs:
         run: node tests/loops.mjs
       - name: Combos played out with the real cards (life, damage, combat, mill, Spellbook statuses)
         run: node tests/combos.mjs
+      - name: Phyrexian, hybrid and two-brid mana (parsing, planning, life payments, choices)
+        run: node tests/mana.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

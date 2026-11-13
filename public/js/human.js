@@ -810,6 +810,13 @@ export class HumanAgent extends Agent {
   async combatResponse(g, q, attackers) { return this.instantWindow(g, q, `<b>Attackers declared</b> against you: ${attackers.map(a => esc(a.card.name)).join(', ')}. Cast an instant?`, true, this.full); }
   async combatTrick(g, q) { return this.instantWindow(g, q, '<b>Blockers are declared.</b> Cast a combat trick?', false, this.full); }
   async respondToLoop(g, q, p) { return this.instantWindow(g, q, `<b>${esc(p.name)}</b> is looping a combo. Respond?`, false, this.full); }
+  // (rules 12) Phyrexian mana: each symbol is paid with its color or 2 life. One button per complete payment.
+  async phyrexianLifeAsync(g, p, src, info) {
+    const r = await this.ui.ask(`<b>${esc(src?.card?.name || 'This')}</b> has ${info.symbols} Phyrexian mana symbol${info.symbols === 1 ? '' : 's'} (${info.colors.map(c => `{${esc(c)}/P}`).join('')}): pay each with that color's mana or 2 life. You have ${info.life} life.`, {
+      buttons: info.options.map((k, i) => ({ label: k === 0 ? 'Pay with mana' : k === info.symbols ? `Pay ${2 * k} life` : `Pay ${2 * k} life and the rest with mana`, value: k, primary: i === 0 })),
+    });
+    return typeof r.button === 'number' ? r.button : info.options[0];
+  }
   // (rules 10, loops.js) An optional trigger of yours keeps a loop going: how many more times (0 stops it)
   async loopRepsAsync(g, p, info) {
     const r = await this.ui.ask(`<b>A loop of your triggers keeps repeating</b> (${esc(info.sources.join(' + '))}, ${info.reps} times so far; each time: ${esc(info.change)}). ${esc(info.source)}'s trigger is optional, so you choose when it stops.`, {

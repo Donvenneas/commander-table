@@ -650,6 +650,25 @@ on top of the ones above:
     an attack is lethal by a wide margin (found here, separate fix); Walking Ballista and Triskelion pings don't use
     the stack; "can't lose life" effects aren't modelled; Kozilek and Ulamog's graveyard shuffle isn't read; Lab Man
     and the Exquisite Blood and Niv-Mizzet Parun loops wait for a real draw or life gain rather than starting one.
+- [x] 192. Phyrexian, hybrid and two-brid mana (asked 2026-11-13, Phase 2D of the engine audit): {B/P} payable with 2
+  life, {2/W} with {2}, with the player choosing and no partial payments.
+  - Done (rules 12, version 1.27.0; rules 4–11 golden games unchanged): parseCost read {B/P} as {B} and {2/W} as {W},
+    so Dismember needed {1}{B}{B}, Gitaxian Probe needed {U} and Reaper King one mana of each color. It now tags those
+    pips (phy, two) and keeps their colors, so older rules versions read them as before. mana.js planTagged (rules 12)
+    tries every subset of Phyrexian symbols paid with life and of two-brid symbols paid with {2} before anything is
+    paid, picking the plan that taps the fewest new sources (floating mana first) and then the fewest units; life is
+    limited so a payment never goes below 1 life (the request; 119.4 would allow 0). commitPayment pays the life as a
+    payment, not damage (a life-loss event, logged). Game.withPhyrexianChoice asks the payer how many symbols to pay
+    with life when several complete payments exist, for spells and activated abilities alike: the AI
+    (Agent.phyrexianLife) pays life while it stays at half its starting life or more, people get one button per
+    complete payment (HumanAgent.phyrexianLifeAsync, recorded like other answers). Hybrid {W/U} already worked;
+    hybrid Phyrexian {G/W/P} now works too. The rules checker counts life-paid symbols. Tests: tests/mana.mjs (21, in
+    CI) with Dismember, Gitaxian Probe, Phyrexian Metamorph, Mental Misstep, Kitchen Finks, Spectral Procession,
+    Reaper King, Ajani, Sleeper Agent and Birthing Pod (three fetched into interaction-cards.json); golden 54, all
+    other suites; 60 AI games at rules 12: 0 errors, 0 broken rules, 12 Phyrexian life payments, same speed. Still
+    open: two-brid and hybrid choices are automatic (people steer them by tapping sources first); paying life can't
+    be used down to exactly 0; Compleated planeswalkers don't enter with fewer loyalty counters when life is paid;
+    "can't pay life" effects aren't modelled; snow {S} is still read as generic.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
