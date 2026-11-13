@@ -330,7 +330,23 @@ In a seat's style menu, choose **You play this seat**. Your hand is shown face u
 
 **Loop shortcut:** play the same actions twice in a row in your main phase (for example tapping Basalt Monolith for mana, then paying to untap it; or sacrificing Gravecrawler to Phyrexian Altar and casting it again from your graveyard; or exiling Squee to Food Chain and recasting it) and the action bar offers **Repeat this loop ×10** or **×99**. Abilities, mana taps, sacrifices to an outlet and creature spells with nothing to choose can be part of a loop. Every pass is checked, and it stops at the first step that can't be done the same way; the log says how many times it ran and why it stopped.
 
-**Combos are played with the real cards:** Demonic Consultation and Tainted Pact exile your library for Thassa's Oracle or Laboratory Maniac, Kiki-Jiki's copies of Zealous Conscripts, Deceiver Exarch, Restoration Angel or Felidar Guardian untap or blink it, Splinter Twin grants its copy ability, Isochron Scepter casts its imprinted Dramatic Reversal, Basalt Monolith with Rings of Brighthearth nets a mana per loop, Niv-Mizzet with Curiosity pings for each card drawn, and so on. You can play these loops by hand, and the AI's combo shortcut goes through the same cards, so a missing piece or an answer stops the loop.
+**Combos are played with the real cards:** Demonic Consultation and Tainted Pact exile your library for Thassa's Oracle or Laboratory Maniac, Kiki-Jiki's copies of Zealous Conscripts, Deceiver Exarch, Restoration Angel or Felidar Guardian untap or blink it, Splinter Twin grants its copy ability, Isochron Scepter casts its imprinted Dramatic Reversal, Basalt Monolith with Rings of Brighthearth nets a mana per loop, Niv-Mizzet with Curiosity pings for each card drawn, and so on. You can play these loops by hand.
+
+**When the AI goes for a combo** (from version 1.26.0), it plays it out with the same cards. Nothing is declared won:
+- **Kiki-Jiki, Splinter Twin and Saheeli make real hasty copies**, which then attack in the combat step. Blockers, Fog, protection and combat damage apply as in any attack.
+- **Heliod + Walking Ballista and Mikaeus + Triskelion** ping one point at a time through the damage system. Prevention stops them, and lifelink and Heliod's trigger work as written.
+- **Exquisite Blood and Niv-Mizzet loops** run on their own triggers once life is gained or a card is drawn.
+- **Grindstone** mills card by card, so Rest in Peace exiles the cards and Blightsteel Colossus shuffles itself back.
+- **Mana loops** are first repeated three times with the real cards. Only once each repetition has made more mana is the loop repeated "as often as needed" (rule 727.1c). The mana then goes into Walking Ballista or Thrasios, cast and activated for real.
+
+If a cost can't be paid, a piece is answered or damage is prevented, the combo stops there and the log says why.
+
+Each combo has a status, shown in the deck viewer:
+- **Supported:** played out like this.
+- **Partial:** the cards work by hand, but part of the loop can't be played out faithfully yet. Example: Food Chain's creature-only mana.
+- **Unsupported:** an ability or a step isn't modelled. Examples: Dualcaster Mage's copies, Underworld Breach with Lion's Eye Diamond and Brain Freeze, soulbond.
+
+The AI only goes for supported combos.
 
 **Long and endless loops:** when the same few triggers keep repeating, the game watches what each repetition changes (life, poison, cards in each zone, permanents, tokens, counters, damage, mana, waiting triggers):
 - **It ends by itself** (someone's life, library or permanents run down, or poison builds up): it keeps going, at full speed, until it does. Exquisite Blood with Sanguine Bond drains each opponent in turn.
@@ -630,4 +646,10 @@ Unusual card effects are cast and put onto the battlefield, but their abilities 
 
 Some simplifications:
 - Whatever you haven't tapped yourself is tapped automatically when you pay.
-- Combos from Commander Spellbook are only used when the engine can run their result. A loop that only produces something like "infinite ETB triggers" counts when the deck also has a finisher for it (Blood Artist, Impact Tremors, Thassa's Oracle, Brain Freeze and others); otherwise it's skipped.
+- Commander Spellbook is a reference, not proof that a combo can be played. Every combo it lists for a deck appears in the deck viewer with a status and the reason:
+  - **supported:** the same cards as a built-in combo the game plays out;
+  - **partial:** a known combo the game has no step-by-step way to play yet;
+  - **unsupported:** it needs a card in the graveyard, exile or library to start, cards described only by type, more than four cards, a result the game can't check, or a prerequisite the game can't check (the sentence is quoted);
+  - **invalid:** the answer was incomplete.
+
+  The AI doesn't go for Spellbook-only combos, but their cards still interact as usual when played. Spellbook's answer is kept for a week, so loading the deck again works offline. Replays saved before 1.26.0 keep the old behaviour, where Spellbook combos with a recognised result were played through the combo shortcut.

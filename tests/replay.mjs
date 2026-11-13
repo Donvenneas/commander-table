@@ -29,6 +29,10 @@ globalThis.indexedDB = {
 };
 
 const { Game, RULES } = await import('../public/js/engine.js');
+// (Commander Spellbook combos change how a game plays only at rules 10 and earlier: from rules 11 the AI goes only for
+// combos the engine plays out with the real cards, tests/combos.mjs. These replays are played at rules 10, the newest
+// version where a Spellbook answer matters, so a different answer or another deck's combos would show.)
+const SB_RULES = 10;
 const { Agent } = await import('../public/js/ai.js');
 const { normalize, pinCards, pinReport, cardDataHash } = await import('../public/js/scryfall.js');
 const { parseText, loadDeck } = await import('../public/js/decks.js');
@@ -70,7 +74,7 @@ function testCombo(deck) {
 }
 
 // One AI game at full speed: its result and a hash of the whole log
-async function play(decks, seed, rules = RULES) {
+async function play(decks, seed, rules = SB_RULES) {
   const styles = ['cedh', 'combo', 'balanced', 'aggressive'];
   const g = new Game(decks.map((d, k) => ({ playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent(styles[k]), commanders: d.commanders, cards: d.cards })),
     { beat: async () => {} }, { seed, noLearning: true, rules, spellbook: tableSpellbook(decks) });
@@ -82,7 +86,7 @@ async function play(decks, seed, rules = RULES) {
 const same = (a, b) => a.winner === b.winner && a.round === b.round && a.steps === b.steps && a.log === b.log;
 
 // Saving: what main.js replayData() writes (as a file: through JSON)
-const save = (decks, seed) => clone({ app: 'commander-table', version: REPLAY_FORMAT, seed, rules: RULES, seats: decks.map(d => ({ deck: deckText(d), deckName: d.deckName })), ...snapshotDecks(decks) });
+const save = (decks, seed) => clone({ app: 'commander-table', version: REPLAY_FORMAT, seed, rules: SB_RULES, seats: decks.map(d => ({ deck: deckText(d), deckName: d.deckName })), ...snapshotDecks(decks) });
 // Loading: the steps of main.js loadReplayData (check, decks built from the replay's own cards, its own combos)
 async function restore(data) {
   const check = checkReplay(data);
@@ -133,7 +137,7 @@ await test('the replay keeps every card, its hash, its reading, the Spellbook co
   assert(Object.entries(replay.cards).every(([id, raw]) => cardDataHash(raw) === replay.hashes[id]), 'a saved hash does not match its card');
   assert(replay.cards[decks0[0].commanders[0].id].oracle_text === decks0[0].commanders[0].src.oracle_text, 'the Oracle text is not saved');
   assert(replay.spellbook.length === 4 && replay.spellbook[0][0].pieces.length === 2 && 'minLands' in replay.spellbook[0][0], 'the Spellbook combos or their prerequisites are not saved');
-  assert(replay.builtinCombos && replay.engineRules === RULES && replay.rules === RULES && replay.seed === SEED && replay.version === REPLAY_FORMAT, 'versions, seed or combo fingerprint missing');
+  assert(replay.builtinCombos && replay.engineRules === RULES && replay.rules === SB_RULES && replay.seed === SEED && replay.version === REPLAY_FORMAT, 'versions, seed or combo fingerprint missing');
 });
 
 await test('Scryfall card data changed since: the replay uses the saved cards, and says which changed', async () => {
@@ -180,8 +184,8 @@ await test("one game's combos can't reach another game or the built-in list", as
   const a = freshDecks(), b = freshDecks();
   a[0].spellbook = [testCombo(a[0])];
   const builtin = COMBOS.length;
-  const ga = new Game(a.map((d, k) => ({ playerName: `A${k}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: 1, noLearning: true, spellbook: tableSpellbook(a) });
-  const gb = new Game(b.map((d, k) => ({ playerName: `B${k}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: 1, noLearning: true, spellbook: tableSpellbook(b) });
+  const ga = new Game(a.map((d, k) => ({ playerName: `A${k}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: 1, noLearning: true, rules: SB_RULES, spellbook: tableSpellbook(a) });
+  const gb = new Game(b.map((d, k) => ({ playerName: `B${k}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: 1, noLearning: true, rules: SB_RULES, spellbook: tableSpellbook(b) });
   const label = a[0].spellbook[0].pieces.join(' + ');
   assert(ga.players[0].combos.some(c => c.label === label), 'the game with the combo does not have it');
   assert(!gb.players.some(p => p.combos.some(c => c.label === label)), 'the combo leaked into another game');
@@ -213,7 +217,7 @@ await test('hashes catch changed card data, readings and combo lists', async () 
 
 await test('replays from before format 7 still load (with today\'s data) and say they may differ', async () => {
   // (what replayData() wrote before this change: version 2 and no card data or combos)
-  const old = { app: 'commander-table', version: 2, seed: SEED, rules: RULES, seats: replay.seats };
+  const old = { app: 'commander-table', version: 2, seed: SEED, rules: SB_RULES, seats: replay.seats };
   const r = await restore(old);
   assert(!r.check.exact && r.check.notes.length === 1 && /saved before replays kept their own card data/.test(r.check.notes[0]), 'no note about the old format');
   // (with unchanged card data and no Spellbook combos it plays as the same game did)
@@ -227,10 +231,17 @@ await test('replays from before format 7 still load (with today\'s data) and say
   assert(same(await play(r4.decks, SEED, 4), await play(decks0, SEED, 4)), 'a rules 4 replay played differently');
 });
 
+await test(`a game at the newest rules (${RULES}, combos played out with the real cards) reloads and plays the same`, async () => {
+  const decks = freshDecks();
+  const first = await play(decks, SEED + 11, RULES);
+  const r = await restore({ ...save(decks, SEED + 11), rules: RULES });
+  assert(same(await play(r.decks, SEED + 11, RULES), first), 'the rules 11 game played differently after reloading');
+  assert(!first.errors, 'simulator errors');
+});
 await test('restoring is deterministic: the same replay loaded twice plays the same both times', async () => {
   const a = await restore(replay), b = await restore(replay);
-  const ga = new Game(a.decks.map((d, k) => ({ playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: SEED, noLearning: true, spellbook: tableSpellbook(a.decks) });
-  const gb = new Game(b.decks.map((d, k) => ({ playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: SEED, noLearning: true, spellbook: tableSpellbook(b.decks) });
+  const ga = new Game(a.decks.map((d, k) => ({ playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: SEED, noLearning: true, rules: SB_RULES, spellbook: tableSpellbook(a.decks) });
+  const gb = new Game(b.decks.map((d, k) => ({ playerName: `P${k + 1}`, deckName: d.deckName, color: '#888', agent: new Agent('balanced'), commanders: d.commanders, cards: d.cards })), { beat: async () => {} }, { seed: SEED, noLearning: true, rules: SB_RULES, spellbook: tableSpellbook(b.decks) });
   const start = g => g.players.map(p => [...p.command, ...p.library].map(o => `${o.iid}:${o.card.name}`).join(','));
   assert(stableJson(start(ga)) === stableJson(start(gb)), 'the starting games differ');
   assert(same(await play(a.decks, SEED), await play(b.decks, SEED)), 'two loads of the same replay played differently');

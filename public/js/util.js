@@ -63,7 +63,7 @@ export const unproxy = u => (u && u.startsWith('/api/img?u=') ? decodeURICompone
 // loaded) and kept in memory as JSON text, so store() stays synchronous: a write updates memory at once and is saved
 // in the background. Other tabs of the game hear about each write. Without IndexedDB (an old browser, Node, a worker)
 // everything stays in localStorage as before. The first start after this change moves the keys over.
-const BIG = new Set(['ct.autosave', 'ct.learn', 'ct.history', 'ct.libVersions', 'ct.threat', 'ct.people', 'ct.collection',
+const BIG = new Set(['ct.autosave', 'ct.spellbook', 'ct.learn', 'ct.history', 'ct.libVersions', 'ct.threat', 'ct.people', 'ct.collection',
   'ct.otags2', 'ct.precons', 'ct.preconList', 'ct.rulings', 'ct.i18nCards2', 'ct.planar.archenemy', 'ct.planar.planechase']);
 /** @type {Map<string, string>} */
 const bigVals = new Map();

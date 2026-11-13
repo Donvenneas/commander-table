@@ -4,7 +4,7 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
-import { combosIn, comboState, comboBlocked } from './combos.js';
+import { combosIn, comboState, comboBlocked, comboPlay } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
@@ -59,6 +59,24 @@ export const STYLES = {
 // (Setup: "AI look-ahead"). Casual pilots (brackets 1 and 2) don't: they aren't meant to find the best play.
 export const LOOKAHEAD_STYLES = new Set(['cedh', 'balanced', 'combo', 'aggressive', 'defensive']);
 export const wantsLookahead = (style, noise = 0) => LOOKAHEAD_STYLES.has(style) && noise <= 0.05;
+
+// (rules 11) After a combo made hasty copies: every creature that can attack does, the strongest first, each going to
+// the opponent with the lowest life still short of what's assigned to them (life + 2 for each creature that can
+// block). Public information only.
+/** @param {import('./engine.js').Game} g */
+export function comboAlphaStrike(g, p) {
+  const ready = p.battlefield.filter(o => g.canAttack(o) && g.power(o) > 0).sort((a, b) => g.power(b) - g.power(a) || a.iid - b.iid);
+  const opps = [...g.opponents(p)].sort((a, b) => a.life - b.life || a.idx - b.idx);
+  if (!opps.length) return [];
+  const need = new Map(opps.map(q => [q, Math.max(1, q.life) + 2 * q.battlefield.filter(o => o.fx.type.creature && !o.tapped).length]));
+  const out = [];
+  for (const o of ready) {
+    const q = opps.find(x => need.get(x) > 0) || opps[opps.length - 1];
+    need.set(q, need.get(q) - g.power(o));
+    out.push({ o, target: q.idx });
+  }
+  return out;
+}
 
 export function guessStyle(deck) {
   const all = deck.cards.flatMap(({ card, qty }) => Array(qty).fill(card));
@@ -600,7 +618,10 @@ export class Agent {
 
   // ---------- combos
   comboCost(g, p, combo, st) {
-    const total = { generic: combo.mana || 0, pips: [], x: 0 };
+    // (rules 11: besides the pieces, what playing it out really costs, colors included: Heliod's {1}{W}. The old
+    // shortcut's generic "mana to start the loop" is for rules 10 and earlier.)
+    const extra = g.rules >= 11 ? parseCost(comboPlay(combo).cost || '') : { generic: combo.mana || 0, pips: [] };
+    const total = { generic: extra.generic, pips: [...extra.pips], x: 0 };
     for (const f of st.found) {
       if (f.zone !== 'hand' && f.zone !== 'command') continue;
       if (combo.imprint && f.key === combo.imprint.card.toLowerCase()) continue;
@@ -1988,6 +2009,10 @@ export class Agent {
       this.forcedAttacks = null;
       return f.map(x => ({ o: p.battlefield.find(o => o.iid === x.iid), target: x.target, ...(x.obj != null ? { obj: g.objects.get(x.obj) } : {}) })).filter(x => x.o);
     }
+    // (rules 11) Hasty copies just made by a combo (comboplay.js) are the point of the combo: everything that can
+    // attack does, spread so each opponent gets at least their life total plus a little for blockers. The usual
+    // planner looks at nine attackers at most. Blocks, Fog, protection and damage are all left to combat.
+    if (g.rules >= 11 && p.comboAttack === g.turn) return comboAlphaStrike(g, p);
     const usual = this.declareAttackersPlan(g, p);
     if (this.lookahead && !this.noLaAttack && !g.sim && g.rules >= 5) return lookAheadAttacks(this, g, p, usual);
     return usual;

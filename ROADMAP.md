@@ -626,6 +626,30 @@ on top of the ones above:
     replays 9, cards 0 changed, fuzz 12 + 60, hidden 0, type check 0. Still open: "you may" is read from the text
     (a card with several trigger lines where only some say "may" can be read as mandatory); the AI's 100-repetition
     cap is a fixed rule of thumb; activated-ability loops are unchanged (the AI and the loop shortcut decide those).
+- [x] 191. Combos played out with the real cards (asked 2026-11-12, Phase 2C of the engine audit): no combo result
+  granted from its description; every built-in and Commander Spellbook combo gets a status and a reason.
+  - Done (rules 11, version 1.26.0; rules 4–10 golden games unchanged, old shortcut kept for their replays): Game.goOff
+    still casts the pieces for real, then comboplay.js plays the loop with the cards' own abilities instead of the
+    shortcut (abstract repetitions, life set directly, lethal noncombat "attack" damage, a library spliced into the
+    graveyard). Kiki-Jiki, Splinter Twin and Saheeli make real hasty copies (targets steered to the partner and the
+    copier) and the AI then attacks with everything in the combat step (ai.js comboAlphaStrike: the usual planner
+    looks at nine attackers at most); Heliod + Ballista and Mikaeus + Triskelion ping through damagePlayer (prevention
+    stops them, lifelink and Heliod's trigger as written); Exquisite Blood and Niv-Mizzet run on their own triggers;
+    Grindstone mills through Game.move (Rest in Peace, Blightsteel Colossus); mana loops are repeated three times for
+    real and must gain each time before the 727.1c shortcut (Player.infiniteMana), and the finisher casts or activates
+    Walking Ballista and Thrasios for real. Statuses (combos.js comboPlay): 36 built-ins supported, 3 partial (Food
+    Chain: creature-only mana), 7 unsupported (Dualcaster Mage x2, Underworld Breach + LED + Brain Freeze, Deadeye
+    Navigator x2, Tandem Lookout x2); at rules 11 the AI only goes for supported ones, and Spellbook-only combos are
+    known but not pursued. readSpellbook lists every Spellbook answer (supported, partial, unsupported or invalid, with
+    the reason, shown in the deck viewer) instead of dropping some silently; answers are kept a week in the browser
+    profile (ct.spellbook). Readiness at rules 11: Thassa's Oracle must still be cast (not already on the
+    battlefield), and the play-out's own cost counts, colors included (Heliod's {1}{W}). Tests: tests/combos.mjs (21,
+    in CI), replays 10 (Spellbook replay tests at rules 10, plus a rules 11 reload), golden 48, interactions 155 (the
+    old shortcut sweep pinned to rules 10), loops 18, cards 0 changed, fuzz 12 + 60, hidden 0, type check 0; 60 AI
+    games at rules 11: 0 errors, 0 broken rules, every game won. Still open: the AI's block planner doesn't block when
+    an attack is lethal by a wide margin (found here, separate fix); Walking Ballista and Triskelion pings don't use
+    the stack; "can't lose life" effects aren't modelled; Kozilek and Ulamog's graveyard shuffle isn't read; Lab Man
+    and the Exquisite Blood and Niv-Mizzet Parun loops wait for a real draw or life gain rather than starting one.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

@@ -1,6 +1,6 @@
 // Four-player Commander game engine. Rule numbers in the log refer to the Comprehensive Rules.
 import { analyzeCard, needsTarget, needsTargetIn, condText } from './effects.js';
-import { makeComboBook, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
+import { makeComboBook, comboState, comboBlocked, cardKey, RESULT_TEXT, comboPlay } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import { learnedBonus, learnedPerson } from './learn.js';
 import { threatFeatures, threatMult } from './threat.js';
@@ -10,6 +10,7 @@ import * as mana from './mana.js';
 import * as resolve from './resolve.js';
 import * as triggers from './triggers.js';
 import * as zones from './zones.js';
+import * as comboplay from './comboplay.js';
 import { formatOf } from './formats.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
@@ -22,7 +23,8 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
 // (rules 10: loops of triggers are classified by loops.js; replays at 4–9 keep the old loop handling)
-export const RULES = 10;
+// (rules 11: combos are played out with the real cards, comboplay.js; replays at 4–10 keep the combo shortcut)
+export const RULES = 11;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -84,7 +86,7 @@ export class Game {
     this.puzzle = opts.puzzle || null;
     this.rules = opts.rules ?? RULES;
     // This game's own combos: the built-in list plus the table's Commander Spellbook combos (saved in replays)
-    this.comboBook = makeComboBook(opts.spellbook || []);
+    this.comboBook = makeComboBook(opts.spellbook || [], this.rules);
     // Every random choice comes from this seed, so a game can be replayed exactly
     this.seed = opts.seed ?? Math.floor(Math.random() * 2 ** 32);
     this.rand = makeRng(this.seed);
@@ -115,7 +117,7 @@ export class Game {
       life: this.startLife, poison: 0, cmdDamage: {}, library: [], hand: [], graveyard: [], exile: [], battlefield: [], command: [],
       pool: [], lost: false, place: null, lossReason: '', landsPlayed: 0, castCount: {}, drewFromEmpty: false,
       mulligans: 0, grudge: seats.map(() => 0), stats: { spells: 0, damage: 0, combos: 0 },
-      combos: [], infiniteMana: -1, comboTried: { turn: -1, ids: new Set() }, castNames: new Set(), extraTurns: 0, extraCombats: 0,
+      combos: [], infiniteMana: -1, comboAttack: -1, comboTried: { turn: -1, ids: new Set() }, castNames: new Set(), extraTurns: 0, extraCombats: 0,
     }));
     seats.forEach((s, i) => {
       const p = this.players[i];
@@ -1159,16 +1161,27 @@ export class Game {
     for (const [i, f] of order.entries()) {
       const o = f.o;
       // Keep the colors the later pieces need when paying for this one
-      const avoid = new Set(order.slice(i + 1).flatMap(r => parseCost(r.o.card.manaCost).pips.flat()));
+      // (rules 11: and the colors playing it out will need afterwards, such as Heliod's {W})
+      const avoid = new Set([...order.slice(i + 1).flatMap(r => parseCost(r.o.card.manaCost).pips.flat()), ...(this.rules >= 11 ? parseCost(comboPlay(combo).cost || '').pips.flat() : [])]);
       const choice = { combo: true, avoid };
       if (combo.x?.[f.name] != null) choice.x = combo.x[f.name];
       if (o.fx.type.aura) choice.auraTarget = st.found.find(x => x !== f && x.o.zone === 'battlefield' && !x.o.fx.type.aura)?.o;
       if (imprintCard && f.key === key(combo.imprint.host)) choice.imprint = imprintCard.o;
+      // (rules 11) Chain of Smog is aimed at its caster, who then copies it for the magecraft drain
+      if (this.rules >= 11 && f.name === 'Chain of Smog') choice.targets = [{ player: p.idx }];
       const ok = await this.cast(p, o, choice);
+      if (this.over && this.rules >= 11) return comboplay.playOut(this, p, combo, st);
       if (this.over) return true;
       if (!ok) return this.fizzle(p, combo, `${this.pn(p)} can't pay for ${this.cn(o)}`);
       if (choice.item?.countered) return this.fizzle(p, combo, `${this.cn(o)} was countered`);
       if (o.fx.type.permanent && o.zone !== 'battlefield') return this.fizzle(p, combo, `${this.cn(o)} didn't stay on the battlefield`);
+    }
+    // (rules 11) The combo is played out with the real cards (comboplay.js): each activation and trigger goes on the
+    // stack with its own costs and its own chance to respond, so there's no made-up "starts the loop" item, no extra
+    // mana paid for nothing, and no abstract result (the old shortcut stays for rules 10 and earlier, for replays)
+    if (this.rules >= 11) {
+      this.log(`${this.pn(p)} plays out ${esc(combo.label)} with the real cards`, { kind: 'combo', p: p.idx });
+      return comboplay.playOut(this, p, combo, st);
     }
     if (combo.mana) {
       const plan = this.planPayment(p, { generic: combo.mana, pips: [], x: 0 });
@@ -1374,6 +1387,12 @@ export class Game {
         const ok = await this.cast(p, wb, choice);
         if (this.over) return 'Walking Ballista';
         if (!ok || choice.item?.countered || wb.zone !== 'battlefield') { this.log(`The finisher didn't land: ${this.cn(wb)} ${choice.item?.countered ? 'was countered' : "didn't stay on the battlefield"}`, { kind: 'combo' }); return null; }
+      } else if (this.rules >= 11) {
+        // (rules 11: the {4} counter ability is really activated, each time on the stack, paid from the mana)
+        const ab = this.abilitiesOf(wb).find(a => (a.effects || []).some(e => e.k === 'counters'));
+        let n = 0;
+        while (ab && n < Math.min(need, 400) && wb.zone === 'battlefield' && !this.over && (await this.activate(p, wb, ab))) n++;
+        this.log(`${this.pn(p)} activated ${this.cn(wb)}'s counter ability ${n} times (${wb.counters} counters)`, { kind: 'combo' });
       } else {
         // (the {4} counter ability, over and over with unbounded mana)
         wb.counters += need;
@@ -1388,6 +1407,20 @@ export class Game {
     // Thrasios draws the whole library, then Thassa's Oracle is cast with no cards left
     const thrasios = p.battlefield.find(o => o.card.name === 'Thrasios, Triton Hero');
     const oracleAnywhere = find("Thassa's Oracle", ['hand', 'library']);
+    if (thrasios && oracleAnywhere && this.rules >= 11) {
+      // (rules 11: Thrasios's ability is really activated, card by card, until the library is empty or it stops)
+      const ab = this.abilitiesOf(thrasios).find(a => a.cost && !a.tap);
+      let n = 0;
+      while (ab && p.library.length && n < 400 && !this.over && thrasios.zone === 'battlefield') {
+        const before = p.library.length;
+        if (!(await this.activate(p, thrasios, ab)) || p.library.length >= before) break;
+        n++;
+      }
+      this.log(`${this.cn(thrasios)} was activated ${n} times; ${p.library.length} card${p.library.length === 1 ? '' : 's'} left in the library`, { kind: 'combo' });
+      const oracle = p.hand.find(o => o.card.name === "Thassa's Oracle");
+      if (oracle && !p.library.length) { await this.cast(p, oracle, { combo: true }); await this.sba(); }
+      return this.over ? "Thassa's Oracle" : null;
+    }
     if (thrasios && oracleAnywhere) {
       const n = p.library.length;
       for (const o of p.library.splice(0)) { o.zone = 'hand'; p.hand.push(o); }

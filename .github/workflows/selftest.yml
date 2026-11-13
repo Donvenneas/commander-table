@@ -38,6 +38,8 @@ jobs:
         run: node tests/replay.mjs
       - name: Loops of triggers (endless loops, loops that end, optional loops, priority, responsiveness)
         run: node tests/loops.mjs
+      - name: Combos played out with the real cards (life, damage, combat, mill, Spellbook statuses)
+        run: node tests/combos.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

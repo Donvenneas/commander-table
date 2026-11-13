@@ -7,7 +7,7 @@ history of every feature: `ROADMAP.md` (read its "Rules for every session" and t
 ## Layout
 
 - `public/` — the game. Key modules in `public/js/`:
-  - `engine.js` (`Game`: turns, stack, casting, formats) with its sections in `combat.js`, `mana.js`, `resolve.js`, `zones.js`, `triggers.js` (functions taking the game as `g`; Game keeps one-line methods), `loops.js` (loops of triggers, rules 10), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
+  - `engine.js` (`Game`: turns, stack, casting, formats) with its sections in `combat.js`, `mana.js`, `resolve.js`, `zones.js`, `triggers.js` (functions taking the game as `g`; Game keeps one-line methods), `loops.js` (loops of triggers, rules 10), `comboplay.js` (combos played out with the real cards, rules 11), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
   - `ai.js` (`Agent`, play styles), `combatai.js`, `lookahead.js` (main-phase look-ahead on a copied game), `combos.js` (Commander Spellbook), `learn.js` (per-deck learning)
   - `main.js` (setup screen and table UI), `windows.js` (Help, What's new, Storage, images), `cores.js` (games on every core), `prefs.js`, `ui.js`, `human.js` (human seat prompts), `remote.js` / `net.js` (online seats)
   - `decks.js`, `scryfall.js`, `formats.js`, `limited.js`, `builder.js`, `presets.js` (built-in cEDH decks)
@@ -42,6 +42,8 @@ Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for 
 Replays: `node tests/replay.mjs` (CI runs it too) saves a game as a replay and loads it again after Scryfall data, Commander Spellbook answers and other games have changed, checks the card hashes, and loads a pre-1.24 replay. Replays (format 7, `replaydata.js`) keep their own card data and Spellbook combos; each Game has its own combo book (`opts.spellbook`), never a shared list.
 
 Loops: `node tests/loops.mjs` (CI runs it too) checks the loop watcher (`loops.js`, rules 10): endless mandatory loops are a draw, loops that end by themselves run to the end, "you may" loops are their controller's choice, priority and APNAP order are kept, and a long chain doesn't block the page.
+
+Combos: `node tests/combos.mjs` (CI runs it too) checks that combos are played out with the real cards at rules 11 (life events and triggers, the damage system with prevention and lifelink, real combat with blockers and Fog, mills through `Game.move`), that every built-in and Commander Spellbook combo has a status and a reason (`combos.js` `comboPlay`, `readSpellbook`), and that rules 10 keeps the old combo shortcut for replays. A combo the engine can't play out is marked partial or unsupported, never granted its result.
 
 Hidden information: `node tests/hidden.mjs` (CI runs it too) asks every AI decision again with the opponents' hands and libraries scrambled and fails if one changes (an AI must never read hidden cards).
 

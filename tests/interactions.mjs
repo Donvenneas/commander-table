@@ -613,14 +613,15 @@ await test("Nim Deathmantle + Ashnod's Altar + Peregrine Drake: pay {4}, the Dra
   eq(trace.slice(1).map((n, i) => n - trace[i]), [3, 3], `net mana per loop (${trace})`);
 });
 
-// The AI's combo shortcut (Game.goOff) with every built-in combo: it lands, or the real cards win on the way
+// The AI's combo shortcut (Game.goOff) with every built-in combo, as games at rules 10 and earlier (and their replays)
+// play it: it lands, or the real cards win on the way. (Rules 11 plays combos out with the real cards: tests/combos.mjs)
 for (const c of COMBOS.filter(c => !c.source && c.pieces.every(hasCard))) {
-  await test(`Combo shortcut: ${c.label} lands`, async () => {
+  await test(`Combo shortcut (rules 10): ${c.label} lands`, async () => {
     const spellLike = n => /Consultation|Tainted Pact|Dramatic Reversal|Chain of Smog|Twinflame|Heat Shimmer|Brain Freeze|Splinter Twin|Power Artifact|Curiosity|Ophidian Eye|Walking Ballista/.test(n);
     const bf = c.pieces.filter(n => !spellLike(n) && n !== c.last && !(c.imprint && n === c.imprint.host));
     const pact = /Tainted Pact/.test(c.label);
     const g = await scenario([{ battlefield: [...bf, ...Array(8).fill('Island'), ...(c.imprint ? ['Sol Ring', 'Arcane Signet'] : []), 'Grizzly Bears'],
-      hand: c.pieces.filter(n => !bf.includes(n)), filler: pact ? 0 : 20, library: pact ? ['Forest', 'Mountain', 'Plains'] : [], graveyard: /Breach/.test(c.label) ? Array(6).fill('Wastes') : [] }, {}, {}]);
+      hand: c.pieces.filter(n => !bf.includes(n)), filler: pact ? 0 : 20, library: pact ? ['Forest', 'Mountain', 'Plains'] : [], graveyard: /Breach/.test(c.label) ? Array(6).fill('Wastes') : [] }, {}, {}], { rules: 10 });
     mana(g, 0);
     await g.goOff(P(g, 0), c); await settle(g);
     ok(g.comboLog.some(x => x.landed) || g.winner === P(g, 0), 'landed or won'); noErrors(g);

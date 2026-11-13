@@ -1,5 +1,5 @@
 {
- "version": "1.25.0",
+ "version": "1.26.0",
  "round": "Round 5",
  "items": [
   {
@@ -115,6 +115,12 @@
    "section": "Rules engine and card coverage",
    "title": "Loops and freezes (asked 2026-11-12, Phase 2B of the engine audit): endless loops froze the page or made turns endless; recognise loops and keep the page responsive without cutting legitimate chains short.",
    "done": "- Done (rules 10, version 1.25.0; rules 4–9 golden games unchanged, 60 AI games identical at rules 9 and 10 apart from the new log line in the 3 that looped): the cause was sbaPass checking each creature's toughness through attachments() an"
+  },
+  {
+   "n": 191,
+   "section": "Rules engine and card coverage",
+   "title": "Combos played out with the real cards (asked 2026-11-12, Phase 2C of the engine audit): no combo result granted from its description; every built-in and Commander Spellbook combo gets a status and a reason.",
+   "done": "Game.goOff still casts the pieces for real, then comboplay.js plays the loop with the cards' own abilities instead of the shortcut (abstract repetitions, life set directly, lethal noncombat \"attack\" damage, a library spliced into the gravey"
   },
   {
    "n": 101,

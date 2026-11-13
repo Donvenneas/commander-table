@@ -15,7 +15,7 @@ import { startTour } from './tour.js';
 import { buildReplayHtml } from './replayexport.js';
 import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames, loadRatings } from './limited.js';
 import { boosterData, boosterPacker } from './boosters.js';
-import { combosIn, fetchSpellbook, fetchSpellbookBracket, almostCombos } from './combos.js';
+import { combosIn, fetchSpellbook, fetchSpellbookBracket, almostCombos, comboPlay } from './combos.js';
 import { pinCards, pinReport } from './scryfall.js';
 import { REPLAY_FORMAT, snapshotDecks, tableSpellbook, checkReplay, readingChanges } from './replaydata.js';
 import { coverage } from './effects.js';
@@ -2876,7 +2876,8 @@ function showDeck(s) {
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
     ${d.commanders.length ? (() => { const est = estimateBracket(d), diff = bracketDifferences(est, d.sbBracket); return `<h3>Bracket ${est.bracket}: ${BRACKETS[est.bracket].name}</h3><ul>${est.reasons.map(r => `<li>${esc(r)}</li>`).join('') || '<li>No Game Changers, two-card combos, extra turns or mass land destruction.</li>'}</ul>${d.sbBracket ? `<p>Commander Spellbook: <b>${esc(d.sbBracket.name)}</b>${d.sbBracket.about ? ` (about bracket ${d.sbBracket.about})` : ''}.${diff.length ? '' : ' The two agree.'}</p>${diff.length ? `<ul class="muted">${diff.slice(1).map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}` : ''}`; })() : ''}
     ${d.commanders.length ? '<h3>Combos one card away</h3><div id="almostCombos"><p><button class="btn small" id="btnAlmost">Ask Commander Spellbook</button> <span class="muted">Combos in your colors that need just one more card.</span></p></div>' : ''}
-    ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => `<li>${esc(c.label)}: ${esc(c.note)}</li>`).join('')}</ul>` : ''}
+    ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => { const s = comboPlay(c); return `<li>${esc(c.label)}: ${esc(c.note)} <span class="${s.status === 'supported' ? 'muted' : 'warn'}">· ${s.status === 'supported' ? 'played out with the real cards' : `${esc(s.status)}: ${esc(s.reason)}`}</span></li>`; }).join('')}</ul>` : ''}
+    ${(d.spellbookCatalog || []).length ? `<h3>Commander Spellbook's combos (${d.spellbookCatalog.length})</h3><p class="muted">What Commander Spellbook lists for this deck, and whether the game can play each one out with the real cards. The AI only goes for those; the others' cards still work as usual when they're played.</p><ul>${['supported', 'partial', 'unsupported', 'invalid'].flatMap(st => d.spellbookCatalog.filter((/** @type {any} */ e) => e.status === st)).map((/** @type {any} */ e) => `<li><b>${esc(e.status)}</b> · ${esc((e.pieces.length ? e.pieces : ['?']).join(' + '))}${e.result ? ` (${esc(e.result)})` : ''}: ${esc(e.reason)}</li>`).join('')}</ul>` : ''}
     ${tips || '<p class="muted">Run a batch with this deck seated to get card suggestions.</p>'}
     ${hasCollection() ? (() => { const miss = missingCards(d); return `<h3>Collection</h3>${miss.length ? `<p>Missing ${miss.reduce((a, m) => a + m.need - m.have, 0)} cards (${miss.length} different): <button class="btn small" id="btnCopyMissing">Copy the list</button></p><p class="ignored">${miss.map(m => `${m.need - m.have} ${esc(m.name)}`).join(' · ')}</p>` : '<p>✔ You own every card in this deck.</p>'}`; })() : ''}
     ${masteryHtml(d)}
