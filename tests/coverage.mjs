@@ -15,6 +15,7 @@
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { normalize } from '../public/js/scryfall.js';
 import { ignoredText, droppedSentences, cleanText } from '../public/js/effects.js';
+import { replacementGaps } from '../public/js/replacements.js';
 
 const args = process.argv.slice(2);
 const reportAt = args.includes('--report') ? args[args.indexOf('--report') + 1] : null;
@@ -58,7 +59,9 @@ for (const [i, raw] of snap.entries()) {
   else if (restr.length) status = 'restriction';
   else if (ign) status = 'partial';
   else status = 'full';
-  rows.push({ rank: i + 1, name: card.name, type: card.typeLine, status, unread, dropped, restr, missingKinds, unreadFields, text: cleanText(card.text || '', card.name) });
+  // (replacement effects among the unread text: replacements.js reports these in games too)
+  const repl = replacementGaps(card, [...unread, ...dropped]);
+  rows.push({ rank: i + 1, name: card.name, type: card.typeLine, status, unread, dropped, restr, missingKinds, unreadFields, repl, text: cleanText(card.text || '', card.name) });
 }
 
 const count = s => rows.filter(r => r.status === s).length;
@@ -67,6 +70,8 @@ console.log(`Card coverage: ${rows.length} cards (Scryfall, Commander-legal pape
 for (const s of ORDER) console.log(`  ${s.padEnd(12)} ${String(count(s)).padStart(5)}  ${(100 * count(s) / rows.length).toFixed(1)}%`);
 const kindsMissing = new Map();
 for (const r of rows) for (const k of [...r.missingKinds, ...r.unreadFields.map(f => `fx.${f}`)]) kindsMissing.set(k, [...(kindsMissing.get(k) || []), r.name]);
+const replRows = rows.filter(r => r.repl.length);
+console.log(`  replacement text not read: ${replRows.length} cards (${[...new Set(replRows.flatMap(r => r.repl.map(x => x.why)))].join('; ')})`);
 if (kindsMissing.size) console.log(`  read but never handled: ${[...kindsMissing].map(([k, v]) => `${k} (${v.length}: ${v.slice(0, 3).join(', ')}${v.length > 3 ? '…' : ''})`).join('; ')}`);
 
 if (reportAt) {
@@ -83,6 +88,8 @@ if (reportAt) {
     `| unhandled | ${count('unhandled')} | the reader produces something no engine module handles |`,
     `| unsupported | ${count('unsupported')} | none of its abilities is read |`, '',
     '"Full" means the text is read and every effect has a handler; it does not prove each handler is correct. Cards are checked one by one in tests/interactions.mjs.', '',
+    `## Replacement effects not read (${replRows.length})`, '', 'The game reports these once a game when the card enters the battlefield, and never applies them approximately.', '', '| # | Card | Text | Why |', '|---|---|---|---|',
+    ...replRows.slice(0, 60).flatMap(r => r.repl.map(x => `| ${r.rank} | ${esc(r.name)} | ${esc(x.line)} | ${esc(x.why)} |`)), '',
     ...section('unhandled', 'Read but never handled', 50, r => [...r.missingKinds.map(k => `effect "${k}"`), ...r.unreadFields.map(f => `fx.${f}`)].join(', ')),
     ...section('restriction', 'Restrictions not read (stronger than printed): most played first', 60, r => r.restr.join(' / ')),
     ...section('partial', 'Partly read: most played first', 80, r => [...r.unread, ...r.dropped].join(' / ')),

@@ -810,6 +810,14 @@ export class HumanAgent extends Agent {
   async combatResponse(g, q, attackers) { return this.instantWindow(g, q, `<b>Attackers declared</b> against you: ${attackers.map(a => esc(a.card.name)).join(', ')}. Cast an instant?`, true, this.full); }
   async combatTrick(g, q) { return this.instantWindow(g, q, '<b>Blockers are declared.</b> Cast a combat trick?', false, this.full); }
   async respondToLoop(g, q, p) { return this.instantWindow(g, q, `<b>${esc(p.name)}</b> is looping a combo. Respond?`, false, this.full); }
+  // (rules 14) Several replacement effects apply to one event and their order changes the result: which applies first
+  // (616.1). options: [{ label, result }]; returns the index.
+  async chooseReplacementAsync(g, p, options, now) {
+    const r = await this.ui.ask(`<b>Several replacement effects apply</b> (${esc(now)}). Choose which applies first:`, {
+      buttons: options.map((o, i) => ({ label: `${o.label} → ${o.result}`, value: i, primary: i === 0 })),
+    });
+    return typeof r.button === 'number' ? r.button : 0;
+  }
   // (rules 13) "You may draw up to N cards" (Arcane Denial): how many
   async drawUpToAsync(g, p, src, max) {
     const r = await this.ui.ask(`<b>${esc(src?.card?.name || 'A card')}</b>: you may draw up to ${max} card${max === 1 ? '' : 's'}. How many?`, {

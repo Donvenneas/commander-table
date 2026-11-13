@@ -1,5 +1,5 @@
 {
- "version": "1.28.0",
+ "version": "1.29.0",
  "round": "Round 5",
  "items": [
   {
@@ -133,6 +133,12 @@
    "section": "Rules engine and card coverage",
    "title": "Card coverage audit and six popular cards (asked 2026-11-13, Phase 2E of the engine audit): a coverage report for the 3,500 most-played cards, and Teferi's Protection, Mana Drain, Arcane Denial, Chaos Warp, Cavern of Souls and Temple of the False God read and played in full.",
    "done": "tests/coverage.mjs reads the snapshot (Scryfall, Commander-legal paper cards in EDHREC order) and checks every effect the reader produces against the engine's handlers: 2,787 full, 446 partial, 106 with an unread restriction (stronger than "
+  },
+  {
+   "n": 194,
+   "section": "Rules engine and card coverage",
+   "title": "Replacement effects (asked 2026-11-13, Phase 2F of the engine audit): one framework for \"instead\", \"enters tapped\", prevention and token replacements, with rule 616 ordering.",
+   "done": "replacements.js holds the replacement effects for each event kind, read from the cards in play: move (Rest in Peace, Leyline of the Void, Dauthi Voidwalker, gyExileTurn, unearth, Blightsteel, God-Eternals), draw (Alhammarret's Archive, Noti"
   },
   {
    "n": 101,

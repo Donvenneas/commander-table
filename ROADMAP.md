@@ -689,6 +689,22 @@ on top of the ones above:
     Cavern tapped by hand makes {C}; "up to" draws are asked of people, the AI takes all; phased-out permanents aren't
     shown on the table; next batch proposed in the Phase 2E report (Path of Ancestry, channel cost reductions,
     restricted mana lands, Mox Opal, Mox Diamond, Animate Dead, Sylvan Library, Force of Negation).
+- [x] 194. Replacement effects (asked 2026-11-13, Phase 2F of the engine audit): one framework for "instead",
+  "enters tapped", prevention and token replacements, with rule 616 ordering.
+  - Done (rules 14, version 1.29.0; rules 4–13 golden games unchanged): replacements.js holds the replacement effects
+    for each event kind, read from the cards in play: move (Rest in Peace, Leyline of the Void, Dauthi Voidwalker,
+    gyExileTurn, unearth, Blightsteel, God-Eternals), draw (Alhammarret's Archive, Notion Thief, Underrealm Lich,
+    dredge), damage to a player (prevention shields, Glacial Chasm), enter (enters tapped / untapped) and tokens
+    (doublers, Academy Manufactor, Chatterfang, Xorn). Self-replacements first (616.1a), then the affected player
+    orders the rest; each applies once per event (614.5), the event is rechecked after each, MAX_STEPS stops runaways.
+    Async events (tokens) ask a person when the order changes the result, each choice showing its result; sync ones
+    (move, draw, damage) take the best order for that player and log it. Replaced events don't trigger (Rest in
+    Peace: no "dies"); prevented damage isn't dealt. Unread replacement text (redirection, "the next time" shields,
+    others) is logged once a game per card and listed in tests/card-coverage.md (20 cards), never approximated.
+    Tests: replacements 15 (new), golden 66, all other suites; 60 AI games at rules 14: 0 errors, 0 broken rules,
+    30 replacement events. Still open: people aren't asked on sync events, dredge isn't offered to people,
+    redirection and next-time shields, damage to creatures, counters, life gain and destroy replacements
+    (regeneration, umbra armor) still use the old inline order.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

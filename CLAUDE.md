@@ -7,7 +7,7 @@ history of every feature: `ROADMAP.md` (read its "Rules for every session" and t
 ## Layout
 
 - `public/` — the game. Key modules in `public/js/`:
-  - `engine.js` (`Game`: turns, stack, casting, formats) with its sections in `combat.js`, `mana.js`, `resolve.js`, `zones.js`, `triggers.js` (functions taking the game as `g`; Game keeps one-line methods), `loops.js` (loops of triggers, rules 10), `comboplay.js` (combos played out with the real cards, rules 11), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
+  - `engine.js` (`Game`: turns, stack, casting, formats) with its sections in `combat.js`, `mana.js`, `resolve.js`, `zones.js`, `triggers.js` (functions taking the game as `g`; Game keeps one-line methods), `loops.js` (loops of triggers, rules 10), `comboplay.js` (combos played out with the real cards, rules 11), `replacements.js` (replacement and prevention effects, rules 14), `effects.js` (card text → effects), `rules.js`, `invariants.js` (rules checker used by the self-test)
   - `ai.js` (`Agent`, play styles), `combatai.js`, `lookahead.js` (main-phase look-ahead on a copied game), `combos.js` (Commander Spellbook), `learn.js` (per-deck learning)
   - `main.js` (setup screen and table UI), `windows.js` (Help, What's new, Storage, images), `cores.js` (games on every core), `prefs.js`, `ui.js`, `human.js` (human seat prompts), `remote.js` / `net.js` (online seats)
   - `decks.js`, `scryfall.js`, `formats.js`, `limited.js`, `builder.js`, `presets.js` (built-in cEDH decks)
@@ -48,6 +48,8 @@ Loops: `node tests/loops.mjs` (CI runs it too) checks the loop watcher (`loops.j
 Combos: `node tests/combos.mjs` (CI runs it too) checks that combos are played out with the real cards at rules 11 (life events and triggers, the damage system with prevention and lifelink, real combat with blockers and Fog, mills through `Game.move`), that every built-in and Commander Spellbook combo has a status and a reason (`combos.js` `comboPlay`, `readSpellbook`), and that rules 10 keeps the old combo shortcut for replays. A combo the engine can't play out is marked partial or unsupported, never granted its result.
 
 Mana: `node tests/mana.mjs` (CI runs it too) checks Phyrexian ({B/P}: color or 2 life), hybrid and two-brid ({2/W}: color or {2}) payments at rules 12 with real cards (Dismember, Gitaxian Probe, Phyrexian Metamorph, Kitchen Finks, Spectral Procession, Reaper King): `parseCost` tags the symbols, `mana.js` `planTagged` tries every way of paying before anything is paid, and `Game.withPhyrexianChoice` asks the AI or the person how many symbols to pay with life.
+
+Replacements: `node tests/replacements.mjs` (CI runs it too) checks replacement effects at rules 14 (`replacements.js`): zone changes (Rest in Peace, Dauthi Voidwalker, Blightsteel), draws (Alhammarret's Archive, Notion Thief, Underrealm Lich), prevention (Glacial Chasm), entering tapped (Authority of the Consuls) and tokens (Anointed Procession, Xorn). Self-replacements go first, then the affected player orders the rest (a person is asked where the event is async), each applies once per event, replaced events don't trigger, and unread replacement text is reported once a game, never approximated.
 
 Hidden information: `node tests/hidden.mjs` (CI runs it too) asks every AI decision again with the opponents' hands and libraries scrambled and fails if one changes (an AI must never read hidden cards).
 

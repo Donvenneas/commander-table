@@ -42,6 +42,8 @@ jobs:
         run: node tests/combos.mjs
       - name: Phyrexian, hybrid and two-brid mana (parsing, planning, life payments, choices)
         run: node tests/mana.mjs
+      - name: Replacement effects (zone changes, draws, prevention, entering, tokens; ordering)
+        run: node tests/replacements.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

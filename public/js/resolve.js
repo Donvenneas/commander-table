@@ -5,6 +5,7 @@ import { parseCost, COLORS } from './engine.js';
 import { needsTarget, needsTargetIn, condText } from './effects.js';
 import { shuffle, esc } from './util.js';
 import * as K from './kingdomsPlay.js';
+import * as R from './replacements.js';
 
 /** @param {import('./engine.js').Game} g */
 export function validTarget(g, t, p) {
@@ -383,6 +384,16 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     case 'token': {
+      // (rules 14) Through the replacement-effect loop: doublers, Chatterfang's Squirrels and the like apply in the order
+      // the player chooses (616.1), and the extra tokens are doubled or not depending on it
+      if (g.rules >= 14) {
+        const made = await tokens14(g, p, [{ kind: 'creature', n: X(e.n), spec: { ...e, p: X(e.p), t: X(e.t) } }], src);
+        for (const m of made) {
+          if (e.attacking && src.attacking != null) Object.assign(m, { tapped: true, attacking: src.attacking, blockedBy: [], blocked: false });
+          if (e.temp) (g.endSac ||= []).push(m);
+        }
+        break;
+      }
       const n = Math.min(g.tokenCount(p, X(e.n)), 40);
       let made;
       for (let k = 0; k < n; k++) {
@@ -395,7 +406,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       if (made) g.extraTokens(p, 'creature', src);
       break;
     }
-    case 'treasure': { const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createTreasure(p, src); g.log(`${g.pn(p)} creates ${n} Treasure`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, 'treasure', src); break; }
+    case 'treasure': { if (g.rules >= 14) { await tokens14(g, p, [{ kind: 'treasure', n: X(e.n) }], src); break; } const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createTreasure(p, src); g.log(`${g.pn(p)} creates ${n} Treasure`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, 'treasure', src); break; }
     case 'rampLand': await g.fetchLands(p, e, src); break;
     case 'tutor': {
       // (rules 7) Demonic Consultation and Tainted Pact exile from the top instead of searching (combo audit)
@@ -582,6 +593,27 @@ async function chainCopies(g, q, src, e) {
     q = v;
   }
 }
+// (rules 14) Tokens about to be created, as groups ({ kind, n, spec }), through the replacement-effect loop
+// (replacements.js tokenDefs; a person is asked which effect applies first when the order changes the result), then
+// created as the final event says. Returns the creature tokens made from the first group's spec.
+/** @param {import('./engine.js').Game} g */
+async function tokens14(g, p, groups, src) {
+  const ev = await R.replaceAsync(g, { type: 'tokens', p, groups }, R.tokenDefs(g, { p }), R.tokenScore, p, R.tokenText);
+  const made = [];
+  for (const x of ev.groups) {
+    const n = Math.min(Math.max(0, x.n), 40);
+    let last = null;
+    for (let k = 0; k < n; k++) {
+      if (x.kind === 'creature') made.push(last = g.createToken(p, x.spec, src));
+      else if (x.kind === 'treasure') g.createTreasure(p, src);
+      else if (x.kind === 'squirrel') last = g.createToken(p, { p: 1, t: 1, desc: 'green squirrel', kw: [] }, src);
+      else if (x.kind === 'thopter') last = g.createToken(p, x.spec, src);
+      else g.createArtifactToken(p, x.kind, src);
+    }
+    if (n) g.log(`${g.pn(p)} creates ${n} ${x.kind === 'creature' ? `${x.spec.p}/${x.spec.t} ${esc(last?.card.name || 'creature')}` : last ? esc(last.card.name) : x.kind[0].toUpperCase() + x.kind.slice(1)} token${n === 1 ? '' : 's'}`, { kind: 'minor' });
+  }
+  return made;
+}
 export function extraTokens(g, p, kind, src) {
   for (const s of p.battlefield) {
     const k = s.fx.extraToken;
@@ -718,7 +750,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       if (got.length) g.log(`${g.pn(p)} exiles ${got.map(o => g.cn(o)).join(', ')} and may play ${got.length === 1 ? 'it' : 'them'} ${e.next ? 'until their next turn' : 'this turn'}`, { kind: 'minor' });
       break;
     }
-    case 'artifactToken': { const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createArtifactToken(p, e.kind, src); g.log(`${g.pn(p)} creates ${n} ${e.kind[0].toUpperCase() + e.kind.slice(1)} token${n === 1 ? '' : 's'}`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, e.kind, src); break; }
+    case 'artifactToken': { if (g.rules >= 14) { await tokens14(g, p, [{ kind: e.kind, n: X(e.n) }], src); break; } const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createArtifactToken(p, e.kind, src); g.log(`${g.pn(p)} creates ${n} ${e.kind[0].toUpperCase() + e.kind.slice(1)} token${n === 1 ? '' : 's'}`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, e.kind, src); break; }
     case 'fight': {
       const foe = tgt?.obj;
       const mine = src.zone === 'battlefield' && src.fx.type.creature ? src : g.bestOwnCreature(p, o => o !== foe);
@@ -1699,7 +1731,10 @@ export function damagePlayer(g, q, n, src, combat) {
   if (!combat && sc != null && sc !== q.idx) for (const s of g.players[sc].battlefield) if (s.fx.burnDouble) n *= 2;
   if (sc != null && sc !== q.idx && g.active === sc && g.players[sc].battlefield.some(s => s.fx.lossDouble)) n *= 2;
   // Protection from everything until your next turn (Teferi's Protection); Glacial Chasm, Selfless Squire
-  if ((q.shield >= g.turn || q.preventTurn === g.turn || q.battlefield.some(s => s.fx.preventMe)) && !g.noPrevent()) n = 0;
+  // (rules 14: through the replacement-effect loop, replacements.js damageDefs: prevented damage is never dealt, so nothing
+  // that notices damage happens)
+  if (g.rules >= 14) { if (n > 0) n = R.replace(g, { type: 'damage', q, n, src, combat }, R.damageDefs(g, { q }), R.damageScore, q).n; }
+  else if ((q.shield >= g.turn || q.preventTurn === g.turn || q.battlefield.some(s => s.fx.preventMe)) && !g.noPrevent()) n = 0;
   if (g.kingdoms && !g.has(src, 'infect') && !g.noPrevent()) n = K.damageHook(g, q, n, src, combat);
   if (n <= 0 || q.lost) return;
   if (!combat && sc != null && sc !== q.idx) g.fire('noncombat', { o: src, p: sc, n, target: q.idx });

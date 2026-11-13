@@ -364,6 +364,24 @@ These use two new parts of the engine:
 
 Replays saved before 1.28.0 keep the old readings.
 
+**Replacement effects** (from version 1.29.0): effects that say "instead" or "enters tapped", and prevention, now go through one system for these events:
+- **a card changing zones:** Rest in Peace, Leyline of the Void, Dauthi Voidwalker, unearth, Blightsteel Colossus, God-Eternals;
+- **drawing a card:** Alhammarret's Archive, Notion Thief, Underrealm Lich, dredge;
+- **damage to a player being prevented:** Glacial Chasm, Fog effects and similar shields;
+- **a permanent entering the battlefield:** Authority of the Consuls, Blind Obedience;
+- **tokens being created:** Anointed Procession, Doubling Season, Parallel Lives, Academy Manufactor, Chatterfang, Xorn.
+
+The rules for these:
+- A card's own replacement (such as Blightsteel shuffling itself into its library) applies first.
+- After that, the affected player chooses the order. When the order changes the result, you're asked, and each button shows what that order gives you (for example Xorn and Anointed Procession: 4 Treasures or 3).
+- Each replacement applies once to an event.
+- A replaced event doesn't happen, so it doesn't trigger: a creature exiled by Rest in Peace doesn't "die".
+- Prevented damage isn't dealt, so it gives no lifelink and no "deals damage" triggers.
+
+Three of these happen in the middle of other rules (a card changing zones, a draw, damage), so the game can't stop to ask you there. For those it uses the order that's best for you and writes it in the log.
+
+Cards whose replacement text isn't read yet are named in the log once a game when they enter, and nothing is approximated. This covers damage redirection (Pariah, Ram Through) and "the next time" shields (Deflecting Palm). Replays saved before 1.29.0 keep the old behaviour.
+
 **Long and endless loops:** when the same few triggers keep repeating, the game watches what each repetition changes (life, poison, cards in each zone, permanents, tokens, counters, damage, mana, waiting triggers):
 - **It ends by itself** (someone's life, library or permanents run down, or poison builds up): it keeps going, at full speed, until it does. Exquisite Blood with Sanguine Bond drains each opponent in turn.
 - **It never ends and every trigger is mandatory** (a token every time, life gained every time, the same board again and again): the game is a draw (rule 104.4b). Each opponent still gets priority on every trigger first.

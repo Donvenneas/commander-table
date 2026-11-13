@@ -2,11 +2,12 @@
 // Split out of engine.js (Round 5, item 176): each function is one of Game's methods, with the game as `g`; Game keeps
 // a one-line method that calls it, so nothing else changes.
 import { parseCost, COLORS, Abort } from './engine.js';
-import { analyzeCard, needsTarget, condText } from './effects.js';
+import { analyzeCard, needsTarget, condText, droppedSentences } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
+import * as R from './replacements.js';
 
 /** @param {import('./engine.js').Game} g */
 export function move(g, o, to, opts = {}) {
@@ -20,6 +21,13 @@ export function move(g, o, to, opts = {}) {
   // Exile-instead replacements decide whether it "dies" at all: Rest in Peace, Yawgmoth's Will (this turn, your
   // cards), and Liesa, Gisa, The Darkness Crystal (opponents' creatures)
   let dieExiler = null;
+  // (rules 14) Through the replacement-effect loop (replacements.js): the object's own effects first, then the affected
+  // player's choice of order; the event that happens is the final one (so a creature exiled instead never died)
+  const r14 = g.rules >= 14 && from !== to;
+  if (r14) {
+    const ev = R.replace(g, { type: 'move', o, from, to, opts }, R.moveDefs(g, { o }), R.moveScore, g.players[from === 'battlefield' ? o.controller : o.owner]);
+    to = ev.to; opts = ev.opts || opts;
+  } else {
   if (to === 'graveyard' && !o.fx.shuffleOnGy) {
     if (g.alive().some(q => q.battlefield.some(s => s.fx.rip)) || (!o.token && p.gyExileTurn === g.turn)) to = 'exile';
     else if (from === 'battlefield' && o.fx.type.creature) {
@@ -29,6 +37,7 @@ export function move(g, o, to, opts = {}) {
   }
   // God-Eternals: third from the top of the library instead of the graveyard or exile
   if (from === 'battlefield' && (to === 'graveyard' || to === 'exile') && o.fx.godEternal && !o.token && !o.isCommander) { to = 'library'; opts = { ...opts, third: true }; g.log(`${g.cn(o)} is put into its owner's library third from the top`, { kind: 'minor' }); }
+  }
   const died = from === 'battlefield' && to === 'graveyard' && o.fx.type.creature;
   // (the table animates draws, discards, deaths and exiles; it reads the card's spot before it moves)
   g.emit('move', { iid: o.iid, owner: o.owner, from, to, died, token: !!o.token });
@@ -62,7 +71,9 @@ export function move(g, o, to, opts = {}) {
   }
   // Blightsteel Colossus: shuffled into the library instead; Dauthi Voidwalker: opponents' cards are exiled instead
   if (to === 'graveyard' && !o.token) {
-    if (o.fx.shuffleOnGy) { to = 'library'; opts = { ...opts, shuffle: true }; g.log(`${g.cn(o)} is shuffled into its owner's library instead`, { kind: 'minor' }); }
+    // (rules 14: these replacements were applied above; only the "put into a graveyard from anywhere" trigger is left)
+    if (r14) { if (from !== 'battlefield') for (const w of o.fx.watch || []) if (w.ev === 'selfGy') g.queue.push({ o, effects: w.effects, label: 'put into a graveyard', p }); }
+    else if (o.fx.shuffleOnGy) { to = 'library'; opts = { ...opts, shuffle: true }; g.log(`${g.cn(o)} is shuffled into its owner's library instead`, { kind: 'minor' }); }
     else if (g.players.some(q => q.idx !== o.owner && !q.lost && q.battlefield.some(s => s.fx.oppGyExile))) to = 'exile';
     // "When ~ is put into a graveyard from anywhere" (Kozilek, Emrakul)
     else if (from !== 'battlefield') for (const w of o.fx.watch || []) if (w.ev === 'selfGy') g.queue.push({ o, effects: w.effects, label: 'put into a graveyard', p });
@@ -111,9 +122,12 @@ export function move(g, o, to, opts = {}) {
     }
     // Authority of the Consuls, Blind Obedience: opponents' creatures (and more) enter tapped
     const kinds = { creatures: x => x.fx.type.creature, 'creatures and nonbasic lands': x => x.fx.type.creature || (x.fx.type.land && !x.fx.type.basic), 'artifacts and creatures': x => x.fx.type.creature || x.fx.type.artifact, permanents: () => true, 'nonbasic lands': x => x.fx.type.land && !x.fx.type.basic, artifacts: x => x.fx.type.artifact };
-    if (g.opponents(g.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
+    if (!r14 && g.opponents(g.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
     // (rules 9) shock, check, fast and reveal lands: tapped unless their condition holds as they enter
     if (g.rules >= 9 && o.fx.enterCond9 && from !== 'battlefield' && !opts.tapped && g.entersTappedNow(o, g.players[o.controller], opts.payLife)) opts = { ...opts, tapped: true };
+    // (rules 14) Whether it enters tapped, through the replacement-effect loop: an opponent's "enter tapped" (Authority of
+    // the Consuls) and your "lands enter untapped" (Amulet of Vigor) both apply, in the order you choose (616.1)
+    if (r14) { const ev = R.replace(g, { type: 'enter', o, tapped: !!opts.tapped }, R.enterDefs(g, { o }), R.enterScore, g.players[o.controller]); opts = { ...opts, tapped: ev.tapped, enterDone: true }; }
   }
   else if (to === 'library' && opts.bottom) p.library.unshift(o);
   else if (to === 'library' && opts.third) p.library.splice(Math.max(0, p.library.length - 2), 0, o);
@@ -137,7 +151,7 @@ export function move(g, o, to, opts = {}) {
     o.enteredTurn = g.turn;
     const ctl = g.players[o.controller];
     // Amulet of Vigor-style "lands you control enter untapped"
-    if (o.fx.type.land && o.tapped && ctl.battlefield.some(s => s.fx.landsUntapped && (typeof s.fx.landsUntapped !== 'object' || g.isA(o, s.fx.landsUntapped.what)))) o.tapped = false;
+    if (!opts.enterDone && o.fx.type.land && o.tapped && ctl.battlefield.some(s => s.fx.landsUntapped && (typeof s.fx.landsUntapped !== 'object' || g.isA(o, s.fx.landsUntapped.what)))) o.tapped = false;
     // Woe Strider: escapes with counters; the Overlords cast for their impending cost aren't creatures yet
     if (o.escaped && o.fx.escapeCounters) o.counters += g.moreCounters(o, o.fx.escapeCounters);
     if (o.impendingCast && o.fx.impending) {
@@ -173,6 +187,8 @@ export function bestType(g, p, cards = p.battlefield.filter(o => o.fx.type.creat
 export function entered(g, o) {
   const p = g.players[o.controller];
   o.monstrous = false;
+  // (rules 14) Replacement text this card has that the reader didn't read: said once a game, never applied approximately
+  if (g.rules >= 14 && !g.sim) for (const x of R.replacementGaps(o.card, [...(o.fx.unread || []), ...droppedSentences(o.card)])) R.gap(g, o.card, x.line, x.why);
   // "Choose a creature type": the commonest type among the controller's creatures (Kindred Discovery, Vanquisher's Banner)
   if (o.fx.chooseType && !o.chosenType) {
     const n = {};
@@ -230,6 +246,7 @@ export function leaveBattlefield(g, o) {
 }
 /** @param {import('./engine.js').Game} g */
 export function draw(g, p, n = 1, quiet = false) {
+  if (g.rules >= 14) return draw14(g, p, n, quiet);
   let drawn = 0;
   // Alhammarret's Archive, Teferi's Ageless Insight: every draw but the first in your draw step is doubled
   const firstInStep = g.phase === 'draw' && g.active === p.idx && !(p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n);
@@ -254,9 +271,53 @@ export function draw(g, p, n = 1, quiet = false) {
     if (thief && !(firstInStep && i === 0)) { g.inThief = true; try { g.draw(thief, 1, true); } finally { g.inThief = false; } g.log(`${g.pn(thief)} draws instead of ${g.pn(p)} (Notion Thief)`, { kind: 'minor' }); continue; }
     if (capped && p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= 1) { g.log(`${g.pn(p)} can't draw more than one card this turn (Narset)`, { kind: 'minor' }); break; }
     if (lich && p.library.length > 3) for (let k = 0; k < 2; k++) g.move(p.library[p.library.length - 2], 'graveyard');
+    if (!drawCardNow(g, p, i)) break;
+    drawn++;
+  }
+  if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
+}
+// (rules 14) Each card drawn is its own event through the replacement-effect loop (replacements.js drawDefs): drawn
+// twice (Alhammarret's Archive), by an opponent instead (Notion Thief), looked at three (Underrealm Lich) or dredged.
+// A doubled draw becomes two draws that the same effect doesn't double again (614.5), but other effects still can.
+/** @param {import('./engine.js').Game} g */
+function draw14(g, p, n, quiet) {
+  let drawn = 0, i = 0;
+  // (Narset, Parter of Veils: a restriction, not a replacement: an opponent's draws stop after the first each turn)
+  const capped = g.opponents(p).some(q => q.battlefield.some(s => s.fx.drawCap));
+  const queue = Array.from({ length: Math.max(0, n) }, () => ({ applied: new Set() }));
+  for (let guard = 0; queue.length && guard < 400; guard++) {
+    const base = queue.shift() || { applied: new Set() };
+    const first = g.phase === 'draw' && g.active === p.idx && !(p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n);
+    const ev = R.replace(g, { type: 'draw', p, first, applied: base.applied }, R.drawDefs(g, { p }), R.drawScore, p);
+    const count = ev.count || 1;
+    if (ev.instead === 'thief') {
+      const q = g.players[ev.thief];
+      g.inThief = true; try { g.draw(q, count, true); } finally { g.inThief = false; }
+      g.log(`${g.pn(q)} draws instead of ${g.pn(p)} (Notion Thief)`, { kind: 'minor' });
+      continue;
+    }
+    if (ev.instead === 'dredge') {
+      const d = ev.dredge;
+      for (let k = 0; k < d.fx.dredge; k++) g.move(p.library[p.library.length - 1], 'graveyard');
+      g.move(d, 'hand');
+      g.log(`${g.pn(p)} dredges ${g.cn(d)} instead of drawing (mills ${d.fx.dredge})`, { kind: 'minor', rule: '702.52a' });
+      continue;
+    }
+    if (count > 1) { for (let k = 0; k < count; k++) queue.unshift({ applied: new Set(ev.applied) }); continue; }
+    if (capped && p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= 1) { g.log(`${g.pn(p)} can't draw more than one card this turn (Narset)`, { kind: 'minor' }); break; }
+    if (ev.instead === 'lich' && p.library.length > 3) for (let k = 0; k < 2; k++) g.move(p.library[p.library.length - 2], 'graveyard');
+    if (!drawCardNow(g, p, i++)) break;
+    drawn++;
+  }
+  if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
+}
+// One card from the top of the library into the hand, with everything that notices a draw (false: the library is empty)
+/** @param {import('./engine.js').Game} g */
+function drawCardNow(g, p, i) {
+  {
     const o = p.library.pop();
-    if (!o) { p.drewFromEmpty = true; g.log(`${g.pn(p)} tries to draw from an empty library`, { rule: '704.5b' }); break; }
-    o.zone = 'hand'; p.hand.push(o); drawn++; p.stats.draws = (p.stats.draws || 0) + 1;
+    if (!o) { p.drewFromEmpty = true; g.log(`${g.pn(p)} tries to draw from an empty library`, { rule: '704.5b' }); return false; }
+    o.zone = 'hand'; p.hand.push(o); p.stats.draws = (p.stats.draws || 0) + 1;
     // Faerie Mastermind: an opponent's second draw each turn
     if (p.drawsThisTurn?.turn !== g.turn) p.drawsThisTurn = { turn: g.turn, n: 0 };
     ++p.drawsThisTurn.n;
@@ -272,7 +333,7 @@ export function draw(g, p, n = 1, quiet = false) {
       g.queue.push({ o: s, effects: [{ k: 'tax', tax: od.tax, payer: p.idx, effects: od.effects }], label: `${p.name} drew a card`, p: q });
     }
   }
-  if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
+  return true;
 }
 /** @param {import('./engine.js').Game} g */
 export function destroy(g, o, noRegen = false) {

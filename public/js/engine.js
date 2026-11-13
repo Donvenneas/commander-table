@@ -24,11 +24,13 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
 // (rules 10: loops of triggers are classified by loops.js; replays at 4–9 keep the old loop handling)
 // (rules 11: combos are played out with the real cards, comboplay.js; replays at 4–10 keep the combo shortcut)
+// (rules 14: replacement effects through one loop, replacements.js: zone changes, draws, damage prevention, tokens,
+// entering tapped; replays at 4–13 keep the inline handling)
 // (rules 13: six popular cards read in full, with delayed triggers, phasing and "life can't change": Phase 2E;
 // replays at 4–12 keep the old readings)
 // (rules 12: Phyrexian symbols can be paid with 2 life and two-brid {2/W} symbols with {2}: mana.js; replays at 4–11
 // pay them with their color, as before)
-export const RULES = 13;
+export const RULES = 14;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -184,6 +186,9 @@ export class Game {
     // (rules 13) Delayed triggered abilities: "at the beginning of the next turn's upkeep", "of your next main phase"
     // (Game.addLater, Game.fireLater)
     /** @type {any[]} */ this.later = [];
+    // (rules 14) What the replacement-effect loop applied, and replacement text it can't apply (replacements.js)
+    /** @type {any[] | undefined} */ this.replaceLog = undefined;
+    /** @type {any[] | undefined} */ this.replaceGaps = undefined;
     this.tempSteals = [];
     // Players who can't cast spells this turn (Silence): player index → turn number
     this.silenced = {};
