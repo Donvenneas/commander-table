@@ -810,6 +810,20 @@ export class HumanAgent extends Agent {
   async combatResponse(g, q, attackers) { return this.instantWindow(g, q, `<b>Attackers declared</b> against you: ${attackers.map(a => esc(a.card.name)).join(', ')}. Cast an instant?`, true, this.full); }
   async combatTrick(g, q) { return this.instantWindow(g, q, '<b>Blockers are declared.</b> Cast a combat trick?', false, this.full); }
   async respondToLoop(g, q, p) { return this.instantWindow(g, q, `<b>${esc(p.name)}</b> is looping a combo. Respond?`, false, this.full); }
+  // (rules 10, loops.js) An optional trigger of yours keeps a loop going: how many more times (0 stops it)
+  async loopRepsAsync(g, p, info) {
+    const r = await this.ui.ask(`<b>A loop of your triggers keeps repeating</b> (${esc(info.sources.join(' + '))}, ${info.reps} times so far; each time: ${esc(info.change)}). ${esc(info.source)}'s trigger is optional, so you choose when it stops.`, {
+      buttons: [{ label: 'Stop the loop', value: 0, primary: true }, { label: '10 more times', value: 10 }, { label: '100 more times', value: 100 }],
+    });
+    return typeof r.button === 'number' ? r.button : 0;
+  }
+  // (rules 10) A chain of triggers the loop watcher couldn't classify reached the safety limit: go on, or end as a draw
+  async loopBackstopAsync(g, p, info) {
+    const r = await this.ui.ask(`<b>${info.n.toLocaleString('en')} triggers have resolved this turn</b> (${esc(info.sources.join(', '))}) and the chain hasn't ended. Keep resolving, or end the game as a draw?`, {
+      buttons: [{ label: 'Keep going', value: 'go' }, { label: 'End as a draw', value: 'draw', primary: true }],
+    });
+    return r.button === 'go';
+  }
   async endOfTurn(g, q, active) {
     for (let i = 0; i < 4; i++) {
       const r = await this.instantWindow(g, q, `<b>End of ${esc(active.name)}'s turn.</b> Use your open mana?`, true, i === 0 && (this.full || !!this.stops.oppEnd));

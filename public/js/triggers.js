@@ -4,7 +4,8 @@
 import { parseCost, COLORS, Abort } from './engine.js';
 import { analyzeCard, needsTarget, needsTargetIn, condText } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
-import { shuffle, esc, makeRng } from './util.js';
+import { shuffle, esc, makeRng, yieldTick } from './util.js';
+import { loopWatch, loopEnded, backstop, preferredFirst } from './loops.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 
@@ -22,6 +23,18 @@ export function etbSuppressed(g, q) { return !!q && g.opponents(q).some(x => x.b
 export function creatureTriggersStopped(g, o, flag) { return g.rules >= 6 && !!o?.fx.type.creature && g.alive().some(q => q.battlefield.some(s => s.fx[flag])); }
 /** @param {import('./engine.js').Game} g */
 export async function flushTriggers(g) {
+  g._flushDepth = (g._flushDepth || 0) + 1;
+  try { await flushTriggers0(g); } finally {
+    // (rules 10: when the whole chain of triggers is done, the loop it held, if any, is over)
+    if (--g._flushDepth === 0 && g.rules >= 10 && g.loop10 && !g.queue.length) loopEnded(g, 'the chain of triggers ended');
+  }
+}
+// (every this many resolved triggers the page gets a moment, so a long chain at full speed doesn't freeze it; this
+// changes nothing in the game)
+const YIELD_EVERY = 64;
+let resolvedTriggers = 0;
+/** @param {import('./engine.js').Game} g */
+async function flushTriggers0(g) {
   while (g.queue.length && !g.over) {
     // Triggers that have just triggered go on the stack in APNAP order (603.3b): the active player's first, then
     // each other player's in turn order, so the last player's resolve first. They sit above any triggers still
@@ -32,6 +45,9 @@ export async function flushTriggers(g) {
         const n = g.players.length, a = g.active;
         const d = x => (x.p.idx - a + n) % n;
         fresh.sort((x, y) => d(y) - d(x));
+        // (rules 10) Among one player's simultaneous triggers, the kinds they chose to put first to let a loop end
+        // (loops.js: triggers that were piling up under it)
+        if (g.rules >= 10 && g.loop10?.order.size) fresh.sort((x, y) => d(y) - d(x) || +preferredFirst(g, y) - +preferredFirst(g, x));
         for (const x of fresh) x.queued = true;
         g.queue.splice(0, g.queue.length, ...fresh, ...g.queue.filter(x => !fresh.includes(x)));
       }
@@ -53,6 +69,17 @@ export async function flushTriggers(g) {
     if (p.lost) continue;
     // A loop the pilots can't stop on their own (two blinkers, a trigger feeding itself) ends here
     if (g.trigCount.turn !== g.turn) g.trigCount = { turn: g.turn, n: 0 };
+    if (++resolvedTriggers % YIELD_EVERY === 0) await yieldTick();
+    if (g.over) return;
+    // (rules 10) The loop watcher (loops.js) sees every trigger first: a loop that ends by itself goes on, a mandatory
+    // one that can't end is a draw, an optional one is its controller's choice. The backstop is the last resort,
+    // for a chain the watcher can't classify: a person chooses to go on or call a draw, never a silent skip.
+    if (g.rules >= 10) {
+      const r = await loopWatch(g, t);
+      if (r === 'stop') return;
+      if (r === 'skip') continue;
+      if (++g.trigCount.n > (g.trigCount.limit || LOOP_BACKSTOP) && (await backstop(g, LOOP_BACKSTOP)) === 'stop') return;
+    } else {
     // (the last triggers' sources, to tell an endless loop from a long but finite chain)
     (g.trigSig ||= []).push(`${o?.iid}:${t.label || kind}`);
     if (g.trigSig.length > 60) g.trigSig.shift();
@@ -78,6 +105,7 @@ export async function flushTriggers(g) {
       if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 600) + 1) g.log('Trigger limit for this turn reached: the rest of the waiting triggers are skipped (a loop would never end)', { kind: 'minor' });
       g.queue.length = 0;
       return;
+    }
     }
     const label = t.label || { etb: 'enters', attack: 'attack trigger', upkeep: 'upkeep trigger', endstep: 'end step trigger', dies: 'dies trigger', cast: 'cast trigger', saga: 'chapter' }[kind];
     let effects = t.effects || o.fx[kind];
@@ -161,7 +189,8 @@ export function fire(g, ev, info = {}) {
       // (rules 9) "This ability triggers only once each turn"
       if (w.turnOnce9 && !g.onceOk(s, `w${ws.indexOf(w)}`)) continue;
       // (rules 7: no fixed cap on legitimate loops; flushTriggers tells an endless mandatory loop from a long chain)
-      if (++g.trigCount.n > (g.rules >= 7 ? LOOP_BACKSTOP : 300)) {
+      // (rules 10: nothing is dropped here; flushTriggers counts the triggers that resolve and has the backstop)
+      if (g.rules < 10 && ++g.trigCount.n > (g.rules >= 7 ? LOOP_BACKSTOP : 300)) {
         if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 300) + 1) g.log('Trigger limit for this turn reached: further triggers are skipped (a loop would never end)', { kind: 'minor' });
         return;
       }
@@ -369,9 +398,31 @@ export async function stackAbility(g, p, src, effects, label, kind = 'ability', 
 }
 /** @param {import('./engine.js').Game} g */
 export function sbaPass(g) {
+  // (Phase 2B, every rules version: while state-based actions are checked nothing gets attached and no anthem appears,
+  // so when the board has none, each creature's toughness skips those whole-table scans; Game.attachments and
+  // Game.bonus read this. The results are the same; a board of N tokens costs N steps here instead of N².)
+  const prevFacts = g._sbaFacts;
+  try {
+    return sbaPass0(g);
+  } finally { g._sbaFacts = prevFacts; }
+}
+/** @param {import('./engine.js').Game} g */
+export function sbaFacts(g) {
+  const anthem = new Set();
+  let attach = false, oppAnthem = false;
+  for (const q of g.players) for (const o of q.battlefield) {
+    if (o.attachedTo) attach = true;
+    if (o.fx.anthem) anthem.add(q.idx);
+    if (o.fx.oppAnthem) oppAnthem = true;
+  }
+  return { attach, anthem, oppAnthem };
+}
+/** @param {import('./engine.js').Game} g */
+function sbaPass0(g) {
   let any = false;
   for (let again = true; again;) {
     again = false;
+    g._sbaFacts = sbaFacts(g);
     for (const q of g.alive()) {
       // Platinum Angel, Angel's Grace: this player can't lose right now
       if (g.cantLose(q)) continue;
@@ -414,7 +465,7 @@ export function sbaPass(g) {
           if (siege) g.queue.push({ o, effects: [{ k: 'siegeCast' }], label: 'defeated', p: g.players[o.owner] });
         }
         if (o.fx.type.aura && o.zone === 'battlefield' && (!o.attachedTo || o.attachedTo.zone !== 'battlefield')) {
-          if (o.bestowed) g.unbestow(o); else g.move(o, 'graveyard');
+          if (o.bestowed) { g.unbestow(o); g._sbaFacts = sbaFacts(g); } else g.move(o, 'graveyard');
           again = true;
         }
         // Equipment on something that is no longer a creature (a Vehicle after the turn it was crewed, an animated

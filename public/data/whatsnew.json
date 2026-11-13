@@ -1,5 +1,5 @@
 {
- "version": "1.24.0",
+ "version": "1.25.0",
  "round": "Round 5",
  "items": [
   {
@@ -109,6 +109,12 @@
    "section": "Rules engine and card coverage",
    "title": "Replay exactness (asked 2026-11-12, Phase 2A of the engine audit): a saved game must load later with the same card data, combos and rules, whatever Scryfall and Commander Spellbook say by then.",
    "done": "replaydata.js saves every card's Scryfall data as read (scryfall.js slimCard, about 1 KB a card), a hash of it, a hash of its reading, each seat's Spellbook combos with their prerequisites, the built-in combo list's fingerprint and the engi"
+  },
+  {
+   "n": 190,
+   "section": "Rules engine and card coverage",
+   "title": "Loops and freezes (asked 2026-11-12, Phase 2B of the engine audit): endless loops froze the page or made turns endless; recognise loops and keep the page responsive without cutting legitimate chains short.",
+   "done": "- Done (rules 10, version 1.25.0; rules 4–9 golden games unchanged, 60 AI games identical at rules 9 and 10 apart from the new log line in the 3 that looped): the cause was sbaPass checking each creature's toughness through attachments() an"
   },
   {
    "n": 101,

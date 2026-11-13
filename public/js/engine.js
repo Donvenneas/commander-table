@@ -21,7 +21,8 @@ export const PHASES = [
 export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // Rules version: rules added in Round 5 and later only apply to games started at this version or newer, so
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
-export const RULES = 9;
+// (rules 10: loops of triggers are classified by loops.js; replays at 4–9 keep the old loop handling)
+export const RULES = 10;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -53,6 +54,11 @@ export class Game {
     /** @type {string[] | undefined} */ this.trigSig = undefined;
     /** @type {{ turn: number, seen: Set<string> } | undefined} (rules 7: game states seen while triggers repeat, triggers.loopRepeats) */ this.loopStates = undefined;
     /** @type {any} (the read-only cache while the AI plans combat: withEvalCache) */ this._ev = null;
+    /** @type {any} (while state-based actions are checked: whether anything is attached or an anthem exists, triggers.sbaPass) */ this._sbaFacts = null;
+    /** @type {any} (rules 10: the loop being watched in the current chain of triggers, triggers.loopWatch) */ this.loop10 = undefined;
+    /** (a recognised loop is played without the clock's waits; the steps stay the same) */ this.loopFast = false;
+    /** (how many flushTriggers calls are running, nested: the chain of triggers is over when the outermost ends) */ this._flushDepth = 0;
+    /** @type {any[]} (what the loop watcher found and decided, one entry per loop: triggers.loopWatch) */ this.loopLog = [];
     /** @type {any[] | undefined} */ this.endSac = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
     this.explain = false;
@@ -182,7 +188,8 @@ export class Game {
     }
     for (const fn of this.handlers[ev] || []) fn(d);
   }
-  async beat(w = 1) { this.steps++; this.emit('update'); await this.clock.beat(w); }
+  // (a recognised loop goes on without the clock's waits: Game.loopFast, loops.js; the steps are counted the same)
+  async beat(w = 1) { this.steps++; this.emit('update'); await this.clock.beat(this.loopFast ? 0 : w); }
 
   mk(card, p, x = {}) {
     // (rules 8) multi-faced cards use their corrected reading (scryfall.js normalize)
@@ -238,6 +245,8 @@ export class Game {
       const l = ev.att.get(o);
       return l ? l.slice() : [];
     }
+    // (state-based actions on a board where nothing is attached: triggers.sbaPass)
+    if (this._sbaFacts && !this._sbaFacts.attach) return [];
     const r = []; for (const q of this.players) for (const a of q.battlefield) if (a.attachedTo === o) r.push(a); return r;
   }
   // Speed (item 171): f runs with a read-only cache of board facts that many checks repeat (attachments, keyword-
@@ -270,7 +279,9 @@ export class Game {
   bonus(o) {
     let p = 0, t = 0;
     if (o.zone !== 'battlefield') return { p, t };
-    for (const s of this.players[o.controller].battlefield) if (s.fx.anthem && this.anthemApplies(s, o)) {
+    // (state-based actions skip the scans when the board has no anthem of that kind: triggers.sbaPass)
+    const sf = this._sbaFacts;
+    if (!sf || sf.anthem.has(o.controller)) for (const s of this.players[o.controller].battlefield) if (s.fx.anthem && this.anthemApplies(s, o)) {
       // Door of Destinies, Chitterspitter: +1/+1 for each counter of a kind on the source
       const an = s.fx.anthem;
       const k = an.perCounter ? s.named?.[an.perCounter] || 0 : an.perOther ? this.players[o.controller].battlefield.filter(x => x !== o && x.fx.type.creature && this.isA(x, an.perOther)).length : 0;
@@ -286,7 +297,7 @@ export class Game {
     const cb = this.condBuff(o);
     if (cb) { p += cb.p; t += cb.t; }
     // Elesh Norn-style: opponents' creatures get -N/-N
-    for (const q of this.opponents(this.players[o.controller])) for (const s of q.battlefield) if (s.fx.oppAnthem && o.fx.type.creature) { p += s.fx.oppAnthem.p; t += s.fx.oppAnthem.t; }
+    if (!sf || sf.oppAnthem) for (const q of this.opponents(this.players[o.controller])) for (const s of q.battlefield) if (s.fx.oppAnthem && o.fx.type.creature) { p += s.fx.oppAnthem.p; t += s.fx.oppAnthem.t; }
     // "~ gets +1/+0 for each artifact you control"
     const eb = o.fx.eachBuff;
     if (eb) {

@@ -29,6 +29,11 @@ export function hashText(str) {
   return (4294967296 * (2097151 & h2) + (h1 >>> 0)).toString(16).padStart(14, '0');
 }
 
+// A moment for the page (or Node's event loop) between pieces of a long computation; nothing in a game depends on it
+/** @type {any} */
+const G = globalThis;
+export const yieldTick = () => new Promise(r => (typeof window === 'undefined' && typeof G.setImmediate === 'function' ? G.setImmediate(r) : setTimeout(r, 0)));
+
 export function shuffle(a, rand = Math.random) {
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));

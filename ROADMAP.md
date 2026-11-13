@@ -608,6 +608,24 @@ on top of the ones above:
     live Spellbook combos, identical; 0 Scryfall and 0 Spellbook requests while loading). Still open: card images
     come from Scryfall's URLs; workers for batch runs still use only the built-in combos (as before); a replay saved
     before 1.24.0 can't be made exact.
+- [x] 190. Loops and freezes (asked 2026-11-12, Phase 2B of the engine audit): endless loops froze the page or made
+  turns endless; recognise loops and keep the page responsive without cutting legitimate chains short.
+  - Done (rules 10, version 1.25.0; rules 4–9 golden games unchanged, 60 AI games identical at rules 9 and 10 apart
+    from the new log line in the 3 that looped): the cause was sbaPass checking each creature's toughness through
+    attachments() and bonus(), which scan the whole table (O(N²) a check, O(N³) a chain: 2,000 tokens took 31 s, a
+    full run more than 10 minutes, with nothing yielding at full speed). sbaPass now skips those scans when nothing
+    is attached and no anthem exists (every rules version, same results: 10,000 tokens in 24 s), and flushTriggers
+    yields every 64 triggers. loops.js watches each chain: the pattern by card, event and controller (so a token
+    copying itself counts), the change per repetition in life, poison, zones, permanents, tokens, counters, damage,
+    mana and waiting triggers over 4 repetitions, and classifies it (repeating, ends, endless, irregular). Loops that
+    end run on without the clock's waits (Game.loopFast); mandatory endless ones are a draw (104.4b); a "you may"
+    trigger (read from the card's text) lets its controller choose (Agent.loopReps, HumanAgent.loopRepsAsync: stop,
+    10 or 100 more); triggers piling up under a loop are ordered first by the AI (603.3b). The 20,000 backstop no
+    longer skips triggers: a person is asked to go on or call a draw, an AI-only game is a draw with the reason. One
+    log line and a Game.loopLog entry per loop. Tests: tests/loops.mjs (18, in CI), golden 42, interactions 155,
+    replays 9, cards 0 changed, fuzz 12 + 60, hidden 0, type check 0. Still open: "you may" is read from the text
+    (a card with several trigger lines where only some say "may" can be read as mandatory); the AI's 100-repetition
+    cap is a fixed rule of thumb; activated-ability loops are unchanged (the AI and the loop shortcut decide those).
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

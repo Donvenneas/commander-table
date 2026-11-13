@@ -36,6 +36,8 @@ jobs:
         run: node tests/interactions.mjs
       - name: Replay exactness (saved card data and combos, isolation, old replay files)
         run: node tests/replay.mjs
+      - name: Loops of triggers (endless loops, loops that end, optional loops, priority, responsiveness)
+        run: node tests/loops.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

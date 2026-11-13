@@ -10,6 +10,7 @@ import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
 import { lookAheadPlay, lookAheadRespond, lookAheadAttacks, lookAheadEot } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
+import { AI_LOOP_REPS } from './loops.js';
 import { threatMult } from './threat.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
@@ -1608,6 +1609,15 @@ export class Agent {
       if (target) return { card, target, targets: card.fx.spell.map((x, i) => (i === 0 ? { obj: target } : null)) };
     }
     return null;
+  }
+
+  // (rules 10) A loop of triggers with an optional ("you may") trigger of ours that never ends by itself: how many
+  // more times to repeat it (0 stops it, loops.js). A loop that changes nothing is stopped at once; one that helps
+  // us (its value from public numbers only: loops.loopValue) goes on until AI_LOOP_REPS repetitions, then stops.
+  /** @param {any} g @param {any} p @param {{ cls: string, reps: number, value: number }} info */
+  loopReps(g, p, info) {
+    if (info.cls === 'repeating' || info.value <= 0) return 0;
+    return Math.max(0, AI_LOOP_REPS - info.reps);
   }
 
   // Between iterations of an opponent's combo loop: kill a piece if we can
