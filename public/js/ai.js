@@ -4,7 +4,7 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
-import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
+import { combosIn, comboState, comboBlocked } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
@@ -61,7 +61,7 @@ export const wantsLookahead = (style, noise = 0) => LOOKAHEAD_STYLES.has(style) 
 
 export function guessStyle(deck) {
   const all = deck.cards.flatMap(({ card, qty }) => Array(qty).fill(card));
-  const combos = combosIn([...deck.commanders, ...all]);
+  const combos = combosIn([...deck.commanders, ...all], deck.spellbook);
   // cEDH: real win combos plus lots of tutors and fast mana
   const tutors = all.filter(c => [...c.fx.spell, ...c.fx.etb].some(e => e.k === 'tutor')).length;
   const fast = all.filter(c => !c.fx.type.land && (c.cmc || 0) <= 2 && (c.fx.mana || c.fx.spell.some(e => e.k === 'addMana'))).length;
@@ -154,7 +154,7 @@ export class Agent {
 
   // How close a permanent is to completing a known combo, judged only from what's on the battlefield
   comboDanger(g, o) {
-    const list = combosFor(o.card);
+    const list = g.combosFor(o.card);
     if (!list.length || o.zone !== 'battlefield') return 0;
     const q = g.players[o.controller];
     let d = 2;
@@ -292,7 +292,7 @@ export class Agent {
     const seen = [...q.battlefield, ...q.command, ...q.graveyard];
     let best = 0;
     const keys = new Set(seen.flatMap(x => [x.card.name.toLowerCase(), (x.card.frontName || '').toLowerCase()]));
-    for (const o of seen) for (const c of combosFor(o.card)) {
+    for (const o of seen) for (const c of g.combosFor(o.card)) {
       const have = c.keys.filter(k => keys.has(k)).length;
       best = Math.max(best, have / c.keys.length);
     }
@@ -315,12 +315,12 @@ export class Agent {
 
   // Value of a card as part of one of our combos (kept in hand, not discarded or bottomed)
   pieceWorth(g, p, o) {
-    return combosFor(o.card).some(c => p.combos.includes(c)) ? 8 : 0;
+    return g.combosFor(o.card).some(c => p.combos.includes(c)) ? 8 : 0;
   }
 
   chooseImprint(g, p, host) {
     const options = p.hand.filter(o => o.fx.type.instant && (o.card.cmc || 0) <= 2);
-    const piece = options.find(o => combosFor(o.card).some(c => c.imprint && p.combos.includes(c)));
+    const piece = options.find(o => g.combosFor(o.card).some(c => c.imprint && p.combos.includes(c)));
     return piece || this.pickBest(g, options.filter(o => o.fx.spell.some(e => e.k === 'draw' || e.k === 'remove')));
   }
 
@@ -2171,7 +2171,7 @@ export class Agent {
   // Is this spell part of a combo the caster is visibly close to completing?
   comboSpell(g, item) {
     if (item.combo) return true;
-    return combosFor(item.o.card).some(c => {
+    return g.combosFor(item.o.card).some(c => {
       const st = comboState(g, item.p, c);
       return comboScore(c, item.p) >= 500 && st.onBoard >= c.pieces.length - 1;
     });

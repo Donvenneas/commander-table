@@ -1,12 +1,41 @@
 // Scryfall: card data + official card images for every printing.
-import { sleep, imgUrl } from './util.js';
+import { sleep, imgUrl, hashText, stableJson } from './util.js';
 import { analyzeCard } from './effects.js';
 import { getCards, putCards } from './cardcache.js';
 import { bulkAnswer, bulkCard } from './bulk.js';
 
 const API = 'https://api.scryfall.com';
 let nextSlot = 0;
+// (normalized cards by Scryfall id and data hash: a card whose Scryfall data changed is a new card)
 const byId = new Map();
+
+// The parts of Scryfall's card data the game reads (build below). Replays keep this much of every card they use
+// (replaydata.js), and its hash tells when Scryfall's data for a card has changed.
+const CARD_KEYS = ['id', 'name', 'layout', 'oracle_text', 'mana_cost', 'cmc', 'type_line', 'power', 'toughness', 'loyalty', 'defense',
+  'colors', 'color_identity', 'keywords', 'produced_mana', 'set', 'set_name', 'collector_number', 'artist', 'rarity', 'scryfall_uri',
+  'legalities', 'game_changer'];
+const FACE_KEYS = ['name', 'oracle_text', 'mana_cost', 'type_line', 'power', 'toughness', 'loyalty', 'defense', 'colors'];
+const IMG_KEYS = ['small', 'normal', 'large', 'art_crop'];
+const pick = (o, keys) => Object.fromEntries(keys.filter(k => o[k] !== undefined).map(k => [k, o[k]]));
+export function slimCard(raw) {
+  const out = pick(raw, CARD_KEYS);
+  if (raw.image_uris) out.image_uris = pick(raw.image_uris, IMG_KEYS);
+  if (raw.card_faces) out.card_faces = raw.card_faces.map(f => ({ ...pick(f, FACE_KEYS), ...(f.image_uris ? { image_uris: pick(f.image_uris, IMG_KEYS) } : {}) }));
+  return out;
+}
+export const cardDataHash = raw => hashText(stableJson(slimCard(raw)));
+// (only what can change a game: Scryfall updating a card's legalities, images or artist isn't reported as a change)
+const NOT_PLAY = ['legalities', 'image_uris', 'artist', 'set_name', 'scryfall_uri', 'rarity'];
+const playHash = raw => { const s = slimCard(raw); for (const k of NOT_PLAY) delete s[k]; for (const f of s.card_faces || []) delete f.image_uris; return hashText(stableJson(s)); };
+
+// A loaded replay's own card data (replaydata.js): while it's set, decks are built from it before anything else, so
+// the replay plays with the cards as they were. Cards whose saved copy in this browser differs are noted.
+/** @type {any[] | null} */
+let pinned = null;
+let pinNotes = { used: 0, differs: /** @type {string[]} */ ([]), notSaved: /** @type {string[]} */ ([]) };
+// (pinCards(null) when the replay's decks are built; the notes stay readable until the next replay)
+export function pinCards(raws) { pinned = raws ? [...raws] : null; if (raws) pinNotes = { used: 0, differs: [], notSaved: [] }; }
+export const pinReport = () => pinNotes;
 
 async function throttle() {
   // Scryfall asks for no more than ~10 requests per second.
@@ -49,13 +78,19 @@ export function faceKeywords(keywords, text) {
 }
 
 export function normalize(raw) {
-  if (byId.has(raw.id)) return byId.get(raw.id);
+  const src = slimCard(raw);
+  const hash = hashText(stableJson(src));
+  const id = `${raw.id}|${hash}`;
+  if (byId.has(id)) return byId.get(id);
   const card = build(raw, false);
+  // (the Scryfall data it was built from, and its hash: what a replay saves)
+  Object.defineProperty(card, 'src', { value: src, enumerable: false });
+  Object.defineProperty(card, 'srcHash', { value: hash, enumerable: false });
   // (rules 8) The corrected reading of a card with more than one face, used by games at rules 8 and later (Game.mk):
   // each face has only its own keywords, a split card's half is cast with its own mana value (709.3b), and the
   // other half's mana value counts hybrid {2/W} as 2. Older games keep the reading above, so replays stay exact.
   if ((raw.card_faces || []).length > 1) Object.defineProperty(card, 'v8', { value: build(raw, true), enumerable: false });
-  byId.set(raw.id, card);
+  byId.set(id, card);
   return card;
 }
 
@@ -146,7 +181,17 @@ export async function fetchCollection(identifiers, onProgress) {
   const uniq = [...new Map(identifiers.map(i => [key(i), i])).values()];
   const out = new Map();
   const missing = [];
+  // A loaded replay's cards come first (pinCards)
+  if (pinned) for (const i of uniq) { const raw = pinned.find(c => matches(i, c)); if (raw) { out.set(key(i), normalize(raw)); pinNotes.used++; } }
   const saved = await getCards(uniq.map(key));
+  if (pinned) {
+    for (const i of uniq) {
+      const mine = out.get(key(i)), here = saved.get(key(i));
+      if (mine && here && playHash(here) !== playHash(mine.src)) pinNotes.differs.push(mine.name);
+      if (!mine) pinNotes.notSaved.push(i.name || `${i.set || ''} ${i.collector_number || i.id || ''}`.trim());
+    }
+    for (const k of [...saved.keys()]) if (out.has(k)) saved.delete(k);
+  }
   // (cards saved before the last new set came out are fetched again: legalities and rotations change; sets.js)
   let staleBefore = 0;
   try { staleBefore = +JSON.parse(localStorage.getItem('ct.cardsStaleBefore') || '0') || 0; } catch { /* no storage */ }

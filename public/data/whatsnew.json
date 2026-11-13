@@ -1,5 +1,5 @@
 {
- "version": "1.23.0",
+ "version": "1.24.0",
  "round": "Round 5",
  "items": [
   {
@@ -103,6 +103,12 @@
    "section": "Rules engine and card coverage",
    "title": "Skipped sentences (asked 2026-11-12): find sentences the reader skips inside lines it counts as read, report them as not simulated, and fix the most common ones.",
    "done": "effects.js droppedSentences reads a card again with each sentence of a multi-sentence line taken out; a sentence whose removal changes nothing (also when taken out with any other such sentence, so two that each say enough aren't counted) is"
+  },
+  {
+   "n": 189,
+   "section": "Rules engine and card coverage",
+   "title": "Replay exactness (asked 2026-11-12, Phase 2A of the engine audit): a saved game must load later with the same card data, combos and rules, whatever Scryfall and Commander Spellbook say by then.",
+   "done": "replaydata.js saves every card's Scryfall data as read (scryfall.js slimCard, about 1 KB a card), a hash of it, a hash of its reading, each seat's Spellbook combos with their prerequisites, the built-in combo list's fingerprint and the engi"
   },
   {
    "n": 101,

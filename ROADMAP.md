@@ -591,6 +591,23 @@ on top of the ones above:
     broken; the AI paid 2 life 31 times). Still open: 325 cards with a skipped sentence, mostly one of a kind (Memory
     Lapse puts the spell on top, Tainted lands' Swamp condition, channel lands' cost reduction, Mob Rule's untap and
     haste, mana spending restrictions), Multiversal Passage.
+- [x] 189. Replay exactness (asked 2026-11-12, Phase 2A of the engine audit): a saved game must load later with the
+  same card data, combos and rules, whatever Scryfall and Commander Spellbook say by then.
+  - Done (replay format 7, version 1.24.0; no rules change, golden games unchanged): replaydata.js saves every card's
+    Scryfall data as read (scryfall.js slimCard, about 1 KB a card), a hash of it, a hash of its reading, each seat's
+    Spellbook combos with their prerequisites, the built-in combo list's fingerprint and the engine's rules version.
+    Loading pins those cards (scryfall.js pinCards, before the browser's cache and Scryfall) and the saved combos, so
+    nothing is fetched; a card whose data doesn't match its hash, or a newer rules version, stops the load with the
+    reason; the log notes cards Scryfall has changed since (game-relevant fields only), cards read differently by this
+    version, and a changed built-in list. Combos are no longer one shared list: COMBOS is frozen, fetchSpellbook keeps
+    its answer with the deck, and each Game builds its own book (opts.spellbook, Game.combosFor; AI, card preview and
+    look-ahead copies use it), so combos fetched for another deck can't reach a game. Older replays load as before
+    with a log note that they use today's data. Tests: tests/replay.mjs (9: reload, changed Scryfall data, different
+    Spellbook answer, another game first, isolation, hashes, old files, determinism; in CI), golden 36, interactions
+    155, cards 0 changed, fuzz 12, hidden 0, type check 0, self-test 19/19, a browser round trip (18-round game with 4
+    live Spellbook combos, identical; 0 Scryfall and 0 Spellbook requests while loading). Still open: card images
+    come from Scryfall's URLs; workers for batch runs still use only the built-in combos (as before); a replay saved
+    before 1.24.0 can't be made exact.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

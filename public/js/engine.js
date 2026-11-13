@@ -1,6 +1,6 @@
 // Four-player Commander game engine. Rule numbers in the log refer to the Comprehensive Rules.
 import { analyzeCard, needsTarget, needsTargetIn, condText } from './effects.js';
-import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
+import { makeComboBook, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import { learnedBonus, learnedPerson } from './learn.js';
 import { threatFeatures, threatMult } from './threat.js';
@@ -77,6 +77,8 @@ export class Game {
     this.maxRounds = opts.maxRounds || 30;
     this.puzzle = opts.puzzle || null;
     this.rules = opts.rules ?? RULES;
+    // This game's own combos: the built-in list plus the table's Commander Spellbook combos (saved in replays)
+    this.comboBook = makeComboBook(opts.spellbook || []);
     // Every random choice comes from this seed, so a game can be replayed exactly
     this.seed = opts.seed ?? Math.floor(Math.random() * 2 ** 32);
     this.rand = makeRng(this.seed);
@@ -130,7 +132,7 @@ export class Game {
         if (this.format.signature) { if (o.fx.type.planeswalker) o.oathbreaker = true; else if (o.fx.type.instant || o.fx.type.sorcery) o.signature = true; }
       }
       for (const { card, qty } of s.cards) for (let k = 0; k < qty; k++) { const o = this.mk(card, p); o.zone = 'library'; p.library.push(o); }
-      p.combos = combosIn([...p.command, ...p.library].map(o => o.card));
+      p.combos = this.comboBook.combosIn([...p.command, ...p.library].map(o => o.card));
       // (win-the-game combos do nothing in Kingdoms)
       if (this.kingdoms) p.combos = p.combos.filter(c => c.result !== 'win');
     });
@@ -1118,6 +1120,8 @@ export class Game {
   }
 
   // ---------- combos
+  // The combos of this game's book a card is part of
+  combosFor(card) { return this.comboBook.combosFor(card); }
   async goOff(p, combo) {
     const st = comboState(this, p, combo);
     if (this.over || !st.ready) return false;

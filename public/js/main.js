@@ -16,6 +16,8 @@ import { buildReplayHtml } from './replayexport.js';
 import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText, DECK_SIZE, SUGGESTED_SETS, makePack, buildLimited, limitedText, cubePacker, cubeNames, loadRatings } from './limited.js';
 import { boosterData, boosterPacker } from './boosters.js';
 import { combosIn, fetchSpellbook, fetchSpellbookBracket, almostCombos } from './combos.js';
+import { pinCards, pinReport } from './scryfall.js';
+import { REPLAY_FORMAT, snapshotDecks, tableSpellbook, checkReplay, readingChanges } from './replaydata.js';
 import { coverage } from './effects.js';
 import { TableView, installPreview, installDetails, Sound } from './ui.js';
 import { Music } from './music.js';
@@ -235,7 +237,7 @@ Sideboard
 
 function deckSummary(d, i) {
   const n = d.commanders.length + d.cards.reduce((a, c) => a + c.qty, 0);
-  const combos = combosIn([...d.commanders, ...d.cards.map(c => c.card)]);
+  const combos = combosIn([...d.commanders, ...d.cards.map(c => c.card)], d.spellbook);
   const cov = coverage(d);
   const cmdFormat = (formatKey === 'commander');
   const est = estimateBracket(d);
@@ -269,9 +271,11 @@ function seatStatus(i, html, cls = '') {
 }
 
 // Load a seat's deck, then ask Commander Spellbook for every combo in it
-async function loadSeatDeck(s, status) {
+// (a replay from format 7 on brings the Spellbook combos it was played with: savedSpellbook, and nothing is asked)
+async function loadSeatDeck(s, status, savedSpellbook = null) {
   s.deck = await loadDeck(s.source, status, { bracket: s.bracket, budget: prefs.budget || 'any', format: formatKey });
   s.deck.format = formatKey;
+  if (savedSpellbook) { s.deck.spellbook = JSON.parse(JSON.stringify(savedSpellbook)); s.deck.sbBracket = null; return s.deck; }
   status('Checking Commander Spellbook for combos…');
   try { s.deck.spellbook = await fetchSpellbook(s.deck); } catch (e) {
     s.deck.warnings.push(`Couldn't reach Commander Spellbook (${e.message}), so only the built-in combo list is used.`);
@@ -389,7 +393,11 @@ function newGame(opts = {}) {
       learned: opts.learned || null,
       noLearning: !!opts.noLearning,
       loadedReplay: !!opts.loadedReplay,
+      // (a loaded replay: what may differ from the original game, shown in the log; replaydata.js)
+      replayNotes: opts.replayNotes || [],
     };
+    // The decks' card data and Commander Spellbook combos as this game has them, saved in its replay (replaydata.js)
+    setup.snapshot = snapshotDecks(setup.seats.map(s => s.deck));
     // Every seat played on this PC (more than one is hotseat: they pass the device between decisions)
     if (!setup.roles && formatOf(setup.format).roles) setup.roles = dealRoles(setup.seats.length, makeRng((setup.seed ^ 0x6b696e67) >>> 0));
     // AI look-ahead (lookahead.js), per seat and kept with the game, so replays play the same (older replays: off)
@@ -427,7 +435,7 @@ function newGame(opts = {}) {
       : remoteUIs.has(i) ? new HumanAgent(guessStyle(s.deck), remoteUIs.get(i), { orderTriggers: setup.stopOpts.orderTriggers })
       : Object.assign(new Agent(s.style, { noise: s.noise ?? (BRACKET_NOISE[s.bracket] || 0), lookahead: s.lookahead }), s.handicap ? { handicap: s.handicap } : {}),
   }));
-  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules, planar: setup.planar });
+  game = new Game(gameSeats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules, planar: setup.planar, spellbook: tableSpellbook(setup.seats.map(s => s.deck)) });
   setup.learned ||= game.players.map(p => p.learned);
   // (item 109: what the AI remembers about the people at the table)
   for (const p of game.players) {
@@ -442,6 +450,8 @@ function newGame(opts = {}) {
   game.chat = chatLog;
   game.players.forEach((p, i) => { p.art = deckArt(setup.seats[i].deck); if (setup.humans.includes(i) && avatarUrl()) p.avatar = avatarUrl(); });
   view = new TableView(game, els);
+  // (a loaded replay: what may differ from the original game; logged once the table shows the log)
+  for (const n of setup.replayNotes || []) game.log(`Replay: ${esc(n)}`, { kind: 'turn' });
   game.on('turn', () => autosave());
   fillLogSeats();
   // Ranked: no peeking at hands, no AI explanations (they reveal hands), no undo
@@ -879,7 +889,10 @@ function download(name, text, type = 'application/json') {
 const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 function replayData() {
   return {
-    app: 'commander-table', version: 2, seed: setup.seed, decisions: setup.decisions,
+    // (format 7: the replay keeps its own card data, card and reading hashes, Commander Spellbook combos and the
+    // built-in combo list's fingerprint, so it never depends on Scryfall or Spellbook answering the same later)
+    app: 'commander-table', version: REPLAY_FORMAT, seed: setup.seed, decisions: setup.decisions,
+    ...(setup.snapshot || {}),
     ...(setup.remote.length ? { remoteDecisions: setup.remoteDecisions } : {}),
     learned: setup.learned,
     // (version 3: the format, and who went first in a best-of-three game)
@@ -937,16 +950,32 @@ async function loadReplayData(data, { resume = false } = {}) {
     // The replay's format decides the table (Commander replays from earlier versions have none)
     setFormat(rf, { quiet: true });
     match = null;
+    // Can it be restored exactly? (replaydata.js) A damaged file or a newer rules version stops here, with the reason
+    const check = checkReplay(data);
+    if (check.problems.length) throw new Error(`it can't be restored: ${check.problems.join('; ')}.`);
     data.seats.forEach((r, i) => Object.assign(seats[i], { name: r.name, style: r.style === 'human' && !data.decisions ? 'auto' : r.style, source: r.deck, deck: null }));
     persist();
     renderSeats();
     $('setupStatus').textContent = 'Loading the replay\'s decks…';
-    for (const [i, s] of seats.entries()) await loadSeatDeck(s, msg => seatStatus(i, esc(msg)));
+    // (format 7: the decks are built from the replay's own card data and combos, not today's Scryfall and Spellbook)
+    const own = !!data.cards;
+    if (own) pinCards(Object.values(data.cards));
+    try {
+      for (const [i, s] of seats.entries()) await loadSeatDeck(s, msg => seatStatus(i, esc(msg)), own ? data.spellbook[i] || [] : null);
+    } finally { if (own) pinCards(null); }
+    const notes = [...check.notes];
+    if (own) {
+      const rep = pinReport();
+      if (rep.notSaved.length) notes.push(`${rep.notSaved.length} card${rep.notSaved.length === 1 ? ' was' : 's were'} not in the replay's saved data and came from today's card data: ${rep.notSaved.slice(0, 5).join(', ')}${rep.notSaved.length > 5 ? '…' : ''}.`);
+      if (rep.differs.length) notes.push(`Scryfall's data has changed since this game for ${rep.differs.slice(0, 5).join(', ')}${rep.differs.length > 5 ? ` and ${rep.differs.length - 5} more` : ''}; the replay uses the cards as they were.`);
+      const changed = readingChanges(data, seats.map(s => s.deck));
+      if (changed.length) notes.push(`This version of Commander Table reads ${changed.length} card${changed.length === 1 ? '' : 's'} differently from the version that saved the replay (${changed.slice(0, 5).join(', ')}${changed.length > 5 ? '…' : ''}), so the game can play differently from there.`);
+    }
     $('setupStatus').textContent = '';
     $('setup').hidden = true;
     newGame({ seed: data.seed, decisions: data.decisions || [], ...(data.remoteDecisions ? { remoteDecisions: data.remoteDecisions } : {}),
       // (replays saved before decks learned have no table, and are played without it)
-      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: !resume,
+      ...(data.learned ? { learned: data.learned } : { noLearning: true }), loadedReplay: !resume, replayNotes: notes,
       // (resuming: played back quickly to where it was, then paused; your answers run out there and you're asked again)
       ...(resume ? { skip: data.steps || 0, paused: true } : {}),
       ...(resume && data.remoteDecisions ? { resumeOnline: true, roomKeys: data.roomKeys && typeof data.roomKeys === 'object' ? data.roomKeys : null } : {}), lookahead: data.seats.map(s => !!s.lookahead), ...(data.seats.some(s => s.noise != null) || data.rules >= 5 ? { noise: data.seats.map(s => s.noise || 0) } : {}), strength: data.strength || null, handicap: data.seats.map(s => s.handicap || 0), format: rf, firstPlayer: data.firstPlayer ?? null, roles: data.roles || null, rules: data.rules ?? 4, ...(data.planar?.cards ? { planar: data.planar } : {}), ...(Array.isArray(data.chatDeals) ? { chatDeals: data.chatDeals.filter(d => Number.isInteger(d?.step) && Number.isInteger(d?.from) && Number.isInteger(d?.to) && DEAL_KINDS.includes(d?.kind)).map(d => ({ step: d.step, from: d.from, to: d.to, kind: d.kind, rounds: Math.max(0, Math.min(5, +d.rounds || 0)) })) } : {}), ...(Array.isArray(data.takeovers) ? { takeovers: data.takeovers.filter(t => Number.isInteger(t?.seat) && Number.isInteger(t?.step)) } : {}), ...(data.stopOpts ? { stopOpts: data.stopOpts } : {}) });
@@ -1941,7 +1970,7 @@ const seatStyle = s => (['auto', 'human', 'remote'].includes(s.style) ? learnedS
 // One game at full speed (AI pilots in every seat); null if the run was stopped
 async function quickGame(styles, seed = undefined) {
   const fast = { beat: async () => { if (batchStop) throw new Abort(); } };
-  const g = new Game(seats.map((s, i) => ({ playerName: s.name || 'Player', deckName: s.deck.deckName, color: s.color, agent: new Agent(styles[i]), commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards })), fast, { format: formatKey, ...(seed != null ? { seed } : {}) });
+  const g = new Game(seats.map((s, i) => ({ playerName: s.name || 'Player', deckName: s.deck.deckName, color: s.color, agent: new Agent(styles[i]), commanders: s.deck.commanders, learnAs: learnAs(s.deck), cards: s.deck.cards })), fast, { format: formatKey, spellbook: tableSpellbook(seats.map(s => s.deck)), ...(seed != null ? { seed } : {}) });
   await g.run();
   if (g.over) recordGame(g);
   return g.over ? g : null;
@@ -2720,7 +2749,7 @@ $('btnGrid').addEventListener('click', async () => {
       for (let k = 0; k < per && !gridStop; k++) {
         // Alternate who sits first
         const [a, b] = k % 2 ? [j, i] : [i, j];
-        const g = new Game([a, b].map((x, s) => ({ playerName: `${x + 1}`, deckName: decks[x].deckName, color: SEAT_COLORS[s], agent: new Agent(learnedStyle(learnAs(decks[x])) || guessStyle(decks[x])), commanders: decks[x].commanders, learnAs: learnAs(decks[x]), cards: decks[x].cards })), { beat: async () => {} }, { format: formatKey });
+        const g = new Game([a, b].map((x, s) => ({ playerName: `${x + 1}`, deckName: decks[x].deckName, color: SEAT_COLORS[s], agent: new Agent(learnedStyle(learnAs(decks[x])) || guessStyle(decks[x])), commanders: decks[x].commanders, learnAs: learnAs(decks[x]), cards: decks[x].cards })), { beat: async () => {} }, { format: formatKey, spellbook: tableSpellbook([decks[a], decks[b]]) });
         await g.run();
         if (g.over) recordGame(g);
         games[i][j]++; games[j][i]++;
@@ -2815,7 +2844,7 @@ function showDeck(s) {
   }
   const cov = coverage(d);
   const avg = spells.reduce((a, x) => a + (x.card.cmc || 0) * x.qty, 0) / Math.max(1, spells.reduce((a, x) => a + x.qty, 0));
-  const combos = combosIn(all.map(x => x.card));
+  const combos = combosIn(all.map(x => x.card), d.spellbook);
   // Suggestions from the latest batch run, if this deck was in it
   const st = lastCardStats.get(d.deckName);
   let tips = '';
@@ -3075,7 +3104,7 @@ async function runTourney() {
       if (!onCores) for (let k = 0; k < podsPerRound && !tourneyStop; k++) {
         const pod = order.slice(k * P, k * P + P);
         for (let gi = 0; gi < perPod && !tourneyStop; gi++) {
-          const g = new Game(pod.map((x, i) => ({ playerName: x.deck.commanders[0]?.name.split(',')[0] || x.deck.deckName || `Deck ${i + 1}`, deckName: x.deck.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(x.deck)), commanders: x.deck.commanders, learnAs: learnAs(x.deck), cards: x.deck.cards })), fast, { format: formatKey });
+          const g = new Game(pod.map((x, i) => ({ playerName: x.deck.commanders[0]?.name.split(',')[0] || x.deck.deckName || `Deck ${i + 1}`, deckName: x.deck.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(x.deck)), commanders: x.deck.commanders, learnAs: learnAs(x.deck), cards: x.deck.cards })), fast, { format: formatKey, spellbook: tableSpellbook(pod.map(x => x.deck)) });
           await g.run();
           if (!g.over) break;
           recordGame(g);
@@ -3200,7 +3229,7 @@ async function playCupPod(k) {
   const people = pod.seats.some(ei => ei >= 0 && cup.entrants[ei].kind !== 'ai');
   if (!people) {
     // (AI players only: at full speed, off screen)
-    const g = new Game(decks.map((d, i) => ({ playerName: seatName(pod.seats[i], i), deckName: d.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(d)), commanders: d.commanders, learnAs: learnAs(d), cards: d.cards })), { beat: async () => {} }, { format: cup.format });
+    const g = new Game(decks.map((d, i) => ({ playerName: seatName(pod.seats[i], i), deckName: d.deckName, color: SEAT_COLORS[i], agent: new Agent(guessStyle(d)), commanders: d.commanders, learnAs: learnAs(d), cards: d.cards })), { beat: async () => {} }, { format: cup.format, spellbook: tableSpellbook(decks) });
     await g.run();
     record(g);
     return;

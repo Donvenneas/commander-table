@@ -11,6 +11,7 @@
 // last:     a piece that has to resolve after the others (for example Thassa's Oracle)
 // imprint:  { host, card }: the card is exiled with the host as it enters (Isochron Scepter)
 // mana:     extra generic mana needed to start the loop; x: X values to cast pieces with
+import { hashText, stableJson } from './util.js';
 
 const kiki = partner => ({ pieces: ['Kiki-Jiki, Mirror Breaker', partner], result: 'attack', note: `Kiki-Jiki copies ${partner}, which untaps Kiki-Jiki, over and over` });
 const twin = partner => ({ pieces: ['Splinter Twin', partner], result: 'attack', untapped: [partner], note: `${partner} copies itself and untaps the original, over and over` });
@@ -76,20 +77,52 @@ export const cardKey = card => key(card.frontName || card.name || '');
 const allKeys = card => [key(card.name || ''), cardKey(card)];
 
 COMBOS.forEach((c, i) => { c.id = i; c.keys = c.pieces.map(key); c.label = c.pieces.join(' + '); });
-const BY_PIECE = new Map();
-for (const c of COMBOS) for (const k of c.keys) BY_PIECE.set(k, [...(BY_PIECE.get(k) || []), c]);
+// (the built-in list never changes while the page runs: each game has its own combo book, below)
+Object.freeze(COMBOS);
+// A fingerprint of the built-in combos (their data and their checks' code): a replay notes it, and says so when the
+// list it was played with has changed since
+export const BUILTIN_COMBOS_HASH = hashText(COMBOS.map(c => stableJson({ ...c, check: c.check ? String(c.check) : null })).join('\n'));
+const sigOf = keys => [...keys].sort().join('|');
 
-export function combosFor(card) {
-  const out = new Set();
-  for (const k of allKeys(card)) for (const c of BY_PIECE.get(k) || []) out.add(c);
-  return [...out];
+// A game's combos (replay exactness, Phase 2A): the built-in list plus the Commander Spellbook combos found for the
+// decks at that table, in that order. Nothing is shared between games, so combos fetched for another deck can't
+// change how a game (or a replay) plays. extra: Spellbook definitions as fetchSpellbook returns them.
+/** @param {any[]} [extra] */
+export function makeComboBook(extra = []) {
+  const list = [...COMBOS];
+  const known = new Set(COMBOS.map(c => sigOf(c.keys)));
+  for (const d of extra) {
+    const keys = d.pieces.map(key);
+    if (known.has(sigOf(keys))) continue;
+    known.add(sigOf(keys));
+    list.push({ ...d, keys, id: list.length, label: d.pieces.join(' + ') });
+  }
+  const byPiece = new Map();
+  for (const c of list) for (const k of c.keys) byPiece.set(k, [...(byPiece.get(k) || []), c]);
+  return {
+    list,
+    /** @param {any} card */
+    combosFor(card) {
+      const out = new Set();
+      for (const k of allKeys(card)) for (const c of byPiece.get(k) || []) out.add(c);
+      return [...out];
+    },
+    // Combos whose every piece is somewhere in a list of cards (a decklist, or all of a player's objects)
+    /** @param {any[]} cards */
+    combosIn(cards) {
+      const names = new Set(cards.flatMap(allKeys));
+      return list.filter(c => c.keys.every(k => names.has(k)));
+    },
+  };
 }
+const BUILTIN_BOOK = makeComboBook([]);
 
-// Combos whose every piece is somewhere in a list of cards (a decklist, or all of a player's objects)
-export function combosIn(cards) {
-  const names = new Set(cards.flatMap(allKeys));
-  return COMBOS.filter(c => c.keys.every(k => names.has(k)));
-}
+// The built-in combos a card is part of (outside a game; a game asks its own book: Game.combosFor)
+export function combosFor(card) { return BUILTIN_BOOK.combosFor(card); }
+
+// Combos whose every piece is in a list of cards: the built-in ones, plus a deck's own Spellbook combos when given
+/** @param {any[]} cards @param {any[]} [extra] */
+export function combosIn(cards, extra) { return (extra?.length ? makeComboBook(extra) : BUILTIN_BOOK).combosIn(cards); }
 
 // ---------- Commander Spellbook (commanderspellbook.com): every known combo in a decklist
 // A combo is added when it uses 2–4 cards from the battlefield, hand or command zone, has no extra
@@ -176,7 +209,7 @@ export function comboBlocked(g, p, combo, st) {
 export async function fetchSpellbook(deck) {
   const names = [...deck.commanders.map(c => c.name), ...deck.cards.map(c => c.card.name)];
   const cacheKey = names.slice().sort().join('|');
-  if (spellbookCache.has(cacheKey)) return spellbookCache.get(cacheKey);
+  if (spellbookCache.has(cacheKey)) return (deck.spellbook = JSON.parse(JSON.stringify(spellbookCache.get(cacheKey))));
   const res = await fetch('https://backend.commanderspellbook.com/find-my-combos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -219,9 +252,10 @@ export async function fetchSpellbook(deck) {
       url: `https://commanderspellbook.com/combo/${v.id}/`,
     });
   }
-  const added = registerCombos(out);
-  spellbookCache.set(cacheKey, added);
-  return added;
+  // (plain definitions, kept with the deck and saved in replays; each game builds its own combo book from them)
+  spellbookCache.set(cacheKey, out);
+  deck.spellbook = JSON.parse(JSON.stringify(out));
+  return deck.spellbook;
 }
 
 // Commander Spellbook's own bracket estimate for a deck (free public API, same service as above).
@@ -276,23 +310,6 @@ export async function fetchSpellbookBracket(deck) {
 }
 
 // Add combos at runtime, skipping any whose set of pieces is already known
-export function registerCombos(list) {
-  const known = new Set(COMBOS.map(c => [...c.keys].sort().join('|')));
-  const added = [];
-  for (const c of list) {
-    c.keys = c.pieces.map(key);
-    const sig = [...c.keys].sort().join('|');
-    if (known.has(sig)) { added.push(COMBOS.find(x => [...x.keys].sort().join('|') === sig)); continue; }
-    known.add(sig);
-    c.id = COMBOS.length;
-    c.label = c.pieces.join(' + ');
-    COMBOS.push(c);
-    for (const k of c.keys) BY_PIECE.set(k, [...(BY_PIECE.get(k) || []), c]);
-    added.push(c);
-  }
-  return added;
-}
-
 const isPiece = (o, k) => allKeys(o.card).includes(k);
 
 // Where every piece of a combo is for player p, and whether it can be assembled this turn

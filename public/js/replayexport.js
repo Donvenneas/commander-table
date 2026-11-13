@@ -8,6 +8,7 @@ import { HumanAgent } from './human.js';
 import { RemoteUI } from './net.js';
 import { unproxy, esc } from './util.js';
 import { BRACKET_NOISE } from './brackets.js';
+import { tableSpellbook } from './replaydata.js';
 
 const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
 
@@ -49,7 +50,7 @@ export async function buildReplayHtml(setup, onProgress) {
     if (key !== last) { frames.push(f); last = key; }
   };
   const clock = { beat: async () => { capture(); if (frames.length % 50 === 0) { onProgress?.(`Recording step ${frames.length}…`); await new Promise(r => setTimeout(r, 0)); } } };
-  g = new Game(seats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules });
+  g = new Game(seats, clock, { seed: setup.seed, learned: setup.learned, noLearning: setup.noLearning || !!setup.puzzle, puzzle: setup.puzzle, format: setup.format, firstPlayer: setup.firstPlayer, lifeBonus: setup.lifeBonus, roles: setup.roles, rules: setup.rules, spellbook: tableSpellbook(setup.seats.map(s => s.deck)) });
   for (const ui of uis) ui.attach(g);
   g.on('log', e => log.push([plain(e.html), e.kind, e.p ?? -1]));
   await g.run();

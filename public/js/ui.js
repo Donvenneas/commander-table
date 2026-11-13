@@ -747,7 +747,7 @@ function previewHtml(o) {
   const kws = [...o.fx.kw].filter(k => !['unblockable', 'cantblock'].includes(k));
   const kwRules = Rules.loaded ? kws.map(k => Rules.keyword(k)).filter(Boolean) : [];
   const fx = describeFx(o.fx);
-  const combos = combosFor(c);
+  const combos = o.game?.combosFor ? o.game.combosFor(c) : combosFor(c);
   const pt = c.power != null ? `${c.power}/${c.toughness}` : c.loyalty ? `Loyalty ${c.loyalty}` : '';
   return `
     <div class="imgs">

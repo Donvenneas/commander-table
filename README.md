@@ -451,10 +451,12 @@ Kinnan can't dig Ballista out: it puts the creature onto the battlefield with no
 Every game is generated from a random seed, and any decisions you made are recorded. The timeline under the top bar lets you:
 - jump back to the start, step back or forward a turn, or drag the slider to any point
 - skip to the end
-- **Save replay**: download the game as a small file
+- **Save replay**: download the game as a file (it holds the decks' card data, so it's a few hundred KB)
 - **Export log**: download the game log as text
 
 **Watch replay** on the results screen restarts the game from the beginning. **Load replay…** on the setup screen opens a saved file. It reloads the decks and plays the identical game, including your decisions if you played a seat. When a loaded replay runs out of recorded decisions, you continue playing live.
+
+Replays saved from version 1.24.0 on keep everything the game was played with: each card's Scryfall data as it was (Oracle text, costs, types), a hash of each card, the Commander Spellbook combos found for the decks (with their prerequisites), a fingerprint of the built-in combo list, and the rules version. Loading one asks neither Scryfall nor Commander Spellbook, so later card updates or different Spellbook answers can't change it. Each game also has its own combo list: combos found for another deck you loaded can't change a game they weren't part of. The log of a loaded replay says when something may differ: Scryfall has changed a card since (the replay still uses the card as it was), or this version reads a card's text differently. A file whose card data doesn't match its hashes, or one from a newer version, isn't loaded, and you're told why. Replays from earlier versions still load, but with today's card data and Spellbook combos, and the log says so.
 
 **Resume:** the game in progress is saved in the browser profile at every turn and every answer. If the app closes or crashes, **Resume** on the start menu plays it back to where it was and pauses there. An online game reopens its room with the same friend links, so friends rejoin by opening their link again (internet links change when the tunnel restarts). Puzzles, lessons and campaigns aren't saved this way.
 

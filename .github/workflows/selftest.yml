@@ -34,6 +34,8 @@ jobs:
         run: node tests/hidden.mjs
       - name: Card and interaction tests (one board per rule, fix or combo)
         run: node tests/interactions.mjs
+      - name: Replay exactness (saved card data and combos, isolation, old replay files)
+        run: node tests/replay.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)
