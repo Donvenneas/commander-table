@@ -496,7 +496,18 @@ export class Agent {
     return g.opponents(p).sort((a, b) => (a.life - b.life) || (this.threat(g, p, b) - this.threat(g, p, a)))[0];
   }
 
+  // (rules 13) A player with protection from everything (Teferi's Protection) can't be targeted: another opponent instead,
+  // the one with the least life, or no target at all
+  /** @returns {any} */
   chooseTarget(g, p, e, src) {
+    const t = this.chooseTarget0(g, p, e, src);
+    if (g.rules >= 13 && t?.player != null && t.player !== p.idx && g.players[t.player]?.shield >= g.turn) {
+      const other = g.opponents(p).filter(q => !(q.shield >= g.turn)).sort((a, b) => a.life - b.life || a.idx - b.idx)[0];
+      return other ? { ...t, player: other.idx } : null;
+    }
+    return t;
+  }
+  chooseTarget0(g, p, e, src) {
     // (a counter ability used in response: the spell it answers, item 97)
     if (e.k === 'counter' && this.spellHint) return { spell: this.spellHint };
     // (an ability's X is already paid while its targets are chosen: g.xNow)
@@ -1631,6 +1642,9 @@ export class Agent {
     }
     return null;
   }
+
+  // (rules 13) "May draw up to N cards" (Arcane Denial's gift): all of them, unless the library is nearly empty
+  drawUpTo(g, p, src, max) { return Math.max(0, Math.min(max, p.library.length - 2)); }
 
   // (rules 12) A cost with Phyrexian symbols that can be paid more than one way: how many to pay with 2 life each.
   // options: the numbers that make a complete payment (0 = all with mana). The AI keeps its mana and pays life while

@@ -810,6 +810,13 @@ export class HumanAgent extends Agent {
   async combatResponse(g, q, attackers) { return this.instantWindow(g, q, `<b>Attackers declared</b> against you: ${attackers.map(a => esc(a.card.name)).join(', ')}. Cast an instant?`, true, this.full); }
   async combatTrick(g, q) { return this.instantWindow(g, q, '<b>Blockers are declared.</b> Cast a combat trick?', false, this.full); }
   async respondToLoop(g, q, p) { return this.instantWindow(g, q, `<b>${esc(p.name)}</b> is looping a combo. Respond?`, false, this.full); }
+  // (rules 13) "You may draw up to N cards" (Arcane Denial): how many
+  async drawUpToAsync(g, p, src, max) {
+    const r = await this.ui.ask(`<b>${esc(src?.card?.name || 'A card')}</b>: you may draw up to ${max} card${max === 1 ? '' : 's'}. How many?`, {
+      buttons: Array.from({ length: max + 1 }, (_, k) => max - k).map((k, i) => ({ label: k ? `Draw ${k}` : 'Draw none', value: k, primary: i === 0 })),
+    });
+    return typeof r.button === 'number' ? r.button : max;
+  }
   // (rules 12) Phyrexian mana: each symbol is paid with its color or 2 life. One button per complete payment.
   async phyrexianLifeAsync(g, p, src, info) {
     const r = await this.ui.ask(`<b>${esc(src?.card?.name || 'This')}</b> has ${info.symbols} Phyrexian mana symbol${info.symbols === 1 ? '' : 's'} (${info.colors.map(c => `{${esc(c)}/P}`).join('')}): pay each with that color's mana or 2 life. You have ${info.life} life.`, {

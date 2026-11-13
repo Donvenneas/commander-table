@@ -1,5 +1,5 @@
 {
- "version": "1.27.0",
+ "version": "1.28.0",
  "round": "Round 5",
  "items": [
   {
@@ -127,6 +127,12 @@
    "section": "Rules engine and card coverage",
    "title": "Phyrexian, hybrid and two-brid mana (asked 2026-11-13, Phase 2D of the engine audit): {B/P} payable with 2 life, {2/W} with {2}, with the player choosing and no partial payments.",
    "done": "parseCost read {B/P} as {B} and {2/W} as {W}, so Dismember needed {1}{B}{B}, Gitaxian Probe needed {U} and Reaper King one mana of each color."
+  },
+  {
+   "n": 193,
+   "section": "Rules engine and card coverage",
+   "title": "Card coverage audit and six popular cards (asked 2026-11-13, Phase 2E of the engine audit): a coverage report for the 3,500 most-played cards, and Teferi's Protection, Mana Drain, Arcane Denial, Chaos Warp, Cavern of Souls and Temple of the False God read and played in full.",
+   "done": "tests/coverage.mjs reads the snapshot (Scryfall, Commander-legal paper cards in EDHREC order) and checks every effect the reader produces against the engine's handlers: 2,787 full, 446 partial, 106 with an unread restriction (stronger than "
   },
   {
    "n": 101,

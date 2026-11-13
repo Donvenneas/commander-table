@@ -11,7 +11,26 @@ export function validTarget(g, t, p) {
   if (!t) return false;
   if (t.spell) return g.stack.includes(t.spell) && !t.spell.countered;
   if (t.obj) return g.canTarget(p, t.obj);
+  // (rules 13) A player with protection from everything (Teferi's Protection) can't be targeted by others (702.16j)
+  if (t.player != null && g.rules >= 13 && t.player !== p?.idx && g.players[t.player]?.shield >= g.turn) return false;
   return t.player != null && !g.players[t.player].lost;
+}
+// (rules 13) Chaos Warp: the owner of the permanent shuffles it into their library (a token ceases to exist), then
+// reveals the top card; a permanent card is put onto the battlefield under its owner's control (with its enter
+// triggers), anything else stays on top of the library
+/** @param {import('./engine.js').Game} g */
+async function chaosWarp(g, p, src, o, S) {
+  const q = g.players[o.owner];
+  g.log(`${S}: ${g.pn(q)} shuffles ${g.cn(o)} into their library`, { kind: 'removal' });
+  g.move(o, 'library');
+  shuffle(q.library, g.rand);
+  const top = q.library[q.library.length - 1];
+  if (!top) { g.log(`${g.pn(q)}'s library is empty: nothing is revealed`, { kind: 'minor' }); return; }
+  g.log(`${g.pn(q)} reveals ${g.cn(top)} from the top of their library`, { kind: 'minor', rule: '701.20' });
+  if (!top.fx.type.permanent) return;
+  g.move(top, 'battlefield', { under: q.idx });
+  g.log(`${S} puts ${g.cn(top)} onto the battlefield under ${g.pn(q)}'s control`, { kind: 'minor' });
+  g.trigger(top, 'etb');
 }
 // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
 /** @param {import('./engine.js').Game} g */
@@ -135,6 +154,15 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     case 'counter': case 'counterAbility':
+      // (rules 13) What a counterspell sets up for later, whether or not the spell can be countered (608.2c: the rest
+      // of the spell still happens). Mana Drain: {C} equal to the spell's mana value (X included, 202.3e) at the
+      // beginning of its caster's next main phase. Arcane Denial: the spell's controller may draw up to two cards at
+      // the beginning of the next turn's upkeep.
+      if (g.rules >= 13 && tgt?.spell && !tgt.spell.ability) {
+        const sp = tgt.spell, mv = (sp.o.card.cmc || 0) + (sp.x || 0) * (parseCost(sp.o.card.manaCost).x || 0);
+        if (e.laterMana) g.addLater(p, src, 'main', mv ? [{ k: 'addManaN', n: mv, color: 'C' }] : [], `add {C} equal to ${sp.o.card.name}'s mana value (${mv})`);
+        if (e.laterDraw && sp.p && !sp.p.lost) g.addLater(p, src, 'upkeep', [{ k: 'drawUpTo', n: e.laterDraw, who: sp.p.idx }], `${sp.p.name} may draw up to ${e.laterDraw} cards`);
+      }
       if (tgt?.spell && !tgt.spell.ability && (tgt.spell.o.fx.uncounterable || tgt.spell.uncounterable || (g.rules >= 5 && tgt.spell.p?.shieldTurn === g.turn) || g.alive().some(q => q.battlefield.some(o => o.fx.noCounterAll)) || g.players[tgt.spell.o.owner]?.battlefield.some(o => o.fx.protectsSpells && (!o.fx.costReduce?.minMv || (tgt.spell.o.card.cmc || 0) >= o.fx.costReduce.minMv)))) {
         g.log(`${g.cn(tgt.spell.o)} can't be countered`, { kind: 'minor' });
         break;
@@ -305,6 +333,9 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // (rules 6) Deathrite Shaman: "exile target land card from a graveyard" is a card, not a land on the battlefield
       if (e.gyCard && g.rules >= 6) { exileFromGraveyard(g, p, src, ['land']); break; }
       if (!tgt?.obj) { g.log(`${S} has no legal target`, { kind: 'minor' }); break; }
+      // (rules 13) Chaos Warp: the owner shuffles it into their library, reveals the top card, and puts it onto the
+      // battlefield if it's a permanent card (zone changes through Game.move, so its own triggers happen as usual)
+      if (e.warp && g.rules >= 13) { await chaosWarp(g, p, src, tgt.obj, S); break; }
       // (what the target was as it last existed on the battlefield: its power and controller, 608.2h)
       const v = tgt.obj, q = g.players[v.controller], pow = g.power(v), mv = v.card.cmc || 0;
       if (e.mode === 'exile') { g.log(`${S} exiles ${tName(tgt)}`, { kind: 'removal' }); g.move(v, 'exile'); }
@@ -1343,6 +1374,31 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       g.log(`${g.pn(p)} copies ${g.cn(o)} (${S})`, { kind: 'cast', p: p.idx, rule: '707.10' });
       if (o.fx.type.permanent) { const c = g.createCopy(p, o, false); g.trigger(c, 'etb'); }
       else await g.runEffects(p, o, o.fx.spell.filter(x => x.k !== 'copySpell' && x.k !== 'counter'), { x: 0 });
+      break;
+    }
+    // ---- (rules 13, Phase 2E) Teferi's Protection, Arcane Denial
+    case 'lifeLock':
+      if (g.rules < 13) break;
+      p.lifeLock = true;
+      g.log(`${g.pn(p)}'s life total can't change until their next turn (${S})`, { kind: 'minor', rule: '119.7' });
+      break;
+    case 'phaseOut':
+      if (g.rules < 13) break;
+      g.phaseOut(p, [...p.battlefield]);
+      break;
+    case 'laterDraw':
+      if (g.rules < 13) break;
+      g.addLater(p, src, 'upkeep', [{ k: 'draw', n: e.n }], `${p.name} draws ${e.n === 1 ? 'a card' : `${e.n} cards`}`);
+      break;
+    case 'drawUpTo': {
+      // "may draw up to N cards": the drawing player chooses how many
+      const q = g.players[e.who ?? p.idx];
+      if (!q || q.lost) break;
+      const max = Math.max(0, e.n);
+      const want = q.agent.drawUpToAsync ? await q.agent.drawUpToAsync(g, q, src, max) : q.agent.drawUpTo ? q.agent.drawUpTo(g, q, src, max) : max;
+      const n = Math.max(0, Math.min(max, Math.floor(+want || 0)));
+      g.log(`${g.pn(q)} draws ${n} of up to ${max} card${max === 1 ? '' : 's'} (${S})`, { kind: 'minor' });
+      if (n) g.draw(q, n);
       break;
     }
     case 'shieldSelf':

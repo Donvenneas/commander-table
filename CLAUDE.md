@@ -33,6 +33,8 @@ passes with 0 simulator errors, and stop every `Commander Table` and `cloudflare
 
 Card readings: `node tests/cards.mjs` (CI runs it too) compares how the effects parser reads 3,500 saved cards with `tests/card-readings.json`; when a change to effects.js is meant to change readings, accept them with `node tests/cards.mjs --update` (and `--fetch` for a fresh card snapshot).
 
+Card coverage: `node tests/coverage.mjs --report tests/card-coverage.md` sorts the 3,500 snapshot cards into full, partial, restriction (an unread restriction makes the card stronger than printed), unhandled (the reader produces an effect or field no engine module uses) and unsupported, and writes the report, most-played first. Pick the next card fixes from it.
+
 Golden games: `node tests/golden.mjs` (CI runs it too) plays 18 AI games under rules 4, 5 and 6 and compares results and log hashes with `tests/golden-games.json`. A rules 4 or 5 difference breaks old replays (1.19.0 and earlier): gate new behaviour behind `this.rules >= 6` (or a new RULES version). Accept a deliberate change with `--update`.
 
 Card and interaction tests: `node tests/interactions.mjs [name filter]` (CI runs it too) builds small boards from card names (`tests/scenario.mjs`) and checks one card or interaction each. Every card fix gets a test here. Card data the snapshots lack goes in `tests/interaction-cards.json` via `node tests/fetch-interaction-cards.mjs "Card Name"`.

@@ -1773,6 +1773,8 @@ export function analyzeCard(card) {
     if (/^you control enchanted (creature|permanent|artifact|land)/.test(line)) { fx.controlAura = true; continue; }
     // Mana abilities, including ones with a mana cost first (Signets: "{1}, {T}: Add {U}{B}" nets one mana)
     if ((m = line.match(/^(?:\{(\d)\}, )?\{t\}(, sacrifice ~|, pay \d+ life|, tap an untapped creature you control)?: add ([^.]+)/))) {
+      // (the line that sets the card's mana: a condition on it applies to all of its mana)
+      const firstMana = !fx.mana;
       // ("~ deals 1 damage to you" after the mana, or "pay 1 life" in the cost; a painland's {C} line costs nothing)
       const pain = line.match(/(?:~|this (?:land|artifact|creature)) deals (\d+) damage to you|^\{t\}, pay (\d+) life:/);
       if (pain) { painN = Math.max(painN, +(pain[1] || pain[2])); painLife ||= !!pain[2]; } else painless = true;
@@ -1790,6 +1792,14 @@ export function analyzeCard(card) {
         const each = clause.match(/for each ([\w -]+?) you control/);
         if (each) fx.mana.dyn = each[1].replace(/s$/, '');
       }
+      // (rules 13, Phase 2E: mana.js) Temple of the False God: "Activate only if you control five or more lands";
+      // Cavern of Souls: its colored mana only for a creature spell of the chosen type, which then can't be countered
+      // (read from any of the land's mana lines, as the first one sets fx.mana)
+      // (only when that line is the card's mana ability: Shrine of the Forsaken Gods's condition is on its second
+      // ability alone, and "lands with the same name" is another condition)
+      const landsNeed = line.match(/activate only if you control (\w+) or more lands\.?$/);
+      if (fx.mana && firstMana && landsNeed && num(landsNeed[1]) > 0) fx.mana.landsAtLeast = num(landsNeed[1]);
+      if (fx.mana && /spend this mana only to cast a creature spell of the chosen type, and that spell can't be countered/.test(line)) fx.mana.cavern = true;
       // (a second mana ability, a pain land's damage or a spending restriction doesn't change what it makes)
       pending = null;
       continue;
@@ -1857,7 +1867,36 @@ export function analyzeCard(card) {
     if (!produced.length && /search your library for/.test(t)) fx.fetch = true;
   }
   comboReadings(t, fx);
+  readings13(t, fx);
   return fx;
+}
+
+// (rules 13, Phase 2E) Spells read in full: fx.spell13 replaces fx.spell from rules 13 on (Game.cast), so older games
+// keep their reading and the AI's values for them. Each is a family of text, not one card's name:
+//   delayed mana after a counter (Mana Drain), delayed draws after a counter (Arcane Denial), "your life total can't
+//   change" + "all permanents you control phase out" (Teferi's Protection), "the owner of target permanent shuffles it
+//   into their library, then reveals the top card… if it's a permanent card, they put it onto the battlefield"
+//   (Chaos Warp)
+function readings13(t, fx) {
+  if (!fx.type.instant && !fx.type.sorcery) return;
+  const lines = t.split('\n').map(s => s.trim());
+  const has = re => lines.some(l => re.test(l));
+  let spell = null;
+  if (has(/^counter target spell\. at the beginning of your next main phase, add an amount of \{c\} equal to that spell's mana value\.?$/)) {
+    spell = fx.spell.map(e => (e.k === 'counter' ? { ...e, laterMana: true } : e));
+  }
+  const denial = lines.map(l => l.match(/^counter target spell\. its controller may draw up to (\w+) cards? at the beginning of the next turn's upkeep\.?$/)).find(Boolean);
+  if (denial) {
+    const mine = has(/^you draw a card at the beginning of the next turn's upkeep\.?$/);
+    spell = fx.spell.map(e => (e.k === 'counter' ? { ...e, laterDraw: num(denial[1]) } : e.k === 'draw' && mine ? { k: 'laterDraw', n: 1 } : e));
+  }
+  if (has(/^until your next turn, your life total can't change and you gain protection from everything\. all permanents you control phase out\.?$/)) {
+    spell = fx.spell.flatMap(e => (e.k === 'shieldSelf' ? [e, { k: 'lifeLock' }, { k: 'phaseOut', who: 'you' }] : [e]));
+  }
+  const warp = lines.map(l => l.match(/^the owner of target (permanent|creature|nonland permanent) shuffles it into their library, then reveals the top card of their library\. if it's a permanent card, they put it onto the battlefield\.?$/)).find(Boolean);
+  // (still a "remove" for choosing and checking the target; resolve.js does the shuffle and the reveal)
+  if (warp) spell = [{ k: 'remove', mode: 'warp', what: warp[1], warp: true }];
+  if (spell) fx.spell13 = spell;
 }
 
 // Combo pieces read in full (rules 7, the combo audit). Everything added here is a field only rules 7 code looks at

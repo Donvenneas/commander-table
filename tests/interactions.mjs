@@ -799,6 +799,240 @@ await test('Skipped sentences are reported (Tainted Wood, Mob Rule) and read one
   for (const n of ['Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection']) eq(d(n), [], n);
 });
 
+
+// ---------- Phase 2E (rules 13): six popular cards read in full, with delayed triggers, phasing and "life can't change"
+// (helpers for these tests: a spell of an opponent's put on the stack, and a stub main phase that records what it saw)
+const onStack = (g, i, name) => {
+  const o = find(g, i, name, 'hand');
+  P(g, i).hand.splice(P(g, i).hand.indexOf(o), 1);
+  o.zone = 'stack';
+  const item = { o, p: P(g, i), x: 0, targets: [], effects: o.fx.spell, countered: false };
+  g.stack.push(item);
+  return item;
+};
+const lines13 = g => logText(g).replace(/&#39;/g, "'").split('\n');
+const watchMain = (g, i) => { const seen = []; P(g, i).agent.mainPhase = async (gg, p, ph) => { seen.push({ ph, pool: p.pool.map(u => u.colors.join('')).join(''), hand: p.hand.length }); }; return seen; };
+const quietCombat = g => { for (const q of g.players) { q.agent.declareAttackers = () => []; q.agent.declareAttackersPlan = () => []; } };
+
+// Teferi's Protection
+await test("Teferi's Protection: life can't change, protection from everything, and every permanent phases out (no zone change)", async () => {
+  const g = await scenario([{ battlefield: [{ name: 'Grizzly Bears', counters: 2, tapped: true }, 'Reveillark', 'Bonesplitter', 'Sol Ring', 'Plains', 'Plains', 'Plains'], hand: ["Teferi's Protection", 'Gitaxian Probe'] }, { battlefield: ['Blood Artist', 'Exquisite Blood'], hand: ['Lightning Bolt'] }]);
+  const bears = find(g, 0, 'Grizzly Bears'), rancor = find(g, 0, 'Bonesplitter');
+  rancor.attachedTo = bears;
+  bears.attacking = 1;
+  g.active = 1;
+  ok(await g.cast(P(g, 0), find(g, 0, "Teferi's Protection", 'hand')), 'cast at instant speed on the opponent\'s turn');
+  await settle(g);
+  eq(P(g, 0).battlefield.length, 0, 'nothing of P1 left on the battlefield');
+  eq(P(g, 0).phasedOut.length, 7, 'all seven phased out');
+  ok(P(g, 0).phasedOut.every(o => o.zone === 'phased'), "zone 'phased', not exile or graveyard");
+  eq([bears.counters, bears.tapped, rancor.attachedTo === bears, bears.attacking], [2, true, true, null], 'counters, tapped, equipment still attached, removed from combat');
+  ok(!lines13(g).some(l => /^Reveillark —|^Blood Artist —/.test(l)), 'no leave-the-battlefield or dies trigger');
+  ok(P(g, 0).exile.some(o => o.card.name === "Teferi's Protection"), "Teferi's Protection exiles itself");
+  // life can't change: a drain doesn't change it and doesn't trigger Exquisite Blood; gaining doesn't either
+  await g.runEffects(P(g, 1), find(g, 1, 'Blood Artist'), [{ k: 'drain', n: 3 }], { targets: [], strict: true }); await settle(g);
+  await g.runEffects(P(g, 0), P(g, 0).phasedOut[0], [{ k: 'gain', n: 5 }], { targets: [], strict: true }); await settle(g);
+  eq([P(g, 0).life, P(g, 1).life], [40, 40], 'life totals (no loss, so Exquisite Blood gained nothing)');
+  ok(lines13(g).some(l => /P1's life total can't change/.test(l)), 'logged');
+  // protection from everything: not a legal target, and damage is prevented
+  ok(!g.validTarget({ player: 0 }, P(g, 1)), 'P2 can\'t target P1');
+  g.damagePlayer(P(g, 0), 3, find(g, 1, 'Blood Artist'), false);
+  eq(P(g, 0).life, 40, 'damage prevented');
+  // and no life can be paid: Gitaxian Probe's {U/P} needs blue mana now
+  ok(!g.canCast(P(g, 0), find(g, 0, 'Gitaxian Probe', 'hand')), 'no Phyrexian life payment while life is locked');
+  noErrors(g);
+});
+await test("Teferi's Protection: the permanents phase in at P1's next untap step, before untapping, with no enter triggers", async () => {
+  const g = await scenario([{ battlefield: [{ name: 'Grizzly Bears', counters: 2, tapped: true }, 'Wall of Omens', 'Plains', 'Plains', 'Plains'], hand: ["Teferi's Protection"] }, {}]);
+  g.active = 1;
+  await g.cast(P(g, 0), find(g, 0, "Teferi's Protection", 'hand')); await settle(g);
+  eq(P(g, 0).battlefield.length, 0, 'phased out');
+  const seen = watchMain(g, 0); quietCombat(g);
+  const hand0 = P(g, 0).hand.length;
+  g.turn++; g.active = 0;
+  await g.takeTurn(P(g, 0));
+  const L = lines13(g);
+  const pi = L.findIndex(l => /permanents? of P1 phases? in/.test(l));
+  ok(pi >= 0, 'phase-in logged');
+  const bears = find(g, 0, 'Grizzly Bears');
+  eq([P(g, 0).battlefield.length, bears?.counters, bears?.tapped], [5, 2, false], 'back, with counters, then untapped as usual');
+  ok(!L.slice(pi).some(l => /^Wall of Omens — enters/.test(l)), "Wall of Omens's enter trigger didn't happen");
+  eq(seen[0]?.hand, hand0 + 1, 'only the draw step drew (no Wall of Omens card)');
+  eq(P(g, 0).lifeLock, false, "the life lock ended as P1's turn began");
+  noErrors(g);
+});
+await test("Teferi's Protection under rules 12 (old replays): protection only, nothing phases out", async () => {
+  const g = await scenario([{ battlefield: ['Grizzly Bears', 'Plains', 'Plains', 'Plains'], hand: ["Teferi's Protection"] }, {}], { rules: 12 });
+  await g.cast(P(g, 0), find(g, 0, "Teferi's Protection", 'hand')); await settle(g);
+  eq([P(g, 0).battlefield.length, P(g, 0).lifeLock], [4, false], 'battlefield, life lock');
+});
+
+// Mana Drain
+await test('Mana Drain: counters the spell, and the mana comes at the beginning of the caster\'s next main phase, not before', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Thassa\'s Oracle'] }]);
+  g.active = 1; g.phase = 'main1';
+  const item = onStack(g, 1, "Thassa's Oracle");
+  ok(await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }), 'cast');
+  await settle(g);
+  eq(item.countered, true, 'countered');
+  eq(P(g, 0).pool.length, 0, 'no mana yet');
+  eq(g.later.map(d => [d.when, d.p]), [['main', 0]], 'one delayed trigger, for P1\'s next main phase');
+  // (P2's own second main phase this turn isn't P1's: nothing yet)
+  g.setPhase('main2'); g.fireLater('main', P(g, 1)); await settle(g);
+  eq([P(g, 0).pool.length, g.later.length], [0, 1], 'still waiting during P2\'s main phase');
+  const seen = watchMain(g, 0); quietCombat(g);
+  g.turn++; g.active = 0;
+  await g.takeTurn(P(g, 0));
+  eq(seen[0], { ph: 'main1', pool: 'CC', hand: seen[0].hand }, "{C}{C} (Oracle's mana value) at the beginning of P1's main phase");
+  ok(lines13(g).some(l => /^Mana Drain — add \{C\} equal to Thassa's Oracle's mana value/.test(l)), 'resolved as a triggered ability');
+  eq(g.later.length, 0, 'used up');
+  noErrors(g);
+});
+await test('Mana Drain cast in your own first main phase: the mana comes at your second main phase', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }]);
+  g.active = 0; g.phase = 'main1';
+  const item = onStack(g, 1, 'Grizzly Bears');
+  await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  g.setPhase('main2'); g.fireLater('main', P(g, 0)); await settle(g);
+  eq(P(g, 0).pool.map(u => u.colors.join('')), ['C', 'C'], "Grizzly Bears's mana value in {C}");
+});
+await test("Mana Drain: an uncounterable spell isn't countered, but the mana still comes; a spell gone from the stack makes Mana Drain fizzle", async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island', 'Island', 'Island'], hand: ['Mana Drain', 'Counterspell'] }, { hand: ['Grizzly Bears', "Thassa's Oracle"] }]);
+  g.active = 1;
+  const item = onStack(g, 1, 'Grizzly Bears');
+  item.uncounterable = true;
+  await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  eq([item.countered, g.later.length], [false, 1], 'not countered, mana still on its way');
+  // (a target that has left the stack: Mana Drain fizzles and sets nothing up)
+  const g2 = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }]);
+  g2.active = 1;
+  const fake = { o: find(g2, 1, 'Grizzly Bears', 'hand'), p: P(g2, 1), countered: false, effects: [], targets: [] };
+  await g2.cast(P(g2, 0), find(g2, 0, 'Mana Drain', 'hand'), { targets: [{ spell: fake }], response: fake }); await settle(g2);
+  eq(g2.later.length, 0, 'no delayed trigger when Mana Drain fizzles');
+  ok(lines13(g2).some(l => /Mana Drain fizzles/.test(l)), 'fizzled');
+});
+
+// Arcane Denial
+await test("Arcane Denial: counters; at the next turn's upkeep the spell's controller may draw two and the caster draws one", async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Arcane Denial'] }, { hand: ['Grizzly Bears'] }]);
+  g.active = 1; g.phase = 'main1';
+  const item = onStack(g, 1, 'Grizzly Bears');
+  const h0 = [P(g, 0).hand.length, P(g, 1).hand.length];
+  await g.cast(P(g, 0), find(g, 0, 'Arcane Denial', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  eq(item.countered, true, 'countered');
+  eq([P(g, 0).hand.length, P(g, 1).hand.length], [h0[0] - 1, h0[1]], 'nobody drew yet (Arcane Denial left P1\'s hand)');
+  eq(g.later.map(d => [d.when, d.p]).sort(), [['upkeep', 0], ['upkeep', 0]], 'two delayed triggers, both controlled by Arcane Denial\'s caster');
+  // the next turn is P1's (2 players): its upkeep, then the draw step
+  const seen = watchMain(g, 0); quietCombat(g);
+  g.turn++; g.active = 0;
+  await g.takeTurn(P(g, 0));
+  const L = lines13(g);
+  const up = L.findIndex(l => /^P2 draws 2 of up to 2 cards/.test(l)), mine = L.findIndex(l => /^Arcane Denial — P1 draws a card/.test(l));
+  ok(up >= 0 && mine >= 0, 'both delayed triggers resolved');
+  eq([seen[0].hand, P(g, 1).hand.length], [h0[0] - 1 + 1 + 1, h0[1] + 2], 'P1: +1 (Arcane Denial) +1 (draw step); P2: +2');
+  noErrors(g);
+});
+await test('Arcane Denial under rules 12 (old replays): the caster still draws at once, as before', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Arcane Denial'] }, { hand: ['Grizzly Bears'] }], { rules: 12 });
+  g.active = 1;
+  const item = onStack(g, 1, 'Grizzly Bears');
+  const h0 = P(g, 0).hand.length;
+  await g.cast(P(g, 0), find(g, 0, 'Arcane Denial', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  eq([P(g, 0).hand.length, g.later.length], [h0, 0], 'drew one at once (hand: -1 cast +1 draw), nothing delayed');
+});
+
+// Chaos Warp
+const warp = async (lib, seed = 1) => {
+  const g = await scenario([{ battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Chaos Warp'] }, { battlefield: ['Grizzly Bears'], library: lib, filler: 0 }], { seed });
+  const moves = [];
+  g.on('move', d => moves.push(`${d.from}>${d.to}`));
+  await g.cast(P(g, 0), find(g, 0, 'Chaos Warp', 'hand'), { targets: [{ obj: find(g, 1, 'Grizzly Bears') }] }); await settle(g);
+  const L = lines13(g);
+  const rev = (L.find(l => /^P2 reveals /.test(l)) || '').match(/^P2 reveals (.+) from the top/)?.[1];
+  return { g, moves, rev, L };
+};
+await test('Chaos Warp: the owner shuffles the permanent into their library and reveals the top card; a permanent card enters with its triggers', async () => {
+  const { g, moves, rev, L } = await warp(Array(9).fill('Wall of Omens'));
+  ok(moves.includes('battlefield>library'), 'Grizzly Bears went to the library through Game.move');
+  ok(['Wall of Omens', 'Grizzly Bears'].includes(rev), `revealed: ${rev}`);
+  ok(find(g, 1, rev), `${rev} is on P2's battlefield`);
+  ok(moves.includes('library>battlefield'), 'onto the battlefield through Game.move');
+  if (rev === 'Wall of Omens') ok(L.some(l => /^Wall of Omens — enters/.test(l)), "Wall of Omens's enter trigger");
+  eq(P(g, 1).exile.length, 0, 'nothing exiled (the old reading exiled it)');
+  ok(!find(g, 1, 'Grizzly Bears') || rev === 'Grizzly Bears', 'the Bears left unless revealed again');
+  noErrors(g);
+});
+await test('Chaos Warp: a revealed nonpermanent card stays on top of the library', async () => {
+  let r = null;
+  for (let seed = 1; seed < 30 && !r; seed++) { const w = await warp(Array(9).fill('Lightning Bolt'), seed); if (w.rev === 'Lightning Bolt') r = w; }
+  ok(r, 'a seed that reveals Lightning Bolt');
+  eq(r.g.players[1].library.at(-1).card.name, 'Lightning Bolt', 'still on top');
+  eq(r.g.players[1].battlefield.length, 0, 'nothing entered');
+  ok(r.g.players[1].library.some(o => o.card.name === 'Grizzly Bears'), 'the Bears are in the library');
+});
+await test('Chaos Warp on a token: the token ceases to exist; its owner still reveals', async () => {
+  const g = await scenario([{ battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Chaos Warp'] }, { library: Array(5).fill('Wall of Omens'), filler: 0 }]);
+  await g.runEffects(P(g, 1), find(g, 0, 'Mountain'), [{ k: 'token', n: 1, p: 1, t: 1, desc: 'white soldier', kw: [] }], { targets: [], strict: true }); await settle(g);
+  const tok = P(g, 1).battlefield.find(o => o.token);
+  await g.cast(P(g, 0), find(g, 0, 'Chaos Warp', 'hand'), { targets: [{ obj: tok }] }); await settle(g);
+  ok(!P(g, 1).library.some(o => o.token), 'no token in the library');
+  ok(find(g, 1, 'Wall of Omens'), 'the revealed Wall of Omens entered');
+});
+await test('Chaos Warp under rules 12 (old replays): it exiles, as before', async () => {
+  const g = await scenario([{ battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Chaos Warp'] }, { battlefield: ['Grizzly Bears'] }], { rules: 12 });
+  await g.cast(P(g, 0), find(g, 0, 'Chaos Warp', 'hand'), { targets: [{ obj: find(g, 1, 'Grizzly Bears') }] }); await settle(g);
+  ok(P(g, 1).exile.some(o => o.card.name === 'Grizzly Bears'), 'exiled');
+});
+
+// Cavern of Souls
+const cavern = async (hand, type = 'bear', extra = []) => {
+  const g = await scenario([{ battlefield: ['Cavern of Souls', ...extra], hand }, {}]);
+  find(g, 0, 'Cavern of Souls').chosenType = type;
+  g.active = 0; g.phase = 'main1';
+  return g;
+};
+await test('Cavern of Souls: its colored mana pays for a creature spell of the chosen type, which then can\'t be countered', async () => {
+  const g = await cavern(['Grizzly Bears'], 'bear', ['Wastes']);
+  let item = null;
+  const realPriority = g.priority.bind(g);
+  g.priority = async it => { item = it; await g.runEffects(P(g, 1), find(g, 0, 'Wastes'), [{ k: 'counter', what: 'any' }], { targets: [{ spell: it }], strict: true }); return realPriority(it); };
+  ok(await g.cast(P(g, 0), find(g, 0, 'Grizzly Bears', 'hand')), 'cast with Cavern ({G}) and Wastes');
+  await settle(g);
+  eq([item?.uncounterable, item?.countered], [true, false], 'uncounterable, not countered');
+  ok(lines13(g).some(l => /Grizzly Bears can't be countered$/.test(l)), "the counter was refused");
+  ok(find(g, 0, 'Grizzly Bears'), 'the Bears resolved');
+  noErrors(g);
+});
+await test('Cavern of Souls: only {C} for anything else (another creature type, a noncreature spell, a creature paid without it)', async () => {
+  const g = await cavern(['Llanowar Elves', 'Lightning Bolt']);
+  ok(!g.canCast(P(g, 0), find(g, 0, 'Llanowar Elves', 'hand')), "Llanowar Elves (an Elf, not the chosen Bear) can't take Cavern's {G}");
+  ok(!g.canCast(P(g, 0), find(g, 0, 'Lightning Bolt', 'hand')), "Lightning Bolt can't take Cavern's {R}");
+  const g2 = await cavern(['Grizzly Bears'], 'bear', ['Forest', 'Forest']);
+  let item = null; const rp = g2.priority.bind(g2); g2.priority = async it => { item = it; return rp(it); };
+  await g2.cast(P(g2, 0), find(g2, 0, 'Grizzly Bears', 'hand')); await settle(g2);
+  eq([item?.uncounterable || false, find(g2, 0, 'Cavern of Souls').tapped], [false, false], 'paid with Forests: Cavern untouched, the Bears can be countered');
+  // (tapping it by hand: {C})
+  const g3 = await cavern([]);
+  g3.tapForMana(P(g3, 0), find(g3, 0, 'Cavern of Souls'));
+  eq(P(g3, 0).pool.map(u => u.colors.join('')), ['C'], 'tapped by hand: {C}');
+});
+await test('Cavern of Souls under rules 12 (old replays): any color for anything, as before', async () => {
+  const g = await scenario([{ battlefield: ['Cavern of Souls'], hand: ['Lightning Bolt'] }, {}], { rules: 12 });
+  g.active = 0; g.phase = 'main1';
+  ok(g.canCast(P(g, 0), find(g, 0, 'Lightning Bolt', 'hand')), 'Bolt castable with Cavern');
+});
+
+// Temple of the False God
+await test('Temple of the False God: no mana with four lands; {C}{C} with five (the Temple counts)', async () => {
+  const four = await scenario([{ battlefield: ['Temple of the False God', 'Wastes', 'Wastes', 'Wastes'] }, {}]);
+  eq(four.availableMana(P(four, 0)), 3, 'four lands: only the three Wastes make mana');
+  ok(!four.tapForMana(P(four, 0), find(four, 0, 'Temple of the False God')) && P(four, 0).pool.length === 0, "tapping it by hand makes nothing");
+  ok(!find(four, 0, 'Temple of the False God').tapped, 'and leaves it untapped');
+  const five = await scenario([{ battlefield: ['Temple of the False God', 'Wastes', 'Wastes', 'Wastes', 'Wastes'] }, {}]);
+  eq(five.availableMana(P(five, 0)), 6, 'five lands: 4 + {C}{C}');
+  const old = await scenario([{ battlefield: ['Temple of the False God', 'Wastes'] }, {}], { rules: 12 });
+  eq(old.availableMana(P(old, 0)), 3, 'rules 12 (old replays): it made mana with two lands');
+});
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

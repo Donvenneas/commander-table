@@ -24,9 +24,11 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // replays saved before them still play out the same (a replay with no "rules" field is version 4)
 // (rules 10: loops of triggers are classified by loops.js; replays at 4–9 keep the old loop handling)
 // (rules 11: combos are played out with the real cards, comboplay.js; replays at 4–10 keep the combo shortcut)
+// (rules 13: six popular cards read in full, with delayed triggers, phasing and "life can't change": Phase 2E;
+// replays at 4–12 keep the old readings)
 // (rules 12: Phyrexian symbols can be paid with 2 life and two-brid {2/W} symbols with {2}: mana.js; replays at 4–11
 // pay them with their color, as before)
-export const RULES = 12;
+export const RULES = 13;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -131,7 +133,7 @@ export class Game {
       life: this.startLife, poison: 0, cmdDamage: {}, library: [], hand: [], graveyard: [], exile: [], battlefield: [], command: [],
       pool: [], lost: false, place: null, lossReason: '', landsPlayed: 0, castCount: {}, drewFromEmpty: false,
       mulligans: 0, grudge: seats.map(() => 0), stats: { spells: 0, damage: 0, combos: 0 },
-      combos: [], infiniteMana: -1, comboAttack: -1, comboTried: { turn: -1, ids: new Set() }, castNames: new Set(), extraTurns: 0, extraCombats: 0,
+      combos: [], infiniteMana: -1, comboAttack: -1, phasedOut: [], lifeLock: false, comboTried: { turn: -1, ids: new Set() }, castNames: new Set(), extraTurns: 0, extraCombats: 0,
     }));
     seats.forEach((s, i) => {
       const p = this.players[i];
@@ -179,6 +181,9 @@ export class Game {
     this.pendingDeals = [];
     this.archenemy = null;
     this.delayed = [];
+    // (rules 13) Delayed triggered abilities: "at the beginning of the next turn's upkeep", "of your next main phase"
+    // (Game.addLater, Game.fireLater)
+    /** @type {any[]} */ this.later = [];
     this.tempSteals = [];
     // Players who can't cast spells this turn (Silence): player index → turn number
     this.silenced = {};
@@ -193,6 +198,14 @@ export class Game {
   on(ev, fn) { (this.handlers[ev] ||= []).push(fn); }
   emit(ev, d) {
     // Every life change passes through here, so "whenever you gain life" watchers are fired from it
+    // (rules 13) "Your life total can't change" (Teferi's Protection: Player.lifeLock): the change is undone and
+    // nothing happened, so nothing triggers (119.7, 119.8)
+    if (ev === 'life' && d.d && this.rules >= 13 && this.players[d.p]?.lifeLock) {
+      const q = this.players[d.p];
+      q.life -= d.d;
+      this.log(`${this.pn(q)}'s life total can't change`, { kind: 'minor', rule: '119.7' });
+      return;
+    }
     if (ev === 'life' && d.d) {
       const q = this.players[d.p];
       if (d.d > 0) q.gainedTurn = this.turn; else {
@@ -536,6 +549,52 @@ export class Game {
    */
   planPayment(p, cost, extra = 0, exclude = null, avoid = null, help = []) { return mana.planPayment(this, p, cost, extra, exclude, avoid, help); }
   commitPayment(p, plan) { return mana.commitPayment(this, p, plan); }
+  // ---------- (rules 13, Phase 2E) delayed triggered abilities and phasing
+  // A delayed triggered ability (603.7): when: 'upkeep' (the beginning of the next turn's upkeep, whoever's turn) or
+  // 'main' (the beginning of its controller's next main phase). When that comes it goes into the trigger queue like
+  // any trigger: on the stack, with priority, in APNAP order. src: the card it comes from (for the log).
+  addLater(p, src, when, effects, label) {
+    this.later.push({ p: p.idx, src, when, effects, label, turn: this.turn, phase: PHASES.findIndex(([k]) => k === this.phase) });
+    this.log(`${this.cn(src)}: ${esc(label)} (${when === 'upkeep' ? "at the beginning of the next turn's upkeep" : `at the beginning of ${this.pn(p)}'s next main phase`})`, { kind: 'minor', rule: '603.7' });
+  }
+  fireLater(kind, active) {
+    const now = PHASES.findIndex(([k]) => k === this.phase);
+    const due = this.later.filter(d => d.when === kind && (kind === 'upkeep' ? this.turn > d.turn : d.p === active.idx && (this.turn > d.turn || now > d.phase)));
+    if (!due.length) return;
+    this.later = this.later.filter(d => !due.includes(d));
+    for (const d of due) if (!this.players[d.p].lost) this.queue.push({ o: d.src, effects: d.effects, label: d.label, p: this.players[d.p], later: true });
+  }
+  // Phasing (702.26): p's permanents phase out, and with them whatever is attached to them. Not a zone change: they
+  // keep their counters, attachments and tapped state, nothing leaves the battlefield or triggers, and while phased
+  // out they are treated as though they don't exist (they are off the battlefield lists, in zone 'phased'). They are
+  // removed from combat (506.4). They phase in at p's next untap step (phaseIn).
+  phaseOut(p, objs) {
+    const set = new Set(objs);
+    for (let added = true; added;) {
+      added = false;
+      for (const q of this.players) for (const a of q.battlefield) if (!set.has(a) && a.attachedTo && set.has(a.attachedTo)) { set.add(a); added = true; }
+    }
+    for (const o of set) {
+      const arr = this.players[o.controller].battlefield;
+      const i = arr.indexOf(o);
+      if (i < 0) continue;
+      arr.splice(i, 1);
+      o.zone = 'phased';
+      o.attacking = null; o.blocking = null; o.blocked = false; o.blockedBy = [];
+      p.phasedOut.push(o);
+    }
+    if (set.size) this.log(`${set.size} permanent${set.size === 1 ? '' : 's'} of ${this.pn(p)} phase${set.size === 1 ? 's' : ''} out`, { kind: 'minor', rule: '702.26' });
+    this.emit('update');
+  }
+  phaseIn(p) {
+    const back = p.phasedOut.splice(0);
+    for (const o of back) {
+      o.zone = 'battlefield';
+      this.players[o.controller].battlefield.push(o);
+    }
+    if (back.length) this.log(`${back.length} permanent${back.length === 1 ? '' : 's'} of ${this.pn(p)} phase${back.length === 1 ? 's' : ''} in`, { kind: 'minor', rule: '702.26' });
+  }
+
   // (rules 12) Paying a cost with Phyrexian symbols: when they can be paid more than one way (mana, or 2 life each), the
   // payer chooses how many to pay with life, the AI (Agent.phyrexianLife) and people (HumanAgent.phyrexianLifeAsync)
   // through the same call, and the plan is made with that choice. given: a choice made already (cast/activate
@@ -833,7 +892,11 @@ export class Game {
     // (rules 12) Phyrexian symbols: the caster chooses which to pay with life, before anything is paid
     const plan = await this.withPhyrexianChoice(p, o, c, extra + x * c.x, choice.phyLife, help, null, () => this.planPayment(p, c, extra + x * c.x, null, choice.avoid, help));
     if (!plan) return false;
-    let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : o.fx.spell);
+    // (rules 13: the spells read in full since, fx.spell13; older games keep fx.spell)
+    let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : (this.rules >= 13 && o.fx.spell13) || o.fx.spell);
+    // (rules 13) Cavern of Souls: its colored mana paid for this creature spell of the chosen type, so it can't be
+    // countered (mana.js units marks that mana: only such a spell can use it)
+    const cavernPaid = this.rules >= 13 && !plan.free && [...(plan.used || [])].some(i => plan.units[i]?.cavern);
     if (entwined) this.log(`${this.pn(p)} pays the entwine cost for ${this.cn(o)}: all modes`, { kind: 'minor', rule: '702.42a' });
     // (Boromir, Lavinia: whether any mana is spent on it)
     const spent = c.generic + c.pips.length + extra + x * (c.x || 0);
@@ -911,6 +974,7 @@ export class Game {
     const item = { o, p, x, targets, effects, auraTarget, countered: false, combo: !!choice.combo, response: choice.response || null };
     // "The next spell you cast this turn can't be countered"
     if (p.uncounterTurn === this.turn) { item.uncounterable = true; p.uncounterTurn = 0; }
+    if (cavernPaid) { item.uncounterable = true; this.log(`${this.cn(o)} can't be countered: Cavern of Souls's mana paid for it`, { kind: 'minor' }); }
     // Boromir, Lavinia, Vexing Bauble: a spell cast without spending mana is countered
     if (!spent && !item.uncounterable && !o.fx.uncounterable) {
       const watcher = this.alive().flatMap(q => q.battlefield.filter(s => s.fx.freeCounter && (s.fx.freeCounter === 'any' || q !== p)))[0];
@@ -1035,7 +1099,9 @@ export class Game {
       // Rebound (702.88): cast from hand, it's exiled and cast again at the next upkeep
       if (o.zone === 'stack' && (o.fx.rebound || o.reboundGrant) && fromHand && !mode.alt) {
         o.reboundGrant = false; this.move(o, 'exile'); (p.rebounds ||= []).push(o); this.log(`${this.cn(o)} is exiled with rebound`, { kind: 'minor', rule: '702.88a' }); }
-      if (o.zone === 'stack') { if (o.spellCopy) cease(); else this.move(o, gone); }
+      // (rules 13) "Exile Teferi's Protection": a spell that exiles itself goes to exile as it finishes resolving
+      const selfExile = this.rules >= 13 && effects.some(e => e.k === 'exileSelf') && gone === 'graveyard';
+      if (o.zone === 'stack') { if (o.spellCopy) cease(); else this.move(o, selfExile ? 'exile' : gone); }
     }
     await this.sba();
     return true;
@@ -1534,7 +1600,8 @@ export class Game {
   canPayCosts(p, o, c, spell = null) {
     if (!c) return true;
     const pool = this.costPools(p, o, c, spell);
-    if (c.life && p.life <= c.life) return false;
+    // (rules 13: a player whose life total can't change can't pay life, 119.8)
+    if (c.life && (p.life <= c.life || (this.rules >= 13 && p.lifeLock))) return false;
     if (c.discard && pool.discard.length < c.discard.n) return false;
     if (c.sac && pool.sac.length < c.sac.n) return false;
     if (c.exileGy && pool.exileGy.length < c.exileGy) return false;
@@ -2509,6 +2576,9 @@ export class Game {
     }
     await this.politics(p);
     this.setPhase('untap');
+    // (rules 13) "Until your next turn" ends as it begins (Teferi's Protection); phased-out permanents phase in before
+    // anything untaps (502.1)
+    if (this.rules >= 13) { p.lifeLock = false; this.phaseIn(p); }
     // Intruder Alarm, Meekstone, Winter Orb, Winter Moon: what can't untap (or only one land)
     const locks = this.alive().flatMap(q => q.battlefield.filter(s => s.fx.untapLock && !(s.fx.untapLock.whileUntapped && s.tapped)).map(s => s.fx.untapLock));
     const landLock = locks.find(l => l.what === 'land');
@@ -2547,6 +2617,8 @@ export class Game {
     await this.upkeepCosts(p);
     for (const o of p.battlefield) this.trigger(o, 'upkeep');
     this.fire('upkeep', { p: p.idx });
+    // (rules 13) "At the beginning of the next turn's upkeep" (Arcane Denial)
+    if (this.rules >= 13) this.fireLater('upkeep', p);
     if (this.initiative != null && this.players[this.initiative]?.lost) await this.takeInitiative(p);
     else if (this.initiative === p.idx) await this.venture(p, true);
     if (this.kingdoms) K.upkeep(this, p);
@@ -2570,6 +2642,7 @@ export class Game {
     if (this.over || p.lost) return;
     this.setPhase('main1');
     this.fire('main1', { p: p.idx });
+    if (this.rules >= 13) this.fireLater('main', p);
     // Sagas get a lore counter after the draw step
     for (const o of p.battlefield.filter(x => x.fx.saga)) { o.lore++; this.chapter(o); }
     await this.sba();
@@ -2588,6 +2661,7 @@ export class Game {
     if (this.over || p.lost) return;
     this.setPhase('main2');
     this.fire('main2', { p: p.idx });
+    if (this.rules >= 13) this.fireLater('main', p);
     await this.sba();
     if (this.over || p.lost) return;
     await p.agent.mainPhase(this, p, 'main2');
@@ -2597,6 +2671,7 @@ export class Game {
       await this.combat(p);
       if (this.over || p.lost) return;
       this.setPhase('main2');
+      if (this.rules >= 13) { this.fireLater('main', p); await this.sba(); if (this.over || p.lost) return; }
       await p.agent.mainPhase(this, p, 'main2');
     }
     if (this.over || p.lost) return;

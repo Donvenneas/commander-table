@@ -1,5 +1,5 @@
 // Golden games (item 173): AI games over the four built-in cEDH decks with fixed seeds, played under each rules
-// version a replay can carry (rules 4 before round 5, rules 5 for 1.18–1.19, rules 6 for 1.20, rules 7 for 1.21, rules 8 for 1.22, rules 9 for 1.23–1.24, rules 10 for 1.25, rules 11 for 1.26, rules 12 now). Each game's result and a hash
+// version a replay can carry (rules 4 before round 5, rules 5 for 1.18–1.19, rules 6 for 1.20, rules 7 for 1.21, rules 8 for 1.22, rules 9 for 1.23–1.24, rules 10 for 1.25, rules 11 for 1.26, rules 12 for 1.27, rules 13 now). Each game's result and a hash
 // of its whole log are kept in tests/golden-games.json. A change that alters how any of them plays fails here, so
 // changes to old replays are caught and a new rules version is made on purpose.
 //   node tests/golden.mjs            compare (exit 1 on any difference)
@@ -53,7 +53,7 @@ const decks = lists.map(l => {
 
 const styles = ['cedh', 'combo', 'balanced', 'aggressive', 'defensive'];
 const results = {};
-for (const rules of [4, 5, 6, 7, 8, 9, 10, 11, RULES]) {
+for (const rules of [4, 5, 6, 7, 8, 9, 10, 11, 12, RULES]) {
   for (let i = 0; i < 6; i++) {
     const seed = 50000 + i;
     const g = new Game([0, 1, 2, 3].map(k => {

@@ -7,8 +7,18 @@ import { parseCost, COLORS } from './engine.js';
 export function sources(g, p, exclude) {
   return p.battlefield.filter(o => o !== exclude && !o.tapped && o.fx.mana && g.canTapNow(p, o)
     && (!o.fx.mana.gate || g.gateOk(o, o.fx.mana.gate)) && (o.fx.type.land || !g.abilityLocked(p, o))
-    && g.spendOk(o.fx.mana.only));
+    && g.spendOk(o.fx.mana.only) && landsOk(g, p, o));
 }
+// (rules 13) Temple of the False God: "Activate only if you control five or more lands" (the Temple counts: it is a
+// land you control)
+const landsOk = (g, p, o) => !(g.rules >= 13 && o.fx.mana.landsAtLeast) || p.battlefield.filter(x => x.fx.type.land).length >= o.fx.mana.landsAtLeast;
+// (rules 13) Cavern of Souls: its "one mana of any color" can only pay for a creature spell of the chosen type, and
+// that spell then can't be countered (Game.cast: unit.cavern). For anything else it taps for {C}.
+const cavernSpell = (g, s) => {
+  const f = g.payingFor;
+  const o = f && !f.ability && !f.all ? f.o : null;
+  return !!o && o.fx.type.creature && !!s.chosenType && (o.fx.subtypes.includes(s.chosenType) || o.fx.kw.has('changeling'));
+};
 // A creature can use {T} abilities (mana included) once it's been under your control since your turn began,
 // or with haste, or with Shang-Chi / Thousand-Year Elixir-style "as though it had haste"
 /** @param {import('./engine.js').Game} g */
@@ -61,7 +71,10 @@ export function units(g, p, exclude) {
     // Blood Moon: nonbasic lands only make {R}
     const moon = s.fx.type.land && !s.fx.type.basic && g.alive().some(q => q.battlefield.some(o => o.fx.bloodMoon));
     const colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : s.fx.mana.colors;
-    for (let i = 0; i < n; i++) u.push({ src: s, colors, land: s.fx.type.land, only: s.fx.mana.only });
+    // (rules 13) Cavern of Souls: any color (and can't-be-countered) for a creature spell of the chosen type, else {C}
+    // (under Blood Moon it is a Mountain, which makes {R})
+    const cav = g.rules >= 13 && s.fx.mana.cavern && !moon, cavOk = cav && cavernSpell(g, s);
+    for (let i = 0; i < n; i++) u.push({ src: s, colors: cav ? (cavOk ? [...COLORS, 'C'] : ['C']) : colors, land: s.fx.type.land, only: s.fx.mana.only, ...(cavOk ? { cavern: true } : {}) });
     // Utopia Sprawl, Wild Growth on this land
     if (s.fx.type.land) for (const a of g.attachments(s)) if (a.fx.auraMana) u.push({ src: s, colors: a.fx.auraMana === '*' ? COLORS : [a.fx.auraMana], land: true });
     // Abundant Growth: the enchanted land taps for any color
@@ -151,7 +164,8 @@ export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null,
 }
 // How many Phyrexian symbols p can pay with life: 2 life each, never going below 1 life (Phase 2D's rule; the
 // Comprehensive Rules (119.4) would let a player pay down to 0)
-export const lifeSymbolsMax = p => Math.max(0, Math.floor(((p.life || 0) - 1) / 2));
+// (rules 13: none while the player's life total can't change, 119.8; lifeLock is only ever set from rules 13)
+export const lifeSymbolsMax = p => (p.lifeLock ? 0 : Math.max(0, Math.floor(((p.life || 0) - 1) / 2)));
 // (rules 12) A cost with Phyrexian ({B/P}: its color or 2 life) or two-brid ({2/W}: its color or {2}) symbols. Every way
 // of paying is checked before anything is paid; the plan says how much life (plan.life) goes with the mana.
 //   g.payLife: how many Phyrexian symbols the payer chose to pay with life (Game.choosePhyrexian); unset, as few as

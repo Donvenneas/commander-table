@@ -350,6 +350,20 @@ Each combo has a status, shown in the deck viewer:
 
 The AI only goes for supported combos.
 
+**Six popular cards read in full** (from version 1.28.0):
+- **Teferi's Protection:** your life total can't change and you have protection from everything until your next turn. Nothing can target you and damage to you is prevented. All your permanents phase out: they're treated as though they don't exist, but they keep their counters, attachments and tapped state, and nothing leaves the battlefield or triggers. They phase back in at your next untap step, before untapping, with no enter triggers. The card then exiles itself.
+- **Mana Drain:** counters the spell. At the beginning of your next main phase, a trigger adds {C} equal to that spell's mana value, not before.
+- **Arcane Denial:** counters the spell. At the beginning of the next turn's upkeep, its controller may draw up to two cards and you draw one.
+- **Chaos Warp:** the owner shuffles the permanent into their library and reveals the top card. A permanent card enters the battlefield, with its enter abilities. (Before, it exiled.)
+- **Cavern of Souls:** its colored mana only pays for a creature spell of the chosen type, and that spell can't be countered. For anything else, or when tapped by hand, it makes {C}.
+- **Temple of the False God:** makes mana only while you control five or more lands (counting the Temple).
+
+These use two new parts of the engine:
+- **Delayed triggers** ("at the beginning of the next upkeep", "of your next main phase"): they go on the stack like any trigger.
+- **Phasing.**
+
+Replays saved before 1.28.0 keep the old readings.
+
 **Long and endless loops:** when the same few triggers keep repeating, the game watches what each repetition changes (life, poison, cards in each zone, permanents, tokens, counters, damage, mana, waiting triggers):
 - **It ends by itself** (someone's life, library or permanents run down, or poison builds up): it keeps going, at full speed, until it does. Exquisite Blood with Sanguine Bond drains each opponent in turn.
 - **It never ends and every trigger is mandatory** (a token every time, life gained every time, the same board again and again): the game is a draw (rule 104.4b). Each opponent still gets priority on every trigger first.

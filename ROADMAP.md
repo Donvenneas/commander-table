@@ -669,6 +669,26 @@ on top of the ones above:
     open: two-brid and hybrid choices are automatic (people steer them by tapping sources first); paying life can't
     be used down to exactly 0; Compleated planeswalkers don't enter with fewer loyalty counters when life is paid;
     "can't pay life" effects aren't modelled; snow {S} is still read as generic.
+- [x] 193. Card coverage audit and six popular cards (asked 2026-11-13, Phase 2E of the engine audit): a coverage
+  report for the 3,500 most-played cards, and Teferi's Protection, Mana Drain, Arcane Denial, Chaos Warp, Cavern of
+  Souls and Temple of the False God read and played in full.
+  - Done (rules 13, version 1.28.0; rules 4–12 golden games unchanged): tests/coverage.mjs reads the snapshot (Scryfall,
+    Commander-legal paper cards in EDHREC order) and checks every effect the reader produces against the engine's
+    handlers: 2,787 full, 446 partial, 106 with an unread restriction (stronger than printed), 10 with a field no module
+    reads (hideaway, escalate, strive, copyPlus, abundance), 151 not read; report in tests/card-coverage.md. Shared
+    pieces: delayed triggered abilities (Game.later, addLater, fireLater at the beginning of upkeep and of main
+    phases, queued as real triggers), phasing (Game.phaseOut/phaseIn: off the battlefield lists in zone 'phased', no
+    zone change or triggers, attachments go along, removed from combat, back at the controller's untap step before
+    untapping), "your life total can't change" (Player.lifeLock: undone in Game.emit, no triggers, no life payments),
+    protection from everything stops targeting the player (validTarget; the AI picks another opponent). Readings:
+    fx.spell13 (used from rules 13, so older games and their AI values keep fx.spell), fx.mana.landsAtLeast,
+    fx.mana.cavern. Chaos Warp exiled before (wrong at every version; replays keep it); Arcane Denial's caster drew at
+    once; Cavern made unrestricted colored mana; Temple had no condition; a spell that exiles itself went to the
+    graveyard. Tests: interactions 171 (16 new), cards 6 changed (only these six), golden 60, all other suites; 60 AI
+    games at rules 13: 0 errors, 0 broken rules, Mana Drain mana and Teferi's Protection phasing used. Still open:
+    Cavern tapped by hand makes {C}; "up to" draws are asked of people, the AI takes all; phased-out permanents aren't
+    shown on the table; next batch proposed in the Phase 2E report (Path of Ancestry, channel cost reductions,
+    restricted mana lands, Mox Opal, Mox Diamond, Animate Dead, Sylvan Library, Force of Negation).
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
