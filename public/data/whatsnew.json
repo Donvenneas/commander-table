@@ -1,5 +1,5 @@
 {
- "version": "1.29.0",
+ "version": "1.30.0",
  "round": "Round 5",
  "items": [
   {
@@ -139,6 +139,12 @@
    "section": "Rules engine and card coverage",
    "title": "Replacement effects (asked 2026-11-13, Phase 2F of the engine audit): one framework for \"instead\", \"enters tapped\", prevention and token replacements, with rule 616 ordering.",
    "done": "replacements.js holds the replacement effects for each event kind, read from the cards in play: move (Rest in Peace, Leyline of the Void, Dauthi Voidwalker, gyExileTurn, unearth, Blightsteel, God-Eternals), draw (Alhammarret's Archive, Noti"
+  },
+  {
+   "n": 195,
+   "section": "Rules engine and card coverage",
+   "title": "The stack and priority (asked 2026-11-13, Phase 2G of the engine audit): stack objects with their own identity, priority until every player passes in succession, simultaneous triggers on the stack together, targets checked while casting, and the \"responses stop after eight\" limit removed.",
+   "done": "the limit was the loop in Game.priority (`actions < 8`): after eight responses to one object it resolved even if players still wanted to respond, and after each response priority restarted with the player after the caster."
   },
   {
    "n": 101,

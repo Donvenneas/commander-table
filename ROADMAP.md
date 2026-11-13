@@ -705,6 +705,27 @@ on top of the ones above:
     30 replacement events. Still open: people aren't asked on sync events, dredge isn't offered to people,
     redirection and next-time shields, damage to creatures, counters, life gain and destroy replacements
     (regeneration, umbra armor) still use the old inline order.
+- [x] 195. The stack and priority (asked 2026-11-13, Phase 2G of the engine audit): stack objects with their own
+  identity, priority until every player passes in succession, simultaneous triggers on the stack together, targets
+  checked while casting, and the "responses stop after eight" limit removed.
+  - Done (rules 15, version 1.30.0; rules 4–14 golden games unchanged): the limit was the loop in Game.priority
+    (`actions < 8`): after eight responses to one object it resolved even if players still wanted to respond, and
+    after each response priority restarted with the player after the caster. stack.js priority15: the controller first
+    (117.3c), then turn order; a new object resets the passes and, once it has resolved, the active player gets
+    priority (117.3b); the object resolves when every player still in the game has passed in a row (117.4). Safeguards
+    in place of the cap: the same response repeated 30 times to one object counts as a pass, 200 responses to one object
+    is reported as an engine fault, the page gets a moment every 16. Stack objects (stamp, every rules version): sid,
+    kind, controller, srcIid, name, status, frozen announced targets/X/modes, paid. Triggers (triggers.js
+    flushTriggers15): all waiting triggers go on the stack at once in APNAP order with targets and modes chosen then
+    (603.3d), then resolve one at a time from the top, new ones above the rest; the loop watcher sees each before it
+    resolves and counts the ones waiting on the stack. putAbility/resolveAbility split stackAbility; an ability's
+    resolution is followed by state-based actions and triggers before priority (117.5). Casting (601.2c) and activating
+    (602.2b: targets now chosen before costs) refuse illegal or missing targets before anything is paid. People with
+    full control are asked about their own spells. Stack panel: spell/ability/trigger, "resolves next", priority
+    holder and passes. Tests: stack 22 (new), golden 72, all other suites; 60 AI games at rules 15: 0 errors, 0 broken
+    rules, stack up to 12 objects, 343 trigger batches. Still open: empty-stack priority is the existing windows
+    (main phases, combat, end of turn, stops for people), not a pass round in every step; Walking Ballista pings and
+    sacrifice-outlet responses still resolve at once instead of using the stack; split second only stops responses.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

@@ -524,13 +524,19 @@ export class TableView {
     const g = this.g;
     const items = [...g.stack].reverse();
     const waiting = g.queue?.length || 0;
+    // (Phase 2G) each object says whether it's a spell, an activated ability or a triggered ability; the top one is
+    // marked as resolving next; the footer says who has priority and how many have passed in a row (rules 15)
+    const KIND = { spell: 'Spell', ability: 'Ability', trigger: 'Trigger' };
+    const pr = g.prio && g.players[g.prio.holder];
+    const prioLine = pr && items.length ? `<div class="sp-prio">Priority: <b style="color:${pr.color}">${esc(pr.name)}</b>${g.prio.passes ? ` · ${g.prio.passes} passed` : ''}</div>` : '';
     const html = !items.length && !waiting ? '' : `<div class="sp-head">Stack · ${items.length}<span>resolves top first</span></div>
       ${items.map((it, i) => {
         const tg = (it.targets || []).filter(Boolean).map(t => g.tname(t)).filter(Boolean);
+        const kind = KIND[it.kind] || (it.ability ? 'Ability' : 'Spell');
         return `<div class="sp-item ${it.countered ? 'countered' : ''}" style="--pc:${it.p.color}" data-iid="${it.o.iid}">
           <span class="sp-n">${i + 1}</span><span class="sp-text"><b>${esc(it.o.card.name)}</b>${it.ability ? ` <i>${esc(String(it.label || 'ability').slice(0, 40))}</i>` : ''}
-          <small>${esc(it.p.name)}${tg.length ? ` → ${tg.map(t => { const d = document.createElement('div'); d.innerHTML = t; return esc(d.textContent); }).join(', ')}` : ''}${it.countered ? ' · countered' : ''}</small></span></div>`;
-      }).join('')}${waiting ? `<div class="sp-wait">${waiting} trigger${waiting === 1 ? '' : 's'} waiting to go on the stack</div>` : ''}`;
+          <small><span class="sp-kind">${kind}</span> · ${esc(it.p.name)}${tg.length ? ` → ${tg.map(t => { const d = document.createElement('div'); d.innerHTML = t; return esc(d.textContent); }).join(', ')}` : ''}${it.countered ? ' · countered' : i === 0 ? ' · resolves next' : ''}</small></span></div>`;
+      }).join('')}${prioLine}${waiting ? `<div class="sp-wait">${waiting} trigger${waiting === 1 ? '' : 's'} waiting to go on the stack</div>` : ''}`;
     if (this.stackPanel.dataset.v === html) return;
     this.stackPanel.dataset.v = html;
     this.stackPanel.innerHTML = html;

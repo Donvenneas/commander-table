@@ -526,5 +526,53 @@
   "lines": 388,
   "errors": 0,
   "log": "0abe7116966a76bf"
+ },
+ "rules 15 · seed 50000": {
+  "winner": "P4",
+  "round": 8,
+  "steps": 460,
+  "lines": 600,
+  "errors": 0,
+  "log": "36c5ad6a592f2f7a"
+ },
+ "rules 15 · seed 50001": {
+  "winner": "P3",
+  "round": 7,
+  "steps": 311,
+  "lines": 356,
+  "errors": 0,
+  "log": "86f7d8e71f9ab4b1"
+ },
+ "rules 15 · seed 50002": {
+  "winner": "P2",
+  "round": 11,
+  "steps": 412,
+  "lines": 482,
+  "errors": 0,
+  "log": "dc2a5ef06440740b"
+ },
+ "rules 15 · seed 50003": {
+  "winner": "P4",
+  "round": 14,
+  "steps": 507,
+  "lines": 670,
+  "errors": 0,
+  "log": "47ed8f988b765a99"
+ },
+ "rules 15 · seed 50004": {
+  "winner": "P4",
+  "round": 15,
+  "steps": 584,
+  "lines": 764,
+  "errors": 0,
+  "log": "222b7014dec5d45f"
+ },
+ "rules 15 · seed 50005": {
+  "winner": "P3",
+  "round": 11,
+  "steps": 338,
+  "lines": 388,
+  "errors": 0,
+  "log": "358abc102020b250"
  }
 }

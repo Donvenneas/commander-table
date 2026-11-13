@@ -220,11 +220,16 @@ await test('8. Two players\' triggers on the same event resolve in APNAP order (
   g.active = 0;
   put(g, 0, fake('Alpha Watcher', 'Whenever a creature enters, you gain 1 life.'));
   put(g, 1, fake('Beta Watcher', 'Whenever a creature enters, you gain 1 life.'));
+  const gains = [];
+  g.on('life', d => { if (d.d > 0) gains.push(d.p); });
   await start(g, 0);
   const lines = logText(g).split('\n');
   const a = lines.findIndex(l => l.startsWith('Alpha Watcher —')), b = lines.findIndex(l => l.startsWith('Beta Watcher —'));
   ok(a >= 0 && b >= 0, 'both triggered');
-  ok(b < a, `Beta (non-active) resolves first: lines ${b} and ${a}`);
+  eq(gains.slice(0, 2), [1, 0], 'Beta (non-active) resolves first');
+  // (rules 15: both go on the stack together, the active player's first, at the bottom; before, each was put on the
+  // stack when the one before it had resolved, so the lines came in resolution order)
+  ok(g.rules >= 15 ? a < b : b < a, `put on the stack in APNAP order: lines ${a} and ${b}`);
   eq([P(g, 0).life, P(g, 1).life], [41, 41], 'life totals');
   noErrors(g);
 });

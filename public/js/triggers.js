@@ -6,6 +6,7 @@ import { analyzeCard, needsTarget, needsTargetIn, condText } from './effects.js'
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng, yieldTick } from './util.js';
 import { loopWatch, loopEnded, backstop, preferredFirst } from './loops.js';
+import { stamp } from './stack.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 
@@ -33,8 +34,86 @@ export async function flushTriggers(g) {
 // changes nothing in the game)
 const YIELD_EVERY = 64;
 let resolvedTriggers = 0;
+// Triggers that have just triggered, in APNAP order (603.3b): see flushTriggers0
+/** @param {import('./engine.js').Game} g */
+function sortFresh(g) {
+  const fresh = g.queue.filter(x => !x.queued);
+  if (!fresh.length) return;
+  const n = g.players.length, a = g.active;
+  const d = x => (x.p.idx - a + n) % n;
+  fresh.sort((x, y) => d(y) - d(x));
+  if (g.rules >= 10 && g.loop10?.order.size) fresh.sort((x, y) => d(y) - d(x) || +preferredFirst(g, y) - +preferredFirst(g, x));
+  for (const x of fresh) x.queued = true;
+  g.queue.splice(0, g.queue.length, ...fresh, ...g.queue.filter(x => !fresh.includes(x)));
+}
+// (rules 15, Phase 2G) All the triggers waiting at once go on the stack together (603.3b): the active player's first,
+// then each other player's in turn order, so the last player's are on top and resolve first; each player orders their
+// own (a person is asked). Targets and modes are chosen as each goes on the stack (603.3d), and they are all real
+// objects there: players can respond to the top one with the others under it, and a Stifle can target any of them.
+// They then resolve one at a time from the top, each with its own round of priority; a trigger that triggers while
+// one resolves goes on the stack above the rest before the next resolves. The loop watcher (rules 10) still sees each
+// trigger just before it resolves.
+/** @param {import('./engine.js').Game} g */
+async function flushTriggers15(g) {
+  while (g.queue.length && !g.over) {
+    sortFresh(g);
+    // each player's own group of simultaneous triggers: a person orders theirs
+    for (let i = 0; i < g.queue.length;) {
+      const head = g.queue[i];
+      let n = i;
+      while (n < g.queue.length && g.queue[n].p === head.p) n++;
+      if (!head.ordered && head.p.agent.orderTriggersAsync && !head.p.lost) {
+        const group = g.queue.slice(i, n);
+        group.forEach(x => { x.ordered = true; });
+        if (group.length > 1 && group.length <= 8) {
+          const order = await head.p.agent.orderTriggersAsync(g, head.p, group);
+          if (order?.length === group.length) g.queue.splice(i, group.length, ...order);
+        }
+      }
+      i = n;
+    }
+    // (the queue is in resolution order: the last of it goes on the stack first)
+    const batch = g.queue.splice(0);
+    /** @type {any[]} */
+    const items = [];
+    for (const t of [...batch].reverse()) {
+      const { o, kind, p } = t;
+      if (p.lost || g.over) continue;
+      const label = t.label || { etb: 'enters', attack: 'attack trigger', upkeep: 'upkeep trigger', endstep: 'end step trigger', dies: 'dies trigger', cast: 'cast trigger', saga: 'chapter' }[kind];
+      const effects = kind === 'etb' && o.fx.etbModes ? p.agent.chooseModes(g, p, o, o.fx.etbModes) : t.effects || o.fx[kind];
+      // Panharmonicon, Yarok: the ability triggers additional times (the extra ones resolve after the first)
+      for (let k = g.extraTriggers(t); k > 0 && !g.over && !p.lost; k--) {
+        const it = await g.putAbility(p, o, kind === 'etb' && o.fx.etbModes ? p.agent.chooseModes(g, p, o, o.fx.etbModes) : effects, `${label} (again)`, 'trigger', t.trig);
+        if (it) { it.t = t; it.pending = true; items.push(it); }
+      }
+      const it = await g.putAbility(p, o, effects, label, 'trigger', t.trig);
+      if (it) { it.t = t; it.pending = true; items.push(it); }
+      if (t.saga && !it) o.chapterPending = false;
+    }
+    const drop = () => { for (const it of items) { const i = g.stack.indexOf(it); if (i >= 0) { g.stack.splice(i, 1); it.status = 'removed'; } } };
+    for (let i = items.length - 1; i >= 0 && !g.over; i--) {
+      const it = items[i];
+      // (triggers that came up meanwhile go on top and resolve first)
+      if (g.queue.length) await flushTriggers15(g);
+      if (g.over) break;
+      if (!g.stack.includes(it)) continue;
+      if (g.trigCount.turn !== g.turn) g.trigCount = { turn: g.turn, n: 0 };
+      if (++resolvedTriggers % YIELD_EVERY === 0) await yieldTick();
+      if (g.over) break;
+      const r = await loopWatch(g, it.t);
+      if (r === 'stop') { drop(); return; }
+      if (r === 'skip') { g.stack.splice(g.stack.indexOf(it), 1); it.status = 'removed'; it.pending = false; if (it.t.saga) it.t.o.chapterPending = false; continue; }
+      if (++g.trigCount.n > (g.trigCount.limit || LOOP_BACKSTOP) && (await backstop(g, LOOP_BACKSTOP)) === 'stop') { drop(); return; }
+      it.pending = false;
+      await g.resolveAbility(it);
+      if (it.t.saga) it.t.o.chapterPending = false;
+    }
+    if (g.over) drop();
+  }
+}
 /** @param {import('./engine.js').Game} g */
 async function flushTriggers0(g) {
+  if (g.rules >= 15) return flushTriggers15(g);
   while (g.queue.length && !g.over) {
     // Triggers that have just triggered go on the stack in APNAP order (603.3b): the active player's first, then
     // each other player's in turn order, so the last player's resolve first. They sit above any triggers still
@@ -367,34 +446,56 @@ export function evalCond(g, p, src, c, ctx = {}) {
 
 // Triggered and activated abilities use the stack too: targets are chosen as the ability is put
 // on the stack, every player gets priority, and an ability whose targets are all gone does nothing
-/** @param {import('./engine.js').Game} g */
-export async function stackAbility(g, p, src, effects, label, kind = 'ability', trig = null, x = 0) {
-  if (!effects?.length) return;
+/** @param {import('./engine.js').Game} g @param {any} [trig] @param {any[] | null} [pre] */
+export async function stackAbility(g, p, src, effects, label, kind = 'ability', trig = null, x = 0, pre = null) {
+  const item = await putAbility(g, p, src, effects, label, kind, trig, x, pre);
+  if (item) await resolveAbility(g, item);
+}
+// Put an ability on the stack: targets (pre: already chosen, 602.2b at rules 15), ward, the stack object. Returns it,
+// or null (nothing to do, or countered by ward).
+/** @param {import('./engine.js').Game} g @param {any} [trig] @param {any[] | null} [pre] */
+export async function putAbility(g, p, src, effects, label, kind = 'ability', trig = null, x = 0, pre = null) {
+  if (!effects?.length) return null;
   // (a human player is asked; the AI answers straight away)
   const targets = [];
-  // (the X already paid, for players choosing targets for "X damage")
-  g.xNow = x || null;
-  try {
-    for (const e of effects) targets.push(needsTargetIn(e, g.rules) ? await (p.agent.chooseTargetAsync?.(g, p, e, src) ?? p.agent.chooseTarget(g, p, e, src)) : null);
-  } finally { g.xNow = null; }
-  if (!g.payWard(p, targets, src)) return;
+  if (pre) targets.push(...pre);
+  else {
+    // (the X already paid, for players choosing targets for "X damage")
+    g.xNow = x || null;
+    try {
+      for (const e of effects) targets.push(needsTargetIn(e, g.rules) ? await (p.agent.chooseTargetAsync?.(g, p, e, src) ?? p.agent.chooseTarget(g, p, e, src)) : null);
+    } finally { g.xNow = null; }
+  }
+  if (!g.payWard(p, targets, src)) return null;
   for (const t of targets) if (t?.obj) g.fire('targeted', { o: t.obj, p: p.idx });
   g.noteCrime(p, targets);
-  const item = { o: src, p, x, targets, effects, ability: true, label, countered: false, kind, trig };
+  const item = stamp(g, { o: src, p, x, targets, effects, ability: true, label, countered: false, kind, trig }, kind, { x });
 
   g.stack.push(item);
   const tgtText = targets.filter(Boolean).map(t => g.tname(t)).join(', ');
   g.log(`${g.cn(src)} — ${esc(label)}${tgtText ? ` targeting ${tgtText}` : ''}`, { kind: kind === 'trigger' ? 'trigger' : 'minor', rule: kind === 'trigger' ? '603.3' : null });
   await g.beat(0.5);
+  return item;
+}
+// Priority for an ability on the stack, then it resolves (or not: countered, or every target gone, 608.2b)
+/** @param {import('./engine.js').Game} g */
+export async function resolveAbility(g, item) {
+  const { o: src, p, x, targets, effects, trig } = item;
   await g.priority(item);
-  g.stack.splice(g.stack.indexOf(item), 1);
-  if (item.countered) return;
+  const at = g.stack.indexOf(item);
+  if (at >= 0 || g.rules < 15) g.stack.splice(at, 1);
+  if (item.countered) { item.status = 'countered'; return; }
   const chosen = targets.filter(Boolean);
   if (chosen.length && chosen.every(t => !g.validTarget(t, p))) {
+    item.status = 'fizzled';
     g.log(`${g.cn(src)}'s ability does nothing: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
     return;
   }
+  item.status = 'resolving';
   await g.runEffects(p, src, effects, { targets, strict: true, trig, x });
+  item.status = 'resolved';
+  // (rules 15) state-based actions and the triggers waiting are done before anyone gets priority again (117.5)
+  if (g.rules >= 15 && !g.over) await g.sba();
 }
 /** @param {import('./engine.js').Game} g */
 export function sbaPass(g) {

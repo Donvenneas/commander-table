@@ -780,7 +780,9 @@ export class HumanAgent extends Agent {
     return true;
   }
   async respond(g, q, item) {
-    if (item.p === q) return null;
+    // (rules 15: the caster gets priority first, 117.3c; a person is asked about their own spell or ability only with
+    // full control on, so other games don't get an extra prompt each time they cast)
+    if (item.p === q && !(g.rules >= 15 && this.full)) return null;
     if (this.skipping(g, q, item)) return null;
     const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o));
     const what = item.ability ? `${esc(item.o.card.name)}'s ability` : esc(item.o.card.name);

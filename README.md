@@ -323,7 +323,7 @@ In a seat's style menu, choose **You play this seat**. Your hand is shown face u
 **Undo** (or the U key) takes back your last decision: the game is rebuilt from its seed with your earlier answers replayed.
 
 **Stops** (⏸ Stops in the top bar) sets where the game stops for the seats you play:
-- **Full control:** stop at every priority point, even when you have nothing to play.
+- **Full control:** stop at every priority point, even when you have nothing to play (from 1.30.0 also for your own spells and abilities).
 - **Steps to stop at:** upkeep, draw step, beginning of combat and end step, on your turn and on opponents' turns. Each stop shows a Pass button, plus any instants and abilities you could use.
 - **Trigger order:** when several of your triggers happen at once, you choose which resolves first (or **Order them for me**). Untick it to let them resolve in the order they happened.
 - Changes apply from the next game; a game keeps the stops it started with, and saved replays remember them.
@@ -381,6 +381,17 @@ The rules for these:
 Three of these happen in the middle of other rules (a card changing zones, a draw, damage), so the game can't stop to ask you there. For those it uses the order that's best for you and writes it in the log.
 
 Cards whose replacement text isn't read yet are named in the log once a game when they enter, and nothing is approximated. This covers damage redirection (Pariah, Ram Through) and "the next time" shields (Deflecting Palm). Replays saved before 1.29.0 keep the old behaviour.
+
+**The stack and priority** (from version 1.30.0):
+- **No limit on responses.** Players can keep responding to a spell or ability, and to each other's responses, until everyone passes in a row. Before, responses to one spell stopped after eight, and the spell then resolved.
+- **Who gets priority:** the player who cast the spell or activated the ability first, then each player in turn order. After something resolves, the active player gets priority first, once dead creatures are gone and new triggers are on the stack.
+- **Triggers that happen together** all go on the stack at once. The active player's go on first, so the other players' resolve first, and each player puts their own in the order they choose. Targets are chosen as each one goes on the stack, and you can respond to them (or Stifle one) while they wait.
+- **Targets are checked while casting.** A spell or ability can't be cast or activated with an illegal target, or without a target it needs, and nothing is paid. Targets are checked again as it resolves: if none is still legal, it does nothing.
+- **Abilities stay on the stack** even if their source leaves the battlefield. Mana abilities don't use the stack.
+- **The stack panel** shows each object as a spell, ability or trigger, marks the one that resolves next, and shows who has priority.
+- **Responding to your own spell:** with **Full control** on, you're also asked whether to respond to your own spell or ability.
+
+Replays saved before 1.30.0 keep the old priority rules.
 
 **Long and endless loops:** when the same few triggers keep repeating, the game watches what each repetition changes (life, poison, cards in each zone, permanents, tokens, counters, damage, mana, waiting triggers):
 - **It ends by itself** (someone's life, library or permanents run down, or poison builds up): it keeps going, at full speed, until it does. Exquisite Blood with Sanguine Bond drains each opponent in turn.
@@ -665,7 +676,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
   - a **battle preview** after blockers are declared: every attacker against its blockers (or the player it's hitting), with the expected result (who falls, how much damage gets through). It stays until combat damage is dealt; click it to close it sooner
   - **effects**: spells flare from the caster's portrait, clashes spark when combat starts, hits throw sparks, dying creatures leave embers, life gained glows green, combos light up the whole table, and slow motes drift over an arcane, slowly moving backdrop. Boards have glowing edges in each player's color (the active player's breathes), life totals are lit gems that pulse when low, and cards lift and glow on hover. "Fewer animations" in Display turns all of this down.
   - **music**: the Sound switch also plays background music, composed live in the browser (no audio files): a slow, magical theme that swells into war drums and driving strings during combat, then settles back
-  - a **stack panel** on the table while anything is waiting to resolve (newest first, with targets and countered spells)
+  - a **stack panel** on the table while anything is waiting to resolve (newest first, with targets and countered spells; from 1.30.0 also spell, ability or trigger, which resolves next and who has priority)
   - damage numbers float off creatures; draws, discards, deaths and exiles animate to their zones
   - **log filters**: spells, combat, removal, combos, politics and chat, or AI explanations, and one player at a time
   - **History**: every finished game you played or watched, your win rate, and which decks win most

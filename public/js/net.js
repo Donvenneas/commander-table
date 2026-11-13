@@ -268,7 +268,7 @@ export function snapshot(g, seat) {
     // How many times the host has nudged this seat (the friend page beeps when it goes up)
     nudges: g.players[seat]?.agent.ui?.nudges || 0,
     cmdLimit: g.format?.cmdDamage || 21,
-    stack: g.stack.map(it => ({ name: it.o.card.name, img: unproxy(it.o.card.imgNormal || ''), who: it.p.name, color: it.p.color, ability: !!it.ability, label: it.label || '' })),
+    stack: g.stack.map(it => ({ name: it.o.card.name, img: unproxy(it.o.card.imgNormal || ''), who: it.p.name, color: it.p.color, ability: !!it.ability, label: it.label || '', kind: it.kind || (it.ability ? 'ability' : 'spell') })),
     log: g.logEntries.filter(e => e.kind !== 'why').slice(-60).map(e => ({ text: plain(e.html), kind: e.kind, color: e.p != null ? g.players[e.p].color : null })),
     chat: (g.chat || []).slice(-8),
   };

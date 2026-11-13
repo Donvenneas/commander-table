@@ -11,6 +11,7 @@ import * as resolve from './resolve.js';
 import * as triggers from './triggers.js';
 import * as zones from './zones.js';
 import * as comboplay from './comboplay.js';
+import * as S from './stack.js';
 import { formatOf } from './formats.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
@@ -30,7 +31,11 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // replays at 4–12 keep the old readings)
 // (rules 12: Phyrexian symbols can be paid with 2 life and two-brid {2/W} symbols with {2}: mana.js; replays at 4–11
 // pay them with their color, as before)
-export const RULES = 14;
+// (rules 15: the stack and priority, Phase 2G, stack.js: priority goes round until every player passes in succession,
+// with no 8-response cap; the active player gets priority after each resolution; simultaneous triggers all go on the
+// stack in APNAP order with their targets chosen then; targets are checked while casting and activating; replays at
+// 4–14 keep the old loop)
+export const RULES = 15;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -127,6 +132,11 @@ export class Game {
     this.active = 0;
     this.phase = 'setup';
     this.stack = [];
+    /** (Phase 2G) who has priority for which stack object, and how many have passed in succession (stack.js) @type {any} */
+    this.prio = null;
+    this.stackSeq = 0;
+    /** @type {any[] | undefined} */
+    this.stackGaps = undefined;
     this.queue = [];
     this.over = false;
     this.winner = null;
@@ -715,7 +725,11 @@ export class Game {
 
   // Triggered and activated abilities use the stack too: targets are chosen as the ability is put
   // on the stack, every player gets priority, and an ability whose targets are all gone does nothing
-  async stackAbility(p, src, effects, label, kind = 'ability', trig = null, x = 0) { return triggers.stackAbility(this, p, src, effects, label, kind, trig, x); }
+  async stackAbility(p, src, effects, label, kind = 'ability', trig = null, x = 0, pre = null) { return triggers.stackAbility(this, p, src, effects, label, kind, trig, x, pre); }
+  // (Phase 2G) the two halves of stackAbility: put the ability on the stack (targets chosen, ward paid), and later give
+  // priority and resolve it; simultaneous triggers are all put on the stack before the first resolves (rules 15)
+  async putAbility(p, src, effects, label, kind = 'ability', trig = null, x = 0, pre = null) { return triggers.putAbility(this, p, src, effects, label, kind, trig, x, pre); }
+  async resolveAbility(item) { return triggers.resolveAbility(this, item); }
   sbaPass() { return triggers.sbaPass(this); }
   async sba() { return triggers.sba(this); }
   // 903.9a: a commander put into a graveyard or exile since the last check may go to the command zone (its owner's
@@ -910,6 +924,12 @@ export class Game {
     const targets = choice.targets || effects.map(e => (needsTargetIn(e, this.rules) ? p.agent.chooseTarget(this, p, e, o) : null));
     let auraTarget = null;
     if (o.fx.type.aura) { auraTarget = choice.auraTarget || p.agent.chooseAuraTarget(this, p, o); if (!auraTarget) return false; }
+    // (rules 15) 601.2c: targets given by the caster must be legal, and a spell that needs a target can't be cast
+    // without one (before, it was cast and did nothing). Nothing has been paid yet.
+    if (this.rules >= 15 && !choice.combo && !o.fx.type.permanent) {
+      const why = S.targetsBad(this, p, o, effects, targets, !!choice.targets);
+      if (why) { if (choice.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '601.2c' }); return false; }
+    }
     p.casting = o;   // (Lion's Eye Diamond discards the hand, but not the spell it pays for)
     this.commitPayment(p, plan);
     p.casting = null;
@@ -976,7 +996,7 @@ export class Game {
     o.zone = 'stack';
     // (rules 8) A split card's first half is on the stack alone, with its own mana value (709.3b); fused, both (709.4d)
     if (this.rules >= 8 && o.card.frontHalf && mode.alt !== 'fuse') this.useFace(o, o.card.frontHalf);
-    const item = { o, p, x, targets, effects, auraTarget, countered: false, combo: !!choice.combo, response: choice.response || null };
+    const item = S.stamp(this, { o, p, x, targets, effects, auraTarget, countered: false, combo: !!choice.combo, response: choice.response || null }, 'spell', { mana: spent, life: o.fx.lifeCost || 0, x, alt: mode.alt || null });
     // "The next spell you cast this turn can't be countered"
     if (p.uncounterTurn === this.turn) { item.uncounterable = true; p.uncounterTurn = 0; }
     if (cavernPaid) { item.uncounterable = true; this.log(`${this.cn(o)} can't be countered: Cavern of Souls's mana paid for it`, { kind: 'minor' }); }
@@ -1023,6 +1043,7 @@ export class Game {
 
     await this.priority(item);
     this.stack.splice(this.stack.indexOf(item), 1);
+    item.status = item.countered ? 'countered' : 'resolved';
     // A flashback (or jump-start) spell is exiled instead of going anywhere else (702.34a); buyback returns it to hand
     // (Yawgmoth's Will: a card cast from the graveyard this way is exiled instead of returning there)
     const gone = mode.alt === 'flashback' || mode.alt === 'jumpstart' || o.castAftermath || (o.castFrom === 'graveyard' && (p.gyCast?.turn === this.turn || o.gyOnceExile)) ? 'exile' : buyback ? 'hand' : 'graveyard';
@@ -1035,6 +1056,7 @@ export class Game {
     const chosen = targets.filter(Boolean);
     if (!o.fx.type.permanent && chosen.length && chosen.every(t => !this.validTarget(t, p))) {
       this.log(`${this.cn(o)} fizzles: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
+      item.status = 'fizzled';
       if (o.spellCopy) cease(); else this.move(o, gone === 'hand' ? 'graveyard' : gone);
       await this.sba();
       return true;
@@ -1165,6 +1187,8 @@ export class Game {
   // stack above it and gets its own round (so counter wars and "respond to the response" work), and
   // the round starts over after every response until everyone passes in succession.
   async priority(item) {
+    if (item.sid == null) S.stamp(this, item, item.ability ? item.kind || 'ability' : 'spell');
+    if (this.rules >= 15) return S.priority15(this, item);
     const n = this.players.length;
     // Split second (702.61): nobody can cast spells or activate abilities while it's on the stack
     if (!item.ability && item.o.fx.splitSecond) { this.log(`${this.cn(item.o)} has split second: no responses`, { kind: 'minor', rule: '702.61a' }); return; }
@@ -2132,6 +2156,20 @@ export class Game {
       const want = opts.x ?? (p.agent.chooseAbilityXAsync ? await p.agent.chooseAbilityXAsync(this, p, o, ab, max) : p.agent.chooseAbilityX ? p.agent.chooseAbilityX(this, p, o, ab, max) : max);
       x = Math.max(0, Math.min(max, want ?? 0));
     }
+    // (rules 15) 602.2b: targets are chosen before the costs are paid, must be legal, and an ability that needs a
+    // target can't be activated without one (opts.targets: chosen by the caller)
+    let pre = null;
+    const effs0 = (this.rules >= 7 && ab.effects7) || ab.effects || [];
+    if (this.rules >= 15 && effs0.some(e => needsTargetIn(e, this.rules))) {
+      if (opts.targets) pre = opts.targets;
+      else {
+        this.xNow = x || null;
+        pre = [];
+        try { for (const e of effs0) pre.push(needsTargetIn(e, this.rules) ? await (p.agent.chooseTargetAsync?.(this, p, e, o) ?? p.agent.chooseTarget(this, p, e, o)) : null); } finally { this.xNow = null; }
+      }
+      const why = S.targetsBad(this, p, o, effs0, pre, !!opts.targets);
+      if (why) { if (opts.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '602.2b' }); return false; }
+    }
     this.payingFor = { o, ability: true };
     // (rules 12) Phyrexian symbols in an ability's cost (Birthing Pod's {G/P}): the same choice as for spells
     const plan = await this.withPhyrexianChoice(p, o, this.abilityCost(p, o, ab), x * (cost0.x || 0), opts.phyLife, [], ab.tap ? o : null, () => this.planPayment(p, this.abilityCost(p, o, ab), x * (cost0.x || 0), ab.tap ? o : null));
@@ -2155,7 +2193,7 @@ export class Game {
         await this.stackAbility(p, o, this.rules >= 7 ? ab.effects.map(e => (e.k === 'untapSelf' ? { ...e, retap: true } : e)) : ab.effects, `${ab.text || 'ability'} (copy)`, 'ability', null, x);
       }
     }
-    await this.stackAbility(p, o, (this.rules >= 7 && ab.effects7) || ab.effects, ab.text, 'ability', null, x);
+    await this.stackAbility(p, o, effs0, ab.text, 'ability', null, x, pre);
     await this.sba();
     return true;
   }

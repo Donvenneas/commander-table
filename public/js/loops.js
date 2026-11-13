@@ -47,7 +47,7 @@ export function loopState(g) {
       if (o.named) for (const v of Object.values(o.named)) counters += +v || 0;
       damage += o.damage || 0;
     }
-    return [q.lost ? 0 : q.life, q.poison || 0, q.library.length, q.hand.length, q.graveyard.length, q.exile.length, (q.pool || []).length, q.battlefield.length, tokens, counters, damage, g.queue.filter(x => x.p === q).length];
+    return [q.lost ? 0 : q.life, q.poison || 0, q.library.length, q.hand.length, q.graveyard.length, q.exile.length, (q.pool || []).length, q.battlefield.length, tokens, counters, damage, g.queue.filter(x => x.p === q).length + (g.rules >= 15 ? g.stack.filter(it => it.pending && it.p === q).length : 0)];
   });
 }
 const minus = (a, b) => a.map((r, i) => r.map((v, j) => v - b[i][j]));
@@ -214,9 +214,11 @@ export async function loopWatch(g, t) {
   const piling = d.findIndex(r => r[WAITING] > 0);
   if (piling >= 0) {
     const q = g.players[piling];
-    const starved = [...new Set(g.queue.filter(x => x.p === q && !cycKeys.has(trigKey(x))).map(trigKey))];
+    // (rules 15: the triggers waiting are on the stack already, Phase 2G)
+    const waiting = g.rules >= 15 ? [...g.queue, ...g.stack.filter(it => it.pending).map(it => it.t)] : g.queue;
+    const starved = [...new Set(waiting.filter(x => x.p === q && !cycKeys.has(trigKey(x))).map(trigKey))];
     if (starved.length) {
-      const names = [...new Set(g.queue.filter(x => starved.includes(trigKey(x))).map(x => x.o?.card?.name || '?'))].join(', ');
+      const names = [...new Set(waiting.filter(x => starved.includes(trigKey(x))).map(x => x.o?.card?.name || '?'))].join(', ');
       if (q.agent.orderTriggersAsync && q.agent.orderTriggersOn) {
         L.allowUntil = Infinity;
         const e = record(g, L, cls, d, { decision: `It goes on while ${q.name} orders their triggers this way.`, reason: `${q.name}'s triggers from ${names} are piling up under it; putting one of them first when the triggers are ordered lets the loop end` });

@@ -44,6 +44,8 @@ jobs:
         run: node tests/mana.mjs
       - name: Replacement effects (zone changes, draws, prevention, entering, tokens; ordering)
         run: node tests/replacements.mjs
+      - name: Stack and priority (responses, APNAP, targets, counters)
+        run: node tests/stack.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

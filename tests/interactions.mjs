@@ -903,13 +903,19 @@ await test("Mana Drain: an uncounterable spell isn't countered, but the mana sti
   item.uncounterable = true;
   await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
   eq([item.countered, g.later.length], [false, 1], 'not countered, mana still on its way');
-  // (a target that has left the stack: Mana Drain fizzles and sets nothing up)
-  const g2 = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }]);
+  // (a target that has left the stack: Mana Drain fizzles and sets nothing up; rules 14, since from rules 15 a spell
+  // can't be cast at a target that isn't legal at all, 601.2c, checked below)
+  const g2 = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }], { rules: 14 });
   g2.active = 1;
   const fake = { o: find(g2, 1, 'Grizzly Bears', 'hand'), p: P(g2, 1), countered: false, effects: [], targets: [] };
   await g2.cast(P(g2, 0), find(g2, 0, 'Mana Drain', 'hand'), { targets: [{ spell: fake }], response: fake }); await settle(g2);
   eq(g2.later.length, 0, 'no delayed trigger when Mana Drain fizzles');
   ok(lines13(g2).some(l => /Mana Drain fizzles/.test(l)), 'fizzled');
+  const g3 = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }]);
+  g3.active = 1;
+  const gone = { o: find(g3, 1, 'Grizzly Bears', 'hand'), p: P(g3, 1), countered: false, effects: [], targets: [] };
+  eq(await g3.cast(P(g3, 0), find(g3, 0, 'Mana Drain', 'hand'), { targets: [{ spell: gone }], response: gone }), false, 'rules 15: a spell not on the stack is not a legal target');
+  ok(find(g3, 0, 'Mana Drain', 'hand'), 'Mana Drain stays in hand, nothing paid');
 });
 
 // Arcane Denial
