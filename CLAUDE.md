@@ -4,6 +4,7 @@ A Magic: The Gathering table where AI pilots play Commander (and other formats) 
 Plain JavaScript ES modules in the browser, no build step and no npm packages. User docs: `README.md`. Work list and
 history of every feature: `ROADMAP.md` (read its "Rules for every session" and the round you are working on).
 Open fix list from the 1.31.0 audit: `AUDIT-ROADMAP.md` (items 197 to 218; `node tests/audit-probes.mjs` reproduces them).
+Open work list for the look, interface and accessibility: `DESIGN-ROADMAP.md` (items 220 to 380; read its "Rules for every session" first).
 
 ## Layout
 
