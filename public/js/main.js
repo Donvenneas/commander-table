@@ -54,6 +54,7 @@ import { CHAPTERS, storyDone, markChapter, chapterOpen, chapterPuzzle } from './
 import { DIFFICULTY, NODE, runState, stats, startRun, abandonRun, yourDeck, rivalDeck, fightLife, currentChoices, rewardChoices, fightOver, takeReward, eventFor, resolveEvent, actName, MODIFIERS, runCode, parseRunCode } from './campaign.js';
 import { encodeChallenge, decodeChallenge, challengeLink } from './challenge.js';
 import { openBuilder } from './builder.js';
+import { statTiles, curveChart, pipChart, typeChart } from './deckcharts.js';
 import { Tabletop, renderTabletop } from './manual.js';
 import { tableText, dealRoles } from './kingdoms.js';
 import { setsState, checkSets, dailySetCheck, draftableSets } from './sets.js';
@@ -2826,6 +2827,7 @@ $('libraryBody').addEventListener('click', async e => {
   }
 });
 
+const TYPE_KEY = { Lands: 'land', Creatures: 'creature', Planeswalkers: 'planeswalker', Instants: 'instant', Sorceries: 'sorcery', Artifacts: 'artifact', Enchantments: 'enchantment', Other: 'other' };
 function showDeck(s) {
   const d = s.deck;
   if (!d) return;
@@ -2860,11 +2862,20 @@ function showDeck(s) {
   }
   $('deckTitle').textContent = d.deckName;
   $('deckBody').innerHTML = `
+    ${statTiles([
+      { label: 'Cards', value: all.reduce((n, x) => n + x.qty, 0) },
+      { label: 'Lands', value: types.Lands || 0 },
+      { label: 'Avg mana value', value: avg.toFixed(2), title: 'Average mana value of the nonland cards' },
+      { label: 'Combos', value: combos.length, tone: combos.length ? 'gold' : '', title: 'Known combos among these cards' },
+      { label: 'Simulated', value: `${cov.pct}%`, tone: cov.pct >= 90 ? 'good' : cov.pct >= 75 ? '' : 'warn', title: 'How much of the deck the simulator understands' },
+      ...(d.commanders.length ? [{ label: 'Bracket', value: estimateBracket(d).bracket, title: BRACKETS[estimateBracket(d).bracket].name }] : []),
+    ])}
     <div class="deck-stats">
-      <div><h3>Mana curve</h3><div class="curve">${curve.map((n, i) => `<div class="col"><span class="n">${n || ''}</span><div class="bar" style="height:${(n / top) * 90}px"></div><span class="l">${i === 7 ? '7+' : i}</span></div>`).join('')}</div>
-        <p class="muted">Average mana value ${avg.toFixed(2)}</p></div>
-      <div><h3>Color pips</h3>${Object.entries(pips).filter(([, n]) => n).map(([c, n]) => `<div class="pipbar"><span>${symbolize(`{${c}}`)}</span><div style="width:${Math.min(100, n * 2)}%"></div><b>${n}</b></div>`).join('') || '<p class="muted">Colorless</p>'}</div>
-      <div><h3>Card types</h3><ul class="typelist">${Object.entries(types).sort((a, b) => b[1] - a[1]).map(([k, n]) => `<li><span>${k}</span><b>${n}</b></li>`).join('')}</ul></div>
+      <div><h3>Mana curve</h3>${curveChart(curve)}
+        <p class="chart-note">Nonland cards by mana value. Average ${avg.toFixed(2)}.</p></div>
+      <div><h3>Color pips</h3>${pipChart(pips)}
+        <p class="chart-note">Colored mana symbols in the costs.</p></div>
+      <div><h3>Card types</h3>${typeChart(Object.fromEntries(Object.entries(types).map(([k, n]) => [TYPE_KEY[k], n])))}</div>
     </div>
     ${d.commanders.length ? '<h3>Deck health</h3><div id="deckHealth"><p><button class="btn small" id="btnDeckHealth">Check lands, ramp, card draw, removal and wipes</button> <span class="muted">Uses Scryfall card tags; each card is asked about once.</span></p></div>' : ''}
     <p class="deck-exports"><span class="muted">Export:</span> <button class="btn small" data-exp="dek" title="An MTGO deck file (cards matched by name)">MTGO .dek</button><button class="btn small" data-exp="arena" title="Copy the list in MTG Arena's import format">Arena text</button><button class="btn small" data-exp="check" title="A checklist by card type with set and number, to print or tick off">Checklist</button></p>
@@ -3843,9 +3854,36 @@ function renderMenu(news = menuNews) {
   const done = lessonsDone();
   if (!Object.keys(done).length) items.push('New to Magic? Start with <b>Learn to play</b>.');
   $('smNews').innerHTML = items.map(x => `<div>${x}</div>`).join('');
+  // Your record: counted from the saved game history and the ladder, nothing estimated
+  const hist = store('ct.history') || [];
+  const mine = hist.filter(h => h.seats.some(x => x.you));
+  const wins = mine.filter(h => h.seats[h.winner]?.you).length;
+  $('smStats').innerHTML = statTiles([
+    { label: 'Played', value: mine.length, title: 'Finished games with you in a seat' },
+    { label: 'Wins', value: wins, tone: wins ? 'gold' : '' },
+    { label: 'Win rate', value: mine.length ? `${Math.round((wins / mine.length) * 100)}%` : '–', title: 'Your wins out of the games you played' },
+    { label: 'Watched', value: hist.length - mine.length, title: 'Finished games between AI pilots' },
+    { label: 'Streak', value: ch.streak.count || 0, title: 'Days in a row with a challenge done' },
+  ]);
+  renderRecentDecks();
   $('smUpdates').textContent = news?.added?.length ? `${news.added.length} new set${news.added.length > 1 ? 's' : ''}!` : 'New card sets, game updates';
 }
+// The newest decks in the library, with their commander and colors; a click opens the library on that deck
+const SPINE = { W: 'var(--mana-w)', U: 'var(--mana-u)', B: 'var(--mana-b)', R: 'var(--mana-r)', G: 'var(--mana-g)' };
+async function renderRecentDecks() {
+  const box = $('smDecks');
+  let list;
+  try { list = await listDecks(); } catch { box.innerHTML = '<p class="muted">The deck library needs the local server.</p>'; return; }
+  if (!list.length) { box.innerHTML = '<div class="empty-state"><b>No saved decks yet</b><span>Build one in the deck builder, or use Edit on a loaded seat and save it to the library.</span></div>'; return; }
+  box.innerHTML = list.sort((x, y) => new Date(y.modified).getTime() - new Date(x.modified).getTime()).slice(0, 4).map(d => {
+    const meta = deckMeta(d.text), cmd = commandersOf(d.text), cols = [...(meta.colors || '').toUpperCase()].filter(c => SPINE[c]);
+    const spine = cols.length > 1 ? `linear-gradient(180deg, ${cols.map(c => SPINE[c]).join(', ')})` : cols.length ? SPINE[cols[0]] : 'var(--mana-c)';
+    return `<button class="sm-deck" data-deck="${esc(d.name)}" title="Open the deck library on this deck"><span class="spine" style="--spine:${spine}"></span><span><b>${esc(d.name)}</b><small>${esc(cmd.join(' + ') || 'No commander')}</small></span><span class="sm-deck-meta">${cols.length ? symbolize(cols.map(c => `{${c}}`).join('')) : ''}<br>${esc(new Date(d.modified).toLocaleDateString())}</span></button>`;
+  }).join('');
+}
 $('startMenu').addEventListener('click', e => {
+  const deckBtn = e.target.closest('[data-deck]');
+  if (deckBtn) { $('librarySearch').value = deckBtn.dataset.deck; $('btnLibrary').click(); return; }
   const b = e.target.closest('[data-go]');
   if (!b) return;
   const go = b.dataset.go;

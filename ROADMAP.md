@@ -1315,6 +1315,12 @@ The audit of version 1.31.0 and its fix list are in `AUDIT-ROADMAP.md` (items 19
 chat or model can take any item). Reproductions: `node tests/audit-probes.mjs` (16 boards that fail today) and
 `node tests/audit-probes.mjs --scan` (cards counted as fully read whose text is not all used). Tick the items there.
 
+## Round 7 (asked for 2026-11-14: a complete redesign of the look, with every feature kept)
+
+### Look and feel
+- [x] 219. One design system for the whole game ("Grimoire"): obsidian and antique gold with parchment text, a parchment light theme, bundled fonts, and shared buttons, fields, windows, tabs, tables, section headers and charts; the start menu becomes a dashboard, and the deck builder and deck viewer are rebuilt on it.
+  - Done: 1.32.0. Design tokens at the top of `public/css/style.css` (colors, the five mana colors, card-type colors, type, spacing, radius, shadow, motion); the old one-off start menu, builder, deck-chart and button styles were removed rather than overridden. Fonts are bundled in `public/fonts` (Cinzel, Inter, JetBrains Mono, SIL Open Font License, licenses beside them): nothing is loaded from a font service and the security policy is unchanged. Start menu: a dashboard with Play/Resume, your record (counted from the game history), the four newest library decks, and the modes in four groups, with icons drawn for the game. Top bar: the same controls in groups (windows, game, view, settings). Deck builder: card gallery with name and cost under each card, sharper pictures on dense screens, a words-only card face while a picture loads or when it fails, copies-in-deck badges, a docked card inspector (opens over the page from the magnifier on narrow screens), sort order, filters that search as they change, a commander banner with its color identity, live mana curve, color pips and card types (`public/js/deckcharts.js`, shared with the deck viewer), format checks (size, commander, copies, color identity, sideboard), foldable type sections, and Search / Deck tabs on phones. Deck viewer: stat tiles and the same charts. Reduced motion is respected from the system setting as well as Display. No game rule, endpoint, saved data or replay format changed; every element id the code and the tour use is kept. New English strings on the dashboard and in the builder are not yet in the other six languages.
+
 ## Notes from sessions
 
 - 2026-11-07 (side session, version 1.17.0, item 82): card scan 80.8% → 88.0% fully read (3,080 of 3,500). How the

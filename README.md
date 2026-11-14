@@ -27,7 +27,7 @@ To rebuild the .exe after changing the launcher code in `launcher/`, run:
 
 It uses the C# compiler that comes with Windows, so nothing needs installing.
 
-**Start menu:** the game opens on a start menu: **Play** (the setup screen), Learn to play, Story, Expedition (showing a run in progress), Draft / Sealed, Puzzles, Tabletop, Deck builder, Deck library, Progress (open challenges and your streak), Help (this manual inside the game, with a search box), Settings (Display) and Updates, plus Tour, Self-test and Exit. It also shows new and upcoming card sets. **Menu** in the top bar and on the setup screen brings it back (a game in progress pauses). A challenge link skips the menu and opens the setup screen.
+**Start menu:** the game opens on a start menu laid out as a dashboard: **Play** (and **Resume** when a game is unfinished), **Your record** (games played, wins, win rate, games watched and your challenge streak, counted from your game history), your four most recently saved **library decks** (click one to open the library on it), and every mode in four groups: **Play** (the setup screen), Learn to play, Story, Expedition (showing a run in progress), Draft / Sealed, Puzzles, Tabletop, Deck builder, Deck library, Progress (open challenges and your streak), Help (this manual inside the game, with a search box), Settings (Display) and Updates, plus Tour, Self-test and Exit. It also shows new and upcoming card sets. **Menu** in the top bar and on the setup screen brings it back (a game in progress pauses). A challenge link skips the menu and opens the setup screen.
 
 **New here?** The first time you open the setup screen, a short **Tour** points out the main controls; the Tour button shows it again. **Self-test** on the setup screen checks the local server, the online services the game uses, and plays 50 fast games, with a pass/fail list. It also runs a **rules check**: 20 more games watched step by step for broken card interactions (a card in two zones, a creature or player that should have died, an aura attached to nothing, a commander stuck in a graveyard, two copies of a legend), a **speed** row (games a second on fixed seeds), and a **determinism check**: three games played twice, in the opposite order and with or without look-ahead, must come out exactly the same, which keeps replays exact.
 
@@ -118,7 +118,7 @@ The game folder contains no personal information: no names, accounts, email addr
 | Cloudflare | only when you click **Play over the internet** |
 | The update address you enter | only when you click **Download and check** |
 
-Like any website you visit, these services see your internet address, but no account or personal details. The game doesn't load web fonts or anything else from Google.
+Like any website you visit, these services see your internet address, but no account or personal details. The game doesn't load web fonts or anything else from Google: its three typefaces (Cinzel, Inter and JetBrains Mono, all under the SIL Open Font License) are files in `public/fonts`, with their licenses beside them.
 
 **Online play:**
 - Friends see only the game: seat names you typed, decks and the board.
@@ -226,7 +226,11 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
   - At the manual table nothing about the roles is automated beyond dealing them: players resolve abilities and check Victory and Defeat themselves, as with the printed cards.
   - **Role card art:** the role cards' pictures are official Magic card art (Wizards of the Coast and the artists named on each card), taken from your own copy of the role card PDF. They live in `public\roles` on this PC only: `make-shareable-zip.ps1` leaves them out, so a shared copy shows the roles as text.
 - **Challenge links:** **Challenge link…** packs this table's setup (format, match length, each seat's name, style, bracket and deck) into a link and a code. Nothing is stored online: everything is in the link. It opens on any PC running Commander Table (`http://localhost:8777/#challenge=…`), or paste the code into the same window and click **Open**.
-- **Deck builder:** **Deck builder** on the setup screen (or **Builder** on a loaded seat) opens a full-screen builder.
+- **Deck builder:** **Deck builder** on the setup screen (or **Builder** on a loaded seat) opens a full-screen builder with three panels: the search and its card gallery, a card inspector, and the deck.
+  - **Gallery:** each result shows the card with its name and mana cost under it, and a gold ×N badge when copies are in the deck. Click a card (or press Enter on it) to add a copy, or drag it into the deck. The filters search as soon as you change them, and **Sort** orders the results by best match, name, mana value, newest or power.
+  - **Inspector:** point at a card in the results or in the deck (or move to it with Tab) to read it at full size, with its type, power and toughness, rules text and whether the simulator plays all of it; **Add to deck** and **Take one out** work from there. On a narrow window the inspector opens over the page from the magnifier on a card.
+  - **Deck:** the commander's art and color identity across the top, the card count against the format, lands, spells and average cost, a live mana curve, color pips and card types, and **Checks** against the format (deck size, commander, copies, cards outside the commander's colors, sideboard size). The list is grouped by card type; click a heading to fold it.
+  - On a phone, **Search** and **Deck** are two tabs.
   - Search every card on Scryfall with its own syntax (`t:goblin pow>=3`, `o:"draw a card"`), filtered by colors, type, mana value and the table format's legality. Commander formats list the most-played cards first.
   - Click a card or drag it into the deck; drag a deck card back to the results (or use −) to take it out.
   - The card count, mana curve and type counts update as you go, and over-the-limit copies are marked. Commander formats get a ★ to choose the commander, one-on-one formats a sideboard (**SB**).
@@ -286,7 +290,7 @@ To swap two seats, drag one seat's ⠿ grip onto another seat.
 ### Deck viewer
 
 **View deck** on a loaded seat shows:
-- the mana curve, color pips and card types
+- a row of figures (cards, lands, average mana value, combos, how much the simulator understands, bracket), then the mana curve, color pips and card types as charts; every bar and segment also shows its number
 - the deck's combos
 - **what the simulator understands**: the share of non-basic cards it reads at least part of, and a list of cards whose abilities it ignores. Ignored cards are still cast, but their real strength isn't reflected in results.
 - after a batch run with the deck seated: its key cards, and cards that may be worth cutting
@@ -683,7 +687,8 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
 
   During combat, arrows run from attackers to the players they attack, with dashed lines from blockers. Summoning-sick creatures show a ☾, tapped cards dim slightly, and a banner announces each turn. Online seats use the same look.
 - **Viewing**:
-  - dark or light theme (☀ / ☾)
+  - dark or light theme (☀ / ☾): dark is obsidian and antique gold, light is a parchment page
+  - animations are cut back when your system asks for reduced motion (or with **Fewer animations** in Display)
   - **Display**: board background (faint or bold commander art, felt, wood, stone or plain), colors for color blindness (Okabe–Ito seat colors plus seat-number badges), larger text and cards, and fewer animations
   - a **battle preview** after blockers are declared: every attacker against its blockers (or the player it's hitting), with the expected result (who falls, how much damage gets through). It stays until combat damage is dealt; click it to close it sooner
   - **effects**: spells flare from the caster's portrait, clashes spark when combat starts, hits throw sparks, dying creatures leave embers, life gained glows green, combos light up the whole table, and slow motes drift over an arcane, slowly moving backdrop. Boards have glowing edges in each player's color (the active player's breathes), life totals are lit gems that pulse when low, and cards lift and glow on hover. "Fewer animations" in Display turns all of this down.
