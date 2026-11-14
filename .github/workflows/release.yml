@@ -2,7 +2,7 @@
 #     git tag v1.16.0 && git push origin v1.16.0
 # This builds Commander Table.exe and the shareable zip on Windows and attaches the zip to a GitHub release.
 # The game's Updates window can then always use:
-#     https://github.com/Donvenneas/commander-table/releases/latest/download/commander-table.zip
+#     https://github.com/<owner>/commander-table/releases/latest/download/commander-table.zip
 name: Release
 
 on:

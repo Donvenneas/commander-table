@@ -7,7 +7,7 @@ them, then ticks them off here with a one-line note. Only free options: no paid 
 
 <!-- A session working on the roadmap writes its start time here and clears it when done.
      Another session that finds a lock younger than 3 hours stops without changing anything. -->
-LOCK: none
+LOCK: 2026-11-13 audit round 6 session (items 197-218)
 
 ## Rules for every session
 
@@ -1308,6 +1308,12 @@ on top of the ones above:
     Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that
     ranks sections and highlights the words. The manual itself stays in English: item 129 translated the interface,
     not README. Tested: 25 sections, a search for "gauntlet" found Progress, the formats table renders.
+
+## Round 6 (asked for 2026-11-13: "evaluate this program, find all errors and what can be improved")
+
+The audit of version 1.31.0 and its fix list are in `AUDIT-ROADMAP.md` (items 197 to 218, self-contained so another
+chat or model can take any item). Reproductions: `node tests/audit-probes.mjs` (16 boards that fail today) and
+`node tests/audit-probes.mjs --scan` (cards counted as fully read whose text is not all used). Tick the items there.
 
 ## Notes from sessions
 

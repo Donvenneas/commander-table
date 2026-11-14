@@ -17,3 +17,6 @@ running-url.txt
 
 # Claude Code per-user settings (may contain local paths)
 .claude/settings.local.json
+
+# Python bytecode
+__pycache__/

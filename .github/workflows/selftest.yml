@@ -1,27 +1,38 @@
-# Every push and pull request: the type check and the golden, card and fuzz tests; then the self-test page against
-# server.py on Linux and macOS, and against Commander Table.exe and server.ps1 on Windows (item 177). The self-test page
-# (endpoint checks, 50 fast games, the 20-game rules check, 10 Kingdoms games) in headless Chromium.
+# Every push to any branch: the type check and the Node tests (item 216). Pull requests, pushes to main and manual
+# runs also get the self-test page against server.py on Linux and macOS, and against Commander Table.exe and
+# server.ps1 on Windows (item 177). The self-test page (endpoint checks, 50 fast games, the 20-game rules check,
+# 10 Kingdoms games) runs in headless Chromium.
 name: Self-test
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# (a push to a branch with an open pull request would run twice: the newer run replaces the older one)
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   typecheck:
     # TypeScript's checker over public/js (no build); fails only on errors not in tests/typecheck-baseline.txt
+    # (two Node versions: the oldest still supported and the current one)
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
       - name: Type check (ratchet)
         run: node tests/typecheck.mjs
       - name: Golden card readings (effects parser over 3,500 saved cards)
@@ -51,6 +62,7 @@ jobs:
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -86,6 +98,7 @@ jobs:
 
   windows:
     # (item 177) build Commander Table.exe and run the self-test against it, then against server.ps1 (start.bat's server)
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
