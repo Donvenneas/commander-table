@@ -255,10 +255,14 @@ export function fire(g, ev, info = {}) {
   if (g.over) return;
   if (g.trigCount.turn !== g.turn) g.trigCount = { turn: g.turn, n: 0 };
   if (ev === 'enter' && creatureTriggersStopped(g, info.o, 'noEtbCreature')) return;
-  for (const q of g.alive()) for (const s of q.battlefield) {
-    const ws = s.fx.watch;
-    if (!ws?.length) continue;
-    if (ev === 'enter' && g.etbSuppressed(q)) continue;
+  // (item 205, rules 17: in an event where several permanents leave together, the watchers that were there before it)
+  const board = ev === 'leaveBf' ? g.batch?.board : null;
+  const pairs = board ? board.filter(b => b.s !== info.o && !g.players[b.q].lost).map(b => [g.players[b.q], b.s, b.fx.watch]) : null;
+  if (pairs) { for (const [q, s, ws] of pairs) if (ws?.length && one(q, s, ws) === false) return; return; }
+  for (const q of g.alive()) for (const s of q.battlefield) if (s.fx.watch?.length && one(q, s, s.fx.watch) === false) return;
+  /** @returns {boolean | void} */
+  function one(q, s, ws) {
+    if (ev === 'enter' && g.etbSuppressed(q)) return;
     for (const w of ws) {
       if (w.ev !== ev || (w.gate && !g.gateOk(s, w.gate))) continue;
       const r = g.watchMatches(w, s, q, info);
@@ -271,7 +275,7 @@ export function fire(g, ev, info = {}) {
       // (rules 10: nothing is dropped here; flushTriggers counts the triggers that resolve and has the backstop)
       if (g.rules < 10 && ++g.trigCount.n > (g.rules >= 7 ? LOOP_BACKSTOP : 300)) {
         if (g.trigCount.n === (g.rules >= 7 ? LOOP_BACKSTOP : 300) + 1) g.log('Trigger limit for this turn reached: further triggers are skipped (a loop would never end)', { kind: 'minor' });
-        return;
+        return false;
       }
       g.queue.push({ o: s, effects: w.effects, label: g.watchLabel(ev, info), p: q, trig: r === true ? info : r, w, ev });
     }
@@ -553,6 +557,21 @@ function sbaPass0(g) {
   for (let again = true; again;) {
     again = false;
     g._sbaFacts = sbaFacts(g);
+    if (g.rules >= 17 && !g.batch) again = g.together(() => sbaOnce(g)); else again = sbaOnce(g);
+    if (again) any = true;
+  }
+  return any;
+}
+// One pass of state-based actions. (item 205, rules 17) It is one event (704.3): each creature's toughness and
+// indestructible are read before anything leaves, so a lord dying in the pass doesn't change who dies with it.
+/** @param {import('./engine.js').Game} g */
+function sbaOnce(g) {
+  let again = false;
+  // (read when the first creature of the pass is about to leave: most passes move nothing)
+  /** @type {{ m: Map<any, { t: number, ind: boolean }> | null }} */
+  const snap = { m: null };
+  const before = () => { if (g.rules >= 17 && !snap.m) snap.m = new Map(g.alive().flatMap(q => q.battlefield.filter(o => o.fx.type.creature).map(o => [o, { t: g.toughness(o), ind: g.has(o, 'indestructible') }]))); };
+  {
     for (const q of g.alive()) {
       // Platinum Angel, Angel's Grace: this player can't lose right now
       if (g.cantLose(q)) continue;
@@ -573,13 +592,14 @@ function sbaPass0(g) {
     }
     for (const q of g.alive()) {
       for (const o of [...q.battlefield]) {
-        if (o.fx.type.creature) {
-          const t = g.toughness(o);
-          if (t <= 0) { g.move(o, 'graveyard'); g.log(`${g.cn(o)} dies (0 toughness)`, { rule: '704.5f', kind: 'death' }); again = true; }
-          else if ((o.damage >= t || (o.deathtouched && (o.damage > 0 || o.deathtouched === 'counters'))) && !g.has(o, 'indestructible')) {
+        const pre = snap.m;
+        if (pre ? pre.has(o) : o.fx.type.creature) {
+          const t = pre?.get(o)?.t ?? g.toughness(o);
+          if (t <= 0) { before(); g.move(o, 'graveyard'); g.log(`${g.cn(o)} dies (0 toughness)`, { rule: '704.5f', kind: 'death' }); again = true; }
+          else if ((o.damage >= t || (o.deathtouched && (o.damage > 0 || o.deathtouched === 'counters'))) && !(pre?.get(o)?.ind ?? g.has(o, 'indestructible'))) {
             const dt = o.deathtouched && o.damage < t;
             if (g.regenerate(o)) continue;
-            g.move(o, 'graveyard');
+            before(); g.move(o, 'graveyard');
             g.log(`${g.cn(o)} dies`, { rule: dt ? '704.5h' : '704.5g', kind: 'death' }); again = true;
           }
         } else if (o.fx.type.planeswalker && o.loyalty <= 0) {
@@ -622,9 +642,8 @@ function sbaPass0(g) {
         again = true;
       }
     }
-    if (again) any = true;
   }
-  return any;
+  return again;
 }
 /** @param {import('./engine.js').Game} g */
 export async function sba(g) {

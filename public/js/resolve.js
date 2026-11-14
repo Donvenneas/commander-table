@@ -535,6 +535,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'wipe': {
       let n = 0;
+      // (item 205, rules 17: everything goes at the same time; death watchers that go with it see the others)
+      g.together(() => {
       for (const q of g.alive()) for (const o of [...q.battlefield]) {
         const t = o.fx.type;
         const theirs = q.idx !== p.idx;
@@ -546,6 +548,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
         if (!hit) continue;
         if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o, g.rules >= 9 && !!e.noRegen9)) n++;
       }
+      });
       g.log(`${S} ${e.mode === 'exile' ? 'exiles' : 'destroys'} all ${e.what} — ${n} permanent${n === 1 ? '' : 's'} gone`, { kind: 'removal' });
       await g.beat(0.8);
       break;
@@ -1448,7 +1451,8 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       // (Bloodline Bidding: only the creature type that returns the most)
       // (Patriarch's Bidding: each player picks the type that returns the most for them)
       const pool = (e.all ? g.alive() : [p]).flatMap(q => { const bt = e.bestType ? g.bestType(q, q.graveyard.filter(o => o.fx.type.creature)) : null; return q.graveyard.filter(o => g.spellIs(o, e.what) && o.fx.type.permanent && (e.maxMv == null || (o.card.cmc || 0) <= e.maxMv) && (!e.bestType || (bt && g.isA(o, bt)))); });
-      for (const o of pool) { g.move(o, 'battlefield', { under: e.all && !e.mine ? o.owner : p.idx, tapped: !!e.tapped }); g.trigger(o, 'etb'); }
+      // (item 205, rules 17: they enter together and see each other enter)
+      g.together(() => { for (const o of pool) { g.move(o, 'battlefield', { under: e.all && !e.mine ? o.owner : p.idx, tapped: !!e.tapped }); g.trigger(o, 'etb'); } });
       g.log(`${S} returns ${pool.length} card${pool.length === 1 ? '' : 's'} to the battlefield`, { kind: 'removal' });
       break;
     }
@@ -1495,8 +1499,9 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
     case 'livingDeath': {
       const back = new Map();
       for (const q of g.alive()) { const cs = q.graveyard.filter(o => o.fx.type.creature); for (const o of cs) g.move(o, 'exile'); back.set(q, cs); }
-      for (const q of g.alive()) for (const o of q.battlefield.filter(x => x.fx.type.creature)) g.sacrifice(q, o);
-      for (const [q, cs] of back) for (const o of cs) { if (o.zone !== 'exile') continue; g.move(o, 'battlefield', { under: q.idx }); g.trigger(o, 'etb'); }
+      // (item 205, rules 17: the creatures are sacrificed together, and the cards enter together)
+      g.together(() => { for (const q of g.alive()) for (const o of q.battlefield.filter(x => x.fx.type.creature)) g.sacrifice(q, o); });
+      g.together(() => { for (const [q, cs] of back) for (const o of cs) { if (o.zone !== 'exile') continue; g.move(o, 'battlefield', { under: q.idx }); g.trigger(o, 'etb'); } });
       g.log(`${S}: every creature is swapped with the creature cards in the graveyards`, { kind: 'removal' });
       break;
     }

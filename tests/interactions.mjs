@@ -1227,6 +1227,47 @@ await test('Zealous Conscripts may take control of your own permanent (it untaps
   await resolveEffects(g, 0, z, z.fx.etb, [tgtObj(s)]); eq(s.tapped, false, 'Sol Ring tapped');
 });
 
+// ---------- Rules 17 (audit item 205): things that happen at the same time (603.10a, 704.3)
+const wrathLife = async (name, bf, rules) => {
+  const g = await scenario([{ hand: [name], battlefield: bf }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }], { rules });
+  await spell(g, 0, name); noErrors(g); return [P(g, 0).life, P(g, 1).life];
+};
+await test('Wrath of God + Blood Artist: it sees every creature die with it (4 drains), whatever the battlefield order', async () => {
+  eq(await wrathLife('Wrath of God', ['Blood Artist', 'Grizzly Bears']), [44, 36], 'life totals, Blood Artist first');
+  eq(await wrathLife('Wrath of God', ['Grizzly Bears', 'Blood Artist']), [44, 36], 'life totals, Blood Artist last');
+});
+await test('Wrath of God + Blood Artist under rules 16 (old replays): one after another, the order matters', async () => {
+  const first = await wrathLife('Wrath of God', ['Blood Artist', 'Grizzly Bears'], 16), last = await wrathLife('Wrath of God', ['Grizzly Bears', 'Blood Artist'], 16);
+  eq(first, [41, 39], 'Blood Artist first: only its own death'); ok(last[1] < first[1], `Blood Artist last drains more (${last})`);
+});
+await test('Blasphemous Act + Blood Artist: lethal damage kills everything in one state-based-action pass (4 drains)', async () => {
+  eq(await wrathLife('Blasphemous Act', ['Blood Artist', 'Grizzly Bears']), [44, 36], 'life totals');
+  eq(await wrathLife('Blasphemous Act', ['Blood Artist', 'Grizzly Bears'], 16), [41, 39], 'rules 16 (old replays)');
+});
+const tradeLife = async rules => {
+  const g = await scenario([{ battlefield: ['Blood Artist'] }, { battlefield: ['Zulaport Cutthroat'] }], { rules });
+  const a = find(g, 0, 'Blood Artist'), b = find(g, 1, 'Zulaport Cutthroat'); a.tempP = 1; g.active = 0;
+  await fight(g, a, [b]); noErrors(g);
+  return { life: [P(g, 0).life, P(g, 1).life], gone: [a.zone, b.zone] };
+};
+await test('Combat: two creatures with death triggers kill each other, and each sees the other die', async () => {
+  // (Blood Artist: its own death and the Cutthroat's, 2 drains. Zulaport Cutthroat: its own death, 1 drain.)
+  const r = await tradeLife(); eq(r.gone, ['graveyard', 'graveyard'], 'both died'); eq(r.life, [41, 39], 'life totals');
+  eq((await tradeLife(16)).life, [40, 40], 'rules 16 (old replays): the Blood Artist, dying first, missed the other death');
+});
+const livingDeath = async rules => {
+  const g = await scenario([{ hand: ['Living Death'], graveyard: ['Grizzly Bears', 'Soul Warden'] }, {}], { rules });
+  await spell(g, 0, 'Living Death'); noErrors(g); return P(g, 0).life;
+};
+await test('Living Death: creatures entering together see each other enter (Soul Warden gains for the Bears)', async () => {
+  eq([await livingDeath(), await livingDeath(16)], [41, 40], 'life at rules 17 / rules 16 (the Warden entered after the Bears)');
+});
+await test('A lord dying in a state-based-action pass does not take others with it in the same pass order', async () => {
+  // Glorious Anthem leaves with the wipe of enchantments only in a later event: here, 2 damage on a 2/2 with an anthem (3/3) is not lethal
+  const g = await scenario([{ battlefield: ['Glorious Anthem', 'Grizzly Bears'] }, {}]);
+  const b = find(g, 0, 'Grizzly Bears'); b.damage = 2; await settle(g); eq(b.zone, 'battlefield', 'Bears with an anthem and 2 damage');
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

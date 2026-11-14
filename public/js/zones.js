@@ -21,6 +21,23 @@ function tokenFx(card) {
 }
 
 /** @param {import('./engine.js').Game} g */
+// (item 205, rules 17) Things that happen at the same time: a board wipe, one pass of state-based actions, creatures
+// returning together. While fn runs, "whenever a creature dies" and "leaves the battlefield" watchers are the ones
+// that were on the battlefield before the first permanent left (603.10a: such abilities look back in time), so a
+// watcher that leaves in the same event still sees the others go, and the result doesn't depend on the order
+// permanents are stored in. Permanents entering together see each other enter (their "enters" watchers are told once
+// all of them are there). Replacement effects still apply to each object.
+/** @param {import('./engine.js').Game} g @param {() => any} fn */
+export function together(g, fn) {
+  if (g.rules < 17 || g.batch) return fn();
+  /** @type {{ board: any[] | null, entering: any[] }} */
+  const b = { board: null, entering: [] };
+  g.batch = b;
+  try { return fn(); } finally {
+    g.batch = null;
+    for (const o of b.entering) if (o.zone === 'battlefield') g.entered(o);
+  }
+}
 export function move(g, o, to, opts = {}) {
   const p = g.players[o.owner];
   const from = o.zone;
@@ -57,6 +74,8 @@ export function move(g, o, to, opts = {}) {
   // A permanent sits on its controller's battlefield, which isn't always its owner's
   // (rules 7) undying and persist granted by another permanent (Mikaeus, the Unhallowed) count as it leaves (603.10a)
   const granted = from === 'battlefield' && g.rules >= 7 ? { undying: g.has(o, 'undying'), persist: g.has(o, 'persist') } : null;
+  // (item 205: the battlefield as it was before the first permanent of this event left)
+  if (from === 'battlefield' && g.batch && !g.batch.board) g.batch.board = g.players.flatMap(q => (q.lost ? [] : q.battlefield.map(s => ({ s, q: q.idx, fx: s.fx }))));
   const fromArr = from === 'battlefield' ? g.players[o.controller].battlefield : p[from];
   if (Array.isArray(fromArr)) { const i = fromArr.indexOf(o); if (i >= 0) fromArr.splice(i, 1); }
   let snap = null;
@@ -183,7 +202,7 @@ export function move(g, o, to, opts = {}) {
       else if (tc && (tc === 'any' || (tc.tribe ? g.isA(o, tc.tribe) : s.chosenType && g.isA(o, s.chosenType)))) o.counters += g.moreCounters(o, 1);
     }
     if (o.fx.type.planeswalker) o.loyalty = parseInt(o.card.loyalty, 10) || 3;
-    g.entered(o);
+    if (g.batch) g.batch.entering.push(o); else g.entered(o);
   }
   return o;
 }
@@ -382,6 +401,22 @@ export function noteDeath(g, o, snap = {}) {
   else if (!o.token && persist && !snap.minus) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: -1 }], label: 'persist', p });
   if (o.fx.kwN?.modular && snap.counters > 0) o.lastCounters = snap.counters;
   if (snap.blitzed) g.queue.push({ o, effects: [{ k: 'draw', n: 1 }], label: 'blitz', p });
+  // (item 205, rules 17) In an event where several permanents leave together, the watchers are the ones that were
+  // there before it (its own "when this dies" is the trigger above); the dead creature's controller is who had it
+  const board = g.batch?.board;
+  if (board) {
+    const ctl = snap.controller ?? o.controller;
+    for (const b of board) {
+      const w = b.s, q = g.players[b.q], d = b.fx.onDeath;
+      if (!d || w === o || q.lost) continue;
+      if ((d.who === 'yours' && ctl !== q.idx) || (d.who === 'opponents' && ctl === q.idx)) continue;
+      if ((d.nontoken && o.token) || (d.what && !g.isA(o, d.what)) || (d.without && o.fx.kw.has(d.without))) continue;
+      if (d.turnOnce9 && !g.onceOk(w, 'death')) continue;
+      g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died`, p: q, trig: { o, p: ctl } });
+      if (board.some(x => x.q === b.q && x.fx.deathTwice)) g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died (again)`, p: q, trig: { o, p: ctl } });
+    }
+    return;
+  }
   for (const q of g.alive()) for (const w of q.battlefield) {
     const d = w.fx.onDeath;
     if (!d || (d.other && w === o)) continue;

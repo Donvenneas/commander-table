@@ -153,6 +153,8 @@ export class Game {
     /** @type {any[] | undefined} */
     this.stackGaps = undefined;
     this.queue = [];
+    /** (item 205, rules 17) the event several permanents leave or enter in together (zones.js together) @type {{ board: any[] | null, entering: any[] } | null} */
+    this.batch = null;
     this.over = false;
     this.winner = null;
     this.players = seats.map((s, i) => ({
@@ -720,6 +722,8 @@ export class Game {
   // A creature died (700.4): its own "when ~ dies" and every "whenever a creature dies" watcher trigger
   /** @param {any} o @param {any} [snap] */
   noteDeath(o, snap = {}) { return zones.noteDeath(this, o, snap); }
+  /** (item 205) events that happen at the same time @param {() => any} fn */
+  together(fn) { return zones.together(this, fn); }
   sacrifice(p, o, why = '') { return zones.sacrifice(this, p, o, why); }
   // Discarding (701.8): "whenever you discard" watchers and madness-style payoffs see it
   /** @param {any} p @param {any[]} cards @param {string | null} [why] */

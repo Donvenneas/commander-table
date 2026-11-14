@@ -26,20 +26,6 @@ const spell = async (g, i, name, targets = []) => { const o = find(g, i, name, '
 const onStack = (g, i, name) => { const o = find(g, i, name, 'hand'); const item = { o, p: P(g, i), effects: [], targets: [] }; g.stack.push(item); return item; };
 
 if (arg !== '--scan') {
-  // ---------- 205: things that happen at the same time (603.10a: leaves-the-battlefield triggers look back)
-  await test(205, 'Wrath of God + Blood Artist: it sees every creature die with it (4 drains)', ['Wrath of God', 'Blood Artist', 'Grizzly Bears'], async () => {
-    const g = await scenario([{ hand: ['Wrath of God'], battlefield: ['Blood Artist', 'Grizzly Bears'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }]);
-    await spell(g, 0, 'Wrath of God'); eq([P(g, 0).life, P(g, 1).life], [44, 36], 'life totals');
-  });
-  await test(205, 'Wrath of God + Blood Artist: the result does not depend on battlefield order', ['Wrath of God', 'Blood Artist', 'Grizzly Bears'], async () => {
-    const run = async bf => { const g = await scenario([{ hand: ['Wrath of God'], battlefield: bf }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }]); await spell(g, 0, 'Wrath of God'); return P(g, 1).life; };
-    eq(await run(['Blood Artist', 'Grizzly Bears']), await run(['Grizzly Bears', 'Blood Artist']), 'opponent life with Blood Artist first / last');
-  });
-  await test(205, 'Blasphemous Act + Blood Artist: lethal damage kills everything at once (4 drains)', ['Blasphemous Act', 'Blood Artist', 'Grizzly Bears'], async () => {
-    const g = await scenario([{ hand: ['Blasphemous Act'], battlefield: ['Blood Artist', 'Grizzly Bears'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }]);
-    await spell(g, 0, 'Blasphemous Act'); eq([P(g, 0).life, P(g, 1).life], [44, 36], 'life totals');
-  });
-
   await test(200, 'Game.canCast says no to a sorcery on an opponent\'s turn', ['Divination', 'Island'], async () => {
     const g = await scenario([{ battlefield: ['Island', 'Island', 'Island'], hand: ['Divination'] }, {}]);
     g.active = 1; eq(!!g.canCast(P(g, 0), find(g, 0, 'Divination', 'hand')), false, 'castable');
