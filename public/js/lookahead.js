@@ -284,7 +284,7 @@ export async function lookAheadRespond(agent, g, q, item, isCounter) {
   const other = !!usual && !isCounter(usual.card);
   if (!usual && (item.p === q || item.targets.some(t => t?.spell))) return null;
   if (!other && (item.o.fx.uncounterable || item.uncounterable || agent.comboSpell(g, item))) return usual;
-  const usable = other ? [] : q.hand.filter(o => isCounter(o) && g.canCast(q, o) && agent.fits(o, item.o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
+  const usable = other ? [] : q.hand.filter(o => isCounter(o) && g.canCast(q, o) && agent.counterUsable(g, q, o, item)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
   if (!other && !usable.length) return usual;
   if (other && (item.loopStart || item.combo)) return usual;
   if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }

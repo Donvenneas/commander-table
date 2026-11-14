@@ -626,10 +626,10 @@
  "rules 17 · seed 50000": {
   "winner": "P4",
   "round": 8,
-  "steps": 460,
-  "lines": 600,
+  "steps": 479,
+  "lines": 644,
   "errors": 0,
-  "log": "36c5ad6a592f2f7a"
+  "log": "09bb2e81e9300b3f"
  },
  "rules 17 · seed 50001": {
   "winner": "P3",
@@ -642,10 +642,10 @@
  "rules 17 · seed 50002": {
   "winner": "P2",
   "round": 11,
-  "steps": 412,
-  "lines": 482,
+  "steps": 395,
+  "lines": 463,
   "errors": 0,
-  "log": "dc2a5ef06440740b"
+  "log": "a60080868e942c73"
  },
  "rules 17 · seed 50003": {
   "winner": "P4",

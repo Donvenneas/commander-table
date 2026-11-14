@@ -50,6 +50,37 @@ export function protColorChoice(g, p, o) {
   for (const q of g.opponents(p)) for (const x of q.battlefield) for (const c of g.colorsOf(x)) add(c, x.fx.type.creature ? 3 : 1);
   return [...count].sort((a, b) => b[1] - a[1])[0][0];
 }
+// Does a counterspell for "what" (any, noncreature, instant or sorcery…) answer this spell card? (the AI's test,
+// kept as it was for games before rules 17)
+export function spellFits(what, o) {
+  const t = o.fx.type;
+  if (what === 'any') return true;
+  if (what.includes('noncreature')) return !t.creature;
+  if (what.includes('creature')) return t.creature;
+  if (what.includes('instant or sorcery')) return t.instant || t.sorcery;
+  if (what.includes('artifact')) return t.artifact;
+  if (what.includes('enchantment')) return t.enchantment;
+  return true;
+}
+const SPELL_TYPES = ['creature', 'artifact', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'legendary'];
+/** (item 208, rules 17) Is this spell on the stack a legal target for the counter effect e, and would e do anything
+ * to it: every card type its words list (Swan Song: enchantment, instant or sorcery), the mana value limit (Mental
+ * Misstep, Disdainful Stroke; X counts, 202.3e) and the color (Red Elemental Blast, Pyroblast).
+ * @param {import('./engine.js').Game} g @param {any} e @param {any} item */
+export function counterFits(g, e, item) {
+  if (!item || item.ability) return true;
+  const o = item.o, t = o.fx.type, w = e.what || 'any';
+  if (w.includes('noncreature')) { if (t.creature) return false; } else {
+    const listed = SPELL_TYPES.filter(x => w.includes(x));
+    if (listed.length && !listed.some(x => t[x])) return false;
+  }
+  if (w.includes('multicolored') && g.colorsOf(o).length < 2) return false;
+  const mv = (o.card.cmc || 0) + (item.x || 0) * (parseCost(o.card.manaCost).x || 0);
+  if (e.mv && ((e.mv.min != null && mv < e.mv.min) || (e.mv.max != null && mv > e.mv.max))) return false;
+  const col = e.color || e.ifColor;
+  if (col && !g.colorsOf(o).includes(col)) return false;
+  return true;
+}
 // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
 /** @param {import('./engine.js').Game} g */
 export async function runEffects(g, p, src, effects, ctx = {}) {
@@ -82,6 +113,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
     tgt = p.agent.chooseTarget(g, p, e, src);
   }
   const tName = t => g.tname(t);
+  // (item 208, rules 17) "Destroy target permanent if it's blue" (Pyroblast): another color is a legal target, but nothing happens
+  if (g.rules >= 17 && e.ifColor && e.k !== 'counter' && tgt?.obj && !g.colorsOf(tgt.obj).includes(e.ifColor)) { g.log(`${S}: ${g.cn(tgt.obj)} isn't ${protName(e.ifColor)}, nothing happens`, { kind: 'minor' }); return; }
   // Shalai, Leyline of Sanctity-style: an opponent with hexproof can't be targeted
   if (tgt?.player != null && tgt.player !== p.idx && g.players[tgt.player]?.battlefield.some(s => s.fx.hexPlayer)) { g.log(`${S}: ${g.pn(g.players[tgt.player])} has hexproof`, { kind: 'minor' }); return; }
   switch (e.k) {
@@ -187,6 +220,22 @@ export async function doEffect(g, p, src, e, ctx, i) {
       if (tgt?.spell && !tgt.spell.ability && (tgt.spell.o.fx.uncounterable || tgt.spell.uncounterable || (g.rules >= 5 && tgt.spell.p?.shieldTurn === g.turn) || g.alive().some(q => q.battlefield.some(o => o.fx.noCounterAll)) || g.players[tgt.spell.o.owner]?.battlefield.some(o => o.fx.protectsSpells && (!o.fx.costReduce?.minMv || (tgt.spell.o.card.cmc || 0) >= o.fx.costReduce.minMv)))) {
         g.log(`${g.cn(tgt.spell.o)} can't be countered`, { kind: 'minor' });
         break;
+      }
+      // (item 208, rules 17) A spell the counterspell's words don't fit isn't a legal target (608.2b), and
+      // "unless its controller pays {N}": that player is asked and, paying, keeps the spell (118.12)
+      if (g.rules >= 17 && tgt?.spell && !tgt.spell.ability) {
+        if (!counterFits(g, e, tgt.spell)) { g.log(`${S}: ${g.cn(tgt.spell.o)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); break; }
+        const payer = tgt.spell.p, cost = { generic: e.unless || 0, pips: [], x: 0 };
+        if (e.unless && payer && !payer.lost) {
+          const pays = g.planPayment(payer, cost) && (await (payer.agent.payUnlessAsync ? payer.agent.payUnlessAsync(g, payer, src, e, tgt.spell) : payer.agent.payUnless(g, payer, src, e, tgt.spell)));
+          const plan = pays && g.planPayment(payer, cost);
+          if (plan) {
+            g.commitPayment(payer, plan);
+            g.log(`${g.pn(payer)} pays {${e.unless}} for ${S}: ${g.cn(tgt.spell.o)} is not countered`, { kind: 'minor', rule: '118.12' });
+            break;
+          }
+          g.log(`${g.pn(payer)} doesn't pay {${e.unless}} for ${S}`, { kind: 'minor' });
+        }
       }
       if (tgt?.spell) {
         tgt.spell.countered = true;

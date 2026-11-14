@@ -124,7 +124,8 @@ one repairs.
   - Fix: (a) a seeded coin flip (`g.rand`, never `Math.random`) as a real condition, for Mana Crypt and the other "flip a coin" cards; (b) read the most common conditions on the list ("if you cast it", "if it doesn't have the same name as", "if you control a ...", "if you attacked this turn"); (c) for what is still unreadable, mark the line unread so the card shows as partial. Whether an unreadable condition should then count as true or false is a judgement: false makes the card weaker than printed, true stronger; the project's own rule ("never approximated", items 191 and 194) points to doing nothing and reporting it once a game. Rules 17.
   - Done when: the probe passes and no card with a `'?'` condition is counted as full.
 
-- [ ] **208. Counterspells lose their conditions.** (M)
+- [x] **208. Counterspells lose their conditions.** (M)
+  - Done (rules 17): `unless` (the spell's controller is asked; the AI pays when the spell is worth it, a person gets a prompt), `mv`, `color` and `ifColor` on the counter effect; `counterFits` in `resolve.js` is the one test used on resolution and by the AI, which also keeps a soft counter when the caster can visibly pay. Modal counters (Pyroblast, Red Elemental Blast) are still not cast by the AI as counterspells.
   - Problem: the `counter` effect has no "unless its controller pays" and no mana value limit. Mana Leak, Spell Pierce, Daze, Flusterstorm and Miscast are hard counters; Mental Misstep counters anything; Disdainful Stroke counters anything; Pyroblast and Red Elemental Blast destroy any permanent. These are cEDH staples, so this changes who wins.
   - Evidence: probes `[208]`. In `resolve.js` `case 'counter'` there is no payment step.
   - Where: `public/js/effects.js` (the counter patterns), `public/js/resolve.js` `case 'counter'`, `public/js/ai.js` (when to cast them, and the choice to pay), `public/js/human.js` (the pay prompt).

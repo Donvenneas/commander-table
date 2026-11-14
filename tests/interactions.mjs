@@ -1075,6 +1075,74 @@ const dockside = async rules => {
 await test("Dockside Extortionist counts the opponents' artifacts and enchantments", async () => { eq(await dockside(), 3, 'Treasures'); });
 await test('Dockside Extortionist under rules 16 (old replays): X is 0, no Treasures', async () => { eq(await dockside(16), 0, 'Treasures'); });
 
+// ---------- Rules 17 (audit item 208): counterspells keep their conditions
+const counterWith = async (name, target, lands = 0, rules, effectsOf = c => c.fx.spell) => {
+  const g = await scenario([{ hand: [target], battlefield: Array(lands).fill('Forest') }, { hand: [name] }], { rules });
+  const item = onStack(g, 0, target); const c = find(g, 1, name, 'hand');
+  await g.runEffects(P(g, 1), c, effectsOf(c), { targets: [{ spell: item }], strict: true });
+  return { g, countered: !!item.countered, tapped: P(g, 0).battlefield.filter(o => o.tapped).length };
+};
+await test('Mana Leak: a player with six untapped lands pays {3} and keeps the spell', async () => {
+  const r = await counterWith('Mana Leak', 'Grizzly Bears', 6); eq([r.countered, r.tapped], [false, 3], 'countered / lands tapped'); noErrors(r.g);
+});
+await test('Mana Leak: a player with two untapped lands cannot pay, the spell is countered', async () => {
+  const r = await counterWith('Mana Leak', 'Grizzly Bears', 2); eq([r.countered, r.tapped], [true, 0], 'countered / lands tapped');
+});
+await test('Mana Leak under rules 16 (old replays): a hard counter, as before', async () => {
+  const r = await counterWith('Mana Leak', 'Grizzly Bears', 6, 16); eq([r.countered, r.tapped], [true, 0], 'countered / lands tapped');
+});
+await test('Daze: a player with one spare land pays {1}', async () => {
+  const r = await counterWith('Daze', 'Grizzly Bears', 1); eq([r.countered, r.tapped], [false, 1], 'countered / lands tapped');
+});
+await test('Mana Leak: the AI lets a one-mana spell go rather than pay {3}, and a person is asked', async () => {
+  const r = await counterWith('Mana Leak', 'Llanowar Elves', 6); eq(r.countered, true, 'Llanowar Elves countered (not worth {3})');
+  const g = await scenario([{ hand: ['Llanowar Elves'], battlefield: Array(3).fill('Forest') }, { hand: ['Mana Leak'] }]);
+  const asked = []; const h = new HumanAgent('balanced', { ask: async (html, o) => { asked.push(html.replace(/<[^>]+>/g, '')); return { button: 'pay' }; } }); P(g, 0).agent = h;
+  const item = onStack(g, 0, 'Llanowar Elves'); const c = find(g, 1, 'Mana Leak', 'hand');
+  await g.runEffects(P(g, 1), c, c.fx.spell, { targets: [{ spell: item }], strict: true });
+  ok(asked.some(a => /pay \{3\}, or Llanowar Elves is countered/.test(a)), `the prompt: ${asked.join(' | ')}`); eq(!!item.countered, false, 'paid: not countered');
+});
+await test('Mental Misstep cannot counter a spell with mana value 2, and counters one with mana value 1', async () => {
+  eq((await counterWith('Mental Misstep', 'Grizzly Bears')).countered, false, 'Grizzly Bears (2) countered');
+  eq((await counterWith('Mental Misstep', 'Llanowar Elves')).countered, true, 'Llanowar Elves (1) countered');
+  eq((await counterWith('Mental Misstep', 'Grizzly Bears', 0, 16)).countered, true, 'rules 16 (old replays): countered');
+});
+await test('Disdainful Stroke cannot counter mana value 3, and counters mana value 8', async () => {
+  eq((await counterWith('Disdainful Stroke', 'Divination')).countered, false, 'Divination (3) countered');
+  eq((await counterWith('Disdainful Stroke', 'Craterhoof Behemoth')).countered, true, 'Craterhoof Behemoth (8) countered');
+  eq((await counterWith('Disdainful Stroke', 'Divination', 0, 16)).countered, true, 'rules 16 (old replays): countered');
+});
+await test('Spell Pierce: a creature spell is not a legal target', async () => {
+  const r = await counterWith('Spell Pierce', 'Grizzly Bears'); eq(r.countered, false, 'countered');
+  ok(/Grizzly Bears is not a legal target/.test(logText(r.g)), 'the log says why');
+  eq((await counterWith('Spell Pierce', 'Divination')).countered, true, 'a noncreature spell whose controller cannot pay is countered');
+  eq((await counterWith('Spell Pierce', 'Grizzly Bears', 0, 16)).countered, true, 'rules 16 (old replays): countered');
+});
+await test('Swan Song: an enchantment spell is a legal target (the AI only saw "instant or sorcery")', async () => {
+  const r = await counterWith('Swan Song', 'Rhystic Study'); eq(r.countered, true, 'countered');
+  ok(P(r.g, 1).agent.fits(find(r.g, 1, 'Swan Song', 'hand'), find(r.g, 0, 'Rhystic Study', 'hand'), r.g, r.g.stack[0]), 'the AI counts it as fitting');
+});
+await test('Pyroblast and Red Elemental Blast: only blue spells and permanents', async () => {
+  const first = c => c.fx.modes.modes[0];
+  eq((await counterWith('Pyroblast', 'Grizzly Bears', 0, undefined, first)).countered, false, 'Pyroblast on a green spell');
+  eq((await counterWith('Pyroblast', 'Divination', 0, undefined, first)).countered, true, 'Pyroblast on a blue spell');
+  eq((await counterWith('Red Elemental Blast', 'Grizzly Bears', 0, undefined, first)).countered, false, 'Red Elemental Blast on a green spell');
+  eq((await counterWith('Pyroblast', 'Grizzly Bears', 0, 16, first)).countered, true, 'rules 16 (old replays): countered');
+  const destroy = async (target, rules) => {
+    const g = await scenario([{ hand: ['Pyroblast'] }, { battlefield: [target] }], { rules });
+    const b = find(g, 1, target); const py = find(g, 0, 'Pyroblast', 'hand');
+    await resolveEffects(g, 0, py, py.fx.modes.modes[1], [tgtObj(b)]); return b.zone;
+  };
+  eq([await destroy('Grizzly Bears'), await destroy('Rhystic Study'), await destroy('Grizzly Bears', 16)], ['battlefield', 'graveyard', 'graveyard'], 'green permanent / blue permanent / rules 16');
+});
+await test('The AI keeps Mana Leak when the spell\'s controller can pay, and casts it when they cannot', async () => {
+  const usable = async lands => {
+    const g = await scenario([{ hand: ['Craterhoof Behemoth'], battlefield: Array(lands).fill('Forest') }, { hand: ['Mana Leak'], battlefield: ['Island', 'Island'] }]);
+    const item = onStack(g, 0, 'Craterhoof Behemoth'); return P(g, 1).agent.counterUsable(g, P(g, 1), find(g, 1, 'Mana Leak', 'hand'), item);
+  };
+  eq([await usable(3), await usable(2)], [false, true], 'usable against 3 / 2 untapped lands');
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

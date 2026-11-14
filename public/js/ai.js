@@ -4,6 +4,7 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
+import { spellFits, counterFits } from './resolve.js';
 import { combosIn, comboState, comboBlocked, comboPlay } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
@@ -1885,7 +1886,7 @@ export class Agent {
   counterResponse(g, q, item) {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
-    const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.fits(o, item.o));
+    const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.counterUsable(g, q, o, item));
     // (rules 5, item 97: a permanent's counter ability — Glen Elendra Archmage, Siren Stormtamer — when there's no
     // counterspell in hand; Stormtamer only answers something aimed at us or our creatures)
     if (!usable.length && g.rules >= 5) {
@@ -2222,17 +2223,27 @@ export class Agent {
   }
 
   // ---------- counterspells
-  fits(c, spell) { return this.fitsWhat(c.fx.spell.find(e => e.k === 'counter').what, spell); }
+  // (rules 17, item 208: with the game and the stack item, the counterspell's mana value and color limits count too)
+  fits(c, spell, g = null, item = null) {
+    const e = c.fx.spell.find(x => x.k === 'counter');
+    return g && item && g.rules >= 17 ? counterFits(g, e, item) : this.fitsWhat(e.what, spell);
+  }
   // Can a counter for "what" (any, noncreature, instant or sorcery…) answer this spell?
-  fitsWhat(what, spell) {
-    const t = spell.fx.type;
-    if (what === 'any') return true;
-    if (what.includes('noncreature')) return !t.creature;
-    if (what.includes('creature')) return t.creature;
-    if (what.includes('instant or sorcery')) return t.instant || t.sorcery;
-    if (what.includes('artifact')) return t.artifact;
-    if (what.includes('enchantment')) return t.enchantment;
-    return true;
+  fitsWhat(what, spell) { return spellFits(what, spell); }
+  // (item 208, rules 17) A counterspell worth casting at this spell: it fits, and a "unless its controller pays {N}"
+  // one isn't aimed at a player who visibly has the mana to pay (untapped permanents are public)
+  counterUsable(g, q, c, item) {
+    if (!this.fits(c, item.o, g, item)) return false;
+    const e = c.fx.spell.find(x => x.k === 'counter');
+    return !(g.rules >= 17 && e.unless && (g.infinite(item.p) || g.availableMana(item.p) >= e.unless));
+  }
+  // (item 208) "Counter target spell unless its controller pays {N}", aimed at our spell: pay when we can, unless the
+  // spell is worth less than the mana (a cheap spell that is neither a combo piece nor the commander)
+  payUnless(g, p, src, e, item) {
+    if (g.infinite(p)) return true;
+    if (g.availableMana(p) < e.unless) return false;
+    const o = item.o;
+    return !!(item.combo || o.isCommander || (o.card.cmc || 0) + 1 >= e.unless || this.value(g, o) >= 5);
   }
 
   // Is this spell part of a combo the caster is visibly close to completing?

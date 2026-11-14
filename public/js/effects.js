@@ -1059,6 +1059,19 @@ function readRiders(t, found, effects) {
     seen.add(key);
   }
   let m;
+  // (item 208, used from rules 17) A counterspell's conditions: "unless its controller pays {N}" (unless), "with mana
+  // value N [or less / or greater]" (mv), "target blue spell" (color: only a legal target when it is that color) and
+  // "if it's blue" (ifColor: any target, but nothing happens to another color; also on Pyroblast's "destroy" half)
+  const COLS = 'white|blue|black|red|green', colOf = (/** @type {string} */ w) => 'WUBRG'[COLS.split('|').indexOf(w)];
+  for (const e of effects) {
+    if (e.dup) continue;
+    if (e.k === 'counter') {
+      if ((m = t.match(/counter target [\w, ]*?spell unless its controller pays \{(\d+)\}/))) e.unless = +m[1];
+      if ((m = t.match(/counter target [\w, ]*?spell with mana value (\d+)(?: or (less|greater))?/))) e.mv = m[2] === 'less' ? { max: +m[1] } : m[2] === 'greater' ? { min: +m[1] } : { min: +m[1], max: +m[1] };
+      if ((m = t.match(new RegExp(`counter target (${COLS}) spell`)))) e.color = colOf(m[1]);
+      if ((m = t.match(new RegExp(`counter target [\\w, ]*?spell if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
+    } else if (e.k === 'remove' && (m = t.match(new RegExp(`(?:destroy|exile) target [\\w, ]*?permanent if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
+  }
   const ctl = "(?:its|that (?:creature|permanent|spell|land)'s) controller";
   const hit = [...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
   if (hit) {

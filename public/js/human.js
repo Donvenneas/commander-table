@@ -789,7 +789,7 @@ export class HumanAgent extends Agent {
     // full control on, so other games don't get an extra prompt each time they cast)
     if (item.p === q && !(g.rules >= 15 && this.full)) return null;
     if (this.skipping(g, q, item)) return null;
-    const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o));
+    const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o, g, item));
     const what = item.ability ? `${esc(item.o.card.name)}'s ability` : esc(item.o.card.name);
     for (let k = 0; k < 30; k++) {
       const options = this.instants(g, q, o => fits(o) && (!o.fx.spell.some(e => e.k === 'counterAbility') || item.ability));
@@ -1041,6 +1041,13 @@ export class HumanAgent extends Agent {
     return r.button === true;
   }
   proposeDeal() { return null; }
+  // (item 208) "Counter target spell unless its controller pays {N}", aimed at your spell: you choose whether to pay
+  async payUnlessAsync(g, p, src, e, item) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b> (${esc(g.players[src.controller]?.name || '')}): pay {${e.unless}}, or <b>${esc(item.o.card.name)}</b> is countered?`, {
+      buttons: [{ label: `Pay {${e.unless}}`, value: 'pay', primary: true }, { label: "Don't pay", value: 'no' }, { label: 'Let the AI decide', value: 'ai' }],
+    });
+    return r.button === 'ai' ? super.payUnless(g, p, src, e, item) : r.button === 'pay';
+  }
   // Rhystic Study and friends: you choose whether to pay
   async payTaxAsync(g, p, src, t) {
     const owner = g.players[src.controller];

@@ -40,23 +40,6 @@ if (arg !== '--scan') {
     await spell(g, 0, 'Blasphemous Act'); eq([P(g, 0).life, P(g, 1).life], [44, 36], 'life totals');
   });
 
-  // ---------- 208: counterspells with a condition are plain Counterspells
-  await test(208, 'Mana Leak: a player with six untapped lands pays {3} and keeps the spell', ['Mana Leak', 'Grizzly Bears', 'Forest'], async () => {
-    const g = await scenario([{ hand: ['Grizzly Bears'], battlefield: Array(6).fill('Forest') }, { hand: ['Mana Leak'] }]);
-    const item = onStack(g, 0, 'Grizzly Bears'); const ml = find(g, 1, 'Mana Leak', 'hand');
-    await g.runEffects(P(g, 1), ml, ml.fx.spell, { targets: [{ spell: item }], strict: true }); eq(!!item.countered, false, 'countered');
-  });
-  await test(208, 'Mental Misstep cannot counter a spell with mana value 2', ['Mental Misstep', 'Grizzly Bears'], async () => {
-    const g = await scenario([{ hand: ['Grizzly Bears'] }, { hand: ['Mental Misstep'] }]);
-    const item = onStack(g, 0, 'Grizzly Bears'); const mm = find(g, 1, 'Mental Misstep', 'hand');
-    await g.runEffects(P(g, 1), mm, mm.fx.spell, { targets: [{ spell: item }], strict: true }); eq(!!item.countered, false, 'countered');
-  });
-  await test(208, 'Pyroblast does nothing to a green permanent', ['Pyroblast', 'Grizzly Bears'], async () => {
-    const g = await scenario([{ hand: ['Pyroblast'] }, { battlefield: ['Grizzly Bears'] }]);
-    const b = find(g, 1, 'Grizzly Bears'); const py = find(g, 0, 'Pyroblast', 'hand');
-    await resolveEffects(g, 0, py, py.fx.modes.modes[1], [tgtObj(b)]); eq(b.zone, 'battlefield', 'Grizzly Bears zone');
-  });
-
   // ---------- 209 and 200: what a spell may target
   await test(209, 'Doom Blade cannot destroy a black creature', ['Doom Blade', 'Vampire Nighthawk'], async () => {
     const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk'] }]);
