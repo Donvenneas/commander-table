@@ -1131,7 +1131,8 @@ export class Game {
       // (rules 6: "enters with X counters" is counters put on it, so Hardened Scales and Doubling Season apply, 614.1c)
       if (o.fx.entersCounters === 'X') o.counters = this.rules >= 6 ? this.moreCounters(o, x) : x;
       if (o.kicked && o.fx.kickCounters) o.counters += this.moreCounters(o, o.fx.kickCounters);
-      const imprint = choice.imprint || (o.fx.imprint && p.agent.chooseImprint(this, p, o));
+      // (item 211, rules 17: Chrome Mox takes a colored nonartifact, nonland card; before, the Isochron Scepter choice)
+      const imprint = choice.imprint || (o.fx.imprint && (this.rules >= 17 && o.fx.mana?.imprintColors ? p.agent.chooseMoxImprint(this, p, o) : p.agent.chooseImprint(this, p, o)));
       if (imprint && imprint.zone === 'hand') {
         this.move(imprint, 'exile');
         o.imprinted = cardKey(imprint.card);

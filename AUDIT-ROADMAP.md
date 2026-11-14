@@ -156,7 +156,8 @@ one repairs.
   - Fix: the exiling permanent remembers what it exiled (`o.holds = [iid]`); when it leaves the battlefield those cards return under their owners' control (new objects, enter triggers fire, tokens are gone, a commander that went to the command zone stays there). If the source left before its trigger resolved, nothing is exiled (610.3). Hostage Taker also lets its controller cast the card. Rules 17.
   - Done when: the probe passes plus tests for the blink trick (source leaves in response: nothing exiled) and a token.
 
-- [ ] **211. Imprint, and The One Ring.** (S)
+- [x] **211. Imprint, and The One Ring.** (S)
+  - Done (rules 17): Chrome Mox imprints a colored nonartifact, nonland card (`ai.js` `chooseMoxImprint`) and `mana.js` `units` gives only that card's colors, none with nothing imprinted. "For each burden counter on ~" is read as `nPer` and counted on resolution: The One Ring draws 1, 2, 3 and costs 0, 1, 2, 3 life. Tests in `tests/interactions.mjs` with rules 16 twins. A person is not yet asked which card to imprint on Chrome Mox (the AI's choice is used).
   - Problem: Chrome Mox taps for any color with nothing imprinted (`o.imprinted` is stored in `engine.js` `cast` but `mana.js` never reads it). The One Ring's reading is "lose 1 life each upkeep" and "draw 1" where the card says one per burden counter (seen in the reading; confirm in a game before fixing, its test in `abilities.mjs` may cover part of it).
   - Evidence: probe `[211]`; `node -e` dump of the reading in the audit notes.
   - Fix: Chrome Mox makes mana only of the imprinted card's colors, none when nothing is imprinted; amounts on The One Ring become a dyn count of its burden counters. Rules 17.

@@ -1135,6 +1135,13 @@ function readRiders(t, found, effects) {
     const tr = targetWords(t, x.i, x.e.k);
     if (tr) x.e.tr = tr;
   }
+  // (item 211, used from rules 17) "… for each burden counter on ~" (The One Ring): the amount is counted on
+  // resolution (nPer); older games keep the plain 1
+  for (const x of found) {
+    if (x.e.n !== 1 || x.e.dup || !['draw', 'loseSelf', 'gain', 'loseLife', 'drain', 'mill', 'treasure'].includes(x.e.k)) continue;
+    const per = t.slice(x.i).split(/[.\n]|, then /)[0].match(/ for each (\w+) counter on (?:~|this \w+)$/);
+    if (per && !/^\+1\/\+1$|^-1\/-1$/.test(per[1])) x.e.nPer = { dyn: 'namedCounters', kind: per[1] };
+  }
   // (item 210, used from rules 17) "exile target … until ~ leaves the battlefield" (Banishing Light, Grasp of Fate;
   // Hostage Taker: 'cast' when its controller may cast the exiled card)
   for (const x of found) {
@@ -2056,6 +2063,8 @@ export function analyzeCard(card) {
     const cond16 = manaLines.filter(l => l.need).map(l => ({ colors: l.cols.filter(c => !free.has(c)), need: l.need })).filter(x => x.colors.length);
     if (cond16.length) fx.mana.cond16 = cond16;
   }
+  // (item 211, used from rules 17) Chrome Mox: mana only of the imprinted card's colors (mana.js units)
+  if (fx.mana && fx.imprint && /add one mana of any of the exiled card's colors/.test(t)) fx.mana.imprintColors = true;
   if (type.land) {
     if (!fx.mana && produced.length) fx.mana = { amount: 1, colors: produced, sac: false };
     if (!produced.length && /search your library for/.test(t)) fx.fetch = true;

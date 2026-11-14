@@ -31,11 +31,6 @@ if (arg !== '--scan') {
     g.active = 1; eq(!!g.canCast(P(g, 0), find(g, 0, 'Divination', 'hand')), false, 'castable');
   });
 
-  // ---------- 211: imprint
-  await test(211, 'Chrome Mox with nothing imprinted makes no mana', ['Chrome Mox'], async () => {
-    const g = await scenario([{ battlefield: ['Chrome Mox'] }, {}]); eq(g.availableMana(P(g, 0)), 0, 'available mana');
-  });
-
   // ---------- 212: layers
   await test(212, 'Humility + Glorious Anthem: Craterhoof Behemoth is a 2/2 with no abilities', ['Humility', 'Glorious Anthem', 'Craterhoof Behemoth'], async () => {
     const g = await scenario([{ battlefield: ['Humility', 'Glorious Anthem', 'Craterhoof Behemoth'] }, {}]);

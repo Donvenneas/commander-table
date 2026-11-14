@@ -82,10 +82,14 @@ export function units(g, p, exclude) {
   for (const s of g.sources(p, exclude)) {
     // Lion's Eye Diamond discards the hand: only worth it once the hand is (nearly) empty
     if (s.fx.mana.discardHand && p.hand.filter(c => c !== p.casting).length > 1) continue;
+    // (item 211, rules 17) Chrome Mox: one mana of any of the imprinted card's colors; none with nothing imprinted,
+    // a colorless card, or the card gone from exile
+    const mox = g.rules >= 17 && s.fx.mana.imprintColors ? (s.imprintedObj?.zone === 'exile' ? g.colorsOf(s.imprintedObj) : []) : null;
+    if (mox && !mox.length) continue;
     const n = g.manaAmount(p, s) + (boost && !s.fx.type.land ? 1 : 0);
     // Blood Moon: nonbasic lands only make {R}
     const moon = s.fx.type.land && !s.fx.type.basic && g.alive().some(q => q.battlefield.some(o => o.fx.bloodMoon));
-    let colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : s.fx.mana.colors;
+    let colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : mox || s.fx.mana.colors;
     // (rules 13) Cavern of Souls: any color (and can't-be-countered) for a creature spell of the chosen type, else {C}
     // (under Blood Moon it is a Mountain, which makes {R})
     const cav = g.rules >= 13 && s.fx.mana.cavern && !moon, cavOk = cav && cavernSpell(g, s);

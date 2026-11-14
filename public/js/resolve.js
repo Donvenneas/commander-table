@@ -197,6 +197,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
   // (item 207, rules 17) "X, where X is …": the amount the clause names (e.xw), when no X was paid
   const X = v => (v === 'X' ? ctx.x || (e.xw && g.rules >= 17 ? g.dynValue(p, e.xw, { ...ctx, src }) : 0) : v && typeof v === 'object' ? g.dynValue(p, v, { ...ctx, src }) : v);
   const S = g.cn(src);
+  // (item 211, rules 17) "… for each burden counter on ~": the amount is counted now
+  if (e.nPer && g.rules >= 17) e = { ...e, n: e.nPer };
   // (rules 6: a second reading of the same words does nothing; see readRiders in effects.js)
   if (e.dup && g.rules >= 6) return;
   // (an effect read from rules 16 on: older games and their replays play without it)

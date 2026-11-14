@@ -338,6 +338,13 @@ export class Agent {
     return g.combosFor(o.card).some(c => p.combos.includes(c)) ? 8 : 0;
   }
 
+  // (item 211) Chrome Mox: the colored nonartifact, nonland card in hand we need least (never a combo piece if
+  // another card will do); without one the Mox makes no mana
+  chooseMoxImprint(g, p, host) {
+    const options = p.hand.filter(o => o !== host && !o.fx.type.artifact && !o.fx.type.land && g.colorsOf(o).length);
+    const spare = options.filter(o => !g.combosFor(o.card).some(c => p.combos.includes(c)));
+    return (spare.length ? spare : options).sort((a, b) => this.value(g, a) - this.value(g, b) || a.iid - b.iid)[0] || null;
+  }
   chooseImprint(g, p, host) {
     const options = p.hand.filter(o => o.fx.type.instant && (o.card.cmc || 0) <= 2);
     const piece = options.find(o => g.combosFor(o.card).some(c => c.imprint && p.combos.includes(c)));

@@ -1311,6 +1311,33 @@ await test('Hostage Taker: its controller may cast the exiled card; it returns i
   r.g.destroy(r.src); await settle(r.g); eq([r.v.zone, r.v.controller, r.v.mayPlay], ['battlefield', 1, null], 'after the Taker died: back with its owner');
 });
 
+// ---------- Rules 17 (audit item 211): imprint, and amounts per counter
+await test('Chrome Mox: no mana with nothing imprinted; only the imprinted card\'s colors', async () => {
+  const none = await scenario([{ battlefield: ['Chrome Mox'] }, {}]); eq(none.availableMana(P(none, 0)), 0, 'available mana with nothing imprinted');
+  const g = await scenario([{ hand: ['Chrome Mox', 'Lightning Bolt', 'Sol Ring', 'Craterhoof Behemoth'] }, {}]);
+  g.active = 0; await cast(g, 0, 'Chrome Mox');
+  const mox = find(g, 0, 'Chrome Mox');
+  eq([mox.imprintedObj?.card.name, mox.imprintedObj?.zone], ['Lightning Bolt', 'exile'], 'imprinted (the colored card the AI needs least; never the artifact)');
+  eq(g.manaUnitsOf(P(g, 0), mox).map(u => u.colors.join('')), ['R'], "the Mox's mana"); noErrors(g);
+  const old = await scenario([{ battlefield: ['Chrome Mox'] }, {}], { rules: 16 }); eq(old.availableMana(P(old, 0)), 1, 'rules 16 (old replays): any color with nothing imprinted');
+});
+const ringTurns = async rules => {
+  const g = await scenario([{ battlefield: ['The One Ring'], filler: 20 }, {}], { rules });
+  const ring = find(g, 0, 'The One Ring'); const drawn = [], lost = [];
+  for (let k = 0; k < 3; k++) {
+    g.turn++; const life = P(g, 0).life; g.trigger(ring, 'upkeep'); await settle(g); lost.push(life - P(g, 0).life);
+    const hand = P(g, 0).hand.length; await resolveEffects(g, 0, ring, ring.fx.abilities[0].effects); drawn.push(P(g, 0).hand.length - hand);
+  }
+  g.turn++; const life = P(g, 0).life; g.trigger(ring, 'upkeep'); await settle(g); lost.push(life - P(g, 0).life);
+  return { drawn, lost };
+};
+await test('The One Ring: draws 1, 2, 3 on three turns, and costs a life for each burden counter each upkeep', async () => {
+  eq(await ringTurns(), { drawn: [1, 2, 3], lost: [0, 1, 2, 3] }, 'cards drawn / life lost');
+});
+await test('The One Ring under rules 16 (old replays): one card and one life, as before', async () => {
+  eq(await ringTurns(16), { drawn: [1, 1, 1], lost: [1, 1, 1, 1] }, 'cards drawn / life lost');
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);
