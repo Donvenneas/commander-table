@@ -1143,6 +1143,90 @@ await test('The AI keeps Mana Leak when the spell\'s controller can pay, and cas
   eq([await usable(3), await usable(2)], [false, true], 'usable against 3 / 2 untapped lands');
 });
 
+// ---------- Rules 17 (audit items 209 and 200): what a spell or ability may target
+// The effects of a spell (or the given ones) resolved at one permanent of the second player: where it ends up
+const aim = async (name, target, { rules, effects = c => c.fx.spell, setup = () => {}, mine = false } = {}) => {
+  const g = await scenario([{ hand: [name], battlefield: mine ? [target] : [] }, { battlefield: mine ? [] : [target] }], { rules });
+  const o = find(g, mine ? 0 : 1, target), c = find(g, 0, name, 'hand'); setup(g, o);
+  await resolveEffects(g, 0, c, effects(c), [tgtObj(o)]);
+  return { g, o, zone: o.zone };
+};
+await test('Doom Blade cannot destroy a black creature: the cast is refused, and nothing happens on resolution', async () => {
+  const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk'] }]);
+  const v = find(g, 1, 'Vampire Nighthawk'); mana(g, 0);
+  eq(await cast(g, 0, 'Doom Blade', { targets: [tgtObj(v)] }), false, 'cast');
+  eq([v.zone, find(g, 0, 'Doom Blade', 'hand')?.zone], ['battlefield', 'hand'], 'Nighthawk / Doom Blade');
+  ok(/Vampire Nighthawk is not a legal target/.test(logText(g)), 'the log says why');
+  eq((await aim('Doom Blade', 'Vampire Nighthawk')).zone, 'battlefield', 'resolved at it anyway: still there');
+  eq((await aim('Doom Blade', 'Grizzly Bears')).zone, 'graveyard', 'a green creature dies');
+});
+await test('Doom Blade under rules 16 (old replays): the black creature dies, as before', async () => {
+  eq((await aim('Doom Blade', 'Vampire Nighthawk', { rules: 16 })).zone, 'graveyard', 'Nighthawk zone');
+});
+await test('Doom Blade: the AI and a person\'s target list leave the black creature out', async () => {
+  const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk', 'Grizzly Bears'] }]);
+  const db = find(g, 0, 'Doom Blade', 'hand'), e = db.fx.spell[0];
+  eq(P(g, 0).agent.chooseTarget(g, P(g, 0), e, db)?.obj?.card.name, 'Grizzly Bears', "the AI's target");
+  const h = new HumanAgent('balanced', { ask: async () => ({ button: 'cancel' }) });
+  eq(h.candidates(g, P(g, 0), e, db).objs.map(o => o.card.name), ['Grizzly Bears'], "a person's list");
+  const g2 = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk'] }]);
+  eq(P(g2, 0).agent.chooseTarget(g2, P(g2, 0), e, find(g2, 0, 'Doom Blade', 'hand')), null, 'only a black creature: no target');
+});
+await test('Game.cast refuses a target of the wrong kind (Doom Blade at Sol Ring)', async () => {
+  const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Sol Ring'] }]);
+  const s = find(g, 1, 'Sol Ring'); mana(g, 0);
+  eq([await cast(g, 0, 'Doom Blade', { targets: [tgtObj(s)] }), s.zone], [false, 'battlefield'], 'cast / Sol Ring zone');
+  eq((await aim('Doom Blade', 'Sol Ring', { rules: 16 })).zone, 'graveyard', 'rules 16 (old replays): destroyed');
+});
+await test('Go for the Throat cannot destroy an artifact creature', async () => {
+  eq([(await aim('Go for the Throat', 'Solemn Simulacrum')).zone, (await aim('Go for the Throat', 'Grizzly Bears')).zone, (await aim('Go for the Throat', 'Solemn Simulacrum', { rules: 16 })).zone], ['battlefield', 'graveyard', 'graveyard'], 'artifact creature / other creature / rules 16');
+});
+await test('Abrupt Decay: mana value 3 or less only; Despark: 4 or greater only', async () => {
+  eq([(await aim('Abrupt Decay', 'Rhystic Study')).zone, (await aim('Abrupt Decay', 'Smothering Tithe')).zone, (await aim('Abrupt Decay', 'Smothering Tithe', { rules: 16 })).zone], ['graveyard', 'battlefield', 'graveyard'], 'Abrupt Decay at mana value 3 / 4 / rules 16');
+  eq([(await aim('Despark', 'Smothering Tithe')).zone, (await aim('Despark', 'Rhystic Study')).zone], ['exile', 'battlefield'], 'Despark at mana value 4 / 3');
+});
+await test('Valorous Stance destroys only a creature with toughness 4 or greater', async () => {
+  const second = c => c.fx.modes.modes[1];
+  eq([(await aim('Valorous Stance', 'Craterhoof Behemoth', { effects: second })).zone, (await aim('Valorous Stance', 'Grizzly Bears', { effects: second })).zone], ['graveyard', 'battlefield'], 'toughness 5 / 2');
+});
+await test('Razorgrass Ambush: only an attacking or blocking creature', async () => {
+  eq([(await aim('Razorgrass Ambush', 'Grizzly Bears')).zone, (await aim('Razorgrass Ambush', 'Grizzly Bears', { setup: (g, o) => { o.attacking = 0; } })).zone], ['battlefield', 'graveyard'], 'not in combat / attacking');
+});
+await test('Royal Assassin: only a tapped creature', async () => {
+  const run = async tapped => {
+    const g = await scenario([{ battlefield: ['Royal Assassin'] }, { battlefield: [{ name: 'Grizzly Bears', tapped }] }]);
+    const ra = find(g, 0, 'Royal Assassin'), b = find(g, 1, 'Grizzly Bears'); b.tapped = tapped;
+    await resolveEffects(g, 0, ra, ra.fx.abilities[0].effects, [tgtObj(b)]); return b.zone;
+  };
+  eq([await run(false), await run(true)], ['battlefield', 'graveyard'], 'untapped / tapped');
+});
+await test("Shizo, Death's Storehouse: only a legendary creature gains fear", async () => {
+  const run = async name => {
+    const g = await scenario([{ battlefield: ["Shizo, Death's Storehouse", name] }, {}]);
+    const s = find(g, 0, "Shizo, Death's Storehouse"), c = find(g, 0, name);
+    await resolveEffects(g, 0, s, s.fx.abilities[0].effects, [tgtObj(c)]); return g.has(c, 'fear');
+  };
+  eq([await run('Grizzly Bears'), await run('Krenko, Mob Boss')], [false, true], 'Grizzly Bears / Krenko has fear');
+});
+await test("Ephemerate: only a creature you control (a person can't blink an opponent's creature)", async () => {
+  const r = await aim('Ephemerate', 'Grizzly Bears'); eq(r.zone, 'battlefield', "the opponent's creature stays");
+  ok(/Grizzly Bears is not a legal target/.test(logText(r.g)), 'the log says why');
+  const mine = await aim('Ephemerate', 'Wall of Omens', { mine: true });
+  ok(find(mine.g, 0, 'Wall of Omens') && !/not a legal target/.test(logText(mine.g)) && /^Wall of Omens — enters/m.test(logText(mine.g)), 'your own creature is blinked: its enter trigger happens again');
+});
+await test('Bedevil and Feed the Swarm: every kind the words name is a legal target', async () => {
+  eq([(await aim('Bedevil', 'Grizzly Bears')).zone, (await aim('Bedevil', 'Sol Ring')).zone, (await aim('Bedevil', 'Rhystic Study')).zone], ['graveyard', 'graveyard', 'battlefield'], 'Bedevil at a creature / an artifact / an enchantment');
+  const g = await scenario([{ hand: ['Bedevil'] }, { battlefield: ['Grizzly Bears', 'Rhystic Study'] }]);
+  const b = find(g, 0, 'Bedevil', 'hand');
+  eq(P(g, 0).agent.chooseTarget(g, P(g, 0), b.fx.spell[0], b)?.obj?.card.name, 'Grizzly Bears', 'the AI aims Bedevil at the creature (before: artifacts only)');
+  eq((await aim('Feed the Swarm', 'Rhystic Study', { mine: true })).zone, 'battlefield', 'Feed the Swarm at your own enchantment: not legal');
+});
+await test('Zealous Conscripts may take control of your own permanent (it untaps)', async () => {
+  const g = await scenario([{ battlefield: [{ name: 'Sol Ring', tapped: true }], hand: ['Zealous Conscripts'] }, {}]);
+  const s = find(g, 0, 'Sol Ring'); s.tapped = true; const z = find(g, 0, 'Zealous Conscripts', 'hand');
+  await resolveEffects(g, 0, z, z.fx.etb, [tgtObj(s)]); eq(s.tapped, false, 'Sol Ring tapped');
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

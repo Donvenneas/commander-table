@@ -81,6 +81,101 @@ export function counterFits(g, e, item) {
   if (col && !g.colorsOf(o).includes(col)) return false;
   return true;
 }
+// Is the permanent o a "what" (creature, artifact or enchantment, nonland permanent…)? The words of a targeted effect.
+/** @param {any} o @param {string} what @param {import('./engine.js').Game | null} [g] */
+export function matchesWhat(o, what, g = null) {
+  const t = o.fx.type;
+  // (item 209, rules 17: the kinds read from "creature or enchantment", "artifact, creature, or planeswalker")
+  if (Array.isArray(what)) return !!g && what.some(k => g.isA(o, k.replace(/nonartifact/, '').trim() || 'permanent') && !(/nonartifact/.test(k) && t.artifact) && !(/creature/.test(k) && !/noncreature/.test(k) && g.dormant(o)));
+  // (rules 6: "target land" means a land, and a God below its devotion or an uncharged Spacecraft isn't a creature)
+  if (g && g.rules >= 6) {
+    if (what === 'land') return t.land;
+    if (t.creature && g.dormant(o) && /creature/.test(what || 'creature')) return what === 'creature or planeswalker' ? t.planeswalker : false;
+  }
+  switch (what) {
+    case 'creature': return t.creature;
+    case 'artifact': return t.artifact;
+    case 'enchantment': return t.enchantment;
+    case 'planeswalker': return t.planeswalker;
+    case 'creature or planeswalker': return t.creature || t.planeswalker;
+    case 'artifact or enchantment': return t.artifact || t.enchantment;
+    case 'artifact or creature': return g && g.rules >= 7 ? t.artifact || t.creature : t.creature;
+    case 'nonland permanent': return !t.land;
+    case 'permanent': return true;
+    default: return t.creature;
+  }
+}
+// The permanents and players a targeted effect may be aimed at, by its kind: the list a person chooses from, and from
+// rules 17 (item 200) what the engine accepts when a spell is cast and when it resolves. {} for a kind with no list.
+/** @param {import('./engine.js').Game} g @returns {{ objs?: any[], players?: number[] }} */
+export function legalTargets(g, p, e, src) {
+  e = withKinds(g, e);
+  const all = g.players.flatMap(q => q.battlefield);
+  switch (e.k) {
+    case 'remove': return { objs: all.filter(o => matchesWhat(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
+    case 'bounce': case 'flickerDelay': return { objs: all.filter(o => matchesWhat(o, e.what, g) && !o.fx.type.land && g.canTarget(p, o)) };
+    case 'steal': return { objs: all.filter(o => (o.controller !== p.idx || g.rules >= 17) && matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
+    case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
+    case 'blink': return { objs: p.battlefield.filter(o => matchesWhat(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
+    case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
+    case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
+    case 'tap': return { objs: all.filter(o => matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
+    case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
+    case 'damage': {
+      const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
+      const players = /any|player|opponent/.test(e.to) ? g.alive().filter(q => !/opponent/.test(e.to) || q !== p).map(q => q.idx) : [];
+      return { objs, players };
+    }
+    default: return {};
+  }
+}
+// (item 209, rules 17) The effect with its "what" replaced by the list of kinds its words name, when they name several
+/** @param {import('./engine.js').Game} g @param {any} e */
+export const withKinds = (g, e) => (g.rules >= 17 && e.tr?.kinds ? { ...e, what: e.tr.kinds } : e);
+const TR_COLOR = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+/** (item 209, rules 17) Does the permanent o fit what the effect's words ask of its target (e.tr, read by
+ * effects.js targetWords)? The one test used when an effect resolves, by the AI when it picks a target and for the
+ * list a person chooses from.
+ * @param {import('./engine.js').Game} g @param {any} p the effect's controller @param {any} e @param {any} o @param {any} [src] */
+export function targetFits(g, p, e, o, src) {
+  const r = e.tr;
+  if (!r || g.rules < 17) return true;
+  const t = o.fx.type, cols = g.colorsOf(o);
+  for (const w of r.not || []) {
+    if (w in TR_COLOR ? cols.includes(TR_COLOR[w]) : w === 'token' ? o.token : w in t ? t[w] : o.fx.subtypes.includes(w)) return false;
+  }
+  if (r.colors && !r.colors.some(c => cols.includes(c))) return false;
+  if (r.multi && cols.length < 2) return false;
+  if (r.mono && cols.length !== 1) return false;
+  if (r.colorless && cols.length) return false;
+  const between = (/** @type {number} */ v, /** @type {any} */ lim) => !lim || ((lim.min == null || v >= lim.min) && (lim.max == null || v <= lim.max));
+  if (!between(o.card.cmc || 0, r.mv)) return false;
+  if ((r.power || r.tough) && !t.creature) return false;
+  if (!between(g.power(o), r.power) || !between(g.toughness(o), r.tough)) return false;
+  if (r.state) {
+    const att = o.attacking != null, blk = o.blocking != null;
+    if (r.state === 'attacking' ? !att : r.state === 'blocking' ? !blk : !(att || blk)) return false;
+  }
+  if (r.tapped != null && !!o.tapped !== r.tapped) return false;
+  if (r.legendary && !t.legendary) return false;
+  if (r.token && !o.token) return false;
+  if (r.other && o === src) return false;
+  if (r.kw && !r.kw.some(k => g.has(o, k))) return false;
+  if (r.noKw && g.has(o, r.noKw)) return false;
+  if (r.ctl === 'you' && o.controller !== p.idx) return false;
+  if (r.ctl === 'opp' && o.controller === p.idx) return false;
+  return true;
+}
+/** (items 200 and 209, rules 17) Is t a legal target for the effect e: for a permanent, one of the effect kind's
+ * targets (legalTargets) that also fits the restrictions in its words (targetFits).
+ * @param {import('./engine.js').Game} g @param {any} p @param {any} e @param {any} t @param {any} [src] */
+export function targetLegal(g, p, e, t, src) {
+  if (g.rules < 17 || !t?.obj) return true;
+  if (!targetFits(g, p, e, t.obj, src)) return false;
+  const prev = g.targetSrc;
+  g.targetSrc = src;
+  try { const l = legalTargets(g, p, e, src); return !l.objs || l.objs.includes(t.obj); } finally { g.targetSrc = prev; }
+}
 // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
 /** @param {import('./engine.js').Game} g */
 export async function runEffects(g, p, src, effects, ctx = {}) {
@@ -113,6 +208,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
     tgt = p.agent.chooseTarget(g, p, e, src);
   }
   const tName = t => g.tname(t);
+  // (item 209, rules 17) A permanent the effect's words don't allow isn't a legal target: nothing happens to it (608.2b)
+  if (tgt?.obj && needsTargetIn(e, g.rules) && !targetLegal(g, p, e, tgt, src)) { g.log(`${S}: ${g.cn(tgt.obj)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
   // (item 208, rules 17) "Destroy target permanent if it's blue" (Pyroblast): another color is a legal target, but nothing happens
   if (g.rules >= 17 && e.ifColor && e.k !== 'counter' && tgt?.obj && !g.colorsOf(tgt.obj).includes(e.ifColor)) { g.log(`${S}: ${g.cn(tgt.obj)} isn't ${protName(e.ifColor)}, nothing happens`, { kind: 'minor' }); return; }
   // Shalai, Leyline of Sanctity-style: an opponent with hexproof can't be targeted

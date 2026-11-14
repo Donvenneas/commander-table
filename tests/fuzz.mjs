@@ -54,6 +54,8 @@ class FuzzUI {
 const styles = ['balanced', 'aggressive', 'combo', 'defensive', 'cedh'];
 let errors = 0, broken = 0, finished = 0, asked = 0, unattached = 0;
 const problems = [];
+// (item 209) targets an agent chose that the effect's words don't allow: the AI and the target lists should never offer one
+const illegal = new Map();
 for (let i = 0; i < GAMES; i++) {
   const seed = SEED + i, rng = makeRng(seed);
   const decks = [0, 1, 2, 3].map(() => randomDeck(rng));
@@ -70,8 +72,10 @@ for (let i = 0; i < GAMES; i++) {
   for (const [, v] of found) { broken++; problems.push(`seed ${seed}: rule broken: ${v.text} (turn ${v.turn})`); }
   if (g.over) finished++;
   asked += ui.asked;
+  for (const e of g.logEntries) { const t = e.html.replace(/<[^>]+>/g, ''); if (t.includes(' is not a legal target')) illegal.set(t.split(':')[0], (illegal.get(t.split(':')[0]) || 0) + 1); }
   unattached += g.logEntries.filter(e => /becomes unattached/.test(e.html)).length;
 }
+if (illegal.size) console.log(`Targets chosen that were not legal (by source): ${[...illegal].map(([k, v]) => `${k} ${v}`).join(', ')}`);
 console.log(`Fuzz: ${GAMES} games from seed ${SEED}, ${finished} finished, ${asked} random answers, ${errors} simulator errors, ${broken} broken rules (equipment unattached by 704.5n: ${unattached}).`);
 for (const p of problems.slice(0, 20)) console.log(`  ${p}`);
 if (errors || broken) process.exit(1);

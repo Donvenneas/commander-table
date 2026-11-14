@@ -40,17 +40,6 @@ if (arg !== '--scan') {
     await spell(g, 0, 'Blasphemous Act'); eq([P(g, 0).life, P(g, 1).life], [44, 36], 'life totals');
   });
 
-  // ---------- 209 and 200: what a spell may target
-  await test(209, 'Doom Blade cannot destroy a black creature', ['Doom Blade', 'Vampire Nighthawk'], async () => {
-    const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk'] }]);
-    const v = find(g, 1, 'Vampire Nighthawk'); mana(g, 0); await cast(g, 0, 'Doom Blade', { targets: [tgtObj(v)] });
-    eq(v.zone, 'battlefield', 'Vampire Nighthawk zone');
-  });
-  await test(200, 'Game.cast refuses a target of the wrong kind (Doom Blade at Sol Ring)', ['Doom Blade', 'Sol Ring'], async () => {
-    const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Sol Ring'] }]);
-    const s = find(g, 1, 'Sol Ring'); mana(g, 0); await cast(g, 0, 'Doom Blade', { targets: [tgtObj(s)] });
-    eq(s.zone, 'battlefield', 'Sol Ring zone');
-  });
   await test(200, 'Game.canCast says no to a sorcery on an opponent\'s turn', ['Divination', 'Island'], async () => {
     const g = await scenario([{ battlefield: ['Island', 'Island', 'Island'], hand: ['Divination'] }, {}]);
     g.active = 1; eq(!!g.canCast(P(g, 0), find(g, 0, 'Divination', 'hand')), false, 'castable');

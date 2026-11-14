@@ -4,7 +4,7 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
-import { spellFits, counterFits } from './resolve.js';
+import { spellFits, counterFits, targetFits, matchesWhat, withKinds } from './resolve.js';
 import { combosIn, comboState, comboBlocked, comboPlay } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
@@ -108,7 +108,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** the spell a counter ability answers (item 97) @type {any} */ this.spellHint = null; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** the spell a counter ability answers (item 97) @type {any} */ this.spellHint = null; /** (item 209) the target test while a target is chosen @type {((o: any) => boolean) | null} */ this.fitNow = null; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -452,26 +452,7 @@ export class Agent {
   }
 
   // ---------- targeting
-  matches(o, what, g = null) {
-    const t = o.fx.type;
-    // (rules 6: "target land" means a land, and a God below its devotion or an uncharged Spacecraft isn't a creature)
-    if (g && g.rules >= 6) {
-      if (what === 'land') return t.land;
-      if (t.creature && g.dormant(o) && /creature/.test(what || 'creature')) return what === 'creature or planeswalker' ? t.planeswalker : false;
-    }
-    switch (what) {
-      case 'creature': return t.creature;
-      case 'artifact': return t.artifact;
-      case 'enchantment': return t.enchantment;
-      case 'planeswalker': return t.planeswalker;
-      case 'creature or planeswalker': return t.creature || t.planeswalker;
-      case 'artifact or enchantment': return t.artifact || t.enchantment;
-      case 'artifact or creature': return g && g.rules >= 7 ? t.artifact || t.creature : t.creature;
-      case 'nonland permanent': return !t.land;
-      case 'permanent': return true;
-      default: return t.creature;
-    }
-  }
+  matches(o, what, g = null) { return matchesWhat(o, what, g); }
   threatRank(g, p) {
     const opps = g.opponents(p).map(q => [q.idx, this.threat(g, p, q)]).sort((a, b) => b[1] - a[1]);
     const m = new Map();
@@ -482,7 +463,7 @@ export class Agent {
     const rank = this.threatRank(g, p);
     let best = null, bv = 0;
     for (const q of g.opponents(p)) for (const o of q.battlefield) {
-      if (!filter(o) || !g.canTarget(p, o)) continue;
+      if (!filter(o) || !g.canTarget(p, o) || (this.fitNow && !this.fitNow(o))) continue;
       const v = (this.value(g, o) + this.comboDanger(g, o)) * (rank.get(q.idx) || 1);
       if (v > bv) { bv = v; best = o; }
     }
@@ -490,7 +471,7 @@ export class Agent {
   }
   bestOwn(g, p, filter = o => o.fx.type.creature) {
     let best = null, bv = -1;
-    for (const o of p.battlefield) if (filter(o)) { const v = this.value(g, o); if (v > bv) { bv = v; best = o; } }
+    for (const o of p.battlefield) if (filter(o) && (!this.fitNow || this.fitNow(o))) { const v = this.value(g, o); if (v > bv) { bv = v; best = o; } }
     return best;
   }
   weakestOpponent(g, p) {
@@ -505,7 +486,11 @@ export class Agent {
     const prev = g.targetSrc;
     g.targetSrc = src;
     let t;
-    try { t = this.chooseTarget0(g, p, e, src); } finally { g.targetSrc = prev; }
+    // (item 209, rules 17: bestEnemy and bestOwn only see permanents the effect's words allow)
+    const prevFit = this.fitNow;
+    this.fitNow = g.rules >= 17 && e.tr ? o => targetFits(g, p, e, o, src) : null;
+    try { t = this.chooseTarget0(g, p, withKinds(g, e), src); } finally { g.targetSrc = prev; this.fitNow = prevFit; }
+    if (t?.obj && !targetFits(g, p, e, t.obj, src)) return null;
     if (g.rules >= 13 && t?.player != null && t.player !== p.idx && g.players[t.player]?.shield >= g.turn) {
       const other = g.opponents(p).filter(q => !(q.shield >= g.turn)).sort((a, b) => a.life - b.life || a.idx - b.idx)[0];
       return other ? { ...t, player: other.idx } : null;

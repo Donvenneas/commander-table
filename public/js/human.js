@@ -6,6 +6,7 @@ import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
 import { needsTarget, needsTargetIn, costText } from './effects.js';
 import { esc, makeRng } from './util.js';
+import { targetFits, legalTargets } from './resolve.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
 const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx.kw.has('flash')
@@ -409,28 +410,10 @@ export class HumanAgent extends Agent {
   candidates(g, p, e, src) {
     const prev = g.targetSrc;
     g.targetSrc = src;
-    try { return this.candidates0(g, p, e, src); } finally { g.targetSrc = prev; }
+    // (item 209, rules 17: only the permanents the effect's words allow, e.g. nonblack, mana value 3 or less, you control)
+    try { const c = this.candidates0(g, p, e, src); return c.objs ? { ...c, objs: c.objs.filter(o => targetFits(g, p, e, o, src)) } : c; } finally { g.targetSrc = prev; }
   }
-  candidates0(g, p, e, src) {
-    const all = g.players.flatMap(q => q.battlefield);
-    switch (e.k) {
-      case 'remove': return { objs: all.filter(o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
-      case 'bounce': case 'flickerDelay': return { objs: all.filter(o => this.matches(o, e.what, g) && !o.fx.type.land && g.canTarget(p, o)) };
-      case 'steal': return { objs: all.filter(o => o.controller !== p.idx && this.matches(o, e.what, g) && g.canTarget(p, o)) };
-      case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
-      case 'blink': return { objs: p.battlefield.filter(o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
-      case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
-      case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
-      case 'tap': return { objs: all.filter(o => this.matches(o, e.what, g) && g.canTarget(p, o)) };
-      case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
-      case 'damage': {
-        const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
-        const players = /any|player|opponent/.test(e.to) ? g.alive().filter(q => !/opponent/.test(e.to) || q !== p).map(q => q.idx) : [];
-        return { objs, players };
-      }
-      default: return {};
-    }
-  }
+  candidates0(g, p, e, src) { return legalTargets(g, p, e, src); }
   async pickTarget(g, p, e, src) {
     const { objs = [], players = [] } = this.candidates(g, p, e, src);
     if (!objs.length && !players.length) return null;

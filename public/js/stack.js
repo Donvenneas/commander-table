@@ -28,6 +28,7 @@
 // stay with loops.js (Phase 2B).
 import { yieldTick } from './util.js';
 import { needsTargetIn } from './effects.js';
+import { targetLegal } from './resolve.js';
 import * as K from './kingdomsPlay.js';
 
 export const MAX_RESPONSES = 200;
@@ -120,6 +121,8 @@ export function targetsBad(g, p, src, effects, targets, given) {
     if (!t) continue;
     if (t.spell && (t.spell.o === src)) return 'a spell can\'t target itself';
     if (given && !g.validTarget(t, p, src)) return `${g.tname(t) || 'that target'} is not a legal target`;
+    // (items 200 and 209, rules 17: the kind of permanent and the restrictions in the effect's words count too)
+    if (given && !targetLegal(g, p, effects[i], t, src)) return `${g.tname(t) || 'that target'} is not a legal target`;
   }
   if (need.every(i => !targets[i]) && !/\bup to (one|two|three|four|five|x|\w+) (other )?target/i.test(src?.card?.text || '')) return 'it has no legal target';
   return null;

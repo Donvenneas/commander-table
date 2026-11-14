@@ -1042,6 +1042,60 @@ function whereX(c) {
   return { dyn: '?' };
 }
 
+// (item 209) The effects whose one target is a permanent, and the restriction words of the first "target …" phrase
+// in the sentence the effect was read from
+const TARGETED = new Set(['remove', 'bounce', 'blink', 'flickerDelay', 'steal', 'tap', 'pump', 'protect', 'counters', 'shrink', 'minus', 'goad', 'damage', 'tuck', 'noBlock', 'regen', 'doublePT', 'evade', 'kwCounter']);
+const TR_COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+const TR_KW = 'flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|defender|first strike|double strike';
+const TR_TYPES = new Set(['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent', 'nonland', 'noncreature', 'nonartifact', 'nontoken', 'token']);
+function targetWords(t, i, k) {
+  const from = Math.max(t.lastIndexOf('.', i), t.lastIndexOf('\n', i)) + 1;
+  const sentence = t.slice(from).split(/[.\n]/)[0];
+  // (the first "target" at or after the words the effect was read from; else the one just before them)
+  const all = [...sentence.matchAll(/\btarget /g)].map(m => m.index);
+  const at = all.find(a => a >= i - from) ?? all.at(-1) ?? -1;
+  if (at < 0) return null;
+  // (the phrase ends where the next clause starts; a second "target" belongs to something else)
+  const phrase = sentence.slice(at + 7).split(/[;:(]|, then\b| and (?!\/)|\bgets?\b|\bgains?\b|\bdeals?\b|\bfights?\b|\bcan't\b|\bunless\b|\bto (?:its|their)\b|\btarget\b|\bif\b|\buntil\b|\bbecomes?\b|\bis\b|\bhas\b|\bhave\b|\bloses?\b|\bdoesn't\b|\bphases?\b|\bexplores?\b|\bconnives?\b|\buntaps?\b/)[0];
+  const head = phrase.split(/ with | you | an opponent | that | from | of | on /)[0];
+  // ("artifact, enchantment, or tapped creature": a word after "or" belongs to the last kind only, so it is not kept)
+  const first = head.replace('attacking or blocking', 'attacking-or-blocking').split(/,? or /)[0];
+  /** @type {any} */
+  const tr = {};
+  const nots = [...head.matchAll(/\bnon-?(white|blue|black|red|green|artifact|creature|enchantment|legendary|token|basic|human|snow)\b/g)].map(m => m[1]);
+  if (nots.length) tr.not = [...new Set(nots)];
+  const cols = [...first.matchAll(/(?<!non-?)\b(white|blue|black|red|green)\b/g)].map(m => TR_COLORS[m[1]]);
+  if (cols.length) tr.colors = cols;
+  if (/\bmulticolored\b/.test(first)) tr.multi = true;
+  if (/\bmonocolored\b/.test(first)) tr.mono = true;
+  if (/\bcolorless\b/.test(first)) tr.colorless = true;
+  let m;
+  if ((m = first.match(/\b(attacking-or-blocking|attacking|blocking)\b/))) tr.state = m[1].replace(/-/g, ' ');
+  if ((m = first.match(/\b(un)?tapped\b/))) tr.tapped = !m[1];
+  if (/(?<!non-?)\blegendary\b/.test(first)) tr.legendary = true;
+  if (/\btoken\b/.test(head) && !/\bnon-?token\b/.test(head)) tr.token = true;
+  if (/^(?:an)?other\b/.test(head)) tr.other = true;
+  // ("creature or enchantment", "artifact, creature, or planeswalker": each kind the target may be, when every word is
+  // a card type; the effect's own "what" keeps its older, narrower reading for games before rules 17)
+  if (/ or /.test(head.replace('attacking or blocking', ''))) {
+    const kinds = head.replace('attacking or blocking', '').split(/, or |, | or /).map(a => a.split(' ').filter(w => w && !/^(?:an)?other$|^(?:un)?tapped$|^attacking$|^blocking$|^legendary$|^non-?(?:white|blue|black|red|green|basic|legendary|token)$|^(?:white|blue|black|red|green)$/.test(w)).join(' '));
+    if (kinds.every(a => a && a.split(' ').every(w => TR_TYPES.has(w)))) tr.kinds = kinds;
+  }
+  if ((m = phrase.match(/ with mana value (\d+) or (less|greater)/))) tr.mv = m[2] === 'less' ? { max: +m[1] } : { min: +m[1] };
+  else if ((m = phrase.match(/ with mana value (\d+)\b/))) tr.mv = { min: +m[1], max: +m[1] };
+  for (const [word, key] of [['power', 'power'], ['toughness', 'tough']]) {
+    if ((m = phrase.match(new RegExp(` with ${word} (\\d+) or (less|greater)`)))) tr[key] = m[2] === 'less' ? { max: +m[1] } : { min: +m[1] };
+  }
+  if ((m = phrase.match(new RegExp(` with (${TR_KW})(?: or (${TR_KW}))?\\b`)))) tr.kw = [m[1], m[2]].filter(Boolean);
+  if ((m = phrase.match(new RegExp(` without (${TR_KW})\\b`)))) tr.noKw = m[1];
+  // ("you control" / "you don't control": not for a fight or bite, whose own creature is named first)
+  if (k !== 'fight') {
+    if (/ you control\b/.test(phrase) && !/ you don't control\b/.test(phrase)) tr.ctl = 'you';
+    else if (/ you don't control\b| an opponent controls\b/.test(phrase)) tr.ctl = 'opp';
+  }
+  return Object.keys(tr).length ? tr : null;
+}
+
 // Second halves of sentences the patterns above leave out. Each is a mark on an effect already read, used by the
 // engine from rules 6 (older replays keep playing as before):
 // - dup: two patterns read the same words ("destroy target artifact or enchantment") into one effect twice
@@ -1072,8 +1126,17 @@ function readRiders(t, found, effects) {
       if ((m = t.match(new RegExp(`counter target [\\w, ]*?spell if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
     } else if (e.k === 'remove' && (m = t.match(new RegExp(`(?:destroy|exile) target [\\w, ]*?permanent if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
   }
+  // (item 209, used from rules 17) What a targeted effect's words ask of its target, beyond the kind of permanent:
+  // tr = { not: ['black', 'artifact'], colors: ['U'], mv: { max: 3 }, power / tough: { min: 4 }, state: 'attacking',
+  // tapped, legendary, ctl: 'you' | 'opp', kw: ['flying'], other }. One reading for every targeted effect
+  // (resolve.js targetFits is the one test the engine, the AI and a person's target list share).
+  for (const x of found) {
+    if (x.e.dup || x.e.tr || !TARGETED.has(x.e.k)) continue;
+    const tr = targetWords(t, x.i, x.e.k);
+    if (tr) x.e.tr = tr;
+  }
   const ctl = "(?:its|that (?:creature|permanent|spell|land)'s) controller";
-  const hit = [...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
+  const hit =[...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
   if (hit) {
     const comp = {};
     if (new RegExp(`${ctl} gains life equal to its power`).test(t)) comp.gain = 'power';
