@@ -58,6 +58,8 @@ Abilities: `node tests/abilities.mjs` (CI runs it too) checks card abilities at 
 
 Hidden information: `node tests/hidden.mjs` (CI runs it too) asks every AI decision again with the opponents' hands and libraries scrambled and fails if one changes (an AI must never read hidden cards).
 
+Online seats: `node tests/net.mjs` (CI runs it too) drives `RemoteUI.askLive` in `net.js` with a fake room: an answer naming an object, player or button that was not offered is treated as "cancel". Servers: `node tests/servers.mjs http://localhost:8777` (not in CI: it needs a running server) asks one server for its limits and refusals (body limit and 413, path checks, security policy header); run it against each of the three servers after an endpoint change.
+
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). The baseline is empty now, and engine.js, effects.js and the engine's section modules must also pass `--strictNullChecks`. It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.

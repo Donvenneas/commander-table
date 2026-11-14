@@ -40,29 +40,6 @@ if (arg !== '--scan') {
     await spell(g, 0, 'Blasphemous Act'); eq([P(g, 0).life, P(g, 1).life], [44, 36], 'life totals');
   });
 
-  // ---------- 206: an "if" the reader can't read counts as true
-  await test(206, 'Mana Crypt: the upkeep damage is a coin flip (about 12 in 8 upkeeps, not 24)', ['Mana Crypt'], async () => {
-    const g = await scenario([{ battlefield: ['Mana Crypt'] }, {}]);
-    const c = find(g, 0, 'Mana Crypt');
-    for (let k = 0; k < 8; k++) { g.turn++; g.trigger(c, 'upkeep'); await settle(g); }
-    const lost = 40 - P(g, 0).life; ok(lost > 0 && lost < 24, `lost ${lost} life in 8 upkeeps (24 = every time, 0 = never)`);
-  });
-
-  // ---------- 207: "X, where X is …" plays as 0
-  await test(207, 'Krenko, Mob Boss with three Goblins makes three tokens', ['Krenko, Mob Boss', 'Goblin Matron'], async () => {
-    const g = await scenario([{ battlefield: ['Krenko, Mob Boss', 'Goblin Matron', 'Goblin Matron'] }, {}]);
-    g.active = 0; const k = find(g, 0, 'Krenko, Mob Boss'); await g.activate(P(g, 0), k, k.fx.abilities[0], {}); await settle(g);
-    eq(P(g, 0).battlefield.filter(o => o.token).length, 3, 'Goblin tokens');
-  });
-  await test(207, 'Chain Reaction with three creatures out deals 3 to each', ['Chain Reaction', 'Grizzly Bears'], async () => {
-    const g = await scenario([{ hand: ['Chain Reaction'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }]);
-    await spell(g, 0, 'Chain Reaction'); eq(P(g, 1).battlefield.length, 0, 'Grizzly Bears left');
-  });
-  await test(207, 'Dockside Extortionist counts the opponents\' artifacts and enchantments', ['Dockside Extortionist', 'Sol Ring', 'Rhystic Study'], async () => {
-    const g = await scenario([{ hand: ['Dockside Extortionist'] }, { battlefield: ['Sol Ring', 'Rhystic Study', 'Sol Ring'] }]);
-    mana(g, 0); await cast(g, 0, 'Dockside Extortionist'); eq(P(g, 0).battlefield.filter(o => o.token).length, 3, 'Treasures');
-  });
-
   // ---------- 208: counterspells with a condition are plain Counterspells
   await test(208, 'Mana Leak: a player with six untapped lands pays {3} and keeps the spell', ['Mana Leak', 'Grizzly Bears', 'Forest'], async () => {
     const g = await scenario([{ hand: ['Grizzly Bears'], battlefield: Array(6).fill('Forest') }, { hand: ['Mana Leak'] }]);

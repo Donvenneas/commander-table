@@ -1040,6 +1040,41 @@ await test('Temple of the False God: no mana with four lands; {C}{C} with five (
   const old = await scenario([{ battlefield: ['Temple of the False God', 'Wastes'] }, {}], { rules: 12 });
   eq(old.availableMana(P(old, 0)), 3, 'rules 12 (old replays): it made mana with two lands');
 });
+
+// ---------- Rules 17 (audit items 206 and 207): coin flips and "X, where X is ..."
+const cryptUpkeeps = async rules => {
+  const g = await scenario([{ battlefield: ['Mana Crypt'] }, {}], { rules });
+  const c = find(g, 0, 'Mana Crypt');
+  for (let k = 0; k < 8; k++) { g.turn++; g.trigger(c, 'upkeep'); await settle(g); }
+  return 40 - P(g, 0).life;
+};
+await test('Mana Crypt: the upkeep damage is a coin flip (some of 8 upkeeps, not all)', async () => {
+  const lost = await cryptUpkeeps(); ok(lost > 0 && lost < 24 && lost % 3 === 0, `lost ${lost} life in 8 upkeeps (24 = every time, 0 = never)`);
+  eq(await cryptUpkeeps(), lost, 'the same seed flips the same coins');
+});
+await test('Mana Crypt under rules 16 (old replays): 3 damage every upkeep, as before', async () => {
+  eq(await cryptUpkeeps(16), 24, 'life lost in 8 upkeeps');
+});
+const krenko = async rules => {
+  const g = await scenario([{ battlefield: ['Krenko, Mob Boss', 'Goblin Matron', 'Goblin Matron'] }, {}], { rules });
+  g.active = 0; const k = find(g, 0, 'Krenko, Mob Boss'); await g.activate(P(g, 0), k, k.fx.abilities[0], {}); await settle(g);
+  return P(g, 0).battlefield.filter(o => o.token).length;
+};
+await test('Krenko, Mob Boss with three Goblins makes three tokens', async () => { eq(await krenko(), 3, 'Goblin tokens'); });
+await test('Krenko, Mob Boss under rules 16 (old replays): X is 0, no tokens', async () => { eq(await krenko(16), 0, 'Goblin tokens'); });
+const chain = async rules => {
+  const g = await scenario([{ hand: ['Chain Reaction'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }], { rules });
+  await spell(g, 0, 'Chain Reaction'); return P(g, 1).battlefield.length;
+};
+await test('Chain Reaction with three creatures out deals 3 to each', async () => { eq(await chain(), 0, 'Grizzly Bears left'); });
+await test('Chain Reaction under rules 16 (old replays): deals 0', async () => { eq(await chain(16), 3, 'Grizzly Bears left'); });
+const dockside = async rules => {
+  const g = await scenario([{ hand: ['Dockside Extortionist'] }, { battlefield: ['Sol Ring', 'Rhystic Study', 'Sol Ring'] }], { rules });
+  mana(g, 0); await cast(g, 0, 'Dockside Extortionist'); return P(g, 0).battlefield.filter(o => o.token).length;
+};
+await test("Dockside Extortionist counts the opponents' artifacts and enchantments", async () => { eq(await dockside(), 3, 'Treasures'); });
+await test('Dockside Extortionist under rules 16 (old replays): X is 0, no Treasures', async () => { eq(await dockside(16), 0, 'Treasures'); });
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

@@ -59,6 +59,8 @@ jobs:
         run: node tests/stack.mjs
       - name: Card abilities (keywords, protection, prowess, triggers, activated and static abilities)
         run: node tests/abilities.mjs
+      - name: Online seats (a friend's answer is checked against what was asked; fake room)
+        run: node tests/net.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

@@ -49,19 +49,22 @@ one repairs.
 ## Phase A: process and repository
 
 - [ ] **197. Push the work and let CI run on it.** (S, needs the owner)
+  - Partly done (2026-11-14): `replay-exactness` is pushed and CI runs on it; the pull request to `main` is not opened (no `gh` tool on this PC; the owner opens it). Not ticked until `origin/main` holds the work.
   - Problem: versions 1.21.0 to 1.31.0 (11 commits, items 186 to 196) exist only on this PC. `replay-exactness` has no upstream branch; local `main` is 129 commits behind `origin/main`. CI (`selftest.yml`) only runs on pushes to `main` and on pull requests, so it has never run on rules 7 to 16. Item 177's Windows, macOS and Ubuntu jobs are "written, not yet run".
   - Evidence: `git branch -vv`, `git rev-list --count origin/main..HEAD` (11).
   - Fix: push `replay-exactness`, open a pull request to `main`, read the first CI run (expect surprises in the macOS and Windows jobs), merge. Fast-forward local `main`.
   - Done when: `origin/main` holds 1.31.0 and one CI run is green on all jobs (this also closes old item 177).
 
-- [ ] **198. Repository clean-up.** (S)
+- [x] **198. Repository clean-up.** (S)
+  - Done: the three tracked files are removed, `__pycache__/` is ignored, the stale zip is deleted; worktrees and branches are left for the owner.
   - Problem: files in git that shouldn't be: two empty files named `${x.a.iid}` and `${x.target}` in the root (a shell redirect accident in commit `89f198c`), and `__pycache__/server.cpython-313.pyc`. Not in git but stale: `Commander Table (portable).zip` in the game folder dated 11-07 (the script now writes the zip next to the folder), two old worktrees under `.claude/worktrees/`, branches `round5`, `claude/eager-roentgen-28567b`, `claude/trusting-hertz-0ba9c0`.
   - Fix: `git rm` the three tracked files, add `__pycache__/` to `.gitignore`, delete the stale zip. Ask the owner before removing worktrees and branches.
   - Done when: `git ls-files` shows none of them and `make-shareable-zip.ps1` still builds.
 
 ## Phase B: online seats and the local servers
 
-- [ ] **199. A friend's answer is not checked against what was asked.** (S, high priority)
+- [x] **199. A friend's answer is not checked against what was asked.** (S, high priority)
+  - Done: `askLive` accepts only an offered object, a whole-number player from the list and a button index in range; anything else is "cancel" (`tests/net.mjs`, 7 tests with a fake room).
   - Problem: `RemoteUI.askLive` in `public/js/net.js` accepts `ans.obj` as any object id in the whole game (`objs.find(...) || this.game.objects.get(ans.obj)`) and `ans.player` as any value at all, not only the choices that were offered. A friend with a seat link and a hand-written request can pick a card in another player's library or hand as a "target", or send a player value that throws inside the engine.
   - Where: `public/js/net.js` `askLive` (the `if (ans.obj != null)` and `if (ans.player != null)` lines). The replay path in `ask` may keep its fallback (recorded answers are the host's own).
   - Fix: accept `ans.obj` only if it is in `objs`; accept `ans.player` only if it is an integer in `players`; `ans.button` only if it is an integer index into `buttons`. Anything else is treated as no answer (`{ button: 'cancel' }` or keep waiting). Check `askSideboard` and the draft pick the same way (they already compare against their own lists).
@@ -74,12 +77,14 @@ one repairs.
   - Fix: one function that says whether an object fits an effect's target description (the same test the AI and `human.js` use to build their lists; find it and share it, don't write a third copy), called when a spell or ability is put on the stack and again on resolution. Add a timing argument to `canCast` (or a `canCastNow`) used by both agents. Rules 17.
   - Done when: both `[200]` probes pass and the stack tests still pass.
 
-- [ ] **201. Unescaped names in the log, and no content security policy.** (S)
+- [x] **201. Unescaped names in the log, and no content security policy.** (S)
+  - Done: the three log lines escape names; all three servers send a `Content-Security-Policy` on HTML answers.
   - Problem: three log lines in `public/js/net.js` (`presence`, and two in `askLive`) put a player's name into log HTML without `esc()`. Names are typed by the host, but they are also loaded from tabletop and replay files (`main.js`, `s.name = p.name`), so opening a file someone made could run script on the host page, and that page may call `/api/update`. None of the three servers sends a `Content-Security-Policy` header.
   - Fix: use `this.game.pn(p)` or `esc()` in those three lines. Add `Content-Security-Policy` to every HTML answer in all three servers (start from `default-src 'self'`, then allow only the image and data hosts the game really calls: list them by reading `scryfall.js`, `combos.js`, `sets.js` and `bulk.js`; inline styles need `style-src 'self' 'unsafe-inline'`). Then load a replay file whose player name and card name contain `<img src=x onerror=alert(1)>` and check nothing runs: `main.js` has 99 `innerHTML` uses and `ui.js` 33, and card data inside a replay file is as untrusted as the names.
   - Done when: the crafted replay shows the text literally, the self-test passes on all three servers, and the browser console shows no CSP violations in a normal game.
 
-- [ ] **202. The three servers disagree on limits.** (S)
+- [x] **202. The three servers disagree on limits.** (S)
+  - Done: one body limit (262,144 bytes) and a 413 answer in all three servers, resolved-path compare, redirects kept on the allowed hosts, control characters escaped in `Js()` (`tests/servers.mjs` asks a running server).
   - Problem: the friends' server reads at most 65,536 bytes of a request body in `Commander Table.exe` (`LanClient`) and `server.ps1`, but 2 MB in `server.py`, while the deck endpoint accepts 200,000 characters. On Windows a friend's deck or sideboard answer over 64 KB is cut off silently. Smaller things: `server.py`'s friend server refuses `/index.html` by exact text, so `/INDEX.HTML` or `/./index.html` gets through (harmless today because every host-only call is refused, but not what the comment says); `/api/fetch` follows redirects off the allowed-host list; the launcher's `Js()` doesn't escape control characters other than newline.
   - Fix: one limit (200,000 bytes plus headroom, for example 262,144) in all three; answer 413 instead of truncating; compare the resolved path, not the text; refuse redirects that leave `ALLOWED_HOSTS`; escape `\u0000` to `\u001f` in `Js()`. Rebuild the .exe.
   - Done when: a 150 KB deck posted to each friends' server arrives whole, and a probe script shows the same answers from all three for the cases above.
@@ -89,27 +94,31 @@ one repairs.
   - Fix (free options only): show the SHA-256 and the address's host in the Updates window and ask the person to compare it with the one on the release page before "Install"; have `release.yml` publish the checksum in the release notes; for `cloudflared`, check the download against the digest GitHub publishes for the release asset (look it up through the releases API; if none is listed, show the file's SHA-256 and ask before running it), and say so in README.
   - Done when: an update whose bytes differ from the published checksum is refused on all three servers, and the tunnel refuses a `cloudflared` whose digest doesn't match.
 
-- [ ] **204. Decision for the owner: the Moxfield path.** (S)
+- [x] **204. Decision for the owner: the Moxfield path.** (S)
+  - Done (honest client name only): every proxied request says `CommanderTable/<version>`. The Moxfield attempt is kept; removing it is still the owner's choice.
   - Problem: the hard rule says never get around a site's bot protection and names Moxfield ("use EDHTop16 or the bookmarklet instead"). `decks.js` still tries `api2.moxfield.com` through `/api/fetch`, the proxy sends a desktop-browser `User-Agent`, and Moxfield's hosts are on all three allow lists.
   - Fix: decide. Either remove the Moxfield hosts and the two `proxied(...)` attempts and go straight to the bookmarklet message, or keep the attempt but send an honest `User-Agent` (`CommanderTable/<version>`) to every site. The honest `User-Agent` is worth doing either way.
   - Done when: the choice is written in README's deck-loading section and the three servers match.
 
 ## Phase C: rules engine and card reading
 
-- [ ] **213. Make the coverage report honest first.** (M, do before the other items in this phase)
+- [x] **213. Make the coverage report honest first.** (M, do before the other items in this phase)
+  - Done: the scan's checks are `MISREAD` families in `tests/coverage.mjs`; those cards are listed as incorrect in `tests/card-coverage.md` until fixed.
   - Problem: "full" means no line was left unread; it does not mean the line's conditions were kept. About 280 of the 3,094 cards with no unread line lose part of their text silently (lists: `node tests/audit-probes.mjs --scan`). The numbers also disagree between documents: `cards.mjs` prints 2,806 fully read (80.2%), `card-coverage.md` says 2,796 full, ROADMAP item 97 says 88.2%.
   - Where: `tests/coverage.mjs` (the `MISREAD` checks), `tests/audit-probes.mjs` (`CHECKS`).
   - Fix: move the scan's checks into `coverage.mjs` as `MISREAD` families so those cards are listed as "incorrect" until fixed; have the reader mark what it dropped (preferred over word matching: when a pattern matches "target nonblack creature" and can't keep "nonblack", push the sentence to `fx.unread`, as item 188 did for skipped sentences). State one definition of "fully read" in README and ROADMAP and use one number.
   - Done when: the report's "incorrect" count includes these families and goes down as items 206 to 211 land.
 
-- [ ] **207. "X, where X is ..." plays as 0.** (M, 55 cards)
+- [x] **207. "X, where X is ..." plays as 0.** (M, 55 cards)
+  - Done (rules 17): "where X is ..." is read into the dyn form; a clause that can't be read marks the line unread.
   - Problem: an amount written as X with its meaning in a "where X is" clause is read as `n: "X"`, and `X()` in `resolve.js` turns that into the X paid on casting, which is 0. Krenko, Mob Boss makes no Goblins; Chain Reaction deals 0; Dockside Extortionist makes no Treasures; also Chasm Skulker, Elenda the Dusk Rose, Scourge of Valkas, Disciple of Bolas and about 48 more.
   - Evidence: probes `[207]`; `--scan` lists the cards.
   - Where: `public/js/effects.js` (where amounts are read; there is already a "dyn" object form handled by `g.dynValue`), `public/js/resolve.js` line 71 (`const X = ...`).
   - Fix: read the "where X is <count>" clause into the existing dyn form (number of creatures you control, of a type, cards in hand, its power, artifacts and enchantments opponents control, and so on; reuse the counts `dynValue` already knows). When the clause can't be read, mark the line unread instead of producing `"X"`. Rules 17.
   - Done when: the three probes pass and the scan's list is empty or every card left on it is marked unread.
 
-- [ ] **206. An "if" the reader can't read counts as true.** (M, 93 cards)
+- [x] **206. An "if" the reader can't read counts as true.** (M, 93 cards)
+  - Done (rules 17): coin flips use the game's seeded stream; common conditions are read; an unreadable condition does nothing when the effect resolves and is logged once a game ("Not simulated").
   - Problem: `evalCond` in `triggers.js` ends with `default: return true`, and an unreadable condition is stored as `{ c: '?' }`. Only "instead" upgrades and win effects are protected. So Mana Crypt deals its 3 damage every upkeep (no coin flip), The One Ring's protection doesn't care whether it was cast, Guardian Project draws for every creature, and 90 more cards get their bonus unconditionally.
   - Evidence: probe `[206]`; `--scan` lists the cards.
   - Fix: (a) a seeded coin flip (`g.rand`, never `Math.random`) as a real condition, for Mana Crypt and the other "flip a coin" cards; (b) read the most common conditions on the list ("if you cast it", "if it doesn't have the same name as", "if you control a ...", "if you attacked this turn"); (c) for what is still unreadable, mark the line unread so the card shows as partial. Whether an unreadable condition should then count as true or false is a judgement: false makes the card weaker than printed, true stronger; the project's own rule ("never approximated", items 191 and 194) points to doing nothing and reporting it once a game. Rules 17.
@@ -173,7 +182,8 @@ one repairs.
   - A Node test for `net.js` with a fake room (item 199), and one request script run against all three servers for limits and refusals (item 202) so "change all three servers" is checked, not remembered.
   - Scenario tests go through `g.cast` with real target checks once item 200 lands, so a test can't pass by handing the engine an illegal target.
 
-- [ ] **216. CI on every branch.** (S)
+- [x] **216. CI on every branch.** (S)
+  - Done: the Node job runs on every push to any branch (Node 22 and 24); the three-system self-test stays for pull requests and `main`.
   - `selftest.yml` runs on pushes to `main` and on pull requests only. Add `push: branches: ['**']` for the Node job (it takes about two minutes; the golden games are 76 s of that) and keep the three-system self-test for pull requests. Pin Node to the version used locally or test two versions (CI uses 22, this PC runs 26).
 
 - [ ] **217. Smaller modules (old item 176).** (L)
