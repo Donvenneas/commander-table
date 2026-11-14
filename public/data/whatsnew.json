@@ -1,5 +1,5 @@
 {
- "version": "1.20.0",
+ "version": "1.31.0",
  "round": "Round 5",
  "items": [
   {
@@ -85,6 +85,72 @@
    "section": "Rules engine and card coverage",
    "title": "Card debugging pass (asked 2026-11-11): find cards that don't do what their text says, fix the cause, and test each fix with a small board.",
    "done": "new tests/interactions.mjs (in CI) builds boards from card names (tests/scenario.mjs; extra card data in tests/interaction-cards.json) — 51 tests."
+  },
+  {
+   "n": 186,
+   "section": "Rules engine and card coverage",
+   "title": "Combo interaction audit (asked 2026-11-11): every combo played with the real cards step by step, not only through the combo shortcut; no fixed limits on legitimate loops; regression tests for each.",
+   "done": "probes of each built-in combo with its cards found these broken and fixed them: (1) Demonic Consultation and Tainted Pact were plain tutors (Oracle/Lab Man only won through the shortcut); they now exile from the top (the AI names a missing "
+  },
+  {
+   "n": 187,
+   "section": "Rules engine and card coverage",
+   "title": "Card data audit, multi-faced cards (asked 2026-11-12): check how Scryfall data becomes game cards and fix characteristics that come out wrong for transforming, modal double-faced, split, adventure and Room cards.",
+   "done": "normalize() gave every face Scryfall's keyword list for the whole card, so 9 snapshot cards had a back face's keywords on the front (Westvale Abbey had flying, lifelink, indestructible and haste as a land; Etali indestructible; Sephiroth, K"
+  },
+  {
+   "n": 188,
+   "section": "Rules engine and card coverage",
+   "title": "Skipped sentences (asked 2026-11-12): find sentences the reader skips inside lines it counts as read, report them as not simulated, and fix the most common ones.",
+   "done": "effects.js droppedSentences reads a card again with each sentence of a multi-sentence line taken out; a sentence whose removal changes nothing (also when taken out with any other such sentence, so two that each say enough aren't counted) is"
+  },
+  {
+   "n": 189,
+   "section": "Rules engine and card coverage",
+   "title": "Replay exactness (asked 2026-11-12, Phase 2A of the engine audit): a saved game must load later with the same card data, combos and rules, whatever Scryfall and Commander Spellbook say by then.",
+   "done": "replaydata.js saves every card's Scryfall data as read (scryfall.js slimCard, about 1 KB a card), a hash of it, a hash of its reading, each seat's Spellbook combos with their prerequisites, the built-in combo list's fingerprint and the engi"
+  },
+  {
+   "n": 190,
+   "section": "Rules engine and card coverage",
+   "title": "Loops and freezes (asked 2026-11-12, Phase 2B of the engine audit): endless loops froze the page or made turns endless; recognise loops and keep the page responsive without cutting legitimate chains short.",
+   "done": "- Done (rules 10, version 1.25.0; rules 4–9 golden games unchanged, 60 AI games identical at rules 9 and 10 apart from the new log line in the 3 that looped): the cause was sbaPass checking each creature's toughness through attachments() an"
+  },
+  {
+   "n": 191,
+   "section": "Rules engine and card coverage",
+   "title": "Combos played out with the real cards (asked 2026-11-12, Phase 2C of the engine audit): no combo result granted from its description; every built-in and Commander Spellbook combo gets a status and a reason.",
+   "done": "Game.goOff still casts the pieces for real, then comboplay.js plays the loop with the cards' own abilities instead of the shortcut (abstract repetitions, life set directly, lethal noncombat \"attack\" damage, a library spliced into the gravey"
+  },
+  {
+   "n": 192,
+   "section": "Rules engine and card coverage",
+   "title": "Phyrexian, hybrid and two-brid mana (asked 2026-11-13, Phase 2D of the engine audit): {B/P} payable with 2 life, {2/W} with {2}, with the player choosing and no partial payments.",
+   "done": "parseCost read {B/P} as {B} and {2/W} as {W}, so Dismember needed {1}{B}{B}, Gitaxian Probe needed {U} and Reaper King one mana of each color."
+  },
+  {
+   "n": 193,
+   "section": "Rules engine and card coverage",
+   "title": "Card coverage audit and six popular cards (asked 2026-11-13, Phase 2E of the engine audit): a coverage report for the 3,500 most-played cards, and Teferi's Protection, Mana Drain, Arcane Denial, Chaos Warp, Cavern of Souls and Temple of the False God read and played in full.",
+   "done": "tests/coverage.mjs reads the snapshot (Scryfall, Commander-legal paper cards in EDHREC order) and checks every effect the reader produces against the engine's handlers: 2,787 full, 446 partial, 106 with an unread restriction (stronger than "
+  },
+  {
+   "n": 194,
+   "section": "Rules engine and card coverage",
+   "title": "Replacement effects (asked 2026-11-13, Phase 2F of the engine audit): one framework for \"instead\", \"enters tapped\", prevention and token replacements, with rule 616 ordering.",
+   "done": "replacements.js holds the replacement effects for each event kind, read from the cards in play: move (Rest in Peace, Leyline of the Void, Dauthi Voidwalker, gyExileTurn, unearth, Blightsteel, God-Eternals), draw (Alhammarret's Archive, Noti"
+  },
+  {
+   "n": 195,
+   "section": "Rules engine and card coverage",
+   "title": "The stack and priority (asked 2026-11-13, Phase 2G of the engine audit): stack objects with their own identity, priority until every player passes in succession, simultaneous triggers on the stack together, targets checked while casting, and the \"responses stop after eight\" limit removed.",
+   "done": "the limit was the loop in Game.priority (`actions < 8`): after eight responses to one object it resolved even if players still wanted to respond, and after each response priority restarted with the player after the caster."
+  },
+  {
+   "n": 196,
+   "section": "Rules engine and card coverage",
+   "title": "Card abilities (asked 2026-11-13, Phase 2I of the engine audit): an ability-by-ability coverage audit of the 3,500 most-played cards, keyword checks, and the abilities found wrong fixed through the engine's own systems.",
+   "done": "protection is one check (Game.protectedFrom, DEBT 702.16b–f: targeting, blocking, damage, Auras and Equipment falling off) with colors, everything, each color, card types, multicolored; granted protection (Mother of Runes, Gods Willing) was"
   },
   {
    "n": 101,

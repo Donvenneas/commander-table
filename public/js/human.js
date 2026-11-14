@@ -6,6 +6,7 @@ import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
 import { needsTarget, needsTargetIn, costText } from './effects.js';
 import { esc, makeRng } from './util.js';
+import { targetFits, legalTargets } from './resolve.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
 const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx.kw.has('flash')
@@ -407,25 +408,12 @@ export class HumanAgent extends Agent {
   manaSources(g, p) { return p.battlefield.filter(o => !o.tapped && g.manaUnitsOf(p, o).length); }
   poolNote(g, p) { const t = g.poolText(p); return t ? ` <b>Mana pool: ${esc(t)}</b> (spent first; it empties at the end of this step${this.takeBacks(g, p).length ? '; click a source you tapped to take its mana back' : ''}).` : ''; }
   candidates(g, p, e, src) {
-    const all = g.players.flatMap(q => q.battlefield);
-    switch (e.k) {
-      case 'remove': return { objs: all.filter(o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
-      case 'bounce': case 'flickerDelay': return { objs: all.filter(o => this.matches(o, e.what, g) && !o.fx.type.land && g.canTarget(p, o)) };
-      case 'steal': return { objs: all.filter(o => o.controller !== p.idx && this.matches(o, e.what, g) && g.canTarget(p, o)) };
-      case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
-      case 'blink': return { objs: p.battlefield.filter(o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
-      case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
-      case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
-      case 'tap': return { objs: all.filter(o => this.matches(o, e.what, g) && g.canTarget(p, o)) };
-      case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
-      case 'damage': {
-        const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
-        const players = /any|player|opponent/.test(e.to) ? g.alive().filter(q => !/opponent/.test(e.to) || q !== p).map(q => q.idx) : [];
-        return { objs, players };
-      }
-      default: return {};
-    }
+    const prev = g.targetSrc;
+    g.targetSrc = src;
+    // (item 209, rules 17: only the permanents the effect's words allow, e.g. nonblack, mana value 3 or less, you control)
+    try { const c = this.candidates0(g, p, e, src); return c.objs ? { ...c, objs: c.objs.filter(o => targetFits(g, p, e, o, src)) } : c; } finally { g.targetSrc = prev; }
   }
+  candidates0(g, p, e, src) { return legalTargets(g, p, e, src); }
   async pickTarget(g, p, e, src) {
     const { objs = [], players = [] } = this.candidates(g, p, e, src);
     if (!objs.length && !players.length) return null;
@@ -468,7 +456,7 @@ export class HumanAgent extends Agent {
       // (what it can enchant: "Enchant artifact" for Power Artifact, lands, any permanent, else creatures)
       const what = (o.card.text.match(/^enchant (\w+)/im) || [])[1]?.toLowerCase() || 'creature';
       const ok = x => (what === 'permanent' ? true : what === 'artifact' ? x.fx.type.artifact : what === 'land' ? x.fx.type.land : what === 'planeswalker' ? x.fx.type.planeswalker : x.fx.type.creature);
-      const objs = g.players.flatMap(q => q.battlefield).filter(x => ok(x) && g.canTarget(p, x));
+      const objs = g.players.flatMap(q => q.battlefield).filter(x => ok(x) && g.canTarget(p, x, o));
       const r = await this.ui.ask(`<b>${esc(o.card.name)}</b>: choose ${/^[aeiou]/.test(what) ? 'an' : 'a'} ${esc(what)} to enchant`, { objs, buttons: [{ label: 'Cancel', value: 'cancel' }] });
       if (!r.obj) return false;
       auraTarget = r.obj;
@@ -486,14 +474,15 @@ export class HumanAgent extends Agent {
   }
 
   // ---------- your turn
-  // A loop you've just played twice in a row: the last k actions (abilities and mana taps) repeat the k before
+  // A loop you've just played twice in a row: the last k actions (abilities and mana taps; with rules 7 also
+  // sacrifices to an outlet and creature spells cast again) repeat the k before
   loopBlock() {
     const a = this.acts;
-    const same = (x, y) => x.k === y.k && x.iid === y.iid && x.i === y.i;
+    const same = (x, y) => x.k === y.k && x.iid === y.iid && x.i === y.i && x.name === y.name && x.zone === y.zone;
     for (let k = 1; k <= 6 && a.length >= 2 * k; k++) {
       const last = a.slice(-k), prev = a.slice(-2 * k, -k);
       // (at least one ability: tapping lands alone isn't a loop)
-      if (last.every((x, i) => same(x, prev[i])) && last.some(x => x.k === 'ab')) return last;
+      if (last.every((x, i) => same(x, prev[i])) && last.some(x => x.k !== 'mana')) return last;
     }
     return null;
   }
@@ -503,9 +492,23 @@ export class HumanAgent extends Agent {
     let done = 0, why = '';
     for (; done < n && !g.over && !p.lost; done++) {
       for (const x of block) {
+        // (rules 7) a creature spell cast again from the zone it was cast from last time (Squee from exile, Gravecrawler)
+        if (x.k === 'cast') {
+          const c = p[x.zone]?.find(y => y.card.name === x.name);
+          if (!c || !g.canCast(p, c)) { why = `${x.name} can't be cast from your ${x.zone} now`; break; }
+          await g.cast(p, c);
+          continue;
+        }
         const o = g.objects.get(x.iid);
         if (!o || o.zone !== 'battlefield' || o.controller !== p.idx) { why = `${o?.card.name || 'a card'} isn't on your battlefield any more`; break; }
         if (x.k === 'mana') { if (o.tapped || !g.tapForMana(p, o)) { why = `${o.card.name} can't be tapped for mana`; break; } continue; }
+        // (rules 7) the same creature sacrificed to the same outlet
+        if (x.k === 'sac') {
+          const v = p.battlefield.find(y => y.card.name === x.name && y.fx.type.creature && (y !== o || !o.fx.sacOutlet?.other));
+          if (!v || !o.fx.sacOutlet || (o.fx.sacOutlet.tap && o.tapped)) { why = `${x.name} can't be sacrificed to ${o.card.name}`; break; }
+          await g.sacTo(p, o, v);
+          continue;
+        }
         const ab = g.abilitiesOf(o)[x.i];
         if (!ab || !g.canActivate(p, o, ab)) { why = `${o.card.name}'s ability can't be paid for or used`; break; }
         await g.activate(p, o, ab);
@@ -638,8 +641,12 @@ export class HumanAgent extends Agent {
       }
       if (lands.includes(o)) await g.playLand(p, o);
       else if (cyclers.includes(o) && (!spells.includes(o) || (await this.ui.ask(`<b>${esc(o.card.name)}</b>: cast it, or ${o.fx.cycling ? 'cycle' : 'channel'} it?`, { buttons: [{ label: 'Cast', value: 'cast', primary: true }, { label: o.fx.cycling ? `Cycle (${o.fx.cycling.cost})` : `Channel (${o.fx.channel.cost})`, value: 'cycle' }] })).button === 'cycle')) await g.cycle(p, o);
-      else if (spells.includes(o)) await this.castWithChoices(g, p, o);
-      else if (graveAbs.includes(o)) await g.useGraveAbility(p, o, g.graveAbility(p, o));
+      else if (spells.includes(o)) {
+        const from = o.zone;
+        const done = await this.castWithChoices(g, p, o);
+        // (rules 7) a creature spell with nothing to choose can be part of a loop (Food Chain + Squee)
+        if (g.rules >= 7 && done && o.fx.type.creature && !o.fx.type.aura && !(o.card.manaCost || '').includes('{X}')) { this.acts.push({ k: 'cast', name: o.card.name, zone: from }); if (this.acts.length > 24) this.acts.shift(); continue; }
+      } else if (graveAbs.includes(o)) await g.useGraveAbility(p, o, g.graveAbility(p, o));
       else if (vehicles.includes(o) && !abilities.includes(o)) {
         const crew = [];
         for (;;) {
@@ -659,7 +666,11 @@ export class HumanAgent extends Agent {
         if (c.obj) await g.equip(p, o, c.obj);
       } else if (o.fx.sacOutlet && outlets.includes(o)) {
         const c = await this.ui.ask(`<b>${esc(o.card.name)}</b>: sacrifice which creature?`, { objs: p.battlefield.filter(x => x.fx.type.creature && (x !== o || !o.fx.sacOutlet.other)), buttons: [{ label: 'Cancel', value: 'cancel' }] });
-        if (c.obj) await g.sacTo(p, o, c.obj);
+        if (c.obj) {
+          const name = c.obj.card.name;
+          await g.sacTo(p, o, c.obj);
+          if (g.rules >= 7) { this.acts.push({ k: 'sac', iid: o.iid, name }); if (this.acts.length > 24) this.acts.shift(); continue; }
+        }
       } else if (abilities.includes(o)) {
         const abs = g.abilitiesOf(o).filter(ab => usable(o, ab));
         let ab = abs[0];
@@ -757,9 +768,11 @@ export class HumanAgent extends Agent {
     return true;
   }
   async respond(g, q, item) {
-    if (item.p === q) return null;
+    // (rules 15: the caster gets priority first, 117.3c; a person is asked about their own spell or ability only with
+    // full control on, so other games don't get an extra prompt each time they cast)
+    if (item.p === q && !(g.rules >= 15 && this.full)) return null;
     if (this.skipping(g, q, item)) return null;
-    const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o));
+    const fits = o => !o.fx.spell.some(e => e.k === 'counter') || (!item.ability && this.fits(o, item.o, g, item));
     const what = item.ability ? `${esc(item.o.card.name)}'s ability` : esc(item.o.card.name);
     for (let k = 0; k < 30; k++) {
       const options = this.instants(g, q, o => fits(o) && (!o.fx.spell.some(e => e.k === 'counterAbility') || item.ability));
@@ -787,6 +800,42 @@ export class HumanAgent extends Agent {
   async combatResponse(g, q, attackers) { return this.instantWindow(g, q, `<b>Attackers declared</b> against you: ${attackers.map(a => esc(a.card.name)).join(', ')}. Cast an instant?`, true, this.full); }
   async combatTrick(g, q) { return this.instantWindow(g, q, '<b>Blockers are declared.</b> Cast a combat trick?', false, this.full); }
   async respondToLoop(g, q, p) { return this.instantWindow(g, q, `<b>${esc(p.name)}</b> is looping a combo. Respond?`, false, this.full); }
+  // (rules 14) Several replacement effects apply to one event and their order changes the result: which applies first
+  // (616.1). options: [{ label, result }]; returns the index.
+  async chooseReplacementAsync(g, p, options, now) {
+    const r = await this.ui.ask(`<b>Several replacement effects apply</b> (${esc(now)}). Choose which applies first:`, {
+      buttons: options.map((o, i) => ({ label: `${o.label} → ${o.result}`, value: i, primary: i === 0 })),
+    });
+    return typeof r.button === 'number' ? r.button : 0;
+  }
+  // (rules 13) "You may draw up to N cards" (Arcane Denial): how many
+  async drawUpToAsync(g, p, src, max) {
+    const r = await this.ui.ask(`<b>${esc(src?.card?.name || 'A card')}</b>: you may draw up to ${max} card${max === 1 ? '' : 's'}. How many?`, {
+      buttons: Array.from({ length: max + 1 }, (_, k) => max - k).map((k, i) => ({ label: k ? `Draw ${k}` : 'Draw none', value: k, primary: i === 0 })),
+    });
+    return typeof r.button === 'number' ? r.button : max;
+  }
+  // (rules 12) Phyrexian mana: each symbol is paid with its color or 2 life. One button per complete payment.
+  async phyrexianLifeAsync(g, p, src, info) {
+    const r = await this.ui.ask(`<b>${esc(src?.card?.name || 'This')}</b> has ${info.symbols} Phyrexian mana symbol${info.symbols === 1 ? '' : 's'} (${info.colors.map(c => `{${esc(c)}/P}`).join('')}): pay each with that color's mana or 2 life. You have ${info.life} life.`, {
+      buttons: info.options.map((k, i) => ({ label: k === 0 ? 'Pay with mana' : k === info.symbols ? `Pay ${2 * k} life` : `Pay ${2 * k} life and the rest with mana`, value: k, primary: i === 0 })),
+    });
+    return typeof r.button === 'number' ? r.button : info.options[0];
+  }
+  // (rules 10, loops.js) An optional trigger of yours keeps a loop going: how many more times (0 stops it)
+  async loopRepsAsync(g, p, info) {
+    const r = await this.ui.ask(`<b>A loop of your triggers keeps repeating</b> (${esc(info.sources.join(' + '))}, ${info.reps} times so far; each time: ${esc(info.change)}). ${esc(info.source)}'s trigger is optional, so you choose when it stops.`, {
+      buttons: [{ label: 'Stop the loop', value: 0, primary: true }, { label: '10 more times', value: 10 }, { label: '100 more times', value: 100 }],
+    });
+    return typeof r.button === 'number' ? r.button : 0;
+  }
+  // (rules 10) A chain of triggers the loop watcher couldn't classify reached the safety limit: go on, or end as a draw
+  async loopBackstopAsync(g, p, info) {
+    const r = await this.ui.ask(`<b>${info.n.toLocaleString('en')} triggers have resolved this turn</b> (${esc(info.sources.join(', '))}) and the chain hasn't ended. Keep resolving, or end the game as a draw?`, {
+      buttons: [{ label: 'Keep going', value: 'go' }, { label: 'End as a draw', value: 'draw', primary: true }],
+    });
+    return r.button === 'go';
+  }
   async endOfTurn(g, q, active) {
     for (let i = 0; i < 4; i++) {
       const r = await this.instantWindow(g, q, `<b>End of ${esc(active.name)}'s turn.</b> Use your open mana?`, true, i === 0 && (this.full || !!this.stops.oppEnd));
@@ -936,6 +985,35 @@ export class HumanAgent extends Agent {
     const r = await this.chooseCardsAsync(g, p, lib, 1, `<b>Search your library</b>${e.types?.length ? ` for a ${e.types.join(' or ')} card` : ''}${e.gy ? ' (it goes to your graveyard)' : e.bf ? ' (onto the battlefield)' : e.top ? ' (it goes on top)' : ''}`);
     return r?.[0] || super.pickTutor(g, p, e);
   }
+  // (rules 7) Demonic Consultation: name a card in your library, or one that isn't there (exiling the whole library)
+  async chooseConsultNameAsync(g, p, src, wantEmpty) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: choose a card name. Cards are exiled from the top until that card is revealed.`, {
+      buttons: [{ label: 'Name a card in my library', value: 'lib', primary: !wantEmpty }, { label: "Name a card that isn't there (exile my whole library)", value: 'none', primary: wantEmpty }],
+    });
+    if (r.button === 'none') return null;
+    const seen = new Set();
+    const lib = p.library.filter(o => !seen.has(o.card.name) && seen.add(o.card.name));
+    const pick = lib.length ? (await this.chooseCardsAsync(g, p, lib, 1, `<b>${esc(src.card.name)}</b>: name a card`))?.[0] : null;
+    return pick?.card.name || null;
+  }
+  // (rules 7) Tainted Pact: take this card, or keep exiling
+  async takePactCardAsync(g, p, c, wantEmpty) {
+    const r = await this.ui.ask(`<b>Tainted Pact</b> exiled <b>${esc(c.card.name)}</b> (${p.library.length} cards left in your library). Put it into your hand?`, {
+      buttons: [{ label: 'Take it', value: 'take', primary: !wantEmpty }, { label: 'Keep exiling', value: 'more', primary: wantEmpty }],
+    });
+    return r.button === 'take';
+  }
+  // (rules 7) Chain of Smog: copy it (choosing a new target), or let it end
+  async chainCopyTarget(g, p, src) {
+    const opts = g.alive().map(q => ({ label: q === p ? 'Copy it, targeting me' : `Copy it, targeting ${q.name}`, value: q.idx }));
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: you may copy it and choose a new target.`, { buttons: [{ label: "Don't copy", value: 'no', primary: true }, ...opts] });
+    return typeof r.button === 'number' ? r.button : null;
+  }
+  // (rules 7) "You may pay {4}. If you do, …" (Nim Deathmantle)
+  async confirmPayAsync(g, p, src, cost, what) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: pay ${esc(cost)} to ${esc(what)}?`, { buttons: [{ label: `Pay ${cost}`, value: 'pay', primary: true }, { label: "Don't pay", value: 'no' }] });
+    return r.button === 'pay';
+  }
   async considerDeal(g, q, from, kind = 'truce', rounds = 2) {
     // (plain text of the deal; outside a browser, as in the fuzz tests, the tags are just dropped)
     const plainText = html => (globalThis.document ? Object.assign(document.createElement('div'), { innerHTML: html }).textContent : String(html).replace(/<[^>]*>/g, ''));
@@ -946,6 +1024,13 @@ export class HumanAgent extends Agent {
     return r.button === true;
   }
   proposeDeal() { return null; }
+  // (item 208) "Counter target spell unless its controller pays {N}", aimed at your spell: you choose whether to pay
+  async payUnlessAsync(g, p, src, e, item) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b> (${esc(g.players[src.controller]?.name || '')}): pay {${e.unless}}, or <b>${esc(item.o.card.name)}</b> is countered?`, {
+      buttons: [{ label: `Pay {${e.unless}}`, value: 'pay', primary: true }, { label: "Don't pay", value: 'no' }, { label: 'Let the AI decide', value: 'ai' }],
+    });
+    return r.button === 'ai' ? super.payUnless(g, p, src, e, item) : r.button === 'pay';
+  }
   // Rhystic Study and friends: you choose whether to pay
   async payTaxAsync(g, p, src, t) {
     const owner = g.players[src.controller];

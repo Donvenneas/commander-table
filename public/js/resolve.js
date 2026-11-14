@@ -5,13 +5,176 @@ import { parseCost, COLORS } from './engine.js';
 import { needsTarget, needsTargetIn, condText } from './effects.js';
 import { shuffle, esc } from './util.js';
 import * as K from './kingdomsPlay.js';
+import * as R from './replacements.js';
 
 /** @param {import('./engine.js').Game} g */
-export function validTarget(g, t, p) {
+export function validTarget(g, t, p, src) {
   if (!t) return false;
   if (t.spell) return g.stack.includes(t.spell) && !t.spell.countered;
-  if (t.obj) return g.canTarget(p, t.obj);
+  if (t.obj) return g.canTarget(p, t.obj, src);
+  // (rules 13) A player with protection from everything (Teferi's Protection) can't be targeted by others (702.16j)
+  if (t.player != null && g.rules >= 13 && t.player !== p?.idx && g.players[t.player]?.shield >= g.turn) return false;
   return t.player != null && !g.players[t.player].lost;
+}
+// (rules 13) Chaos Warp: the owner of the permanent shuffles it into their library (a token ceases to exist), then
+// reveals the top card; a permanent card is put onto the battlefield under its owner's control (with its enter
+// triggers), anything else stays on top of the library
+/** @param {import('./engine.js').Game} g */
+async function chaosWarp(g, p, src, o, S) {
+  const q = g.players[o.owner];
+  g.log(`${S}: ${g.pn(q)} shuffles ${g.cn(o)} into their library`, { kind: 'removal' });
+  g.move(o, 'library');
+  shuffle(q.library, g.rand);
+  const top = q.library[q.library.length - 1];
+  if (!top) { g.log(`${g.pn(q)}'s library is empty: nothing is revealed`, { kind: 'minor' }); return; }
+  g.log(`${g.pn(q)} reveals ${g.cn(top)} from the top of their library`, { kind: 'minor', rule: '701.20' });
+  if (!top.fx.type.permanent) return;
+  g.move(top, 'battlefield', { under: q.idx });
+  g.log(`${S} puts ${g.cn(top)} onto the battlefield under ${g.pn(q)}'s control`, { kind: 'minor' });
+  g.trigger(top, 'etb');
+}
+// (rules 16) "Protection from the color of your choice", chosen as the effect resolves: a person is asked (the agent's
+// chooseColor, when it has one); otherwise the color of the opposing spell or ability on the stack that targets the
+// creature, else the most common color among opponents' creatures (what could block or fight it), else the color of
+// the most opposing permanents
+const COLOR_WORD = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+export const protName = q => COLOR_WORD[q] || q;
+/** @param {import('./engine.js').Game} g */
+export function protColorChoice(g, p, o) {
+  const asked = p.agent.chooseProtColor?.(g, p, o);
+  if (asked && COLOR_WORD[asked]) return asked;
+  /** @type {Map<string, number>} */
+  const count = new Map(Object.keys(COLOR_WORD).map(c => [c, 0]));
+  const add = (/** @type {string} */ c, /** @type {number} */ n) => count.set(c, (count.get(c) || 0) + n);
+  for (const it of g.stack) if (it.p !== p && it.targets?.some((/** @type {any} */ t) => t?.obj === o)) for (const c of g.colorsOf(it.o)) add(c, 100);
+  for (const q of g.opponents(p)) for (const x of q.battlefield) for (const c of g.colorsOf(x)) add(c, x.fx.type.creature ? 3 : 1);
+  return [...count].sort((a, b) => b[1] - a[1])[0][0];
+}
+// Does a counterspell for "what" (any, noncreature, instant or sorcery…) answer this spell card? (the AI's test,
+// kept as it was for games before rules 17)
+export function spellFits(what, o) {
+  const t = o.fx.type;
+  if (what === 'any') return true;
+  if (what.includes('noncreature')) return !t.creature;
+  if (what.includes('creature')) return t.creature;
+  if (what.includes('instant or sorcery')) return t.instant || t.sorcery;
+  if (what.includes('artifact')) return t.artifact;
+  if (what.includes('enchantment')) return t.enchantment;
+  return true;
+}
+const SPELL_TYPES = ['creature', 'artifact', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'legendary'];
+/** (item 208, rules 17) Is this spell on the stack a legal target for the counter effect e, and would e do anything
+ * to it: every card type its words list (Swan Song: enchantment, instant or sorcery), the mana value limit (Mental
+ * Misstep, Disdainful Stroke; X counts, 202.3e) and the color (Red Elemental Blast, Pyroblast).
+ * @param {import('./engine.js').Game} g @param {any} e @param {any} item */
+export function counterFits(g, e, item) {
+  if (!item || item.ability) return true;
+  const o = item.o, t = o.fx.type, w = e.what || 'any';
+  if (w.includes('noncreature')) { if (t.creature) return false; } else {
+    const listed = SPELL_TYPES.filter(x => w.includes(x));
+    if (listed.length && !listed.some(x => t[x])) return false;
+  }
+  if (w.includes('multicolored') && g.colorsOf(o).length < 2) return false;
+  const mv = (o.card.cmc || 0) + (item.x || 0) * (parseCost(o.card.manaCost).x || 0);
+  if (e.mv && ((e.mv.min != null && mv < e.mv.min) || (e.mv.max != null && mv > e.mv.max))) return false;
+  const col = e.color || e.ifColor;
+  if (col && !g.colorsOf(o).includes(col)) return false;
+  return true;
+}
+// Is the permanent o a "what" (creature, artifact or enchantment, nonland permanent…)? The words of a targeted effect.
+/** @param {any} o @param {string} what @param {import('./engine.js').Game | null} [g] */
+export function matchesWhat(o, what, g = null) {
+  const t = o.fx.type;
+  // (item 209, rules 17: the kinds read from "creature or enchantment", "artifact, creature, or planeswalker")
+  if (Array.isArray(what)) return !!g && what.some(k => g.isA(o, k.replace(/nonartifact/, '').trim() || 'permanent') && !(/nonartifact/.test(k) && t.artifact) && !(/creature/.test(k) && !/noncreature/.test(k) && g.dormant(o)));
+  // (rules 6: "target land" means a land, and a God below its devotion or an uncharged Spacecraft isn't a creature)
+  if (g && g.rules >= 6) {
+    if (what === 'land') return t.land;
+    if (t.creature && g.dormant(o) && /creature/.test(what || 'creature')) return what === 'creature or planeswalker' ? t.planeswalker : false;
+  }
+  switch (what) {
+    case 'creature': return t.creature;
+    case 'artifact': return t.artifact;
+    case 'enchantment': return t.enchantment;
+    case 'planeswalker': return t.planeswalker;
+    case 'creature or planeswalker': return t.creature || t.planeswalker;
+    case 'artifact or enchantment': return t.artifact || t.enchantment;
+    case 'artifact or creature': return g && g.rules >= 7 ? t.artifact || t.creature : t.creature;
+    case 'nonland permanent': return !t.land;
+    case 'permanent': return true;
+    default: return t.creature;
+  }
+}
+// The permanents and players a targeted effect may be aimed at, by its kind: the list a person chooses from, and from
+// rules 17 (item 200) what the engine accepts when a spell is cast and when it resolves. {} for a kind with no list.
+/** @param {import('./engine.js').Game} g @returns {{ objs?: any[], players?: number[] }} */
+export function legalTargets(g, p, e, src) {
+  e = withKinds(g, e);
+  const all = g.players.flatMap(q => q.battlefield);
+  switch (e.k) {
+    case 'remove': return { objs: all.filter(o => matchesWhat(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
+    case 'bounce': case 'flickerDelay': return { objs: all.filter(o => matchesWhat(o, e.what, g) && !o.fx.type.land && g.canTarget(p, o)) };
+    case 'steal': return { objs: all.filter(o => (o.controller !== p.idx || g.rules >= 17) && matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
+    case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
+    case 'blink': return { objs: p.battlefield.filter(o => matchesWhat(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
+    case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
+    case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
+    case 'tap': return { objs: all.filter(o => matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
+    case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
+    case 'damage': {
+      const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
+      const players = /any|player|opponent/.test(e.to) ? g.alive().filter(q => !/opponent/.test(e.to) || q !== p).map(q => q.idx) : [];
+      return { objs, players };
+    }
+    default: return {};
+  }
+}
+// (item 209, rules 17) The effect with its "what" replaced by the list of kinds its words name, when they name several
+/** @param {import('./engine.js').Game} g @param {any} e */
+export const withKinds = (g, e) => (g.rules >= 17 && e.tr?.kinds ? { ...e, what: e.tr.kinds } : e);
+const TR_COLOR = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+/** (item 209, rules 17) Does the permanent o fit what the effect's words ask of its target (e.tr, read by
+ * effects.js targetWords)? The one test used when an effect resolves, by the AI when it picks a target and for the
+ * list a person chooses from.
+ * @param {import('./engine.js').Game} g @param {any} p the effect's controller @param {any} e @param {any} o @param {any} [src] */
+export function targetFits(g, p, e, o, src) {
+  const r = e.tr;
+  if (!r || g.rules < 17) return true;
+  const t = o.fx.type, cols = g.colorsOf(o);
+  for (const w of r.not || []) {
+    if (w in TR_COLOR ? cols.includes(TR_COLOR[w]) : w === 'token' ? o.token : w in t ? t[w] : o.fx.subtypes.includes(w)) return false;
+  }
+  if (r.colors && !r.colors.some(c => cols.includes(c))) return false;
+  if (r.multi && cols.length < 2) return false;
+  if (r.mono && cols.length !== 1) return false;
+  if (r.colorless && cols.length) return false;
+  const between = (/** @type {number} */ v, /** @type {any} */ lim) => !lim || ((lim.min == null || v >= lim.min) && (lim.max == null || v <= lim.max));
+  if (!between(o.card.cmc || 0, r.mv)) return false;
+  if ((r.power || r.tough) && !t.creature) return false;
+  if (!between(g.power(o), r.power) || !between(g.toughness(o), r.tough)) return false;
+  if (r.state) {
+    const att = o.attacking != null, blk = o.blocking != null;
+    if (r.state === 'attacking' ? !att : r.state === 'blocking' ? !blk : !(att || blk)) return false;
+  }
+  if (r.tapped != null && !!o.tapped !== r.tapped) return false;
+  if (r.legendary && !t.legendary) return false;
+  if (r.token && !o.token) return false;
+  if (r.other && o === src) return false;
+  if (r.kw && !r.kw.some(k => g.has(o, k))) return false;
+  if (r.noKw && g.has(o, r.noKw)) return false;
+  if (r.ctl === 'you' && o.controller !== p.idx) return false;
+  if (r.ctl === 'opp' && o.controller === p.idx) return false;
+  return true;
+}
+/** (items 200 and 209, rules 17) Is t a legal target for the effect e: for a permanent, one of the effect kind's
+ * targets (legalTargets) that also fits the restrictions in its words (targetFits).
+ * @param {import('./engine.js').Game} g @param {any} p @param {any} e @param {any} t @param {any} [src] */
+export function targetLegal(g, p, e, t, src) {
+  if (g.rules < 17 || !t?.obj) return true;
+  if (!targetFits(g, p, e, t.obj, src)) return false;
+  const prev = g.targetSrc;
+  g.targetSrc = src;
+  try { const l = legalTargets(g, p, e, src); return !l.objs || l.objs.includes(t.obj); } finally { g.targetSrc = prev; }
 }
 // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
 /** @param {import('./engine.js').Game} g */
@@ -31,17 +194,26 @@ export async function runEffects0(g, p, src, effects, ctx = {}) {
 /** @param {import('./engine.js').Game} g */
 export async function doEffect(g, p, src, e, ctx, i) {
   // X from the mana paid, or a counted amount (devotion, creatures you control) checked on resolution
-  const X = v => (v === 'X' ? ctx.x || 0 : v && typeof v === 'object' ? g.dynValue(p, v, { ...ctx, src }) : v);
+  // (item 207, rules 17) "X, where X is …": the amount the clause names (e.xw), when no X was paid
+  const X = v => (v === 'X' ? ctx.x || (e.xw && g.rules >= 17 ? g.dynValue(p, e.xw, { ...ctx, src }) : 0) : v && typeof v === 'object' ? g.dynValue(p, v, { ...ctx, src }) : v);
   const S = g.cn(src);
+  // (item 211, rules 17) "… for each burden counter on ~": the amount is counted now
+  if (e.nPer && g.rules >= 17) e = { ...e, n: e.nPer };
   // (rules 6: a second reading of the same words does nothing; see readRiders in effects.js)
   if (e.dup && g.rules >= 6) return;
+  // (an effect read from rules 16 on: older games and their replays play without it)
+  if (e.since && g.rules < e.since) return;
   let tgt = ctx.targets?.[i];
-  if (needsTargetIn(e, g.rules) && !g.validTarget(tgt, p)) {
+  if (needsTargetIn(e, g.rules) && !g.validTarget(tgt, p, src)) {
     // A spell's chosen target that became illegal is skipped, never swapped for a new one (608.2b)
     if (ctx.strict && tgt) { g.log(`${S}: ${g.tname(tgt)} is no longer a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
     tgt = p.agent.chooseTarget(g, p, e, src);
   }
   const tName = t => g.tname(t);
+  // (item 209, rules 17) A permanent the effect's words don't allow isn't a legal target: nothing happens to it (608.2b)
+  if (tgt?.obj && needsTargetIn(e, g.rules) && !targetLegal(g, p, e, tgt, src)) { g.log(`${S}: ${g.cn(tgt.obj)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
+  // (item 208, rules 17) "Destroy target permanent if it's blue" (Pyroblast): another color is a legal target, but nothing happens
+  if (g.rules >= 17 && e.ifColor && e.k !== 'counter' && tgt?.obj && !g.colorsOf(tgt.obj).includes(e.ifColor)) { g.log(`${S}: ${g.cn(tgt.obj)} isn't ${protName(e.ifColor)}, nothing happens`, { kind: 'minor' }); return; }
   // Shalai, Leyline of Sanctity-style: an opponent with hexproof can't be targeted
   if (tgt?.player != null && tgt.player !== p.idx && g.players[tgt.player]?.battlefield.some(s => s.fx.hexPlayer)) { g.log(`${S}: ${g.pn(g.players[tgt.player])} has hexproof`, { kind: 'minor' }); return; }
   switch (e.k) {
@@ -67,7 +239,20 @@ export async function doEffect(g, p, src, e, ctx, i) {
         // (Folio of Fancies: as many as the cards in their hand)
         let n2 = e.n?.dyn === 'theirHand' ? q.hand.length * (ctx.copies || 1) : e.n?.dyn === 'theirGy' ? q.graveyard.length : n;
         for (const r of g.opponents(q)) for (const s of r.battlefield) if (s.fx.millMore) n2 = s.fx.millMore.double ? n2 * 2 : n2 + s.fx.millMore.plus;
-        const k = Math.min(n2, q.library.length);
+        let k = Math.min(n2, q.library.length);
+        // (rules 7) Grindstone: repeat while the two cards milled share a color (Painter's Servant makes them all share one)
+        if (g.rules >= 7 && e.repeatShared) {
+          k = 0;
+          for (let more = true; more && q.library.length;) {
+            const two = q.library.slice(-2).reverse();
+            for (const c of two) g.move(c, 'graveyard');
+            k += two.length;
+            const [a, b] = two.map(c => g.colorsOf(c));
+            more = two.length === 2 && a.some(c => b.includes(c));
+          }
+          g.log(`${g.pn(q)} mills ${k} card${k === 1 ? '' : 's'}${q.library.length ? '' : ', emptying their library'} (${S}, repeating while the pair shares a color)`, { kind: k >= 20 ? 'removal' : 'minor', rule: '701.13a' });
+          continue;
+        }
         for (let j = 0; j < k; j++) g.move(q.library[q.library.length - 1], e.exile ? 'exile' : 'graveyard');
         g.log(`${g.pn(q)} mills ${k} card${k === 1 ? '' : 's'}${q.library.length ? '' : ', emptying their library'} (${S})`, { kind: k >= 20 ? 'removal' : 'minor', rule: '701.13a' });
       }
@@ -79,9 +264,12 @@ export async function doEffect(g, p, src, e, ctx, i) {
       const ok = kinds[e.what] || (() => true);
       // "untap target …": the most useful ones (mana sources first)
       let list = p.battlefield.filter(o => o.tapped && ok(o));
+      // (rules 7) the AI untaps the combo loop's engine first (Kiki-Jiki with a Deceiver Exarch copy)
+      const eng = g.rules >= 7 && !p.agent.chooseCostAsync && p.agent.loopEngine?.(g, p, src);
+      if (eng && list.includes(eng)) list = [eng, ...list.filter(o => o !== eng)];
       // (you choose which ones in your seat; the AI takes the best mana sources)
       if (e.n && list.length > e.n) list = p.agent.chooseCostAsync ? await p.agent.chooseCostAsync(g, p, list, e.n, `${S}: choose ${e.n === 1 ? 'a permanent' : `up to ${e.n} permanents`} to untap`)
-        : list.sort((a, b) => (b.fx.mana?.amount || 0) - (a.fx.mana?.amount || 0)).slice(0, e.n);
+        : eng && list[0] === eng ? list.slice(0, e.n) : list.sort((a, b) => (b.fx.mana?.amount || 0) - (a.fx.mana?.amount || 0)).slice(0, e.n);
       for (const o of list) o.tapped = false;
       if (list.length) g.log(`${S} untaps ${list.length === 1 ? g.cn(list[0]) : `${list.length} of ${g.pn(p)}'s permanents`}`, { kind: 'minor' });
       break;
@@ -119,9 +307,34 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     case 'counter': case 'counterAbility':
+      // (rules 13) What a counterspell sets up for later, whether or not the spell can be countered (608.2c: the rest
+      // of the spell still happens). Mana Drain: {C} equal to the spell's mana value (X included, 202.3e) at the
+      // beginning of its caster's next main phase. Arcane Denial: the spell's controller may draw up to two cards at
+      // the beginning of the next turn's upkeep.
+      if (g.rules >= 13 && tgt?.spell && !tgt.spell.ability) {
+        const sp = tgt.spell, mv = (sp.o.card.cmc || 0) + (sp.x || 0) * (parseCost(sp.o.card.manaCost).x || 0);
+        if (e.laterMana) g.addLater(p, src, 'main', mv ? [{ k: 'addManaN', n: mv, color: 'C' }] : [], `add {C} equal to ${sp.o.card.name}'s mana value (${mv})`);
+        if (e.laterDraw && sp.p && !sp.p.lost) g.addLater(p, src, 'upkeep', [{ k: 'drawUpTo', n: e.laterDraw, who: sp.p.idx }], `${sp.p.name} may draw up to ${e.laterDraw} cards`);
+      }
       if (tgt?.spell && !tgt.spell.ability && (tgt.spell.o.fx.uncounterable || tgt.spell.uncounterable || (g.rules >= 5 && tgt.spell.p?.shieldTurn === g.turn) || g.alive().some(q => q.battlefield.some(o => o.fx.noCounterAll)) || g.players[tgt.spell.o.owner]?.battlefield.some(o => o.fx.protectsSpells && (!o.fx.costReduce?.minMv || (tgt.spell.o.card.cmc || 0) >= o.fx.costReduce.minMv)))) {
         g.log(`${g.cn(tgt.spell.o)} can't be countered`, { kind: 'minor' });
         break;
+      }
+      // (item 208, rules 17) A spell the counterspell's words don't fit isn't a legal target (608.2b), and
+      // "unless its controller pays {N}": that player is asked and, paying, keeps the spell (118.12)
+      if (g.rules >= 17 && tgt?.spell && !tgt.spell.ability) {
+        if (!counterFits(g, e, tgt.spell)) { g.log(`${S}: ${g.cn(tgt.spell.o)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); break; }
+        const payer = tgt.spell.p, cost = { generic: e.unless || 0, pips: [], x: 0 };
+        if (e.unless && payer && !payer.lost) {
+          const pays = g.planPayment(payer, cost) && (await (payer.agent.payUnlessAsync ? payer.agent.payUnlessAsync(g, payer, src, e, tgt.spell) : payer.agent.payUnless(g, payer, src, e, tgt.spell)));
+          const plan = pays && g.planPayment(payer, cost);
+          if (plan) {
+            g.commitPayment(payer, plan);
+            g.log(`${g.pn(payer)} pays {${e.unless}} for ${S}: ${g.cn(tgt.spell.o)} is not countered`, { kind: 'minor', rule: '118.12' });
+            break;
+          }
+          g.log(`${g.pn(payer)} doesn't pay {${e.unless}} for ${S}`, { kind: 'minor' });
+        }
       }
       if (tgt?.spell) {
         tgt.spell.countered = true;
@@ -146,6 +359,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
     }
     case 'steal': {
       const o = tgt?.obj;
+      // (rules 7) Zealous Conscripts on your own permanent: you already control it, but it still untaps and gains haste
+      if (o && o.controller === p.idx && e.temp && g.rules >= 7 && o.zone === 'battlefield') { Object.assign(o, { tapped: false, tempKw: new Set([...(o.tempKw || []), 'haste']) }); g.log(`${S} untaps ${g.cn(o)}`, { kind: 'minor' }); break; }
       if (!o || o.controller === p.idx) break;
       const from = g.players[o.controller];
       from.battlefield.splice(from.battlefield.indexOf(o), 1);
@@ -181,6 +396,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
         const cards = (await q.agent.chooseDiscard(g, q, Math.min(n, q.hand.length))) || [];
         g.discard(q, cards);
       }
+      // (rules 7) Chain of Smog: the player who discarded may copy it, and each copy triggers magecraft
+      if (g.rules >= 7 && e.chainCopy && victims.length === 1) await chainCopies(g, victims[0], src, e);
       break;
     }
     case 'copyToken':
@@ -200,7 +417,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'addMana':
       // ("RG": one mana of either color, Orcish Lumberjack)
-      for (const c of e.syms) p.pool.push({ colors: c === '*' ? [...COLORS] : c.split('') });
+      for (const c of e.syms) p.pool.push({ colors: c === '*' ? [...COLORS] : c.split(''), ...(g.rules >= 7 && e.only ? { only: e.only } : {}) });
       g.log(`${g.pn(p)} adds ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`, { kind: 'minor' });
       break;
     case 'sacSelf':
@@ -232,12 +449,20 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'protect': {
       const objs = e.scope === 'one' ? (tgt?.obj ? [tgt.obj] : []) : e.scope === 'self' ? [src] : e.scope === 'tokens' ? p.battlefield.filter(o => o.token && o.fx.type.creature) : p.battlefield.filter(o => !o.fx.type.land);
+      // (rules 16) protection is protection (Game.protectedFrom), not hexproof; "the color of your choice" is chosen now
+      if (g.rules >= 16 && e.prot) {
+        const q = e.prot.includes('choice') ? [...e.prot.filter(x => x !== 'choice'), protColorChoice(g, p, objs[0])] : e.prot;
+        for (const o of objs) { o.tempProt = { turn: g.turn, q: [...(o.tempProt?.turn === g.turn ? o.tempProt.q : []), ...q] }; if (e.kw16.length) o.tempKw = new Set([...(o.tempKw || []), ...e.kw16]); }
+        if (objs.length) g.log(`${objs.length === 1 ? g.cn(objs[0]) : `${g.pn(p)}'s permanents`} gain${objs.length === 1 ? 's' : ''} ${[...e.kw16, `protection from ${q.map(protName).join(' and from ')}`].join(' and ')} until end of turn`, { kind: 'minor', rule: '702.16' });
+        break;
+      }
       for (const o of objs) o.tempKw = new Set([...(o.tempKw || []), ...e.kw]);
       if (objs.length) g.log(`${objs.length === 1 ? g.cn(objs[0]) : `${g.pn(p)}'s permanents`} gain${objs.length === 1 ? 's' : ''} ${e.kw.join(' and ')} until end of turn`, { kind: 'minor' });
       break;
     }
     // An X draw never decks its own caster (matters with infinite mana)
-    case 'draw': g.draw(p, e.n === 'X' ? Math.min(X(e.n), Math.max(0, p.library.length - 1)) : X(e.n)); break;
+    // (rules 7) "you may draw a card" (Curiosity): nobody draws from an empty library on purpose without Laboratory Maniac
+    case 'draw': if (g.rules >= 7 && e.may && !p.library.length && !p.battlefield.some(o => o.fx.labMan)) break; g.draw(p, e.n === 'X' ? Math.min(X(e.n), Math.max(0, p.library.length - 1)) : X(e.n)); break;
     case 'gain': { const n = g.lifeGain(p, X(e.n)); p.life += n; g.emit('life', { p: p.idx, d: n }); g.log(`${g.pn(p)} gains ${n} life (${S})`, { kind: 'minor' }); break; }
     case 'drain': {
       const n = X(e.n) * (e.times || 1);
@@ -284,10 +509,24 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // (rules 6) Deathrite Shaman: "exile target land card from a graveyard" is a card, not a land on the battlefield
       if (e.gyCard && g.rules >= 6) { exileFromGraveyard(g, p, src, ['land']); break; }
       if (!tgt?.obj) { g.log(`${S} has no legal target`, { kind: 'minor' }); break; }
+      // (rules 13) Chaos Warp: the owner shuffles it into their library, reveals the top card, and puts it onto the
+      // battlefield if it's a permanent card (zone changes through Game.move, so its own triggers happen as usual)
+      if (e.warp && g.rules >= 13) { await chaosWarp(g, p, src, tgt.obj, S); break; }
       // (what the target was as it last existed on the battlefield: its power and controller, 608.2h)
       const v = tgt.obj, q = g.players[v.controller], pow = g.power(v), mv = v.card.cmc || 0;
-      if (e.mode === 'exile') { g.log(`${S} exiles ${tName(tgt)}`, { kind: 'removal' }); g.move(v, 'exile'); }
-      else if (g.destroy(v)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
+      // (item 210, rules 17) "until this leaves the battlefield": if the source already left, nothing is exiled (610.3c);
+      // else the source remembers the card, which returns when the source leaves (zones.js move)
+      const hold = g.rules >= 17 && e.untilLeaves;
+      if (hold && hold !== 'ring' && src.zone !== 'battlefield') { g.log(`${S} has left the battlefield: ${tName(tgt)} is not exiled`, { kind: 'minor', rule: '610.3c' }); break; }
+      if (e.mode === 'exile') {
+        g.log(`${S} exiles ${tName(tgt)}${hold ? ` until ${S} leaves the battlefield` : ''}`, { kind: 'removal' }); g.move(v, 'exile');
+        if (hold && v.zone === 'exile' && src.zone === 'battlefield') {
+          src.holds = [...(src.holds || []), v.iid];
+          // (Hostage Taker: its controller may cast the card for as long as it stays exiled)
+          if (e.untilLeaves === 'cast') v.mayPlay = { p: p.idx, until: Infinity };
+        }
+      }
+      else if (g.destroy(v, g.rules >= 9 && !!e.noRegen9)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
       else g.log(`${tName(tgt)} is indestructible`, { rule: '702.12' });
       if (g.rules >= 6) {
         if (e.comp) await compensate(g, q, src, e.comp, pow);
@@ -309,6 +548,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'wipe': {
       let n = 0;
+      // (item 205, rules 17: everything goes at the same time; death watchers that go with it see the others)
+      g.together(() => {
       for (const q of g.alive()) for (const o of [...q.battlefield]) {
         const t = o.fx.type;
         const theirs = q.idx !== p.idx;
@@ -318,8 +559,9 @@ export async function doEffect(g, p, src, e, ctx, i) {
           'nontoken creatures': t.creature && !o.token, 'nonartifact creatures': t.creature && !t.artifact, "creatures you don't control": t.creature && theirs, 'creatures your opponents control': t.creature && theirs,
           "nonland permanents you don't control": !t.land && theirs, planeswalkers: t.planeswalker, lands: t.land }[e.what];
         if (!hit) continue;
-        if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o)) n++;
+        if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o, g.rules >= 9 && !!e.noRegen9)) n++;
       }
+      });
       g.log(`${S} ${e.mode === 'exile' ? 'exiles' : 'destroys'} all ${e.what} — ${n} permanent${n === 1 ? '' : 's'} gone`, { kind: 'removal' });
       await g.beat(0.8);
       break;
@@ -331,6 +573,16 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     case 'token': {
+      // (rules 14) Through the replacement-effect loop: doublers, Chatterfang's Squirrels and the like apply in the order
+      // the player chooses (616.1), and the extra tokens are doubled or not depending on it
+      if (g.rules >= 14) {
+        const made = await tokens14(g, p, [{ kind: 'creature', n: X(e.n), spec: { ...e, p: X(e.p), t: X(e.t) } }], src);
+        for (const m of made) {
+          if (e.attacking && src.attacking != null) Object.assign(m, { tapped: true, attacking: src.attacking, blockedBy: [], blocked: false });
+          if (e.temp) (g.endSac ||= []).push(m);
+        }
+        break;
+      }
       const n = Math.min(g.tokenCount(p, X(e.n)), 40);
       let made;
       for (let k = 0; k < n; k++) {
@@ -343,9 +595,11 @@ export async function doEffect(g, p, src, e, ctx, i) {
       if (made) g.extraTokens(p, 'creature', src);
       break;
     }
-    case 'treasure': { const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createTreasure(p, src); g.log(`${g.pn(p)} creates ${n} Treasure`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, 'treasure', src); break; }
+    case 'treasure': { if (g.rules >= 14) { await tokens14(g, p, [{ kind: 'treasure', n: X(e.n) }], src); break; } const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createTreasure(p, src); g.log(`${g.pn(p)} creates ${n} Treasure`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, 'treasure', src); break; }
     case 'rampLand': await g.fetchLands(p, e, src); break;
     case 'tutor': {
+      // (rules 7) Demonic Consultation and Tainted Pact exile from the top instead of searching (combo audit)
+      if (g.rules >= 7 && (e.consult || e.pact)) { await exileUntil(g, p, src, e); break; }
       g.fire('search', { p: p.idx });
       // Transmute: a card with the same mana value
       let c = e.sameMv ? (await g.pickCards(p, p.library.filter(x => (x.card.cmc || 0) === (src.card.cmc || 0)), 1, `${S}: choose a card with mana value ${src.card.cmc || 0}`))[0]
@@ -472,6 +726,83 @@ function exileFromGraveyard(g, p, src, types) {
   g.log(`${g.cn(src)}: no ${types.join(' or ')} card in a graveyard`, { kind: 'minor' });
   return false;
 }
+// (rules 7) Demonic Consultation (e.consult: the number exiled first) and Tainted Pact (e.pact): cards come off the top
+// one at a time, so naming a card that isn't there (or taking none) exiles the whole library, for Thassa's Oracle,
+// Laboratory Maniac and Jace. The AI only asks what it already knows: its own library's contents, never their order.
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} src @param {any} e */
+async function exileUntil(g, p, src, e) {
+  const S = g.cn(src);
+  const wantEmpty = !!p.agent.wantsEmptyLibrary?.(g, p, src);
+  const top = () => p.library[p.library.length - 1];
+  if (e.consult) {
+    // (null: a name that isn't in the library)
+    const name = p.agent.chooseConsultNameAsync ? await p.agent.chooseConsultNameAsync(g, p, src, wantEmpty)
+      : wantEmpty ? null : p.agent.pickTutor(g, p, { types: [] })?.card.name || null;
+    g.log(`${S}: ${g.pn(p)} names ${name ? esc(name) : "a card that isn't in their library"}`, { kind: 'minor' });
+    let n = 0, found = null;
+    for (let k = 0; k < e.consult && p.library.length; k++) { g.move(top(), 'exile'); n++; }
+    while (p.library.length) {
+      if (name && top().card.name === name) { found = top(); break; }
+      g.move(top(), 'exile'); n++;
+    }
+    if (found) g.move(found, 'hand');
+    g.log(`${S} exiles ${n} card${n === 1 ? '' : 's'}${found ? ` and puts ${g.cn(found)} into ${g.pn(p)}'s hand` : ` — ${g.pn(p)}'s library is now empty`}`, { kind: found ? 'minor' : 'removal' });
+    return;
+  }
+  const seen = new Set();
+  let n = 0;
+  while (p.library.length && !g.over) {
+    const c = top();
+    g.move(c, 'exile');
+    n++;
+    if (seen.has(c.card.name)) { g.log(`${S} exiles a second ${g.cn(c)} and stops (${n} cards exiled)`, { kind: 'minor' }); return; }
+    seen.add(c.card.name);
+    const take = p.agent.takePactCardAsync ? await p.agent.takePactCardAsync(g, p, c, wantEmpty) : !!p.agent.takePactCard?.(g, p, c, wantEmpty);
+    if (take) { g.move(c, 'hand'); g.log(`${S}: ${g.pn(p)} puts ${g.cn(c)} into their hand (${n} card${n === 1 ? '' : 's'} exiled)`, { kind: 'minor' }); return; }
+  }
+  g.log(`${S} exiles ${n} card${n === 1 ? '' : 's'} — ${g.pn(p)}'s library is now empty`, { kind: 'removal' });
+}
+// (rules 7) Chain of Smog: the player who discarded may copy it (choosing a new target), again and again. Copying an
+// instant or sorcery triggers magecraft (Professor Onyx, Witherbloom Apprentice), which is the combo. The player decides
+// each time; the AI stops when a copy no longer changes anyone's life total.
+/** @param {import('./engine.js').Game} g @param {any} q @param {any} src @param {any} e */
+async function chainCopies(g, q, src, e) {
+  while (!g.over && !q.lost) {
+    const t = q.agent.chainCopyTarget ? await q.agent.chainCopyTarget(g, q, src, e) : null;
+    if (t == null || g.players[t]?.lost) return;
+    const before = g.players.map(x => x.life).join();
+    g.log(`${g.pn(q)} copies ${g.cn(src)}, targeting ${g.pn(g.players[t])}`, { kind: 'cast', p: q.idx, rule: '707.10' });
+    for (const s of q.battlefield) if (s.fx.onCast && ['instant or sorcery', 'any', src.fx.type.instant ? 'instant' : 'sorcery'].includes(s.fx.onCast.what) && /cast or copy/.test(s.card.text || '') && (!s.fx.onCast.turnOnce9 || g.onceOk(s, 'cast'))) g.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${src.card.name} was copied`, p: q, trig: { o: src, p: q.idx } });
+    await g.flushTriggers();
+    await g.sba();
+    const v = g.players[t];
+    if (g.over || v.lost) return;
+    g.discard(v, (await v.agent.chooseDiscard(g, v, Math.min(e.n, v.hand.length))) || []);
+    q.chainNoProgress = g.players.map(x => x.life).join() === before;
+    q = v;
+  }
+}
+// (rules 14) Tokens about to be created, as groups ({ kind, n, spec }), through the replacement-effect loop
+// (replacements.js tokenDefs; a person is asked which effect applies first when the order changes the result), then
+// created as the final event says. Returns the creature tokens made from the first group's spec.
+/** @param {import('./engine.js').Game} g */
+async function tokens14(g, p, groups, src) {
+  const ev = await R.replaceAsync(g, { type: 'tokens', p, groups }, R.tokenDefs(g, { p }), R.tokenScore, p, R.tokenText);
+  const made = [];
+  for (const x of ev.groups) {
+    const n = Math.min(Math.max(0, x.n), 40);
+    let last = null;
+    for (let k = 0; k < n; k++) {
+      if (x.kind === 'creature') made.push(last = g.createToken(p, x.spec, src));
+      else if (x.kind === 'treasure') g.createTreasure(p, src);
+      else if (x.kind === 'squirrel') last = g.createToken(p, { p: 1, t: 1, desc: 'green squirrel', kw: [] }, src);
+      else if (x.kind === 'thopter') last = g.createToken(p, x.spec, src);
+      else g.createArtifactToken(p, x.kind, src);
+    }
+    if (n) g.log(`${g.pn(p)} creates ${n} ${x.kind === 'creature' ? `${x.spec.p}/${x.spec.t} ${esc(last?.card.name || 'creature')}` : last ? esc(last.card.name) : x.kind[0].toUpperCase() + x.kind.slice(1)} token${n === 1 ? '' : 's'}`, { kind: 'minor' });
+  }
+  return made;
+}
 export function extraTokens(g, p, kind, src) {
   for (const s of p.battlefield) {
     const k = s.fx.extraToken;
@@ -555,14 +886,33 @@ export function bestOwnCreature(g, p, filter = (/** @type {any} */ _o) => true) 
 // The newer effects: library manipulation, keyword actions, conditions, graveyard work
 /** @param {import('./engine.js').Game} g */
 export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
+  // (rules 16) Equip resolving: the equipment, still on the battlefield under its activator's control, attaches to the
+  // target creature if that is still a creature they control (701.3b: an equipment can't be attached illegally)
+  // (rules 16) Unearth resolving: the card returns if it is still in its owner's graveyard
+  if (e.k === 'unearthReturn') {
+    if (src.zone === 'graveyard' && src.owner === p.idx) g.unearthReturn(p, src);
+    else g.log(`${g.cn(src)}: unearth does nothing (it left the graveyard)`, { kind: 'minor' });
+    return;
+  }
+  if (e.k === 'equipAttach') {
+    const o = tgt?.obj;
+    if (src.zone !== 'battlefield' || src.controller !== p.idx || !o || o.zone !== 'battlefield' || o.controller !== p.idx || !o.fx.type.creature || o === src) { g.log(`${g.cn(src)}: equip does nothing`, { kind: 'minor', rule: '701.3b' }); return; }
+    if (src.attachedTo === o) return;
+    g.attachEquipment(p, src, o);
+    return;
+  }
   const S = g.cn(src);
   switch (e.k) {
     case 'if': {
-      let ok = g.evalCond(p, src, e.cond, ctx);
+      // (item 206, rules 17) resolving: coin flips are flipped now, and a condition that can't be read is not met
+      let ok = g.evalCond(p, src, e.cond, g.rules >= 17 ? { ...ctx, resolving: true } : ctx);
+      // (unread: no reading at all, or a game from before the reading existed)
+      const unread = e.cond.c === '?' && !(g.rules >= 17 && e.cond.r);
       // An unreadable condition on an "instead" upgrade keeps the plain version, and never wins the game
-      if (e.cond.c === '?' && (e.else || e.effects.some(x => x.k === 'win'))) ok = false;
+      if (unread && (e.else || e.effects.some(x => x.k === 'win'))) ok = false;
+      if (unread && g.rules >= 17 && !e.else) g.noteUnread(src, `"if ${e.cond.text}" can't be checked, so that part does nothing`);
       const branch = ok ? e.effects : e.else || [];
-      if (e.cond.c !== '?' && branch.length) g.log(`${S}: ${ok ? '' : 'not '}${esc(condText(e.cond))}`, { kind: 'minor' });
+      if (!unread && branch.length) g.log(`${S}: ${ok ? '' : 'not '}${esc(condText(e.cond))}`, { kind: 'minor' });
       await g.runEffects(p, src, branch, { ...ctx, targets: undefined, strict: false });
       break;
     }
@@ -608,7 +958,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       if (got.length) g.log(`${g.pn(p)} exiles ${got.map(o => g.cn(o)).join(', ')} and may play ${got.length === 1 ? 'it' : 'them'} ${e.next ? 'until their next turn' : 'this turn'}`, { kind: 'minor' });
       break;
     }
-    case 'artifactToken': { const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createArtifactToken(p, e.kind, src); g.log(`${g.pn(p)} creates ${n} ${e.kind[0].toUpperCase() + e.kind.slice(1)} token${n === 1 ? '' : 's'}`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, e.kind, src); break; }
+    case 'artifactToken': { if (g.rules >= 14) { await tokens14(g, p, [{ kind: e.kind, n: X(e.n) }], src); break; } const n = g.tokenCount(p, X(e.n)); for (let k = 0; k < n; k++) g.createArtifactToken(p, e.kind, src); g.log(`${g.pn(p)} creates ${n} ${e.kind[0].toUpperCase() + e.kind.slice(1)} token${n === 1 ? '' : 's'}`, { kind: 'minor' }); if (n > 0) g.extraTokens(p, e.kind, src); break; }
     case 'fight': {
       const foe = tgt?.obj;
       const mine = src.zone === 'battlefield' && src.fx.type.creature ? src : g.bestOwnCreature(p, o => o !== foe);
@@ -744,8 +1094,11 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'addManaN': {
-      const n = Math.min(X(e.n), 30);
-      for (let k = 0; k < n; k++) p.pool.push({ colors: e.color ? [e.color] : [...COLORS] });
+      // (rules 7) Food Chain: X counts the exiled creature's mana value (the "1 plus" is the {any} after it),
+      // and the mana is for creature spells only
+      const r7 = g.rules >= 7 && e.exiledMv;
+      const n = r7 ? p.lastExiledMv || 0 : Math.min(X(e.n), 30);
+      for (let k = 0; k < n; k++) p.pool.push({ colors: e.color ? [e.color] : [...COLORS], ...(r7 && e.only ? { only: e.only } : {}) });
       if (n) g.log(`${g.pn(p)} adds ${n} mana (${S})`, { kind: 'minor' });
       break;
     }
@@ -769,6 +1122,23 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'payFor': {
+      // (rules 7) Nim Deathmantle: pay to return the creature that died to the battlefield, then attach to it
+      if (g.rules >= 7 && e.returnTrig) {
+        const card = ctx.trig?.o;
+        const plan = card?.zone === 'graveyard' && g.planPayment(p, parseCost(e.cost), 0);
+        if (!plan) break;
+        const c = parseCost(e.cost);
+        const worth = p.agent.value(g, card) + card.fx.etb.reduce((s, x) => s + p.agent.effectValue(g, p, card, x, false), 0) + (card.fx.etb.some(x => x.k === 'untapAll' && x.what === 'lands') ? 4 : 0);
+        const yes = p.agent.confirmPayAsync ? await p.agent.confirmPayAsync(g, p, src, e.cost, `return ${card.card.name} to the battlefield`) : worth > (c.generic + c.pips.length) * 0.6;
+        if (!yes) break;
+        g.commitPayment(p, plan);
+        g.log(`${g.pn(p)} pays ${esc(e.cost)} (${S})`, { kind: 'minor' });
+        g.move(card, 'battlefield', { under: p.idx });
+        g.log(`${S} returns ${g.cn(card)} to the battlefield`, { kind: 'minor' });
+        if (src.zone === 'battlefield') { src.attachedTo = card; g.log(`${S} is attached to ${g.cn(card)}`, { kind: 'minor' }); }
+        g.trigger(card, 'etb');
+        break;
+      }
       const plan = g.planPayment(p, parseCost(e.cost), 0);
       const worth = e.effects.reduce((s, x) => s + p.agent.effectValue(g, p, src, x, false), 0);
       const c = parseCost(e.cost);
@@ -894,7 +1264,46 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     case 'untapSelf':
       if (src.zone === 'battlefield' && src.tapped) { src.tapped = false; g.log(`${S} untaps`, { kind: 'minor' }); }
+      // (rules 7) Basalt Monolith + Rings of Brighthearth: with the copy resolved first, the untapped Monolith can
+      // be tapped for mana again (a mana ability, while the original still waits on the stack)
+      if (g.rules >= 7 && e.retap && !src.tapped && src.fx.mana && p.agent.retapForMana?.(g, p, src) !== false) g.tapForMana(p, src);
       break;
+    // ---- rules 7 (combo audit)
+    case 'castImprint': {
+      // Isochron Scepter: copy the imprinted card and cast the copy without paying its mana cost
+      if (g.rules < 7) break;
+      const card = src.imprintedObj?.card;
+      if (!card) { g.log(`${S} has nothing imprinted`, { kind: 'minor' }); break; }
+      const copy = g.mk(card, p, { token: true });
+      copy.zone = 'copy';
+      copy.spellCopy = true;
+      g.log(`${g.pn(p)} copies ${g.cn(copy)} (${S})`, { kind: 'minor', rule: '707.12' });
+      await g.cast(p, copy, { mode: { alt: 'free' } });
+      break;
+    }
+    case 'bounceOther': {
+      // Temur Sabertooth: return another creature you control to its owner's hand
+      if (g.rules < 7) break;
+      const pool = p.battlefield.filter(o => o !== src && g.isA(o, e.what || 'creature'));
+      const pick = p.agent.chooseCardsAsync ? (await g.pickCards(p, pool, 1, `${S}: return another creature you control to its owner's hand`))[0]
+        : [...pool].sort((a, b) => (b.fx.etb.length ? 1 : 0) - (a.fx.etb.length ? 1 : 0) || (a.token ? 1 : 0) - (b.token ? 1 : 0) || (a.card.cmc || 0) - (b.card.cmc || 0))[0];
+      if (pick) { g.move(pick, 'hand'); g.log(`${S} returns ${g.cn(pick)} to ${pick.token ? 'nowhere (a token)' : 'its owner\'s hand'}`, { kind: 'minor' }); }
+      break;
+    }
+    case 'returnLowPower': {
+      // Reveillark: up to two creature cards with power 2 or less from your graveyard to the battlefield
+      const pool = p.graveyard.filter(o => o.fx.type.creature && o !== src && g.basePower(o.card) <= e.maxPower);
+      const picks = await g.pickCards(p, pool, e.n, `${S}: return up to ${e.n} creature cards with power ${e.maxPower} or less`);
+      for (const o of picks) { g.move(o, 'battlefield'); g.log(`${S} returns ${g.cn(o)} to the battlefield`, { kind: 'minor' }); g.trigger(o, 'etb'); }
+      break;
+    }
+    case 'makeColor': {
+      // Grand Architect: target artifact creature becomes blue until end of turn
+      const pool = p.battlefield.filter(o => g.isA(o, e.what) && !g.colorsOf(o).includes(e.color));
+      const o = tgt?.obj && pool.includes(tgt.obj) ? tgt.obj : [...pool].sort((a, b) => g.abilitiesOf(b).length - g.abilitiesOf(a).length)[0];
+      if (o) { o.tempColor = { turn: g.turn, color: e.color }; g.log(`${g.cn(o)} becomes ${{ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' }[e.color]} until end of turn (${S})`, { kind: 'minor' }); }
+      break;
+    }
     case 'evade': {
       const o = e.self ? src : tgt?.obj;
       if (o?.zone === 'battlefield') { o.tempKw = new Set([...(o.tempKw || []), 'unblockable']); g.log(`${g.cn(o)} can't be blocked this turn`, { kind: 'minor' }); }
@@ -1055,7 +1464,8 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       // (Bloodline Bidding: only the creature type that returns the most)
       // (Patriarch's Bidding: each player picks the type that returns the most for them)
       const pool = (e.all ? g.alive() : [p]).flatMap(q => { const bt = e.bestType ? g.bestType(q, q.graveyard.filter(o => o.fx.type.creature)) : null; return q.graveyard.filter(o => g.spellIs(o, e.what) && o.fx.type.permanent && (e.maxMv == null || (o.card.cmc || 0) <= e.maxMv) && (!e.bestType || (bt && g.isA(o, bt)))); });
-      for (const o of pool) { g.move(o, 'battlefield', { under: e.all && !e.mine ? o.owner : p.idx, tapped: !!e.tapped }); g.trigger(o, 'etb'); }
+      // (item 205, rules 17: they enter together and see each other enter)
+      g.together(() => { for (const o of pool) { g.move(o, 'battlefield', { under: e.all && !e.mine ? o.owner : p.idx, tapped: !!e.tapped }); g.trigger(o, 'etb'); } });
       g.log(`${S} returns ${pool.length} card${pool.length === 1 ? '' : 's'} to the battlefield`, { kind: 'removal' });
       break;
     }
@@ -1102,8 +1512,9 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
     case 'livingDeath': {
       const back = new Map();
       for (const q of g.alive()) { const cs = q.graveyard.filter(o => o.fx.type.creature); for (const o of cs) g.move(o, 'exile'); back.set(q, cs); }
-      for (const q of g.alive()) for (const o of q.battlefield.filter(x => x.fx.type.creature)) g.sacrifice(q, o);
-      for (const [q, cs] of back) for (const o of cs) { if (o.zone !== 'exile') continue; g.move(o, 'battlefield', { under: q.idx }); g.trigger(o, 'etb'); }
+      // (item 205, rules 17: the creatures are sacrificed together, and the cards enter together)
+      g.together(() => { for (const q of g.alive()) for (const o of q.battlefield.filter(x => x.fx.type.creature)) g.sacrifice(q, o); });
+      g.together(() => { for (const [q, cs] of back) for (const o of cs) { if (o.zone !== 'exile') continue; g.move(o, 'battlefield', { under: q.idx }); g.trigger(o, 'etb'); } });
       g.log(`${S}: every creature is swapped with the creature cards in the graveyards`, { kind: 'removal' });
       break;
     }
@@ -1179,7 +1590,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
         if (e.mode === 'bounce') g.move(o, 'hand');
         else if (e.mode === 'damage') g.damageObj(o, X(e.n), src);
         else if (e.mode === 'exile') g.move(o, 'exile');
-        else g.destroy(o);
+        else g.destroy(o, g.rules >= 9 && !!e.noRegen9);
       }
       g.log(`${S} (overloaded) hits ${objs.length} of the opponents' ${e.what || 'creature'}s`, { kind: 'removal', rule: '702.96a' });
       break;
@@ -1205,6 +1616,31 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       g.log(`${g.pn(p)} copies ${g.cn(o)} (${S})`, { kind: 'cast', p: p.idx, rule: '707.10' });
       if (o.fx.type.permanent) { const c = g.createCopy(p, o, false); g.trigger(c, 'etb'); }
       else await g.runEffects(p, o, o.fx.spell.filter(x => x.k !== 'copySpell' && x.k !== 'counter'), { x: 0 });
+      break;
+    }
+    // ---- (rules 13, Phase 2E) Teferi's Protection, Arcane Denial
+    case 'lifeLock':
+      if (g.rules < 13) break;
+      p.lifeLock = true;
+      g.log(`${g.pn(p)}'s life total can't change until their next turn (${S})`, { kind: 'minor', rule: '119.7' });
+      break;
+    case 'phaseOut':
+      if (g.rules < 13) break;
+      g.phaseOut(p, [...p.battlefield]);
+      break;
+    case 'laterDraw':
+      if (g.rules < 13) break;
+      g.addLater(p, src, 'upkeep', [{ k: 'draw', n: e.n }], `${p.name} draws ${e.n === 1 ? 'a card' : `${e.n} cards`}`);
+      break;
+    case 'drawUpTo': {
+      // "may draw up to N cards": the drawing player chooses how many
+      const q = g.players[e.who ?? p.idx];
+      if (!q || q.lost) break;
+      const max = Math.max(0, e.n);
+      const want = q.agent.drawUpToAsync ? await q.agent.drawUpToAsync(g, q, src, max) : q.agent.drawUpTo ? q.agent.drawUpTo(g, q, src, max) : max;
+      const n = Math.max(0, Math.min(max, Math.floor(+want || 0)));
+      g.log(`${g.pn(q)} draws ${n} of up to ${max} card${max === 1 ? '' : 's'} (${S})`, { kind: 'minor' });
+      if (n) g.draw(q, n);
       break;
     }
     case 'shieldSelf':
@@ -1505,10 +1941,15 @@ export function damagePlayer(g, q, n, src, combat) {
   if (!combat && sc != null && sc !== q.idx) for (const s of g.players[sc].battlefield) if (s.fx.burnDouble) n *= 2;
   if (sc != null && sc !== q.idx && g.active === sc && g.players[sc].battlefield.some(s => s.fx.lossDouble)) n *= 2;
   // Protection from everything until your next turn (Teferi's Protection); Glacial Chasm, Selfless Squire
-  if ((q.shield >= g.turn || q.preventTurn === g.turn || q.battlefield.some(s => s.fx.preventMe)) && !g.noPrevent()) n = 0;
+  // (rules 14: through the replacement-effect loop, replacements.js damageDefs: prevented damage is never dealt, so nothing
+  // that notices damage happens)
+  if (g.rules >= 14) { if (n > 0) n = R.replace(g, { type: 'damage', q, n, src, combat }, R.damageDefs(g, { q }), R.damageScore, q).n; }
+  else if ((q.shield >= g.turn || q.preventTurn === g.turn || q.battlefield.some(s => s.fx.preventMe)) && !g.noPrevent()) n = 0;
   if (g.kingdoms && !g.has(src, 'infect') && !g.noPrevent()) n = K.damageHook(g, q, n, src, combat);
   if (n <= 0 || q.lost) return;
   if (!combat && sc != null && sc !== q.idx) g.fire('noncombat', { o: src, p: sc, n, target: q.idx });
+  // (rules 7) Curiosity on Niv-Mizzet: noncombat damage to an opponent by the enchanted creature
+  if (!combat && g.rules >= 7 && sc != null && sc !== q.idx && src?.zone === 'battlefield') g.fire('attachedDamage', { o: src, p: sc, n, target: q.idx, noncombat: true });
   // Infect deals damage to players as poison counters (702.90b); toxic adds poison on top (702.164)
   if (g.has(src, 'infect')) { q.poison += n; g.log(`${g.pn(q)} gets ${n} poison counter${n === 1 ? '' : 's'} (${q.poison}/10)`, { kind: 'damage', rule: '702.90b' }); }
   else { q.life -= n; g.emit('life', { p: q.idx, d: -n }); }
@@ -1535,11 +1976,15 @@ export function damageObj(g, o, n, src) {
   }
   if (n <= 0 || o.zone !== 'battlefield') return;
   // Protection from a color prevents damage from sources of that color (702.16e)
-  if (src && o.fx.prot?.some(c => g.colorsOf(src).includes(c))) { g.log(`${g.cn(o)}'s protection prevents the damage`, { kind: 'minor', rule: '702.16e' }); return; }
+  if (src && (g.rules >= 16 ? g.protectedFrom(o, src) : o.fx.prot?.some(c => g.colorsOf(src).includes(c)))) { g.log(`${g.cn(o)}'s protection prevents the damage`, { kind: 'minor', rule: '702.16e' }); return; }
   if (o.fx.type.planeswalker && !o.fx.type.creature) o.loyalty -= n;
   else if (o.fx.type.battle && !o.fx.type.creature) o.defense = Math.max(0, (o.defense || 0) - n);
   // Wither and infect deal damage to creatures as -1/-1 counters
-  else if (src && (g.has(src, 'wither') || g.has(src, 'infect'))) { o.counters -= n; o.hadMinus = true; }
+  else if (src && (g.has(src, 'wither') || g.has(src, 'infect'))) {
+    o.counters -= n; o.hadMinus = true;
+    // (rules 16) damage dealt as -1/-1 counters is still damage: deathtouch destroys the creature (702.2b, 704.5h)
+    if (g.rules >= 16 && g.has(src, 'deathtouch') && !o.deathtouched) o.deathtouched = 'counters';
+  }
   else { o.damage += n; if (src && g.has(src, 'deathtouch')) o.deathtouched = true; }
   g.emit('hit', { iid: o.iid, n });
   g.fire('damaged', { o, n });

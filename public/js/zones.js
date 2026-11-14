@@ -2,13 +2,42 @@
 // Split out of engine.js (Round 5, item 176): each function is one of Game's methods, with the game as `g`; Game keeps
 // a one-line method that calls it, so nothing else changes.
 import { parseCost, COLORS, Abort } from './engine.js';
-import { analyzeCard, needsTarget, condText } from './effects.js';
+import { analyzeCard, needsTarget, condText, droppedSentences } from './effects.js';
 import { combosIn, comboState, comboBlocked, cardKey, RESULT_TEXT } from './combos.js';
 import { shuffle, esc, makeRng } from './util.js';
 import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
+import * as R from './replacements.js';
+
+// (Phase 2I) A token's card reading depends only on its text, type line, keywords, power/toughness and the mana it
+// makes: tokens made the same way share one reading instead of reading the same text again for every token (a combo
+// making hundreds of Treasures). Card readings are shared the same way by every copy of a card in a deck.
+const TOKEN_FX = new Map();
+function tokenFx(card) {
+  const key = JSON.stringify([card.name, card.typeLine, card.text, card.keywords, card.power, card.toughness, card.produced, card.colors]);
+  let fx = TOKEN_FX.get(key);
+  if (!fx) { fx = analyzeCard(card); if (TOKEN_FX.size > 500) TOKEN_FX.clear(); TOKEN_FX.set(key, fx); }
+  return fx;
+}
 
 /** @param {import('./engine.js').Game} g */
+// (item 205, rules 17) Things that happen at the same time: a board wipe, one pass of state-based actions, creatures
+// returning together. While fn runs, "whenever a creature dies" and "leaves the battlefield" watchers are the ones
+// that were on the battlefield before the first permanent left (603.10a: such abilities look back in time), so a
+// watcher that leaves in the same event still sees the others go, and the result doesn't depend on the order
+// permanents are stored in. Permanents entering together see each other enter (their "enters" watchers are told once
+// all of them are there). Replacement effects still apply to each object.
+/** @param {import('./engine.js').Game} g @param {() => any} fn */
+export function together(g, fn) {
+  if (g.rules < 17 || g.batch) return fn();
+  /** @type {{ board: any[] | null, entering: any[] }} */
+  const b = { board: null, entering: [] };
+  g.batch = b;
+  try { return fn(); } finally {
+    g.batch = null;
+    for (const o of b.entering) if (o.zone === 'battlefield') g.entered(o);
+  }
+}
 export function move(g, o, to, opts = {}) {
   const p = g.players[o.owner];
   const from = o.zone;
@@ -20,6 +49,13 @@ export function move(g, o, to, opts = {}) {
   // Exile-instead replacements decide whether it "dies" at all: Rest in Peace, Yawgmoth's Will (this turn, your
   // cards), and Liesa, Gisa, The Darkness Crystal (opponents' creatures)
   let dieExiler = null;
+  // (rules 14) Through the replacement-effect loop (replacements.js): the object's own effects first, then the affected
+  // player's choice of order; the event that happens is the final one (so a creature exiled instead never died)
+  const r14 = g.rules >= 14 && from !== to;
+  if (r14) {
+    const ev = R.replace(g, { type: 'move', o, from, to, opts }, R.moveDefs(g, { o }), R.moveScore, g.players[from === 'battlefield' ? o.controller : o.owner]);
+    to = ev.to; opts = ev.opts || opts;
+  } else {
   if (to === 'graveyard' && !o.fx.shuffleOnGy) {
     if (g.alive().some(q => q.battlefield.some(s => s.fx.rip)) || (!o.token && p.gyExileTurn === g.turn)) to = 'exile';
     else if (from === 'battlefield' && o.fx.type.creature) {
@@ -29,19 +65,26 @@ export function move(g, o, to, opts = {}) {
   }
   // God-Eternals: third from the top of the library instead of the graveyard or exile
   if (from === 'battlefield' && (to === 'graveyard' || to === 'exile') && o.fx.godEternal && !o.token && !o.isCommander) { to = 'library'; opts = { ...opts, third: true }; g.log(`${g.cn(o)} is put into its owner's library third from the top`, { kind: 'minor' }); }
+  }
   const died = from === 'battlefield' && to === 'graveyard' && o.fx.type.creature;
+  // (item 206: "if you cast it" is about this stay on the stack and the battlefield only)
+  if (to !== 'battlefield' && to !== 'stack') o.wasCast = false;
   // (the table animates draws, discards, deaths and exiles; it reads the card's spot before it moves)
   g.emit('move', { iid: o.iid, owner: o.owner, from, to, died, token: !!o.token });
   // A permanent sits on its controller's battlefield, which isn't always its owner's
+  // (rules 7) undying and persist granted by another permanent (Mikaeus, the Unhallowed) count as it leaves (603.10a)
+  const granted = from === 'battlefield' && g.rules >= 7 ? { undying: g.has(o, 'undying'), persist: g.has(o, 'persist') } : null;
+  // (item 205: the battlefield as it was before the first permanent of this event left)
+  if (from === 'battlefield' && g.batch && !g.batch.board) g.batch.board = g.players.flatMap(q => (q.lost ? [] : q.battlefield.map(s => ({ s, q: q.idx, fx: s.fx }))));
   const fromArr = from === 'battlefield' ? g.players[o.controller].battlefield : p[from];
   if (Array.isArray(fromArr)) { const i = fromArr.indexOf(o); if (i >= 0) fromArr.splice(i, 1); }
   let snap = null;
   if (from === 'battlefield') {
     // What the permanent was like as it left (undying, persist, modular and "when it leaves" look back at it)
     const ctl = g.players[o.controller];
-    snap = { counters: o.counters, minus: !!o.hadMinus, controller: o.controller, blitzed: !!o.blitzed };
+    snap = { counters: o.counters, minus: !!o.hadMinus, controller: o.controller, blitzed: !!o.blitzed, granted };
     ctl.leftTurn = g.turn;
-    for (const w of o.fx.watch || []) if (w.ev === 'ltb' || (w.ev === 'selfGy' && to === 'graveyard')) g.queue.push({ o, effects: w.effects, label: w.ev === 'ltb' ? 'leaves the battlefield' : 'put into a graveyard', p: ctl });
+    for (const w of [...(o.fx.watch || []), ...(g.rules >= 7 ? o.fx.watch7 || [] : [])]) if (w.ev === 'ltb' || (w.ev === 'selfGy' && to === 'graveyard')) g.queue.push({ o, effects: w.effects, label: w.ev === 'ltb' ? 'leaves the battlefield' : 'put into a graveyard', p: ctl });
     if (died) for (const a of g.attachments(o)) for (const w of a.fx.watch || []) if (w.ev === 'attachedDies') g.queue.push({ o: a, effects: w.effects, label: `${o.card.name} died`, p: g.players[a.controller], trig: { o, p: o.controller } });
     g.fire('leaveBf', { o, p: o.controller, ctl: o.controller, to });
     o.lastCounters = o.counters;
@@ -51,6 +94,21 @@ export function move(g, o, to, opts = {}) {
     if (o.unearthed) { o.unearthed = false; if (to !== 'exile') { to = 'exile'; g.log(`${g.cn(o)} is exiled (unearth)`, { kind: 'minor', rule: '702.84a' }); } }
     o.escaped = false;
     if (o.impending) { o.impending = 0; o.fx = o.card.fx; }
+    // (item 210, rules 17) What it exiled "until this leaves the battlefield" returns under its owner's control
+    // (610.3: a new object, its enter triggers happen; a token is gone; a commander moved to the command zone, or a
+    // card cast or moved out of exile since, stays where it is)
+    if (o.holds) {
+      const held = o.holds;
+      o.holds = null;
+      for (const iid of held) {
+        const c = g.objects.get(iid);
+        if (!c || c.zone !== 'exile') continue;
+        g.log(`${g.cn(c)} returns to the battlefield now that ${g.cn(o)} is gone`, { kind: 'minor', rule: '610.3' });
+        c.mayPlay = null;
+        g.move(c, 'battlefield', { under: c.owner });
+        g.trigger(c, 'etb');
+      }
+    }
   }
   if (died) { g.diedTurn = g.turn; g.noteDeath(o, snap); }
   if (dieExiler) {
@@ -60,7 +118,9 @@ export function move(g, o, to, opts = {}) {
   }
   // Blightsteel Colossus: shuffled into the library instead; Dauthi Voidwalker: opponents' cards are exiled instead
   if (to === 'graveyard' && !o.token) {
-    if (o.fx.shuffleOnGy) { to = 'library'; opts = { ...opts, shuffle: true }; g.log(`${g.cn(o)} is shuffled into its owner's library instead`, { kind: 'minor' }); }
+    // (rules 14: these replacements were applied above; only the "put into a graveyard from anywhere" trigger is left)
+    if (r14) { if (from !== 'battlefield') for (const w of o.fx.watch || []) if (w.ev === 'selfGy') g.queue.push({ o, effects: w.effects, label: 'put into a graveyard', p }); }
+    else if (o.fx.shuffleOnGy) { to = 'library'; opts = { ...opts, shuffle: true }; g.log(`${g.cn(o)} is shuffled into its owner's library instead`, { kind: 'minor' }); }
     else if (g.players.some(q => q.idx !== o.owner && !q.lost && q.battlefield.some(s => s.fx.oppGyExile))) to = 'exile';
     // "When ~ is put into a graveyard from anywhere" (Kozilek, Emrakul)
     else if (from !== 'battlefield') for (const w of o.fx.watch || []) if (w.ev === 'selfGy') g.queue.push({ o, effects: w.effects, label: 'put into a graveyard', p });
@@ -109,7 +169,12 @@ export function move(g, o, to, opts = {}) {
     }
     // Authority of the Consuls, Blind Obedience: opponents' creatures (and more) enter tapped
     const kinds = { creatures: x => x.fx.type.creature, 'creatures and nonbasic lands': x => x.fx.type.creature || (x.fx.type.land && !x.fx.type.basic), 'artifacts and creatures': x => x.fx.type.creature || x.fx.type.artifact, permanents: () => true, 'nonbasic lands': x => x.fx.type.land && !x.fx.type.basic, artifacts: x => x.fx.type.artifact };
-    if (g.opponents(g.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
+    if (!r14 && g.opponents(g.players[o.controller]).some(q => q.battlefield.some(s => s.fx.oppEnterTapped && kinds[s.fx.oppEnterTapped]?.(o)))) opts = { ...opts, tapped: true };
+    // (rules 9) shock, check, fast and reveal lands: tapped unless their condition holds as they enter
+    if (g.rules >= 9 && o.fx.enterCond9 && from !== 'battlefield' && !opts.tapped && g.entersTappedNow(o, g.players[o.controller], opts.payLife)) opts = { ...opts, tapped: true };
+    // (rules 14) Whether it enters tapped, through the replacement-effect loop: an opponent's "enter tapped" (Authority of
+    // the Consuls) and your "lands enter untapped" (Amulet of Vigor) both apply, in the order you choose (616.1)
+    if (r14) { const ev = R.replace(g, { type: 'enter', o, tapped: !!opts.tapped }, R.enterDefs(g, { o }), R.enterScore, g.players[o.controller]); opts = { ...opts, tapped: ev.tapped, enterDone: true }; }
   }
   else if (to === 'library' && opts.bottom) p.library.unshift(o);
   else if (to === 'library' && opts.third) p.library.splice(Math.max(0, p.library.length - 2), 0, o);
@@ -126,12 +191,14 @@ export function move(g, o, to, opts = {}) {
   }
   if (to === 'battlefield') {
     o.lore = 0;
+    // (a new object: its once-each-turn abilities haven't triggered yet, 400.7)
+    if (o.onceUsed) o.onceUsed = '';
     o.tapped = !!opts.tapped; o.sick = true; o.damage = 0; o.usedPW = false;
     o.counters = typeof o.fx.entersCounters === 'number' ? g.moreCounters(o, o.fx.entersCounters) : 0;
     o.enteredTurn = g.turn;
     const ctl = g.players[o.controller];
     // Amulet of Vigor-style "lands you control enter untapped"
-    if (o.fx.type.land && o.tapped && ctl.battlefield.some(s => s.fx.landsUntapped && (typeof s.fx.landsUntapped !== 'object' || g.isA(o, s.fx.landsUntapped.what)))) o.tapped = false;
+    if (!opts.enterDone && o.fx.type.land && o.tapped && ctl.battlefield.some(s => s.fx.landsUntapped && (typeof s.fx.landsUntapped !== 'object' || g.isA(o, s.fx.landsUntapped.what)))) o.tapped = false;
     // Woe Strider: escapes with counters; the Overlords cast for their impending cost aren't creatures yet
     if (o.escaped && o.fx.escapeCounters) o.counters += g.moreCounters(o, o.fx.escapeCounters);
     if (o.impendingCast && o.fx.impending) {
@@ -150,7 +217,7 @@ export function move(g, o, to, opts = {}) {
       else if (tc && (tc === 'any' || (tc.tribe ? g.isA(o, tc.tribe) : s.chosenType && g.isA(o, s.chosenType)))) o.counters += g.moreCounters(o, 1);
     }
     if (o.fx.type.planeswalker) o.loyalty = parseInt(o.card.loyalty, 10) || 3;
-    g.entered(o);
+    if (g.batch) g.batch.entering.push(o); else g.entered(o);
   }
   return o;
 }
@@ -167,6 +234,8 @@ export function bestType(g, p, cards = p.battlefield.filter(o => o.fx.type.creat
 export function entered(g, o) {
   const p = g.players[o.controller];
   o.monstrous = false;
+  // (rules 14) Replacement text this card has that the reader didn't read: said once a game, never applied approximately
+  if (g.rules >= 14 && !g.sim) for (const x of R.replacementGaps(o.card, [...(o.fx.unread || []), ...droppedSentences(o.card)])) R.gap(g, o.card, x.line, x.why);
   // "Choose a creature type": the commonest type among the controller's creatures (Kindred Discovery, Vanquisher's Banner)
   if (o.fx.chooseType && !o.chosenType) {
     const n = {};
@@ -201,7 +270,7 @@ export function leaveBattlefield(g, o) {
   // A clone stops being a copy when it leaves (and a crewed vehicle stops being a creature)
   if (o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; }
   if (o.crewed) { o.fx = o.card.fx; o.crewed = false; }
-  Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
+  Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, tempProt: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
   // Whatever this permanent was holding on to goes back to the player it was taken from (or its owner)
   for (const q of g.players) for (const s of [...q.battlefield]) {
     if (s.stolenBy !== o.iid) continue;
@@ -224,6 +293,7 @@ export function leaveBattlefield(g, o) {
 }
 /** @param {import('./engine.js').Game} g */
 export function draw(g, p, n = 1, quiet = false) {
+  if (g.rules >= 14) return draw14(g, p, n, quiet);
   let drawn = 0;
   // Alhammarret's Archive, Teferi's Ageless Insight: every draw but the first in your draw step is doubled
   const firstInStep = g.phase === 'draw' && g.active === p.idx && !(p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n);
@@ -248,9 +318,53 @@ export function draw(g, p, n = 1, quiet = false) {
     if (thief && !(firstInStep && i === 0)) { g.inThief = true; try { g.draw(thief, 1, true); } finally { g.inThief = false; } g.log(`${g.pn(thief)} draws instead of ${g.pn(p)} (Notion Thief)`, { kind: 'minor' }); continue; }
     if (capped && p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= 1) { g.log(`${g.pn(p)} can't draw more than one card this turn (Narset)`, { kind: 'minor' }); break; }
     if (lich && p.library.length > 3) for (let k = 0; k < 2; k++) g.move(p.library[p.library.length - 2], 'graveyard');
+    if (!drawCardNow(g, p, i)) break;
+    drawn++;
+  }
+  if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
+}
+// (rules 14) Each card drawn is its own event through the replacement-effect loop (replacements.js drawDefs): drawn
+// twice (Alhammarret's Archive), by an opponent instead (Notion Thief), looked at three (Underrealm Lich) or dredged.
+// A doubled draw becomes two draws that the same effect doesn't double again (614.5), but other effects still can.
+/** @param {import('./engine.js').Game} g */
+function draw14(g, p, n, quiet) {
+  let drawn = 0, i = 0;
+  // (Narset, Parter of Veils: a restriction, not a replacement: an opponent's draws stop after the first each turn)
+  const capped = g.opponents(p).some(q => q.battlefield.some(s => s.fx.drawCap));
+  const queue = Array.from({ length: Math.max(0, n) }, () => ({ applied: new Set() }));
+  for (let guard = 0; queue.length && guard < 400; guard++) {
+    const base = queue.shift() || { applied: new Set() };
+    const first = g.phase === 'draw' && g.active === p.idx && !(p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n);
+    const ev = R.replace(g, { type: 'draw', p, first, applied: base.applied }, R.drawDefs(g, { p }), R.drawScore, p);
+    const count = ev.count || 1;
+    if (ev.instead === 'thief') {
+      const q = g.players[ev.thief];
+      g.inThief = true; try { g.draw(q, count, true); } finally { g.inThief = false; }
+      g.log(`${g.pn(q)} draws instead of ${g.pn(p)} (Notion Thief)`, { kind: 'minor' });
+      continue;
+    }
+    if (ev.instead === 'dredge') {
+      const d = ev.dredge;
+      for (let k = 0; k < d.fx.dredge; k++) g.move(p.library[p.library.length - 1], 'graveyard');
+      g.move(d, 'hand');
+      g.log(`${g.pn(p)} dredges ${g.cn(d)} instead of drawing (mills ${d.fx.dredge})`, { kind: 'minor', rule: '702.52a' });
+      continue;
+    }
+    if (count > 1) { for (let k = 0; k < count; k++) queue.unshift({ applied: new Set(ev.applied) }); continue; }
+    if (capped && p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= 1) { g.log(`${g.pn(p)} can't draw more than one card this turn (Narset)`, { kind: 'minor' }); break; }
+    if (ev.instead === 'lich' && p.library.length > 3) for (let k = 0; k < 2; k++) g.move(p.library[p.library.length - 2], 'graveyard');
+    if (!drawCardNow(g, p, i++)) break;
+    drawn++;
+  }
+  if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
+}
+// One card from the top of the library into the hand, with everything that notices a draw (false: the library is empty)
+/** @param {import('./engine.js').Game} g */
+function drawCardNow(g, p, i) {
+  {
     const o = p.library.pop();
-    if (!o) { p.drewFromEmpty = true; g.log(`${g.pn(p)} tries to draw from an empty library`, { rule: '704.5b' }); break; }
-    o.zone = 'hand'; p.hand.push(o); drawn++; p.stats.draws = (p.stats.draws || 0) + 1;
+    if (!o) { p.drewFromEmpty = true; g.log(`${g.pn(p)} tries to draw from an empty library`, { rule: '704.5b' }); return false; }
+    o.zone = 'hand'; p.hand.push(o); p.stats.draws = (p.stats.draws || 0) + 1;
     // Faerie Mastermind: an opponent's second draw each turn
     if (p.drawsThisTurn?.turn !== g.turn) p.drawsThisTurn = { turn: g.turn, n: 0 };
     ++p.drawsThisTurn.n;
@@ -266,12 +380,13 @@ export function draw(g, p, n = 1, quiet = false) {
       g.queue.push({ o: s, effects: [{ k: 'tax', tax: od.tax, payer: p.idx, effects: od.effects }], label: `${p.name} drew a card`, p: q });
     }
   }
-  if (!quiet && drawn) g.log(`${g.pn(p)} draws ${drawn === 1 ? 'a card' : drawn + ' cards'}`, { kind: 'minor' });
+  return true;
 }
 /** @param {import('./engine.js').Game} g */
-export function destroy(g, o) {
+export function destroy(g, o, noRegen = false) {
   if (g.has(o, 'indestructible')) return false;
-  if (g.regenerate(o)) return false;
+  // ("It can't be regenerated": rules 9, see effects.js)
+  if (!noRegen && g.regenerate(o)) return false;
   // Umbra armor (702.89): the aura is destroyed instead, and the damage is removed
   const umbra = g.attachments(o).find(a => a.fx.umbra);
   if (umbra) { o.damage = 0; o.deathtouched = false; g.move(umbra, 'graveyard'); g.log(`${g.cn(umbra)} is destroyed instead of ${g.cn(o)} (umbra armor)`, { kind: 'minor', rule: '702.89a' }); return false; }
@@ -295,10 +410,28 @@ export function noteDeath(g, o, snap = {}) {
   g.trigger(o, 'dies');
   const p = g.players[o.owner];
   // Undying and persist bring it back with a counter, if it didn't already have one (702.93, 702.79)
-  if (!o.token && o.fx.kw.has('undying') && !(snap.counters > 0)) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: 1 }], label: 'undying', p });
-  else if (!o.token && o.fx.kw.has('persist') && !snap.minus) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: -1 }], label: 'persist', p });
+  const undying = snap.granted ? snap.granted.undying : o.fx.kw.has('undying');
+  const persist = snap.granted ? snap.granted.persist : o.fx.kw.has('persist');
+  if (!o.token && undying && !(snap.counters > 0)) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: 1 }], label: 'undying', p });
+  else if (!o.token && persist && !snap.minus) g.queue.push({ o, effects: [{ k: 'returnSelf', counters: -1 }], label: 'persist', p });
   if (o.fx.kwN?.modular && snap.counters > 0) o.lastCounters = snap.counters;
   if (snap.blitzed) g.queue.push({ o, effects: [{ k: 'draw', n: 1 }], label: 'blitz', p });
+  // (item 205, rules 17) In an event where several permanents leave together, the watchers are the ones that were
+  // there before it (its own "when this dies" is the trigger above); the dead creature's controller is who had it
+  const board = g.batch?.board;
+  if (board) {
+    const ctl = snap.controller ?? o.controller;
+    for (const b of board) {
+      const w = b.s, q = g.players[b.q], d = b.fx.onDeath;
+      if (!d || w === o || q.lost) continue;
+      if ((d.who === 'yours' && ctl !== q.idx) || (d.who === 'opponents' && ctl === q.idx)) continue;
+      if ((d.nontoken && o.token) || (d.what && !g.isA(o, d.what)) || (d.without && o.fx.kw.has(d.without))) continue;
+      if (d.turnOnce9 && !g.onceOk(w, 'death')) continue;
+      g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died`, p: q, trig: { o, p: ctl } });
+      if (board.some(x => x.q === b.q && x.fx.deathTwice)) g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died (again)`, p: q, trig: { o, p: ctl } });
+    }
+    return;
+  }
   for (const q of g.alive()) for (const w of q.battlefield) {
     const d = w.fx.onDeath;
     if (!d || (d.other && w === o)) continue;
@@ -307,6 +440,7 @@ export function noteDeath(g, o, snap = {}) {
     if (d.nontoken && o.token) continue;
     if (d.what && !g.isA(o, d.what)) continue;
     if (d.without && o.fx.kw.has(d.without)) continue;
+    if (d.turnOnce9 && !g.onceOk(w, 'death')) continue;
     g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died`, p: q, trig: { o, p: o.controller } });
     // Teysa Karlov: death triggers happen an additional time
     if (q.battlefield.some(x => x.fx.deathTwice)) g.queue.push({ o: w, effects: d.effects, label: `${o.card.name} died (again)`, p: q, trig: { o, p: o.controller } });
@@ -357,7 +491,7 @@ export function createToken(g, p, e, src) {
     power: String(e.p), toughness: String(e.t), keywords: kw.map(k => k[0].toUpperCase() + k.slice(1)), produced: [],
     art: src.card.art, colorIdentity: [], colors: [], isToken: true, fullText: kw.join(', '),
   };
-  card.fx = analyzeCard(card);
+  card.fx = tokenFx(card);
   const o = g.mk(card, p, { token: true });
   o.zone = 'battlefield'; o.sick = true;
   p.battlefield.push(o);
@@ -382,7 +516,7 @@ export function createArtifactToken(g, p, kind, src) {
     name, frontName: name, typeLine: `Token Artifact — ${name}`, manaCost: '', cmc: 0, text: TEXT[kind], fullText: TEXT[kind],
     keywords: [], produced: kind === 'treasure' ? [...COLORS] : kind === 'powerstone' ? ['C'] : [], art: src.card.art, isToken: true, colorIdentity: [], colors: [],
   };
-  card.fx = analyzeCard(card);
+  card.fx = tokenFx(card);
   const o = g.mk(card, p, { token: true });
   o.zone = 'battlefield';
   p.battlefield.push(o);
@@ -408,10 +542,11 @@ export async function fetchLands(g, p, e, src) {
     const picked = await p.agent.chooseCardsAsync(g, p, cands, n, `<b>${src ? g.cn(src) : 'Search'}</b>: search your library for ${n > 1 ? `up to ${n} ${what} cards` : `a ${what} card`}${where}`);
     if (picked) got = picked;
   }
-  got.forEach((o, i) => {
+  for (const [i, o] of got.entries()) {
     const toBf = e.bf && !(e.split && i > 0);
-    g.move(o, toBf ? 'battlefield' : 'hand', { tapped: e.tapped });
-  });
+    const payLife = toBf && !e.tapped ? await g.askPayForLand(p, o) : undefined;
+    g.move(o, toBf ? 'battlefield' : 'hand', { tapped: e.tapped, payLife });
+  }
   shuffle(p.library, g.rand);
   if (got.length) g.log(`${g.pn(p)} searches for ${got.map(o => g.cn(o)).join(', ')}${e.bf ? '' : ' (to hand)'}`, { kind: 'minor' });
 }

@@ -4,7 +4,9 @@
 //   node tests/interactions.mjs              run them all (exit 1 on any failure)
 //   node tests/interactions.mjs Swords       only the tests whose name contains "Swords"
 // Cards the snapshots don't have are kept in tests/interaction-cards.json (node tests/fetch-interaction-cards.mjs "Name").
-import { scenario, find, all, P, tgtObj, tgtPlayer, resolveEffects, settle, errors } from './scenario.mjs';
+import { scenario, find, all, P, tgtObj, tgtPlayer, resolveEffects, settle, errors, hasCard, logText } from './scenario.mjs';
+import { HumanAgent } from '../public/js/human.js';
+import { COMBOS } from '../public/js/combos.js';
 
 const only = process.argv[2];
 const results = [];
@@ -326,6 +328,1014 @@ await test('Lightning Bolt kills a 3-toughness creature (state-based action)', a
   const g = await scenario([{ hand: ['Lightning Bolt'] }, { battlefield: ['Hill Giant'] }]);
   await spell(g, 0, 'Lightning Bolt', [tgtObj(find(g, 1, 'Hill Giant'))]);
   eq(names(g, 1, 'graveyard'), ['Hill Giant'], 'graveyard');
+});
+
+// ---------- Combo audit (rules 7): each combo played with the real cards, step by step, not the combo shortcut
+const ab = (g, o, k) => g.abilitiesOf(o).find(a => a.effects?.some(e => e.k === k));
+const tokens = (g, i) => P(g, i).battlefield.filter(o => o.token).length;
+// Library: 7 Wastes on top, the rest shuffled under them
+const top7 = { filler: 10, libraryTop: Array(7).fill('Wastes') };
+
+await test("Thassa's Oracle + Demonic Consultation: the library is exiled and Oracle wins", async () => {
+  const g = await scenario([{ hand: ["Thassa's Oracle", 'Demonic Consultation'] }, {}]);
+  mana(g, 0); await cast(g, 0, 'Demonic Consultation');
+  eq(P(g, 0).library.length, 0, 'library after Consultation');
+  await cast(g, 0, "Thassa's Oracle");
+  eq(g.over && g.winner === P(g, 0), true, 'Oracle player won'); noErrors(g);
+});
+await test('Demonic Consultation as a tutor: exiles six, then finds the named card', async () => {
+  const g = await scenario([{ hand: ['Demonic Consultation'], library: ['Sol Ring'], ...top7 }, {}]);
+  P(g, 0).agent.pickTutor = (gg, p) => p.library.find(o => o.card.name === 'Sol Ring');
+  mana(g, 0); await cast(g, 0, 'Demonic Consultation');
+  ok(find(g, 0, 'Sol Ring', 'hand'), 'Sol Ring in hand'); ok(P(g, 0).exile.length >= 7, 'six exiled, then the seventh Wastes revealed'); eq(P(g, 0).exile.length + P(g, 0).library.length, 10, 'only Sol Ring left the library otherwise');
+});
+await test('Demonic Consultation under rules 6 (old replays): still a plain tutor', async () => {
+  const g = await scenario([{ hand: ["Thassa's Oracle", 'Demonic Consultation'] }, {}], { rules: 6 });
+  mana(g, 0); await cast(g, 0, 'Demonic Consultation');
+  ok(P(g, 0).library.length > 0, 'library not exiled');
+});
+await test('Laboratory Maniac + Demonic Consultation: the next draw wins', async () => {
+  const g = await scenario([{ battlefield: ['Laboratory Maniac'], hand: ['Demonic Consultation'] }, {}]);
+  mana(g, 0); await cast(g, 0, 'Demonic Consultation');
+  eq(P(g, 0).library.length, 0, 'library'); g.draw(P(g, 0), 1); await settle(g);
+  eq([P(g, 0).lost, P(g, 1).lost], [false, true], 'lost');
+});
+await test("Tainted Pact + Thassa's Oracle: a library of different names is exiled", async () => {
+  const g = await scenario([{ hand: ["Thassa's Oracle", 'Tainted Pact'], library: ['Island', 'Swamp', 'Forest', 'Mountain'], filler: 0 }, {}]);
+  mana(g, 0); await cast(g, 0, 'Tainted Pact');
+  eq(P(g, 0).library.length, 0, 'library'); await cast(g, 0, "Thassa's Oracle");
+  eq(g.winner === P(g, 0), true, 'won');
+});
+await test('Tainted Pact stops at the second card with the same name (the combo fails)', async () => {
+  const g = await scenario([{ hand: ["Thassa's Oracle", 'Tainted Pact'], filler: 6 }, {}]);
+  mana(g, 0); await cast(g, 0, 'Tainted Pact');
+  eq([P(g, 0).library.length, P(g, 0).exile.length], [4, 2], 'library and exile'); await cast(g, 0, "Thassa's Oracle");
+  eq(g.over, false, 'no win');
+});
+
+await test('Niv-Mizzet, Parun + Curiosity: one spell draws and pings until the opponent is dead', async () => {
+  const g = await scenario([{ battlefield: ['Niv-Mizzet, Parun'], hand: ['Curiosity', 'Opt'], filler: 30 }, {}]);
+  P(g, 1).life = 12;
+  mana(g, 0); await cast(g, 0, 'Curiosity', { auraTarget: find(g, 0, 'Niv-Mizzet, Parun') }); await cast(g, 0, 'Opt');
+  eq(P(g, 1).lost, true, 'opponent lost'); eq(P(g, 0).lost, false, 'Niv player alive'); noErrors(g);
+});
+await test('Niv-Mizzet + Curiosity: the optional draw stops at an empty library (no self-decking)', async () => {
+  const g = await scenario([{ battlefield: ['Niv-Mizzet, the Firemind'], hand: ['Curiosity'], filler: 5 }, {}]);
+  mana(g, 0); await cast(g, 0, 'Curiosity', { auraTarget: find(g, 0, 'Niv-Mizzet, the Firemind') });
+  const n = find(g, 0, 'Niv-Mizzet, the Firemind');
+  await g.activate(P(g, 0), n, ab(g, n, 'draw')); await settle(g);
+  eq([P(g, 0).library.length, P(g, 0).lost, P(g, 1).life], [0, false, 35], 'library, lost, opponent life (5 cards, 5 pings)');
+});
+await test('Curiosity under rules 6 (old replays): noncombat damage draws nothing', async () => {
+  const g = await scenario([{ battlefield: ['Niv-Mizzet, the Firemind'], hand: ['Curiosity'], filler: 20 }, {}], { rules: 6 });
+  mana(g, 0); await cast(g, 0, 'Curiosity', { auraTarget: find(g, 0, 'Niv-Mizzet, the Firemind') });
+  const n = find(g, 0, 'Niv-Mizzet, the Firemind');
+  await g.activate(P(g, 0), n, ab(g, n, 'draw')); await settle(g);
+  eq(P(g, 1).life, 39, 'opponent life');
+});
+
+for (const partner of ['Zealous Conscripts', 'Deceiver Exarch', 'Restoration Angel', 'Felidar Guardian']) {
+  await test(`Kiki-Jiki + ${partner}: every copy untaps (or blinks) Kiki-Jiki, five times over`, async () => {
+    const g = await scenario([{ battlefield: ['Kiki-Jiki, Mirror Breaker', partner] }, { battlefield: ['Sol Ring'] }]);
+    for (let i = 0; i < 5; i++) {
+      const k = find(g, 0, 'Kiki-Jiki, Mirror Breaker');
+      ok(k && (await g.activate(P(g, 0), k, k.fx.abilities[0])), `activation ${i + 1}`); await settle(g);
+    }
+    eq(tokens(g, 0), 5, 'hasty copies'); ok(P(g, 0).battlefield.filter(o => o.token).every(o => g.canAttack(o)), 'copies can attack');
+    await g.endSteps(P(g, 0)); await settle(g);
+    eq(tokens(g, 0), 0, 'copies after the end step'); noErrors(g);
+  });
+}
+await test('Kiki-Jiki + Zealous Conscripts under rules 6 (old replays): the copy steals, Kiki stays tapped', async () => {
+  const g = await scenario([{ battlefield: ['Kiki-Jiki, Mirror Breaker', 'Zealous Conscripts'] }, { battlefield: ['Sol Ring'] }], { rules: 6 });
+  const k = find(g, 0, 'Kiki-Jiki, Mirror Breaker');
+  await g.activate(P(g, 0), k, k.fx.abilities[0]); await settle(g);
+  eq(k.tapped, true, 'Kiki tapped');
+});
+await test('Splinter Twin + Pestermite: the enchanted creature gets the copy ability, and each copy untaps it', async () => {
+  const g = await scenario([{ battlefield: ['Pestermite'], hand: ['Splinter Twin'] }, {}]);
+  mana(g, 0);
+  const pm = find(g, 0, 'Pestermite');
+  await cast(g, 0, 'Splinter Twin', { auraTarget: pm });
+  for (let i = 0; i < 5; i++) { ok(await g.activate(P(g, 0), pm, ab(g, pm, 'copyToken')), `activation ${i + 1}`); await settle(g); }
+  eq(tokens(g, 0), 5, 'copies'); noErrors(g);
+});
+await test('Splinter Twin under rules 6 (old replays): no ability granted', async () => {
+  const g = await scenario([{ battlefield: ['Pestermite'], hand: ['Splinter Twin'] }, {}], { rules: 6 });
+  mana(g, 0);
+  const pm = find(g, 0, 'Pestermite');
+  await cast(g, 0, 'Splinter Twin', { auraTarget: pm });
+  eq(ab(g, pm, 'copyToken'), undefined, 'granted ability');
+});
+await test('Saheeli Rai + Felidar Guardian: each copy blinks Saheeli back with fresh loyalty', async () => {
+  const g = await scenario([{ battlefield: ['Saheeli Rai', 'Felidar Guardian'] }, {}]);
+  for (let i = 0; i < 4; i++) {
+    const s = find(g, 0, 'Saheeli Rai');
+    ok(s && !s.usedPW && s.loyalty >= 2, `Saheeli ready (${i + 1})`);
+    await g.activatePW(P(g, 0), s, s.fx.pw[1]); await settle(g);
+  }
+  eq(tokens(g, 0), 4, 'hasty Guardian copies'); noErrors(g);
+});
+
+await test('Mikaeus, the Unhallowed + Triskelion: undying (granted) brings Triskelion back with fresh counters', async () => {
+  const g = await scenario([{ battlefield: ['Mikaeus, the Unhallowed'], hand: ['Triskelion'] }, {}]);
+  mana(g, 0); await cast(g, 0, 'Triskelion');
+  const t = find(g, 0, 'Triskelion');
+  for (let loop = 0; loop < 3; loop++) {
+    eq(t.zone, 'battlefield', `Triskelion back (loop ${loop})`);
+    // two counters at the opponent (one on the first pass), the last two at itself: it dies as a 2/2 with no counters
+    while (t.counters > 2) { await g.ping(P(g, 0), t, [tgtPlayer(1)]); await settle(g); }
+    for (let k = 0; k < 2; k++) { await g.ping(P(g, 0), t, [tgtObj(t)]); await settle(g); }
+  }
+  eq(P(g, 1).life, 35, 'opponent life (1 + 2 + 2)'); eq(t.zone, 'battlefield', 'Triskelion still looping'); noErrors(g);
+});
+await test('Mikaeus + Triskelion under rules 6 (old replays): granted undying was not seen', async () => {
+  const g = await scenario([{ battlefield: ['Mikaeus, the Unhallowed', 'Triskelion'] }, {}], { rules: 6 });
+  const t = find(g, 0, 'Triskelion');
+  g.damageObj(t, 5, t); await settle(g);
+  eq(t.zone, 'graveyard', 'Triskelion stays dead');
+});
+await test('Professor Onyx + Chain of Smog: copying the spell at yourself drains the table', async () => {
+  const g = await scenario([{ battlefield: ['Professor Onyx'], hand: ['Chain of Smog'] }, {}, {}]);
+  mana(g, 0);
+  await g.cast(P(g, 0), find(g, 0, 'Chain of Smog', 'hand'), { targets: [tgtPlayer(0)] }); await settle(g);
+  eq([P(g, 1).lost, P(g, 2).lost], [true, true], 'opponents lost'); noErrors(g);
+});
+await test("Painter's Servant + Grindstone: every pair shares a color, so the whole library is milled", async () => {
+  const g = await scenario([{ battlefield: ["Painter's Servant", 'Grindstone'] }, { filler: 40 }]);
+  mana(g, 0);
+  const gs = find(g, 0, 'Grindstone');
+  await g.activate(P(g, 0), gs, gs.fx.abilities[0]); await settle(g);
+  eq(P(g, 1).library.length, 0, 'opponent library');
+});
+await test('Grindstone alone: colorless cards share no color, so it mills just two', async () => {
+  const g = await scenario([{ battlefield: ['Grindstone'] }, { filler: 40 }]);
+  mana(g, 0);
+  const gs = find(g, 0, 'Grindstone');
+  await g.activate(P(g, 0), gs, gs.fx.abilities[0]); await settle(g);
+  eq(P(g, 1).library.length, 38, 'opponent library');
+});
+
+// Mana loops: [pool after tapping, pool after untapping] per iteration, paid for by the real costs
+const manaLoop = async (bf, opts = {}, n = 4) => {
+  const g = await scenario([{ battlefield: bf }, {}], opts);
+  const m = P(g, 0).battlefield.find(o => /Monolith|Devoted Druid/.test(o.card.name));
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    if (!m.tapped) g.tapForMana(P(g, 0), m);
+    const a = g.abilitiesOf(m).find(x => x.effects.some(e => e.k === 'untapSelf'));
+    if (!(await g.activate(P(g, 0), m, a))) break;
+    await settle(g);
+    out.push(P(g, 0).pool.length);
+  }
+  return { g, out };
+};
+await test('Basalt Monolith + Rings of Brighthearth: the copied untap nets one mana per loop', async () => {
+  const { out } = await manaLoop(['Basalt Monolith', 'Rings of Brighthearth', 'Sol Ring']);
+  eq(out, [3, 4, 5, 6], 'mana in pool after each loop');
+});
+await test('Basalt Monolith + Rings under rules 6 (old replays): no copy of the untap, no gain', async () => {
+  const { out } = await manaLoop(['Basalt Monolith', 'Rings of Brighthearth', 'Sol Ring'], { rules: 6 });
+  eq(out.every(n => n <= 2), true, `no growth (${out})`);
+});
+for (const [bf, per] of [[['Basalt Monolith', 'Power Artifact'], 2], [['Basalt Monolith', 'Zirda, the Dawnwaker'], 2], [['Grim Monolith', 'Zirda, the Dawnwaker'], 1], [['Basalt Monolith', 'Kinnan, Bonder Prodigy'], 1]]) {
+  await test(`${bf.join(' + ')}: ${per} more mana each loop`, async () => {
+    const g0 = await scenario([{ battlefield: bf.filter(n => n !== 'Power Artifact'), hand: bf.filter(n => n === 'Power Artifact') }, {}]);
+    let out;
+    if (bf.includes('Power Artifact')) {
+      mana(g0, 0); await cast(g0, 0, 'Power Artifact', { auraTarget: find(g0, 0, 'Basalt Monolith') }); P(g0, 0).infiniteMana = 0;
+      const m = find(g0, 0, 'Basalt Monolith');
+      out = [];
+      for (let i = 0; i < 4; i++) { g0.tapForMana(P(g0, 0), m); await g0.activate(P(g0, 0), m, m.fx.abilities[0]); await settle(g0); out.push(P(g0, 0).pool.length); }
+    } else out = (await manaLoop(bf)).out;
+    eq(out.slice(1).map((n, i) => n - out[i]), [per, per, per], `gain per loop (${out})`);
+  });
+}
+await test('Devoted Druid + Vizier of Remedies: untaps forever; without Vizier the Druid dies on the second untap', async () => {
+  const { g, out } = await manaLoop(['Devoted Druid', 'Vizier of Remedies'], {}, 8);
+  eq(out, [1, 2, 3, 4, 5, 6, 7, 8], 'mana');
+  const d = find(g, 0, 'Devoted Druid');
+  g.move(find(g, 0, 'Vizier of Remedies'), 'graveyard');
+  for (let i = 0; i < 3 && d.zone === 'battlefield'; i++) { g.tapForMana(P(g, 0), d); await g.activate(P(g, 0), d, d.fx.abilities[0]); await settle(g); }
+  eq(d.zone, 'graveyard', 'the loop stops: Druid dies');
+});
+await test('Pili-Pala + Grand Architect: Pili-Pala made blue taps for {C}{C} and untaps for one colored mana', async () => {
+  const g = await scenario([{ battlefield: ['Pili-Pala', 'Grand Architect', 'Island'] }, {}]);
+  const pp = find(g, 0, 'Pili-Pala'), ga = find(g, 0, 'Grand Architect');
+  ok(await g.activate(P(g, 0), ga, ab(g, ga, 'makeColor')), 'Pili-Pala becomes blue'); await settle(g);
+  ok(g.isA(pp, 'blue creature'), 'blue creature');
+  const tapBlue = ga.fx.abilities.find(a => a.costs?.tapOthers);
+  const trace = [];
+  for (let i = 0; i < 4; i++) {
+    ok(await g.activate(P(g, 0), ga, tapBlue), `tap Pili-Pala (${i + 1})`); await settle(g);
+    ok(pp.tapped, 'Pili-Pala tapped');
+    ok(await g.activate(P(g, 0), pp, pp.fx.abilities[0]), `Pili-Pala untaps (${i + 1})`); await settle(g);
+    trace.push(P(g, 0).pool.length);
+  }
+  eq(trace, [1, 2, 3, 4], 'one mana more each loop');
+});
+await test('Isochron Scepter + Dramatic Reversal: each activation untaps the rocks that paid for it (net +1)', async () => {
+  const g = await scenario([{ battlefield: ['Sol Ring', 'Arcane Signet'], hand: ['Isochron Scepter', 'Dramatic Reversal'] }, {}]);
+  mana(g, 0); await cast(g, 0, 'Isochron Scepter', { imprint: find(g, 0, 'Dramatic Reversal', 'hand') }); P(g, 0).infiniteMana = 0;
+  const sc = find(g, 0, 'Isochron Scepter');
+  for (const o of P(g, 0).battlefield) o.tapped = false;
+  const trace = [];
+  for (let i = 0; i < 4; i++) {
+    for (const o of P(g, 0).battlefield) if (o.fx.mana && !o.tapped) g.tapForMana(P(g, 0), o);
+    ok(await g.activate(P(g, 0), sc, ab(g, sc, 'castImprint')), `activation ${i + 1}`); await settle(g);
+    trace.push(P(g, 0).pool.length);
+  }
+  eq(trace, [1, 2, 3, 4], 'floating mana'); eq(P(g, 0).exile.map(o => o.card.name), ['Dramatic Reversal'], 'the card stays imprinted'); noErrors(g);
+});
+await test('Isochron Scepter under rules 6 (old replays): the ability is not there', async () => {
+  const g = await scenario([{ battlefield: ['Isochron Scepter'] }, {}], { rules: 6 });
+  const sc = find(g, 0, 'Isochron Scepter');
+  eq(g.canActivate(P(g, 0), sc, sc.fx.abilities.find(a => a.minRules) || { cost: '', minRules: 7, effects: [] }), false, 'activatable');
+});
+await test('Food Chain + Squee: exiling Squee makes 4 creature-only mana, recasting costs 3 (net +1 each loop)', async () => {
+  const g = await scenario([{ battlefield: ['Food Chain', 'Squee, the Immortal'], hand: ['Lightning Bolt'] }, {}]);
+  const fc = find(g, 0, 'Food Chain');
+  const trace = [];
+  for (let i = 0; i < 3; i++) {
+    ok(await g.activate(P(g, 0), fc, fc.fx.abilities[0]), `exile Squee (${i + 1})`); await settle(g);
+    const sq = find(g, 0, 'Squee, the Immortal', 'exile');
+    ok(sq && (await g.cast(P(g, 0), sq)), `recast Squee (${i + 1})`); await settle(g);
+    trace.push(P(g, 0).pool.length);
+  }
+  eq(trace, [1, 2, 3], 'creature mana left'); eq(g.canCast(P(g, 0), find(g, 0, 'Lightning Bolt', 'hand')), false, 'the mana cannot pay for Lightning Bolt');
+});
+await test('Food Chain + Eternal Scourge: Eternal Scourge can be cast from exile', async () => {
+  const g = await scenario([{ battlefield: ['Food Chain', 'Eternal Scourge'] }, {}]);
+  const fc = find(g, 0, 'Food Chain');
+  await g.activate(P(g, 0), fc, fc.fx.abilities[0]); await settle(g);
+  eq(P(g, 0).pool.length, 4, 'mana (1 + its mana value 3)');
+  ok(await g.cast(P(g, 0), find(g, 0, 'Eternal Scourge', 'exile')), 'cast from exile'); await settle(g);
+  ok(find(g, 0, 'Eternal Scourge'), 'on the battlefield');
+});
+await test('Gravecrawler + Phyrexian Altar + Blood Artist: sacrifice, drain, recast while you control another Zombie', async () => {
+  const g = await scenario([{ battlefield: ['Gravecrawler', 'Phyrexian Altar', 'Blood Artist', 'Carrion Feeder'] }, {}]);
+  for (let i = 0; i < 3; i++) {
+    await g.sacTo(P(g, 0), find(g, 0, 'Phyrexian Altar'), find(g, 0, 'Gravecrawler')); await settle(g);
+    ok(await g.cast(P(g, 0), find(g, 0, 'Gravecrawler', 'graveyard')), `recast ${i + 1}`); await settle(g);
+  }
+  eq(P(g, 1).life, 37, 'drained three times'); eq(P(g, 0).pool.length, 0, 'mana used up');
+  g.move(find(g, 0, 'Carrion Feeder'), 'graveyard'); await settle(g);
+  await g.sacTo(P(g, 0), find(g, 0, 'Phyrexian Altar'), find(g, 0, 'Gravecrawler')); await settle(g);
+  eq(g.castMode(P(g, 0), find(g, 0, 'Gravecrawler', 'graveyard')), null, 'no other Zombie: the loop stops');
+});
+await test('Reveillark + Karmic Guide + Viscera Seer: each returns the other, Blood Artist drains every time', async () => {
+  const g = await scenario([{ battlefield: ['Reveillark', 'Viscera Seer', 'Blood Artist'], graveyard: ['Karmic Guide'] }, {}]);
+  for (let i = 0; i < 3; i++) {
+    await g.sacTo(P(g, 0), find(g, 0, 'Viscera Seer'), find(g, 0, 'Reveillark')); await settle(g);
+    ok(find(g, 0, 'Karmic Guide'), `Lark returned Karmic Guide (${i + 1})`);
+    ok(find(g, 0, 'Reveillark'), `Guide returned Reveillark (${i + 1})`);
+    await g.sacTo(P(g, 0), find(g, 0, 'Viscera Seer'), find(g, 0, 'Karmic Guide')); await settle(g);
+  }
+  eq(P(g, 1).life, 34, 'six deaths drained'); noErrors(g);
+});
+await test('Temur Sabertooth returns another creature to hand (then gains indestructible)', async () => {
+  const g = await scenario([{ battlefield: ['Temur Sabertooth', 'Peregrine Drake'] }, {}]);
+  mana(g, 0);
+  const t = find(g, 0, 'Temur Sabertooth');
+  await g.activate(P(g, 0), t, t.fx.abilities[0]); await settle(g);
+  eq(names(g, 0, 'hand'), ['Peregrine Drake'], 'hand'); ok(g.has(t, 'indestructible'), 'indestructible');
+});
+await test("Nim Deathmantle + Ashnod's Altar + Peregrine Drake: pay {4}, the Drake returns and untaps five lands", async () => {
+  const g = await scenario([{ battlefield: ['Nim Deathmantle', "Ashnod's Altar", 'Peregrine Drake', 'Island', 'Island', 'Island', 'Island', 'Island'] }, {}]);
+  const trace = [];
+  for (let i = 0; i < 3; i++) {
+    await g.sacTo(P(g, 0), find(g, 0, "Ashnod's Altar"), find(g, 0, 'Peregrine Drake')); await settle(g);
+    const d = find(g, 0, 'Peregrine Drake');
+    ok(d && find(g, 0, 'Nim Deathmantle').attachedTo === d, `Drake back with Deathmantle (${i + 1})`);
+    for (const o of P(g, 0).battlefield) if (o.fx.type.land && !o.tapped) g.tapForMana(P(g, 0), o);
+    trace.push(P(g, 0).pool.length);
+  }
+  eq(trace.slice(1).map((n, i) => n - trace[i]), [3, 3], `net mana per loop (${trace})`);
+});
+
+// The AI's combo shortcut (Game.goOff) with every built-in combo, as games at rules 10 and earlier (and their replays)
+// play it: it lands, or the real cards win on the way. (Rules 11 plays combos out with the real cards: tests/combos.mjs)
+for (const c of COMBOS.filter(c => !c.source && c.pieces.every(hasCard))) {
+  await test(`Combo shortcut (rules 10): ${c.label} lands`, async () => {
+    const spellLike = n => /Consultation|Tainted Pact|Dramatic Reversal|Chain of Smog|Twinflame|Heat Shimmer|Brain Freeze|Splinter Twin|Power Artifact|Curiosity|Ophidian Eye|Walking Ballista/.test(n);
+    const bf = c.pieces.filter(n => !spellLike(n) && n !== c.last && !(c.imprint && n === c.imprint.host));
+    const pact = /Tainted Pact/.test(c.label);
+    const g = await scenario([{ battlefield: [...bf, ...Array(8).fill('Island'), ...(c.imprint ? ['Sol Ring', 'Arcane Signet'] : []), 'Grizzly Bears'],
+      hand: c.pieces.filter(n => !bf.includes(n)), filler: pact ? 0 : 20, library: pact ? ['Forest', 'Mountain', 'Plains'] : [], graveyard: /Breach/.test(c.label) ? Array(6).fill('Wastes') : [] }, {}, {}], { rules: 10 });
+    mana(g, 0);
+    await g.goOff(P(g, 0), c); await settle(g);
+    ok(g.comboLog.some(x => x.landed) || g.winner === P(g, 0), 'landed or won'); noErrors(g);
+  });
+}
+
+// The loop shortcut for people (rules 7: sacrifices and creature spells too): played twice, then repeated
+await test('Loop shortcut: Gravecrawler sacrificed and recast twice by hand, then repeated ×10 (stops when the Zombie is gone)', async () => {
+  const g = await scenario([{ battlefield: ['Gravecrawler', 'Phyrexian Altar', 'Blood Artist', 'Carrion Feeder'] }, {}]);
+  // (the seat's own choices, such as Blood Artist's target, stay with the AI; only the shortcut is the human seat's)
+  const human = Object.assign(P(g, 0).agent, { acts: [], loopBlock: HumanAgent.prototype.loopBlock, repeatLoop: HumanAgent.prototype.repeatLoop });
+  const alt = find(g, 0, 'Phyrexian Altar');
+  for (let i = 0; i < 2; i++) {
+    await g.sacTo(P(g, 0), alt, find(g, 0, 'Gravecrawler')); await settle(g);
+    await g.cast(P(g, 0), find(g, 0, 'Gravecrawler', 'graveyard')); await settle(g);
+    human.acts.push({ k: 'sac', iid: alt.iid, name: 'Gravecrawler' }, { k: 'cast', name: 'Gravecrawler', zone: 'graveyard' });
+  }
+  const block = human.loopBlock();
+  eq(block?.map(x => x.k), ['sac', 'cast'], 'loop found');
+  await human.repeatLoop(g, P(g, 0), block, 10); await settle(g);
+  eq(P(g, 1).life, 28, 'two by hand + ten repeated drains');
+  g.move(find(g, 0, 'Carrion Feeder'), 'graveyard'); await settle(g);
+  await human.repeatLoop(g, P(g, 0), block, 10); await settle(g);
+  eq(P(g, 1).life, 26, 'Carrion Feeder dying and one more sacrifice drain, then the recast is refused');
+  ok(/repeated the loop 0 of 10 times \(stopped: Gravecrawler can(&#39;|')t be cast/.test(logText(g)), 'stop reason logged'); noErrors(g);
+});
+
+// ---------- Loops: no fixed cap on legitimate ones, and endless mandatory loops are a draw (rules 7)
+await test('Exquisite Blood + Sanguine Bond against 1,000 life: the long loop runs to the end (was cut off at 600 triggers)', async () => {
+  const g = await scenario([{ battlefield: ['Sanguine Bond', 'Exquisite Blood'] }, {}]);
+  P(g, 1).life = 1000;
+  await resolveEffects(g, 0, find(g, 0, 'Exquisite Blood'), [{ k: 'gain', n: 1 }]);
+  eq(P(g, 1).lost, true, 'opponent lost'); noErrors(g);
+});
+await test('Exquisite Blood + Sanguine Bond in a four-player game: every opponent dies', async () => {
+  const g = await scenario([{ battlefield: ['Vito, Thorn of the Dusk Rose', 'Exquisite Blood'] }, {}, {}, {}]);
+  await resolveEffects(g, 0, find(g, 0, 'Exquisite Blood'), [{ k: 'gain', n: 1 }]);
+  eq([1, 2, 3].map(i => P(g, i).lost), [true, true, true], 'opponents lost');
+});
+await test('An endless mandatory loop that changes nothing is a draw as soon as it repeats (104.4b)', async () => {
+  const g = await scenario([{ battlefield: ['Grizzly Bears'] }, {}]);
+  const b = find(g, 0, 'Grizzly Bears');
+  // (a made-up pair of triggers: losing life gains it back, gaining life loses it again)
+  b.fx = { ...b.fx, watch: [{ ev: 'loseLife', who: 'you', effects: [{ k: 'gain', n: 1 }] }, { ev: 'gainLife', who: 'you', effects: [{ k: 'loseSelf', n: 1 }] }] };
+  await resolveEffects(g, 0, b, [{ k: 'loseSelf', n: 1 }]);
+  eq([g.over, g.winner], [true, null], 'game over as a draw'); ok(g.trigCount.n < 200, `found early (${g.trigCount.n} triggers)`);
+});
+
+// ---------- Cards with more than one face (rules 8): each face has only its own keywords and mana value
+await test('Westvale Abbey: the land has none of Ormendahl\'s keywords (rules 8)', async () => {
+  const g = await scenario([{ battlefield: ['Westvale Abbey'] }, {}]);
+  const o = find(g, 0, 'Westvale Abbey');
+  eq(['flying', 'lifelink', 'indestructible', 'haste'].map(k => g.has(o, k)), [false, false, false, false], 'front face keywords');
+  eq(['flying', 'lifelink', 'indestructible', 'haste'].map(k => o.card.backCard.fx.kw.has(k)), [true, true, true, true], 'back face keywords');
+  noErrors(g);
+});
+await test('Westvale Abbey under rules 7 (old replays): the front has the back\'s keywords, as before', async () => {
+  const g = await scenario([{ battlefield: ['Westvale Abbey'] }, {}], { rules: 7 });
+  ok(g.has(find(g, 0, 'Westvale Abbey'), 'flying'), 'old reading kept');
+});
+await test('Lunarch Veteran and Etali: front faces without back-face flying/indestructible (rules 8)', async () => {
+  const g = await scenario([{ battlefield: ['Lunarch Veteran', 'Etali, Primal Conqueror'] }, {}]);
+  eq(g.has(find(g, 0, 'Lunarch Veteran'), 'flying'), false, 'Lunarch Veteran flying');
+  eq(g.has(find(g, 0, 'Etali, Primal Conqueror'), 'indestructible'), false, 'Etali indestructible');
+  eq(g.has(find(g, 0, 'Etali, Primal Conqueror'), 'trample'), true, 'Etali trample');
+  ok(find(g, 0, 'Lunarch Veteran').card.backCard.fx.kw.has('flying'), 'Luminous Phantom flies');
+});
+const stackMv = g => { const seen = []; g.on('cast', ({ o }) => seen.push([o.card.name, o.card.cmc])); return seen; };
+await test('Wear // Tear: Wear on the stack has mana value 2, the card 3 everywhere else (709.3b, 709.4b)', async () => {
+  const g = await scenario([{ hand: ['Wear // Tear'] }, { battlefield: ['Sol Ring'] }]);
+  mana(g, 0);
+  const seen = stackMv(g), o = find(g, 0, 'Wear // Tear', 'hand');
+  eq(o.card.cmc, 3, 'in hand');
+  await cast(g, 0, 'Wear // Tear');
+  eq(seen, [['Wear // Tear', 2]], 'on the stack');
+  eq([o.zone, o.card.cmc], ['graveyard', 3], 'in the graveyard');
+  eq(find(g, 1, 'Sol Ring'), undefined, 'Sol Ring destroyed'); noErrors(g);
+});
+await test('Wear // Tear under rules 7 (old replays): mana value 3 on the stack, as before', async () => {
+  const g = await scenario([{ hand: ['Wear // Tear'] }, { battlefield: ['Sol Ring'] }], { rules: 7 });
+  mana(g, 0);
+  const seen = stackMv(g);
+  await cast(g, 0, 'Wear // Tear');
+  eq(seen, [['Wear // Tear', 3]], 'on the stack');
+});
+await test('Dazzling Theater // Prop Room: one door unlocked has that door\'s mana value, both doors the sum (709.5)', async () => {
+  const g = await scenario([{ hand: ['Dazzling Theater // Prop Room'] }, {}]);
+  mana(g, 0);
+  await cast(g, 0, 'Dazzling Theater // Prop Room');
+  const o = find(g, 0, 'Dazzling Theater // Prop Room');
+  ok(o, 'Room on the battlefield');
+  eq(o.card.cmc, 4, 'Dazzling Theater unlocked');
+  eq(g.lockedDoor(o)?.name, 'Prop Room', 'locked door');
+  ok(await g.unlockRoom(P(g, 0), o), 'unlocks Prop Room');
+  eq([o.card.cmc, g.lockedDoor(o)], [7, null], 'fully unlocked');
+  g.move(o, 'hand');
+  eq(o.card.cmc, 7, 'back in hand'); noErrors(g);
+});
+
+// ---------- Sentences the reader used to skip (rules 9, item 188)
+const handN = (g, i) => P(g, i).hand.length;
+const killBears = async (g, n) => { for (let k = 0; k < n; k++) { const b = find(g, 1, 'Grizzly Bears'); g.destroy(b); await settle(g); } };
+await test('Morbid Opportunist: "triggers only once each turn" — three deaths, one card', async () => {
+  const g = await scenario([{ battlefield: ['Morbid Opportunist'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }]);
+  const before = handN(g, 0);
+  await killBears(g, 3);
+  eq(handN(g, 0) - before, 1, 'cards drawn this turn'); noErrors(g);
+});
+await test('Morbid Opportunist: the next turn it triggers again', async () => {
+  const g = await scenario([{ battlefield: ['Morbid Opportunist'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }]);
+  const before = handN(g, 0);
+  await killBears(g, 1);
+  g.turn++;
+  await killBears(g, 1);
+  eq(handN(g, 0) - before, 2, 'one card each turn');
+});
+await test('Morbid Opportunist under rules 8 (old replays): a card for every death, as before', async () => {
+  const g = await scenario([{ battlefield: ['Morbid Opportunist'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }], { rules: 8 });
+  const before = handN(g, 0);
+  await killBears(g, 3);
+  eq(handN(g, 0) - before, 3, 'cards drawn');
+});
+const landIn = async (g, name, opts = {}) => { const o = find(g, 0, name, 'hand'); ok(o, `${name} in hand`); g.move(o, 'battlefield', opts); await settle(g); return o; };
+await test('Watery Grave: paying 2 life lets it enter untapped; not paying, tapped', async () => {
+  const g = await scenario([{ hand: ['Watery Grave', 'Watery Grave'] }, {}]);
+  const a = await landIn(g, 'Watery Grave', { payLife: true });
+  eq([a.tapped, P(g, 0).life], [false, 38], 'paid');
+  const b = await landIn(g, 'Watery Grave', { payLife: false });
+  eq([b.tapped, P(g, 0).life], [true, 38], 'not paid'); noErrors(g);
+});
+await test('Watery Grave: the AI pays when it has a spell to cast with the mana, and not at low life', async () => {
+  const g = await scenario([{ hand: ['Watery Grave', 'Lightning Bolt'] }, {}]);
+  g.active = 0;
+  const a = await landIn(g, 'Watery Grave');
+  eq([a.tapped, P(g, 0).life], [false, 38], 'paid for Lightning Bolt');
+  const h = await scenario([{ hand: ['Watery Grave', 'Lightning Bolt'], life: 9 }, {}]);
+  h.active = 0;
+  const b = await landIn(h, 'Watery Grave');
+  eq([b.tapped, P(h, 0).life], [true, 9], 'kept life at 9');
+});
+await test('Watery Grave under rules 8 (old replays): untapped for free, as before', async () => {
+  const g = await scenario([{ hand: ['Watery Grave'] }, {}], { rules: 8 });
+  const a = await landIn(g, 'Watery Grave', { payLife: false });
+  eq([a.tapped, P(g, 0).life], [false, 40], 'free and untapped');
+});
+await test('Check, fast and "two or more opponents" lands check their condition as they enter', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island', 'Island'], hand: ['Drowned Catacomb', 'Isolated Chapel', 'Blooming Marsh', 'Sea of Clouds'] }, {}, {}]);
+  eq((await landIn(g, 'Drowned Catacomb')).tapped, false, 'Drowned Catacomb with an Island');
+  eq((await landIn(g, 'Isolated Chapel')).tapped, true, 'Isolated Chapel without Plains or Swamp');
+  eq((await landIn(g, 'Blooming Marsh')).tapped, true, 'Blooming Marsh with five other lands');
+  eq((await landIn(g, 'Sea of Clouds')).tapped, false, 'Sea of Clouds with two opponents');
+  const h = await scenario([{ hand: ['Blooming Marsh', 'Sea of Clouds'] }, {}]);
+  eq((await landIn(h, 'Blooming Marsh')).tapped, false, 'Blooming Marsh as the first land');
+  eq((await landIn(h, 'Sea of Clouds')).tapped, true, 'Sea of Clouds with one opponent'); noErrors(g); noErrors(h);
+});
+await test('Terminate: "it can\'t be regenerated" goes through a regeneration shield', async () => {
+  const g = await scenario([{ hand: ['Terminate'] }, { battlefield: ['Grizzly Bears'] }]);
+  const v = find(g, 1, 'Grizzly Bears'); v.regen = 1;
+  await spell(g, 0, 'Terminate', [tgtObj(v)]);
+  eq(v.zone, 'graveyard', 'Grizzly Bears zone'); noErrors(g);
+});
+await test('Terminate under rules 8 (old replays): the shield saves it, as before', async () => {
+  const g = await scenario([{ hand: ['Terminate'] }, { battlefield: ['Grizzly Bears'] }], { rules: 8 });
+  const v = find(g, 1, 'Grizzly Bears'); v.regen = 1;
+  await spell(g, 0, 'Terminate', [tgtObj(v)]);
+  eq(v.zone, 'battlefield', 'Grizzly Bears zone');
+});
+await test('Skipped sentences are reported (Plaza of Heroes, Mob Rule) and read ones are not (Tainted Wood from rules 16)', async () => {
+  const { droppedSentences, ignoredText } = await import('../public/js/effects.js');
+  const g = await scenario([{ battlefield: ['Plaza of Heroes', 'Tainted Wood', 'Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection', 'Mob Rule'] }, {}]);
+  const d = n => droppedSentences(find(g, 0, n).card);
+  eq(d('Plaza of Heroes'), ['Spend this mana only to cast a legendary spell.'], 'Plaza of Heroes');
+  ok(/^partly read: /.test(ignoredText(find(g, 0, 'Plaza of Heroes').card) || ''), 'Plaza of Heroes counts as partly read');
+  eq(d('Tainted Wood'), [], 'Tainted Wood (its condition is read: fx.mana.cond16)');
+  ok(d('Mob Rule').includes('They gain haste until end of turn.'), 'Mob Rule haste');
+  for (const n of ['Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection']) eq(d(n), [], n);
+});
+
+
+// ---------- Phase 2E (rules 13): six popular cards read in full, with delayed triggers, phasing and "life can't change"
+// (helpers for these tests: a spell of an opponent's put on the stack, and a stub main phase that records what it saw)
+const onStack = (g, i, name) => {
+  const o = find(g, i, name, 'hand');
+  P(g, i).hand.splice(P(g, i).hand.indexOf(o), 1);
+  o.zone = 'stack';
+  const item = { o, p: P(g, i), x: 0, targets: [], effects: o.fx.spell, countered: false };
+  g.stack.push(item);
+  return item;
+};
+const lines13 = g => logText(g).replace(/&#39;/g, "'").split('\n');
+const watchMain = (g, i) => { const seen = []; P(g, i).agent.mainPhase = async (gg, p, ph) => { seen.push({ ph, pool: p.pool.map(u => u.colors.join('')).join(''), hand: p.hand.length }); }; return seen; };
+const quietCombat = g => { for (const q of g.players) { q.agent.declareAttackers = () => []; q.agent.declareAttackersPlan = () => []; } };
+
+// Teferi's Protection
+await test("Teferi's Protection: life can't change, protection from everything, and every permanent phases out (no zone change)", async () => {
+  const g = await scenario([{ battlefield: [{ name: 'Grizzly Bears', counters: 2, tapped: true }, 'Reveillark', 'Bonesplitter', 'Sol Ring', 'Plains', 'Plains', 'Plains'], hand: ["Teferi's Protection", 'Gitaxian Probe'] }, { battlefield: ['Blood Artist', 'Exquisite Blood'], hand: ['Lightning Bolt'] }]);
+  const bears = find(g, 0, 'Grizzly Bears'), rancor = find(g, 0, 'Bonesplitter');
+  rancor.attachedTo = bears;
+  bears.attacking = 1;
+  g.active = 1;
+  ok(await g.cast(P(g, 0), find(g, 0, "Teferi's Protection", 'hand')), 'cast at instant speed on the opponent\'s turn');
+  await settle(g);
+  eq(P(g, 0).battlefield.length, 0, 'nothing of P1 left on the battlefield');
+  eq(P(g, 0).phasedOut.length, 7, 'all seven phased out');
+  ok(P(g, 0).phasedOut.every(o => o.zone === 'phased'), "zone 'phased', not exile or graveyard");
+  eq([bears.counters, bears.tapped, rancor.attachedTo === bears, bears.attacking], [2, true, true, null], 'counters, tapped, equipment still attached, removed from combat');
+  ok(!lines13(g).some(l => /^Reveillark —|^Blood Artist —/.test(l)), 'no leave-the-battlefield or dies trigger');
+  ok(P(g, 0).exile.some(o => o.card.name === "Teferi's Protection"), "Teferi's Protection exiles itself");
+  // life can't change: a drain doesn't change it and doesn't trigger Exquisite Blood; gaining doesn't either
+  await g.runEffects(P(g, 1), find(g, 1, 'Blood Artist'), [{ k: 'drain', n: 3 }], { targets: [], strict: true }); await settle(g);
+  await g.runEffects(P(g, 0), P(g, 0).phasedOut[0], [{ k: 'gain', n: 5 }], { targets: [], strict: true }); await settle(g);
+  eq([P(g, 0).life, P(g, 1).life], [40, 40], 'life totals (no loss, so Exquisite Blood gained nothing)');
+  ok(lines13(g).some(l => /P1's life total can't change/.test(l)), 'logged');
+  // protection from everything: not a legal target, and damage is prevented
+  ok(!g.validTarget({ player: 0 }, P(g, 1)), 'P2 can\'t target P1');
+  g.damagePlayer(P(g, 0), 3, find(g, 1, 'Blood Artist'), false);
+  eq(P(g, 0).life, 40, 'damage prevented');
+  // and no life can be paid: Gitaxian Probe's {U/P} needs blue mana now
+  ok(!g.canCast(P(g, 0), find(g, 0, 'Gitaxian Probe', 'hand')), 'no Phyrexian life payment while life is locked');
+  noErrors(g);
+});
+await test("Teferi's Protection: the permanents phase in at P1's next untap step, before untapping, with no enter triggers", async () => {
+  const g = await scenario([{ battlefield: [{ name: 'Grizzly Bears', counters: 2, tapped: true }, 'Wall of Omens', 'Plains', 'Plains', 'Plains'], hand: ["Teferi's Protection"] }, {}]);
+  g.active = 1;
+  await g.cast(P(g, 0), find(g, 0, "Teferi's Protection", 'hand')); await settle(g);
+  eq(P(g, 0).battlefield.length, 0, 'phased out');
+  const seen = watchMain(g, 0); quietCombat(g);
+  const hand0 = P(g, 0).hand.length;
+  g.turn++; g.active = 0;
+  await g.takeTurn(P(g, 0));
+  const L = lines13(g);
+  const pi = L.findIndex(l => /permanents? of P1 phases? in/.test(l));
+  ok(pi >= 0, 'phase-in logged');
+  const bears = find(g, 0, 'Grizzly Bears');
+  eq([P(g, 0).battlefield.length, bears?.counters, bears?.tapped], [5, 2, false], 'back, with counters, then untapped as usual');
+  ok(!L.slice(pi).some(l => /^Wall of Omens — enters/.test(l)), "Wall of Omens's enter trigger didn't happen");
+  eq(seen[0]?.hand, hand0 + 1, 'only the draw step drew (no Wall of Omens card)');
+  eq(P(g, 0).lifeLock, false, "the life lock ended as P1's turn began");
+  noErrors(g);
+});
+await test("Teferi's Protection under rules 12 (old replays): protection only, nothing phases out", async () => {
+  const g = await scenario([{ battlefield: ['Grizzly Bears', 'Plains', 'Plains', 'Plains'], hand: ["Teferi's Protection"] }, {}], { rules: 12 });
+  await g.cast(P(g, 0), find(g, 0, "Teferi's Protection", 'hand')); await settle(g);
+  eq([P(g, 0).battlefield.length, P(g, 0).lifeLock], [4, false], 'battlefield, life lock');
+});
+
+// Mana Drain
+await test('Mana Drain: counters the spell, and the mana comes at the beginning of the caster\'s next main phase, not before', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Thassa\'s Oracle'] }]);
+  g.active = 1; g.phase = 'main1';
+  const item = onStack(g, 1, "Thassa's Oracle");
+  ok(await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }), 'cast');
+  await settle(g);
+  eq(item.countered, true, 'countered');
+  eq(P(g, 0).pool.length, 0, 'no mana yet');
+  eq(g.later.map(d => [d.when, d.p]), [['main', 0]], 'one delayed trigger, for P1\'s next main phase');
+  // (P2's own second main phase this turn isn't P1's: nothing yet)
+  g.setPhase('main2'); g.fireLater('main', P(g, 1)); await settle(g);
+  eq([P(g, 0).pool.length, g.later.length], [0, 1], 'still waiting during P2\'s main phase');
+  const seen = watchMain(g, 0); quietCombat(g);
+  g.turn++; g.active = 0;
+  await g.takeTurn(P(g, 0));
+  eq(seen[0], { ph: 'main1', pool: 'CC', hand: seen[0].hand }, "{C}{C} (Oracle's mana value) at the beginning of P1's main phase");
+  ok(lines13(g).some(l => /^Mana Drain — add \{C\} equal to Thassa's Oracle's mana value/.test(l)), 'resolved as a triggered ability');
+  eq(g.later.length, 0, 'used up');
+  noErrors(g);
+});
+await test('Mana Drain cast in your own first main phase: the mana comes at your second main phase', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }]);
+  g.active = 0; g.phase = 'main1';
+  const item = onStack(g, 1, 'Grizzly Bears');
+  await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  g.setPhase('main2'); g.fireLater('main', P(g, 0)); await settle(g);
+  eq(P(g, 0).pool.map(u => u.colors.join('')), ['C', 'C'], "Grizzly Bears's mana value in {C}");
+});
+await test("Mana Drain: an uncounterable spell isn't countered, but the mana still comes; a spell gone from the stack makes Mana Drain fizzle", async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island', 'Island', 'Island'], hand: ['Mana Drain', 'Counterspell'] }, { hand: ['Grizzly Bears', "Thassa's Oracle"] }]);
+  g.active = 1;
+  const item = onStack(g, 1, 'Grizzly Bears');
+  item.uncounterable = true;
+  await g.cast(P(g, 0), find(g, 0, 'Mana Drain', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  eq([item.countered, g.later.length], [false, 1], 'not countered, mana still on its way');
+  // (a target that has left the stack: Mana Drain fizzles and sets nothing up; rules 14, since from rules 15 a spell
+  // can't be cast at a target that isn't legal at all, 601.2c, checked below)
+  const g2 = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }], { rules: 14 });
+  g2.active = 1;
+  const fake = { o: find(g2, 1, 'Grizzly Bears', 'hand'), p: P(g2, 1), countered: false, effects: [], targets: [] };
+  await g2.cast(P(g2, 0), find(g2, 0, 'Mana Drain', 'hand'), { targets: [{ spell: fake }], response: fake }); await settle(g2);
+  eq(g2.later.length, 0, 'no delayed trigger when Mana Drain fizzles');
+  ok(lines13(g2).some(l => /Mana Drain fizzles/.test(l)), 'fizzled');
+  const g3 = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Mana Drain'] }, { hand: ['Grizzly Bears'] }]);
+  g3.active = 1;
+  const gone = { o: find(g3, 1, 'Grizzly Bears', 'hand'), p: P(g3, 1), countered: false, effects: [], targets: [] };
+  eq(await g3.cast(P(g3, 0), find(g3, 0, 'Mana Drain', 'hand'), { targets: [{ spell: gone }], response: gone }), false, 'rules 15: a spell not on the stack is not a legal target');
+  ok(find(g3, 0, 'Mana Drain', 'hand'), 'Mana Drain stays in hand, nothing paid');
+});
+
+// Arcane Denial
+await test("Arcane Denial: counters; at the next turn's upkeep the spell's controller may draw two and the caster draws one", async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Arcane Denial'] }, { hand: ['Grizzly Bears'] }]);
+  g.active = 1; g.phase = 'main1';
+  const item = onStack(g, 1, 'Grizzly Bears');
+  const h0 = [P(g, 0).hand.length, P(g, 1).hand.length];
+  await g.cast(P(g, 0), find(g, 0, 'Arcane Denial', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  eq(item.countered, true, 'countered');
+  eq([P(g, 0).hand.length, P(g, 1).hand.length], [h0[0] - 1, h0[1]], 'nobody drew yet (Arcane Denial left P1\'s hand)');
+  eq(g.later.map(d => [d.when, d.p]).sort(), [['upkeep', 0], ['upkeep', 0]], 'two delayed triggers, both controlled by Arcane Denial\'s caster');
+  // the next turn is P1's (2 players): its upkeep, then the draw step
+  const seen = watchMain(g, 0); quietCombat(g);
+  g.turn++; g.active = 0;
+  await g.takeTurn(P(g, 0));
+  const L = lines13(g);
+  const up = L.findIndex(l => /^P2 draws 2 of up to 2 cards/.test(l)), mine = L.findIndex(l => /^Arcane Denial — P1 draws a card/.test(l));
+  ok(up >= 0 && mine >= 0, 'both delayed triggers resolved');
+  eq([seen[0].hand, P(g, 1).hand.length], [h0[0] - 1 + 1 + 1, h0[1] + 2], 'P1: +1 (Arcane Denial) +1 (draw step); P2: +2');
+  noErrors(g);
+});
+await test('Arcane Denial under rules 12 (old replays): the caster still draws at once, as before', async () => {
+  const g = await scenario([{ battlefield: ['Island', 'Island'], hand: ['Arcane Denial'] }, { hand: ['Grizzly Bears'] }], { rules: 12 });
+  g.active = 1;
+  const item = onStack(g, 1, 'Grizzly Bears');
+  const h0 = P(g, 0).hand.length;
+  await g.cast(P(g, 0), find(g, 0, 'Arcane Denial', 'hand'), { targets: [{ spell: item }], response: item }); await settle(g);
+  eq([P(g, 0).hand.length, g.later.length], [h0, 0], 'drew one at once (hand: -1 cast +1 draw), nothing delayed');
+});
+
+// Chaos Warp
+const warp = async (lib, seed = 1) => {
+  const g = await scenario([{ battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Chaos Warp'] }, { battlefield: ['Grizzly Bears'], library: lib, filler: 0 }], { seed });
+  const moves = [];
+  g.on('move', d => moves.push(`${d.from}>${d.to}`));
+  await g.cast(P(g, 0), find(g, 0, 'Chaos Warp', 'hand'), { targets: [{ obj: find(g, 1, 'Grizzly Bears') }] }); await settle(g);
+  const L = lines13(g);
+  const rev = (L.find(l => /^P2 reveals /.test(l)) || '').match(/^P2 reveals (.+) from the top/)?.[1];
+  return { g, moves, rev, L };
+};
+await test('Chaos Warp: the owner shuffles the permanent into their library and reveals the top card; a permanent card enters with its triggers', async () => {
+  const { g, moves, rev, L } = await warp(Array(9).fill('Wall of Omens'));
+  ok(moves.includes('battlefield>library'), 'Grizzly Bears went to the library through Game.move');
+  ok(['Wall of Omens', 'Grizzly Bears'].includes(rev), `revealed: ${rev}`);
+  ok(find(g, 1, rev), `${rev} is on P2's battlefield`);
+  ok(moves.includes('library>battlefield'), 'onto the battlefield through Game.move');
+  if (rev === 'Wall of Omens') ok(L.some(l => /^Wall of Omens — enters/.test(l)), "Wall of Omens's enter trigger");
+  eq(P(g, 1).exile.length, 0, 'nothing exiled (the old reading exiled it)');
+  ok(!find(g, 1, 'Grizzly Bears') || rev === 'Grizzly Bears', 'the Bears left unless revealed again');
+  noErrors(g);
+});
+await test('Chaos Warp: a revealed nonpermanent card stays on top of the library', async () => {
+  let r = null;
+  for (let seed = 1; seed < 30 && !r; seed++) { const w = await warp(Array(9).fill('Lightning Bolt'), seed); if (w.rev === 'Lightning Bolt') r = w; }
+  ok(r, 'a seed that reveals Lightning Bolt');
+  eq(r.g.players[1].library.at(-1).card.name, 'Lightning Bolt', 'still on top');
+  eq(r.g.players[1].battlefield.length, 0, 'nothing entered');
+  ok(r.g.players[1].library.some(o => o.card.name === 'Grizzly Bears'), 'the Bears are in the library');
+});
+await test('Chaos Warp on a token: the token ceases to exist; its owner still reveals', async () => {
+  const g = await scenario([{ battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Chaos Warp'] }, { library: Array(5).fill('Wall of Omens'), filler: 0 }]);
+  await g.runEffects(P(g, 1), find(g, 0, 'Mountain'), [{ k: 'token', n: 1, p: 1, t: 1, desc: 'white soldier', kw: [] }], { targets: [], strict: true }); await settle(g);
+  const tok = P(g, 1).battlefield.find(o => o.token);
+  await g.cast(P(g, 0), find(g, 0, 'Chaos Warp', 'hand'), { targets: [{ obj: tok }] }); await settle(g);
+  ok(!P(g, 1).library.some(o => o.token), 'no token in the library');
+  ok(find(g, 1, 'Wall of Omens'), 'the revealed Wall of Omens entered');
+});
+await test('Chaos Warp under rules 12 (old replays): it exiles, as before', async () => {
+  const g = await scenario([{ battlefield: ['Mountain', 'Mountain', 'Mountain'], hand: ['Chaos Warp'] }, { battlefield: ['Grizzly Bears'] }], { rules: 12 });
+  await g.cast(P(g, 0), find(g, 0, 'Chaos Warp', 'hand'), { targets: [{ obj: find(g, 1, 'Grizzly Bears') }] }); await settle(g);
+  ok(P(g, 1).exile.some(o => o.card.name === 'Grizzly Bears'), 'exiled');
+});
+
+// Cavern of Souls
+const cavern = async (hand, type = 'bear', extra = [], rules) => {
+  const g = await scenario([{ battlefield: ['Cavern of Souls', ...extra], hand }, {}], { rules });
+  find(g, 0, 'Cavern of Souls').chosenType = type;
+  g.active = 0; g.phase = 'main1';
+  return g;
+};
+await test('Cavern of Souls: its colored mana pays for a creature spell of the chosen type, which then can\'t be countered', async () => {
+  const g = await cavern(['Grizzly Bears'], 'bear', ['Wastes']);
+  let item = null;
+  const realPriority = g.priority.bind(g);
+  g.priority = async it => { item = it; await g.runEffects(P(g, 1), find(g, 0, 'Wastes'), [{ k: 'counter', what: 'any' }], { targets: [{ spell: it }], strict: true }); return realPriority(it); };
+  ok(await g.cast(P(g, 0), find(g, 0, 'Grizzly Bears', 'hand')), 'cast with Cavern ({G}) and Wastes');
+  await settle(g);
+  eq([item?.uncounterable, item?.countered], [true, false], 'uncounterable, not countered');
+  ok(lines13(g).some(l => /Grizzly Bears can't be countered$/.test(l)), "the counter was refused");
+  ok(find(g, 0, 'Grizzly Bears'), 'the Bears resolved');
+  noErrors(g);
+});
+await test('Cavern of Souls: only {C} for anything else (another creature type, a noncreature spell, a creature paid without it)', async () => {
+  const g = await cavern(['Llanowar Elves', 'Lightning Bolt']);
+  ok(!g.canCast(P(g, 0), find(g, 0, 'Llanowar Elves', 'hand')), "Llanowar Elves (an Elf, not the chosen Bear) can't take Cavern's {G}");
+  ok(!g.canCast(P(g, 0), find(g, 0, 'Lightning Bolt', 'hand')), "Lightning Bolt can't take Cavern's {R}");
+  const g2 = await cavern(['Grizzly Bears'], 'bear', ['Forest', 'Forest']);
+  let item = null; const rp = g2.priority.bind(g2); g2.priority = async it => { item = it; return rp(it); };
+  await g2.cast(P(g2, 0), find(g2, 0, 'Grizzly Bears', 'hand')); await settle(g2);
+  eq([item?.uncounterable || false, find(g2, 0, 'Cavern of Souls').tapped], [false, false], 'paid with Forests: Cavern untouched, the Bears can be countered');
+  // (tapping it by hand under rules 15: {C})
+  const g3 = await cavern([], 'bear', [], 15);
+  g3.tapForMana(P(g3, 0), find(g3, 0, 'Cavern of Souls'));
+  eq(P(g3, 0).pool.map(u => u.colors.join('')), ['C'], 'tapped by hand under rules 15: {C}');
+});
+await test('Cavern of Souls under rules 12 (old replays): any color for anything, as before', async () => {
+  const g = await scenario([{ battlefield: ['Cavern of Souls'], hand: ['Lightning Bolt'] }, {}], { rules: 12 });
+  g.active = 0; g.phase = 'main1';
+  ok(g.canCast(P(g, 0), find(g, 0, 'Lightning Bolt', 'hand')), 'Bolt castable with Cavern');
+});
+
+// Temple of the False God
+await test('Temple of the False God: no mana with four lands; {C}{C} with five (the Temple counts)', async () => {
+  const four = await scenario([{ battlefield: ['Temple of the False God', 'Wastes', 'Wastes', 'Wastes'] }, {}]);
+  eq(four.availableMana(P(four, 0)), 3, 'four lands: only the three Wastes make mana');
+  ok(!four.tapForMana(P(four, 0), find(four, 0, 'Temple of the False God')) && P(four, 0).pool.length === 0, "tapping it by hand makes nothing");
+  ok(!find(four, 0, 'Temple of the False God').tapped, 'and leaves it untapped');
+  const five = await scenario([{ battlefield: ['Temple of the False God', 'Wastes', 'Wastes', 'Wastes', 'Wastes'] }, {}]);
+  eq(five.availableMana(P(five, 0)), 6, 'five lands: 4 + {C}{C}');
+  const old = await scenario([{ battlefield: ['Temple of the False God', 'Wastes'] }, {}], { rules: 12 });
+  eq(old.availableMana(P(old, 0)), 3, 'rules 12 (old replays): it made mana with two lands');
+});
+
+// ---------- Rules 17 (audit items 206 and 207): coin flips and "X, where X is ..."
+const cryptUpkeeps = async rules => {
+  const g = await scenario([{ battlefield: ['Mana Crypt'] }, {}], { rules });
+  const c = find(g, 0, 'Mana Crypt');
+  for (let k = 0; k < 8; k++) { g.turn++; g.trigger(c, 'upkeep'); await settle(g); }
+  return 40 - P(g, 0).life;
+};
+await test('Mana Crypt: the upkeep damage is a coin flip (some of 8 upkeeps, not all)', async () => {
+  const lost = await cryptUpkeeps(); ok(lost > 0 && lost < 24 && lost % 3 === 0, `lost ${lost} life in 8 upkeeps (24 = every time, 0 = never)`);
+  eq(await cryptUpkeeps(), lost, 'the same seed flips the same coins');
+});
+await test('Mana Crypt under rules 16 (old replays): 3 damage every upkeep, as before', async () => {
+  eq(await cryptUpkeeps(16), 24, 'life lost in 8 upkeeps');
+});
+const krenko = async rules => {
+  const g = await scenario([{ battlefield: ['Krenko, Mob Boss', 'Goblin Matron', 'Goblin Matron'] }, {}], { rules });
+  g.active = 0; const k = find(g, 0, 'Krenko, Mob Boss'); await g.activate(P(g, 0), k, k.fx.abilities[0], {}); await settle(g);
+  return P(g, 0).battlefield.filter(o => o.token).length;
+};
+await test('Krenko, Mob Boss with three Goblins makes three tokens', async () => { eq(await krenko(), 3, 'Goblin tokens'); });
+await test('Krenko, Mob Boss under rules 16 (old replays): X is 0, no tokens', async () => { eq(await krenko(16), 0, 'Goblin tokens'); });
+const chain = async rules => {
+  const g = await scenario([{ hand: ['Chain Reaction'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Grizzly Bears'] }], { rules });
+  await spell(g, 0, 'Chain Reaction'); return P(g, 1).battlefield.length;
+};
+await test('Chain Reaction with three creatures out deals 3 to each', async () => { eq(await chain(), 0, 'Grizzly Bears left'); });
+await test('Chain Reaction under rules 16 (old replays): deals 0', async () => { eq(await chain(16), 3, 'Grizzly Bears left'); });
+const dockside = async rules => {
+  const g = await scenario([{ hand: ['Dockside Extortionist'] }, { battlefield: ['Sol Ring', 'Rhystic Study', 'Sol Ring'] }], { rules });
+  mana(g, 0); await cast(g, 0, 'Dockside Extortionist'); return P(g, 0).battlefield.filter(o => o.token).length;
+};
+await test("Dockside Extortionist counts the opponents' artifacts and enchantments", async () => { eq(await dockside(), 3, 'Treasures'); });
+await test('Dockside Extortionist under rules 16 (old replays): X is 0, no Treasures', async () => { eq(await dockside(16), 0, 'Treasures'); });
+
+// ---------- Rules 17 (audit item 208): counterspells keep their conditions
+const counterWith = async (name, target, lands = 0, rules, effectsOf = c => c.fx.spell) => {
+  const g = await scenario([{ hand: [target], battlefield: Array(lands).fill('Forest') }, { hand: [name] }], { rules });
+  const item = onStack(g, 0, target); const c = find(g, 1, name, 'hand');
+  await g.runEffects(P(g, 1), c, effectsOf(c), { targets: [{ spell: item }], strict: true });
+  return { g, countered: !!item.countered, tapped: P(g, 0).battlefield.filter(o => o.tapped).length };
+};
+await test('Mana Leak: a player with six untapped lands pays {3} and keeps the spell', async () => {
+  const r = await counterWith('Mana Leak', 'Grizzly Bears', 6); eq([r.countered, r.tapped], [false, 3], 'countered / lands tapped'); noErrors(r.g);
+});
+await test('Mana Leak: a player with two untapped lands cannot pay, the spell is countered', async () => {
+  const r = await counterWith('Mana Leak', 'Grizzly Bears', 2); eq([r.countered, r.tapped], [true, 0], 'countered / lands tapped');
+});
+await test('Mana Leak under rules 16 (old replays): a hard counter, as before', async () => {
+  const r = await counterWith('Mana Leak', 'Grizzly Bears', 6, 16); eq([r.countered, r.tapped], [true, 0], 'countered / lands tapped');
+});
+await test('Daze: a player with one spare land pays {1}', async () => {
+  const r = await counterWith('Daze', 'Grizzly Bears', 1); eq([r.countered, r.tapped], [false, 1], 'countered / lands tapped');
+});
+await test('Mana Leak: the AI lets a one-mana spell go rather than pay {3}, and a person is asked', async () => {
+  const r = await counterWith('Mana Leak', 'Llanowar Elves', 6); eq(r.countered, true, 'Llanowar Elves countered (not worth {3})');
+  const g = await scenario([{ hand: ['Llanowar Elves'], battlefield: Array(3).fill('Forest') }, { hand: ['Mana Leak'] }]);
+  const asked = []; const h = new HumanAgent('balanced', { ask: async (html, o) => { asked.push(html.replace(/<[^>]+>/g, '')); return { button: 'pay' }; } }); P(g, 0).agent = h;
+  const item = onStack(g, 0, 'Llanowar Elves'); const c = find(g, 1, 'Mana Leak', 'hand');
+  await g.runEffects(P(g, 1), c, c.fx.spell, { targets: [{ spell: item }], strict: true });
+  ok(asked.some(a => /pay \{3\}, or Llanowar Elves is countered/.test(a)), `the prompt: ${asked.join(' | ')}`); eq(!!item.countered, false, 'paid: not countered');
+});
+await test('Mental Misstep cannot counter a spell with mana value 2, and counters one with mana value 1', async () => {
+  eq((await counterWith('Mental Misstep', 'Grizzly Bears')).countered, false, 'Grizzly Bears (2) countered');
+  eq((await counterWith('Mental Misstep', 'Llanowar Elves')).countered, true, 'Llanowar Elves (1) countered');
+  eq((await counterWith('Mental Misstep', 'Grizzly Bears', 0, 16)).countered, true, 'rules 16 (old replays): countered');
+});
+await test('Disdainful Stroke cannot counter mana value 3, and counters mana value 8', async () => {
+  eq((await counterWith('Disdainful Stroke', 'Divination')).countered, false, 'Divination (3) countered');
+  eq((await counterWith('Disdainful Stroke', 'Craterhoof Behemoth')).countered, true, 'Craterhoof Behemoth (8) countered');
+  eq((await counterWith('Disdainful Stroke', 'Divination', 0, 16)).countered, true, 'rules 16 (old replays): countered');
+});
+await test('Spell Pierce: a creature spell is not a legal target', async () => {
+  const r = await counterWith('Spell Pierce', 'Grizzly Bears'); eq(r.countered, false, 'countered');
+  ok(/Grizzly Bears is not a legal target/.test(logText(r.g)), 'the log says why');
+  eq((await counterWith('Spell Pierce', 'Divination')).countered, true, 'a noncreature spell whose controller cannot pay is countered');
+  eq((await counterWith('Spell Pierce', 'Grizzly Bears', 0, 16)).countered, true, 'rules 16 (old replays): countered');
+});
+await test('Swan Song: an enchantment spell is a legal target (the AI only saw "instant or sorcery")', async () => {
+  const r = await counterWith('Swan Song', 'Rhystic Study'); eq(r.countered, true, 'countered');
+  ok(P(r.g, 1).agent.fits(find(r.g, 1, 'Swan Song', 'hand'), find(r.g, 0, 'Rhystic Study', 'hand'), r.g, r.g.stack[0]), 'the AI counts it as fitting');
+});
+await test('Pyroblast and Red Elemental Blast: only blue spells and permanents', async () => {
+  const first = c => c.fx.modes.modes[0];
+  eq((await counterWith('Pyroblast', 'Grizzly Bears', 0, undefined, first)).countered, false, 'Pyroblast on a green spell');
+  eq((await counterWith('Pyroblast', 'Divination', 0, undefined, first)).countered, true, 'Pyroblast on a blue spell');
+  eq((await counterWith('Red Elemental Blast', 'Grizzly Bears', 0, undefined, first)).countered, false, 'Red Elemental Blast on a green spell');
+  eq((await counterWith('Pyroblast', 'Grizzly Bears', 0, 16, first)).countered, true, 'rules 16 (old replays): countered');
+  const destroy = async (target, rules) => {
+    const g = await scenario([{ hand: ['Pyroblast'] }, { battlefield: [target] }], { rules });
+    const b = find(g, 1, target); const py = find(g, 0, 'Pyroblast', 'hand');
+    await resolveEffects(g, 0, py, py.fx.modes.modes[1], [tgtObj(b)]); return b.zone;
+  };
+  eq([await destroy('Grizzly Bears'), await destroy('Rhystic Study'), await destroy('Grizzly Bears', 16)], ['battlefield', 'graveyard', 'graveyard'], 'green permanent / blue permanent / rules 16');
+});
+await test('The AI keeps Mana Leak when the spell\'s controller can pay, and casts it when they cannot', async () => {
+  const usable = async lands => {
+    const g = await scenario([{ hand: ['Craterhoof Behemoth'], battlefield: Array(lands).fill('Forest') }, { hand: ['Mana Leak'], battlefield: ['Island', 'Island'] }]);
+    const item = onStack(g, 0, 'Craterhoof Behemoth'); return P(g, 1).agent.counterUsable(g, P(g, 1), find(g, 1, 'Mana Leak', 'hand'), item);
+  };
+  eq([await usable(3), await usable(2)], [false, true], 'usable against 3 / 2 untapped lands');
+});
+
+// ---------- Rules 17 (audit items 209 and 200): what a spell or ability may target
+// The effects of a spell (or the given ones) resolved at one permanent of the second player: where it ends up
+const aim = async (name, target, { rules, effects = c => c.fx.spell, setup = () => {}, mine = false } = {}) => {
+  const g = await scenario([{ hand: [name], battlefield: mine ? [target] : [] }, { battlefield: mine ? [] : [target] }], { rules });
+  const o = find(g, mine ? 0 : 1, target), c = find(g, 0, name, 'hand'); setup(g, o);
+  await resolveEffects(g, 0, c, effects(c), [tgtObj(o)]);
+  return { g, o, zone: o.zone };
+};
+await test('Doom Blade cannot destroy a black creature: the cast is refused, and nothing happens on resolution', async () => {
+  const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk'] }]);
+  const v = find(g, 1, 'Vampire Nighthawk'); mana(g, 0);
+  eq(await cast(g, 0, 'Doom Blade', { targets: [tgtObj(v)] }), false, 'cast');
+  eq([v.zone, find(g, 0, 'Doom Blade', 'hand')?.zone], ['battlefield', 'hand'], 'Nighthawk / Doom Blade');
+  ok(/Vampire Nighthawk is not a legal target/.test(logText(g)), 'the log says why');
+  eq((await aim('Doom Blade', 'Vampire Nighthawk')).zone, 'battlefield', 'resolved at it anyway: still there');
+  eq((await aim('Doom Blade', 'Grizzly Bears')).zone, 'graveyard', 'a green creature dies');
+});
+await test('Doom Blade under rules 16 (old replays): the black creature dies, as before', async () => {
+  eq((await aim('Doom Blade', 'Vampire Nighthawk', { rules: 16 })).zone, 'graveyard', 'Nighthawk zone');
+});
+await test('Doom Blade: the AI and a person\'s target list leave the black creature out', async () => {
+  const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk', 'Grizzly Bears'] }]);
+  const db = find(g, 0, 'Doom Blade', 'hand'), e = db.fx.spell[0];
+  eq(P(g, 0).agent.chooseTarget(g, P(g, 0), e, db)?.obj?.card.name, 'Grizzly Bears', "the AI's target");
+  const h = new HumanAgent('balanced', { ask: async () => ({ button: 'cancel' }) });
+  eq(h.candidates(g, P(g, 0), e, db).objs.map(o => o.card.name), ['Grizzly Bears'], "a person's list");
+  const g2 = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Vampire Nighthawk'] }]);
+  eq(P(g2, 0).agent.chooseTarget(g2, P(g2, 0), e, find(g2, 0, 'Doom Blade', 'hand')), null, 'only a black creature: no target');
+});
+await test('Game.cast refuses a target of the wrong kind (Doom Blade at Sol Ring)', async () => {
+  const g = await scenario([{ hand: ['Doom Blade'] }, { battlefield: ['Sol Ring'] }]);
+  const s = find(g, 1, 'Sol Ring'); mana(g, 0);
+  eq([await cast(g, 0, 'Doom Blade', { targets: [tgtObj(s)] }), s.zone], [false, 'battlefield'], 'cast / Sol Ring zone');
+  eq((await aim('Doom Blade', 'Sol Ring', { rules: 16 })).zone, 'graveyard', 'rules 16 (old replays): destroyed');
+});
+await test('Go for the Throat cannot destroy an artifact creature', async () => {
+  eq([(await aim('Go for the Throat', 'Solemn Simulacrum')).zone, (await aim('Go for the Throat', 'Grizzly Bears')).zone, (await aim('Go for the Throat', 'Solemn Simulacrum', { rules: 16 })).zone], ['battlefield', 'graveyard', 'graveyard'], 'artifact creature / other creature / rules 16');
+});
+await test('Abrupt Decay: mana value 3 or less only; Despark: 4 or greater only', async () => {
+  eq([(await aim('Abrupt Decay', 'Rhystic Study')).zone, (await aim('Abrupt Decay', 'Smothering Tithe')).zone, (await aim('Abrupt Decay', 'Smothering Tithe', { rules: 16 })).zone], ['graveyard', 'battlefield', 'graveyard'], 'Abrupt Decay at mana value 3 / 4 / rules 16');
+  eq([(await aim('Despark', 'Smothering Tithe')).zone, (await aim('Despark', 'Rhystic Study')).zone], ['exile', 'battlefield'], 'Despark at mana value 4 / 3');
+});
+await test('Valorous Stance destroys only a creature with toughness 4 or greater', async () => {
+  const second = c => c.fx.modes.modes[1];
+  eq([(await aim('Valorous Stance', 'Craterhoof Behemoth', { effects: second })).zone, (await aim('Valorous Stance', 'Grizzly Bears', { effects: second })).zone], ['graveyard', 'battlefield'], 'toughness 5 / 2');
+});
+await test('Razorgrass Ambush: only an attacking or blocking creature', async () => {
+  eq([(await aim('Razorgrass Ambush', 'Grizzly Bears')).zone, (await aim('Razorgrass Ambush', 'Grizzly Bears', { setup: (g, o) => { o.attacking = 0; } })).zone], ['battlefield', 'graveyard'], 'not in combat / attacking');
+});
+await test('Royal Assassin: only a tapped creature', async () => {
+  const run = async tapped => {
+    const g = await scenario([{ battlefield: ['Royal Assassin'] }, { battlefield: [{ name: 'Grizzly Bears', tapped }] }]);
+    const ra = find(g, 0, 'Royal Assassin'), b = find(g, 1, 'Grizzly Bears'); b.tapped = tapped;
+    await resolveEffects(g, 0, ra, ra.fx.abilities[0].effects, [tgtObj(b)]); return b.zone;
+  };
+  eq([await run(false), await run(true)], ['battlefield', 'graveyard'], 'untapped / tapped');
+});
+await test("Shizo, Death's Storehouse: only a legendary creature gains fear", async () => {
+  const run = async name => {
+    const g = await scenario([{ battlefield: ["Shizo, Death's Storehouse", name] }, {}]);
+    const s = find(g, 0, "Shizo, Death's Storehouse"), c = find(g, 0, name);
+    await resolveEffects(g, 0, s, s.fx.abilities[0].effects, [tgtObj(c)]); return g.has(c, 'fear');
+  };
+  eq([await run('Grizzly Bears'), await run('Krenko, Mob Boss')], [false, true], 'Grizzly Bears / Krenko has fear');
+});
+await test("Ephemerate: only a creature you control (a person can't blink an opponent's creature)", async () => {
+  const r = await aim('Ephemerate', 'Grizzly Bears'); eq(r.zone, 'battlefield', "the opponent's creature stays");
+  ok(/Grizzly Bears is not a legal target/.test(logText(r.g)), 'the log says why');
+  const mine = await aim('Ephemerate', 'Wall of Omens', { mine: true });
+  ok(find(mine.g, 0, 'Wall of Omens') && !/not a legal target/.test(logText(mine.g)) && /^Wall of Omens — enters/m.test(logText(mine.g)), 'your own creature is blinked: its enter trigger happens again');
+});
+await test('Bedevil and Feed the Swarm: every kind the words name is a legal target', async () => {
+  eq([(await aim('Bedevil', 'Grizzly Bears')).zone, (await aim('Bedevil', 'Sol Ring')).zone, (await aim('Bedevil', 'Rhystic Study')).zone], ['graveyard', 'graveyard', 'battlefield'], 'Bedevil at a creature / an artifact / an enchantment');
+  const g = await scenario([{ hand: ['Bedevil'] }, { battlefield: ['Grizzly Bears', 'Rhystic Study'] }]);
+  const b = find(g, 0, 'Bedevil', 'hand');
+  eq(P(g, 0).agent.chooseTarget(g, P(g, 0), b.fx.spell[0], b)?.obj?.card.name, 'Grizzly Bears', 'the AI aims Bedevil at the creature (before: artifacts only)');
+  eq((await aim('Feed the Swarm', 'Rhystic Study', { mine: true })).zone, 'battlefield', 'Feed the Swarm at your own enchantment: not legal');
+});
+await test('Zealous Conscripts may take control of your own permanent (it untaps)', async () => {
+  const g = await scenario([{ battlefield: [{ name: 'Sol Ring', tapped: true }], hand: ['Zealous Conscripts'] }, {}]);
+  const s = find(g, 0, 'Sol Ring'); s.tapped = true; const z = find(g, 0, 'Zealous Conscripts', 'hand');
+  await resolveEffects(g, 0, z, z.fx.etb, [tgtObj(s)]); eq(s.tapped, false, 'Sol Ring tapped');
+});
+
+// ---------- Rules 17 (audit item 205): things that happen at the same time (603.10a, 704.3)
+const wrathLife = async (name, bf, rules) => {
+  const g = await scenario([{ hand: [name], battlefield: bf }, { battlefield: ['Grizzly Bears', 'Grizzly Bears'] }], { rules });
+  await spell(g, 0, name); noErrors(g); return [P(g, 0).life, P(g, 1).life];
+};
+await test('Wrath of God + Blood Artist: it sees every creature die with it (4 drains), whatever the battlefield order', async () => {
+  eq(await wrathLife('Wrath of God', ['Blood Artist', 'Grizzly Bears']), [44, 36], 'life totals, Blood Artist first');
+  eq(await wrathLife('Wrath of God', ['Grizzly Bears', 'Blood Artist']), [44, 36], 'life totals, Blood Artist last');
+});
+await test('Wrath of God + Blood Artist under rules 16 (old replays): one after another, the order matters', async () => {
+  const first = await wrathLife('Wrath of God', ['Blood Artist', 'Grizzly Bears'], 16), last = await wrathLife('Wrath of God', ['Grizzly Bears', 'Blood Artist'], 16);
+  eq(first, [41, 39], 'Blood Artist first: only its own death'); ok(last[1] < first[1], `Blood Artist last drains more (${last})`);
+});
+await test('Blasphemous Act + Blood Artist: lethal damage kills everything in one state-based-action pass (4 drains)', async () => {
+  eq(await wrathLife('Blasphemous Act', ['Blood Artist', 'Grizzly Bears']), [44, 36], 'life totals');
+  eq(await wrathLife('Blasphemous Act', ['Blood Artist', 'Grizzly Bears'], 16), [41, 39], 'rules 16 (old replays)');
+});
+const tradeLife = async rules => {
+  const g = await scenario([{ battlefield: ['Blood Artist'] }, { battlefield: ['Zulaport Cutthroat'] }], { rules });
+  const a = find(g, 0, 'Blood Artist'), b = find(g, 1, 'Zulaport Cutthroat'); a.tempP = 1; g.active = 0;
+  await fight(g, a, [b]); noErrors(g);
+  return { life: [P(g, 0).life, P(g, 1).life], gone: [a.zone, b.zone] };
+};
+await test('Combat: two creatures with death triggers kill each other, and each sees the other die', async () => {
+  // (Blood Artist: its own death and the Cutthroat's, 2 drains. Zulaport Cutthroat: its own death, 1 drain.)
+  const r = await tradeLife(); eq(r.gone, ['graveyard', 'graveyard'], 'both died'); eq(r.life, [41, 39], 'life totals');
+  eq((await tradeLife(16)).life, [40, 40], 'rules 16 (old replays): the Blood Artist, dying first, missed the other death');
+});
+const livingDeath = async rules => {
+  const g = await scenario([{ hand: ['Living Death'], graveyard: ['Grizzly Bears', 'Soul Warden'] }, {}], { rules });
+  await spell(g, 0, 'Living Death'); noErrors(g); return P(g, 0).life;
+};
+await test('Living Death: creatures entering together see each other enter (Soul Warden gains for the Bears)', async () => {
+  eq([await livingDeath(), await livingDeath(16)], [41, 40], 'life at rules 17 / rules 16 (the Warden entered after the Bears)');
+});
+await test('A lord dying in a state-based-action pass does not take others with it in the same pass order', async () => {
+  // Glorious Anthem leaves with the wipe of enchantments only in a later event: here, 2 damage on a 2/2 with an anthem (3/3) is not lethal
+  const g = await scenario([{ battlefield: ['Glorious Anthem', 'Grizzly Bears'] }, {}]);
+  const b = find(g, 0, 'Grizzly Bears'); b.damage = 2; await settle(g); eq(b.zone, 'battlefield', 'Bears with an anthem and 2 damage');
+});
+
+// ---------- Rules 17 (audit item 210): "until this leaves the battlefield"
+// The exiler's enter trigger aimed at one permanent of the second player, with a step to run before it resolves
+const exileUntil = async (name, target, { rules, before = () => {}, token = false } = {}) => {
+  const g = await scenario([{ battlefield: [name] }, { battlefield: token ? [] : [target] }], { rules });
+  if (token) { await g.runEffects(P(g, 1), find(g, 0, name), [{ k: 'token', n: 1, p: 1, t: 1, desc: 'white soldier', kw: [] }], { targets: [], strict: true }); await settle(g); }
+  const src = find(g, 0, name), v = token ? P(g, 1).battlefield.find(o => o.token) : find(g, 1, target);
+  await before(g, src);
+  await resolveEffects(g, 0, src, src.fx.etb, [tgtObj(v)]);
+  return { g, src, v, during: v.zone };
+};
+await test('Banishing Light: the exiled permanent comes back when Banishing Light leaves', async () => {
+  const r = await exileUntil('Banishing Light', 'Sol Ring');
+  r.g.destroy(r.src); await settle(r.g);
+  eq([r.during, r.v.zone, r.v.controller], ['exile', 'battlefield', 1], 'Sol Ring while exiled / after / controller'); noErrors(r.g);
+});
+await test('Banishing Light under rules 16 (old replays): exiled for good, as before', async () => {
+  const r = await exileUntil('Banishing Light', 'Sol Ring', { rules: 16 });
+  r.g.destroy(r.src); await settle(r.g); eq([r.during, r.v.zone], ['exile', 'exile'], 'Sol Ring while exiled / after');
+});
+await test('Banishing Light: if it left before its trigger resolved, nothing is exiled (610.3c)', async () => {
+  const r = await exileUntil('Banishing Light', 'Sol Ring', { before: (g, src) => { g.destroy(src); } });
+  eq(r.during, 'battlefield', 'Sol Ring zone'); ok(/Sol Ring is not exiled/.test(logText(r.g)), 'the log says why');
+});
+await test('Banishing Light on a token: the token is gone and nothing returns; an enter trigger happens again on return', async () => {
+  const r = await exileUntil('Banishing Light', '', { token: true });
+  r.g.destroy(r.src); await settle(r.g);
+  eq([r.v.zone, P(r.g, 1).battlefield.length], ['gone', 0], 'token zone / battlefield'); noErrors(r.g);
+  const w = await exileUntil('Banishing Light', 'Wall of Omens'); const hand = P(w.g, 1).hand.length;
+  w.g.destroy(w.src); await settle(w.g); eq(P(w.g, 1).hand.length, hand + 1, 'Wall of Omens drew a card on its return');
+});
+await test('Oblivion Ring: returns the card when it leaves; exiled for good if the Ring left first', async () => {
+  const r = await exileUntil('Oblivion Ring', 'Sol Ring');
+  r.g.destroy(r.src); await settle(r.g); eq([r.during, r.v.zone], ['exile', 'battlefield'], 'Sol Ring while exiled / after');
+  const gone = await exileUntil('Oblivion Ring', 'Sol Ring', { before: (g, src) => { g.destroy(src); } });
+  eq(gone.v.zone, 'exile', 'the Ring left before its first trigger resolved: exiled for good');
+});
+await test('Hostage Taker: its controller may cast the exiled card; it returns if the Taker leaves first', async () => {
+  const r = await exileUntil('Hostage Taker', 'Sol Ring');
+  eq([r.v.zone, r.v.mayPlay?.p], ['exile', 0], 'Sol Ring zone / who may cast it');
+  mana(r.g, 0); ok(r.g.canCast(P(r.g, 0), r.v), 'castable from exile by the Taker\'s controller');
+  r.g.destroy(r.src); await settle(r.g); eq([r.v.zone, r.v.controller, r.v.mayPlay], ['battlefield', 1, null], 'after the Taker died: back with its owner');
+});
+
+// ---------- Rules 17 (audit item 211): imprint, and amounts per counter
+await test('Chrome Mox: no mana with nothing imprinted; only the imprinted card\'s colors', async () => {
+  const none = await scenario([{ battlefield: ['Chrome Mox'] }, {}]); eq(none.availableMana(P(none, 0)), 0, 'available mana with nothing imprinted');
+  const g = await scenario([{ hand: ['Chrome Mox', 'Lightning Bolt', 'Sol Ring', 'Craterhoof Behemoth'] }, {}]);
+  g.active = 0; await cast(g, 0, 'Chrome Mox');
+  const mox = find(g, 0, 'Chrome Mox');
+  eq([mox.imprintedObj?.card.name, mox.imprintedObj?.zone], ['Lightning Bolt', 'exile'], 'imprinted (the colored card the AI needs least; never the artifact)');
+  eq(g.manaUnitsOf(P(g, 0), mox).map(u => u.colors.join('')), ['R'], "the Mox's mana"); noErrors(g);
+  const old = await scenario([{ battlefield: ['Chrome Mox'] }, {}], { rules: 16 }); eq(old.availableMana(P(old, 0)), 1, 'rules 16 (old replays): any color with nothing imprinted');
+});
+const ringTurns = async rules => {
+  const g = await scenario([{ battlefield: ['The One Ring'], filler: 20 }, {}], { rules });
+  const ring = find(g, 0, 'The One Ring'); const drawn = [], lost = [];
+  for (let k = 0; k < 3; k++) {
+    g.turn++; const life = P(g, 0).life; g.trigger(ring, 'upkeep'); await settle(g); lost.push(life - P(g, 0).life);
+    const hand = P(g, 0).hand.length; await resolveEffects(g, 0, ring, ring.fx.abilities[0].effects); drawn.push(P(g, 0).hand.length - hand);
+  }
+  g.turn++; const life = P(g, 0).life; g.trigger(ring, 'upkeep'); await settle(g); lost.push(life - P(g, 0).life);
+  return { drawn, lost };
+};
+await test('The One Ring: draws 1, 2, 3 on three turns, and costs a life for each burden counter each upkeep', async () => {
+  eq(await ringTurns(), { drawn: [1, 2, 3], lost: [0, 1, 2, 3] }, 'cards drawn / life lost');
+});
+await test('The One Ring under rules 16 (old replays): one card and one life, as before', async () => {
+  eq(await ringTurns(16), { drawn: [1, 1, 1], lost: [1, 1, 1, 1] }, 'cards drawn / life lost');
 });
 
 const failed = results.filter(([, e]) => e);

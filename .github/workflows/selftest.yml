@@ -1,27 +1,38 @@
-# Every push and pull request: the type check and the golden, card and fuzz tests; then the self-test page against
-# server.py on Linux and macOS, and against Commander Table.exe and server.ps1 on Windows (item 177). The self-test page
-# (endpoint checks, 50 fast games, the 20-game rules check, 10 Kingdoms games) in headless Chromium.
+# Every push to any branch: the type check and the Node tests (item 216). Pull requests, pushes to main and manual
+# runs also get the self-test page against server.py on Linux and macOS, and against Commander Table.exe and
+# server.ps1 on Windows (item 177). The self-test page (endpoint checks, 50 fast games, the 20-game rules check,
+# 10 Kingdoms games) runs in headless Chromium.
 name: Self-test
 
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
   workflow_dispatch:
 
 permissions:
   contents: read
 
+# (a push to a branch with an open pull request would run twice: the newer run replaces the older one)
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   typecheck:
     # TypeScript's checker over public/js (no build); fails only on errors not in tests/typecheck-baseline.txt
+    # (two Node versions: the oldest still supported and the current one)
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
       - name: Type check (ratchet)
         run: node tests/typecheck.mjs
       - name: Golden card readings (effects parser over 3,500 saved cards)
@@ -34,9 +45,26 @@ jobs:
         run: node tests/hidden.mjs
       - name: Card and interaction tests (one board per rule, fix or combo)
         run: node tests/interactions.mjs
+      - name: Replay exactness (saved card data and combos, isolation, old replay files)
+        run: node tests/replay.mjs
+      - name: Loops of triggers (endless loops, loops that end, optional loops, priority, responsiveness)
+        run: node tests/loops.mjs
+      - name: Combos played out with the real cards (life, damage, combat, mill, Spellbook statuses)
+        run: node tests/combos.mjs
+      - name: Phyrexian, hybrid and two-brid mana (parsing, planning, life payments, choices)
+        run: node tests/mana.mjs
+      - name: Replacement effects (zone changes, draws, prevention, entering, tokens; ordering)
+        run: node tests/replacements.mjs
+      - name: Stack and priority (responses, APNAP, targets, counters)
+        run: node tests/stack.mjs
+      - name: Card abilities (keywords, protection, prowess, triggers, activated and static abilities)
+        run: node tests/abilities.mjs
+      - name: Online seats (a friend's answer is checked against what was asked; fake room)
+        run: node tests/net.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     strategy:
       fail-fast: false
       matrix:
@@ -72,6 +100,7 @@ jobs:
 
   windows:
     # (item 177) build Commander Table.exe and run the self-test against it, then against server.ps1 (start.bat's server)
+    if: github.event_name != 'push' || github.ref == 'refs/heads/main'
     runs-on: windows-latest
     timeout-minutes: 30
     steps:

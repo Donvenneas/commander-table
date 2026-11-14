@@ -32,6 +32,35 @@ export const MORE_KEYWORDS = ['fear', 'shadow', 'exalted', 'battle cry', 'bushid
   'swampwalk', 'forestwalk', 'mountainwalk', 'plainswalk', 'channel', 'enchant', 'equip', 'convoke', 'delve', 'evoke',
   'flashback', 'storm', 'landcycling', 'reconfigure', 'partner', 'companion', 'poisonous', 'absorb', 'amplify'];
 const COLOR_NAME = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+// (rules 16, Game.protectedFrom) The qualities in "protection from X[ and from Y]": color letters, 'everything',
+// 'multicolored', 'monocolored', 'colorless', card types, and 'choice' for "the color of your choice" (chosen as the
+// effect resolves). Returns null when any part isn't one of these (the protection isn't read then).
+const PROT_TYPES = { creatures: 'creature', artifacts: 'artifact', enchantments: 'enchantment', instants: 'instant', sorceries: 'sorcery', planeswalkers: 'planeswalker' };
+// A "gains hexproof / indestructible / protection from X until end of turn" effect. Protection is read as hexproof
+// before rules 16 (kw); prot and kw16 (what it grants besides protection) are used from rules 16 (resolve.js 'protect')
+function protectFx(scope, granted) {
+  const e = { k: 'protect', scope, kw: [...new Set(kwList(granted).concat(/protection/.test(granted) ? ['hexproof'] : []))] };
+  const pr = (granted.match(/protection from [\w ]+?(?=$|,? and (?:hexproof|indestructible|shroud)|, (?:hexproof|indestructible|shroud))/g) || []).map(protQualities);
+  if (pr.length && pr.every(Boolean)) Object.assign(e, { prot: [...new Set(pr.flat())], kw16: kwList(granted.replace(/protection from [\w ]+/g, '')) });
+  return e;
+}
+// (what a mana condition may ask you to control: basic land types and card types)
+const MANA_COND = /^(?:plains|island|swamp|mountain|forest|artifact|creature|enchantment|land|planeswalker|legendary)$/;
+export function protQualities(s) {
+  const out = [];
+  // ("protection from colorless or from the color of your choice": one choice among them, not read yet)
+  if (/ or from /.test(s)) return null;
+  for (const part of s.replace(/^protection from /, '').split(/,? and from |, from /)) {
+    const w = part.trim();
+    if (COLOR_NAME[w]) out.push(COLOR_NAME[w]);
+    else if (w === 'each color' || w === 'all colors') out.push('W', 'U', 'B', 'R', 'G');
+    else if (['everything', 'multicolored', 'monocolored', 'colorless'].includes(w)) out.push(w);
+    else if (PROT_TYPES[w]) out.push(PROT_TYPES[w]);
+    else if (w === 'the color of your choice') out.push('choice');
+    else return null;
+  }
+  return out.length ? out : null;
+}
 
 export function cleanText(text, name) {
   let t = (text || '').replace(/\([^)]*\)/g, '').toLowerCase();
@@ -133,7 +162,7 @@ const PATTERNS = [
   [/exile (?:up to one )?(another )?target (?:[\w-]+ )*?(creature|nonland permanent|permanent|artifact or creature)(?: you (?:control|own))?,? then return (?:it|that card) to the battlefield/, m => ({ k: 'blink', other: !!m[1], what: m[2] })],
   [/copy target (?:instant or sorcery |instant |sorcery |activated or triggered ability or instant or sorcery )?spell/, () => ({ k: 'copySpell' })],
   [/(target creature you control|target creature|target permanent you control|creatures you control|permanents you control|~) gains? ((?:hexproof|indestructible|shroud|protection from [\w ]+?)(?:(?:,|,? and) (?:hexproof|indestructible|shroud|protection from [\w ]+?))*) until end of turn/,
-    m => ({ k: 'protect', scope: m[1].startsWith('target') ? 'one' : m[1] === '~' ? 'self' : 'all', kw: [...new Set(kwList(m[2]).concat(/protection/.test(m[2]) ? ['hexproof'] : []))] })],
+    m => protectFx(m[1].startsWith('target') ? 'one' : m[1] === '~' ? 'self' : 'all', m[2])],
   // ---- library: scry, surveil, milling yourself, looking at the top cards, playing from exile
   [/\bscry (\d+|x|a|an|one|two|three|four|five)/, m => ({ k: 'scry', n: num(m[1]) })],
   [/\bsurveil (\d+|x|a|an|one|two|three|four|five)/, m => ({ k: 'surveil', n: num(m[1]) })],
@@ -168,6 +197,9 @@ const PATTERNS = [
   [/target creature (?:an opponent controls |you don't control )?gets -(\d+|x)\/-(\d+|x) until end of turn/, m => ({ k: 'shrink', p: num(m[1]), t: num(m[2]) })],
   [/(creatures your opponents control|creatures you don't control|all creatures|each creature|all other creatures) gets? -(\d+|x)\/-(\d+|x) until end of turn/, m => ({ k: 'shrinkAll', p: num(m[2]), t: num(m[3]), opp: /opponent|don't/.test(m[1]) })],
   [/you lose (\d+|x) life/, m => ({ k: 'loseSelf', n: num(m[1]) })],
+  // (rules 16) "You draw a card and lose 1 life" (Phyrexian Arena, Night's Whisper): the life loss was read only after
+  // "you lose"; since: 16 keeps older games playing without it (resolve.js doEffect)
+  [/(?<=\bdraw (?:a card|\w+ cards) )and lose (\d+|x) life/, m => ({ k: 'loseSelf', n: num(m[1]), since: 16 })],
   [/(?:^|[.,] |and )(?:~|it) gets \+(\d+|x)\/\+(\d+|x)(?: and gains ([\w, ]+))? until end of turn/, m => ({ k: 'pumpSelf', p: num(m[1]), t: num(m[2]), kw: kwList(m[3]) })],
   [/(?:^|[.,] )~ gains ((?:flying|trample|haste|first strike|double strike|lifelink|deathtouch|vigilance|menace|reach)(?:(?:,|,? and) (?:flying|trample|haste|first strike|double strike|lifelink|deathtouch|vigilance|menace|reach))*) until end of turn/, m => ({ k: 'pumpSelf', p: 0, t: 0, kw: kwList(m[1]) })],
   [/deals (\d+) damage to (?:the player or planeswalker it's attacking|the player it's attacking|defending player|that player)/, m => ({ k: 'damage', n: +m[1], to: 'defender' })],
@@ -396,7 +428,7 @@ const PATTERNS = [
   [/target creature becomes (?:white|blue|black|red|green) and gains (haste|flying|trample|menace) until end of turn/, m => ({ k: 'pump', p: 0, t: 0, kw: [m[1]] })],
   [/target creature gains (shadow|fear|intimidate|horsemanship) until end of turn/, m => ({ k: 'pump', p: 0, t: 0, kw: [m[1]] })],
   [/regenerate another target [a-z]+/, () => ({ k: 'regen', self: false })],
-  [/target [\w ]+? you control gains protection from (?:the color of your choice|[\w ]+?) until end of turn/, () => ({ k: 'protect', scope: 'one', kw: ['hexproof'] })],
+  [/target [\w ]+? you control gains (protection from (?:the color of your choice|[\w ]+?)) until end of turn/, m => protectFx('one', m[1])],
   // Graveyards: tribal or filtered returns
   [/return target ((?:[a-z]+, )+(?:or )?[a-z]+) card from your graveyard to your hand/, () => ({ k: 'regrow', n: 1, types: ['creature'] })],
   [/return target ([\w ]*?)card that [^.]*? from your graveyard to your hand/, m => ({ k: 'regrow', n: 1, types: typeWords(m[1]) })],
@@ -637,7 +669,34 @@ export function parseCond(s) {
     const what = m[2].replace(/ (?:card|permanent)$/, '').trim();
     return { c: 'control', n: m[1] === 'another' ? 1 : num(m[1]), what: what.replace(/s$/, ''), other: /other|another/.test(s) };
   }
-  return { c: '?', text: s };
+  // (item 206) Still '?' for games at rules 16 and earlier, which count it as met. From rules 17 the reading in r is
+  // checked instead, and a condition with no r is not met (and is reported), never assumed.
+  const r = cond17(s);
+  return r ? { c: '?', text: s, r } : { c: '?', text: s };
+}
+// (item 206, rules 17) Conditions read since the 1.31.0 audit (triggers.js evalCond)
+function cond17(s) {
+  let m;
+  if ((m = s.match(/^you (win|lose) the flip$/))) return { c: 'coin', win: m[1] === 'win' };
+  if ((m = s.match(/^it was an? ([\w ]+?)(?: card)?$/)) && typeWords(m[1]).length) return { c: 'trigIs', types: typeWords(m[1]) };
+  if (/^you cast (?:it|~)$/.test(s)) return { c: 'wasCast' };
+  if (/^~ was cast from your hand$/.test(s)) return { c: 'castFromHand' };
+  if ((m = s.match(/^you gained (\d+) or more life this turn$/))) return { c: 'gainedN', n: +m[1] };
+  if ((m = s.match(/^(?:an opponent|a player) lost (\d+) or more life this turn$/))) return { c: 'lostN', n: +m[1], any: /^a player/.test(s) };
+  if (/^you didn't lose life this turn$/.test(s)) return { c: 'noLifeLost' };
+  if ((m = s.match(/^~ is in your graveyard and you control an? (\w+)$/))) return { c: 'selfGyControl', what: m[1] };
+  if ((m = s.match(/^you control no (\w+)$/))) return { c: 'controlNone', what: singular(m[1]) };
+  if ((m = s.match(new RegExp(`^you control at least ${COUNTW} other (\\w+)$`)))) return { c: 'control', n: num(m[1]), what: singular(m[2]), other: true };
+  if ((m = s.match(/^an opponent has (\d+) or less life$/))) return { c: 'oppLifeLE', n: +m[1] };
+  if ((m = s.match(new RegExp(`^an opponent controls ${COUNTW} or more (\\w+)$`)))) return { c: 'oppControl', n: num(m[1]), what: singular(m[2]) };
+  if ((m = s.match(/^an opponent controls an? (\w+)$/))) return { c: 'oppControl', n: 1, what: m[1] };
+  if (/^an opponent is the monarch$/.test(s)) return { c: 'oppMonarch' };
+  if (/^no creatures are on the battlefield$/.test(s)) return { c: 'bfNoCreatures' };
+  if ((m = s.match(new RegExp(`^(?:~|it) has ${COUNTW} or more \\+1/\\+1 counters on it$`)))) return { c: 'selfCounters', min: num(m[1]) };
+  if ((m = s.match(new RegExp(`^~ has fewer than ${COUNTW} \\+1/\\+1 counters on it$`)))) return { c: 'selfCounters', max: num(m[1]) - 1 };
+  if ((m = s.match(new RegExp(`^you have fewer than ${COUNTW} cards in hand$`)))) return { c: 'handLT', n: num(m[1]) };
+  if ((m = s.match(/^this is the (second|third|fourth) time this ability has resolved this turn$/))) return { c: 'nthResolve', n: { second: 2, third: 3, fourth: 4 }[m[1]] };
+  return null;
 }
 const COND_TEXT = {
   kicked: () => 'kicked', gy: c => `${c.n}+ cards in graveyard`, gyTypes: c => `${c.n}+ card types in graveyard`, gyType: c => `${c.n}+ ${c.types.join('/')} cards in graveyard`,
@@ -785,6 +844,8 @@ function keywordLine(line, fx) {
     if ((m = s.match(/^((?:basic )?land|plains|island|swamp|mountain|forest)?cycling ((?:\{[^}]+\})+)$/))) { fx.cycling = { cost: m[2].toUpperCase(), land: m[1] ? m[1].replace('basic land', 'basic') : null }; fx.kw.add('cycling'); continue; }
     if ((m = s.match(/^ward \{(\d+)\}$/))) { fx.ward = +m[1]; fx.kw.add('ward'); continue; }
     if ((m = s.match(/^protection from (white|blue|black|red|green)(?: and from (white|blue|black|red|green))?$/))) { fx.prot = [COLOR_NAME[m[1]], m[2] && COLOR_NAME[m[2]]].filter(Boolean); continue; }
+    // (rules 16) protection from other qualities: everything, each color, card types, multicolored (Game.protectedFrom)
+    if (/^protection from /.test(s) && protQualities(s) && !protQualities(s)?.includes('choice')) { fx.protQ = protQualities(s); continue; }
     if ((m = s.match(/^(plains|island|swamp|mountain|forest)walk$/))) { fx.landwalk = m[1]; continue; }
     if (s === 'jump-start') { fx.jumpstart = true; continue; }
     if (s === 'affinity for artifacts') { fx.affinity = true; continue; }
@@ -854,7 +915,8 @@ function keywordLine(line, fx) {
     // Miracle: castable for its miracle cost on the turn it's drawn as that turn's first card
     if ((m = s.match(/^(miracle|entwine) ((?:\{[^}]+\})+)$/))) { fx[m[1]] = m[2].toUpperCase(); fx.kw.add(m[1]); continue; }
     if (s === 'exploit') { fx.exploit = true; fx.kw.add('exploit'); fx.etb.push({ k: 'exploit' }); continue; }
-    // Compleated only changes loyalty when life is paid for its Phyrexian mana, which the simulator pays with mana
+    // Compleated only changes loyalty when life is paid for its Phyrexian mana (payable with life from rules 12, mana.js;
+    // the lower loyalty that brings isn't modelled yet)
     if (s === 'compleated') continue;
     if (KEYWORDS.some(k => s === k) || /^(enchant|protection from|convoke|delve)\b/.test(s)) continue;
     all = false;
@@ -889,12 +951,15 @@ export function parseEffects(t) {
   const out = [];
   /** @type {any} (set by flush below: the plain effects just before an "if … instead" sentence) */
   let lastPlain = null;
-  let plain = [], lastIf = null;
+  let plain = [], lastIf = null, noRegen = false;
   const flush = () => { if (plain.length) { lastPlain = parseFlat(plain.join(' ')); out.push(...lastPlain); plain = []; } };
   for (let s of t.split(/(?<=\.)\s+/)) {
     s = s.replace(/^(?!choose )[a-z0-9',! ]{3,30} — (?=if |\w)/, '');
     // (limits on how often something happens don't change what it does)
     if (/^this ability triggers only once each turn|^activate only once each turn|^activate only as a sorcery|^this effect doesn't remove/.test(s)) continue;
+    // (rules 9) "It can't be regenerated" / "They can't be regenerated": the destruction before it ignores shields
+    // (marked once the whole text is read, so the sentences around it still read together: Pongify's token)
+    if (/^(?:it|they) can't be regenerated\.?$/.test(s)) { noRegen = true; continue; }
     // ("If a card would be put into your graveyard …, exile it instead" is a replacement, not a condition)
     let m = /^if [^,]* would /.test(s) ? null : s.match(/^(?:if|as long as) (?!you do\b|you don't\b|it's|that\b|they\b|a player does\b|no one does\b)(.+?), (.+)$/);
     let instead = false;
@@ -918,6 +983,10 @@ export function parseEffects(t) {
     plain.push(s);
   }
   flush();
+  if (noRegen) {
+    const mark = (/** @type {any[]} */ es) => { for (const x of es) { if (x.k === 'remove' || x.k === 'wipe' || x.k === 'wipeOpp') x.noRegen9 = true; if (x.effects) mark(x.effects); } };
+    mark(out);
+  }
   return out;
 }
 
@@ -943,9 +1012,88 @@ function parseFlat(t) {
   if (dyn) {
     const d = dyn[1] ? { dyn: 'devotion', color: 'WUBRG'['white blue black red green'.split(' ').indexOf(dyn[1])] } : dyn[2] ? { dyn: 'count', what: dyn[2] } : dyn[3] ? { dyn: 'maxPower' } : dyn[4] ? { dyn: 'gy' } : dyn[5] ? { dyn: 'trigMV' } : { dyn: 'hand' };
     for (const e of effects) for (const f of ['n', 'p', 't']) if (e[f] === 'X') e[f] = d;
+  } else {
+    // (item 207) Every other "where X is …": kept beside the effect as xw and counted on resolution from rules 17
+    // (before, X was the X paid on casting: 0). A clause that isn't understood is { dyn: '?' }: still 0, and the
+    // coverage report lists the card as misread.
+    const w = t.match(/where x is ([^.\n]+)/);
+    if (w) { const d = whereX(w[1].trim()); for (const e of effects) if (['n', 'p', 't'].some(f => e[f] === 'X')) e.xw = d; }
   }
   readRiders(t, found, effects);
   return effects;
+}
+
+// (item 207) What X stands for in "…, where X is <clause>", as a counted amount (mana.js dynValue)
+function whereX(c) {
+  let m;
+  if (/^(?:~'s|this creature's) power\b/.test(c)) return { dyn: 'selfPower' };
+  if (/^(?:that creature's|its) power\b/.test(c)) return { dyn: 'thatPower' };
+  if (/^the sacrificed creature's power\b/.test(c)) return { dyn: 'sacPower' };
+  if (/^the sacrificed (?:creature|artifact|enchantment|permanent)'s mana value\b/.test(c)) return { dyn: 'sacMv' };
+  if (/^(?:that (?:card|spell)'s mana value|the mana value of that spell)\b/.test(c)) return { dyn: 'trigMV' };
+  if (/^the number of \+1\/\+1 counters on (?:~|this creature)$/.test(c)) return { dyn: 'selfCounters' };
+  if ((m = c.match(/^the number of (\w+) counters on (?:~|this \w+)$/))) return { dyn: 'namedCounters', kind: m[1] };
+  if ((m = c.match(/^the number of (other )?attacking creatures$/))) return { dyn: 'attackers', other: !!m[1] };
+  if (c === 'your life total') return { dyn: 'life' };
+  if (/^the number of artifacts and enchantments your opponents control$/.test(c)) return { dyn: 'oppArtEnch' };
+  if ((m = c.match(/^(half )?the number of (other )?(tapped )?([a-z' -]+?) (you control|on the battlefield)(?:, rounded (down|up))?$/)) && !/ and | or /.test(m[4])) {
+    return { dyn: 'countX', what: m[4].split(' ').map(singular).join(' '), where: m[5] === 'you control' ? 'you' : 'all', ...(m[1] ? { half: m[6] || 'down' } : {}), ...(m[2] ? { other: true } : {}), ...(m[3] ? { tapped: true } : {}) };
+  }
+  return { dyn: '?' };
+}
+
+// (item 209) The effects whose one target is a permanent, and the restriction words of the first "target …" phrase
+// in the sentence the effect was read from
+const TARGETED = new Set(['remove', 'bounce', 'blink', 'flickerDelay', 'steal', 'tap', 'pump', 'protect', 'counters', 'shrink', 'minus', 'goad', 'damage', 'tuck', 'noBlock', 'regen', 'doublePT', 'evade', 'kwCounter']);
+const TR_COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+const TR_KW = 'flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|defender|first strike|double strike';
+const TR_TYPES = new Set(['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent', 'nonland', 'noncreature', 'nonartifact', 'nontoken', 'token']);
+function targetWords(t, i, k) {
+  const from = Math.max(t.lastIndexOf('.', i), t.lastIndexOf('\n', i)) + 1;
+  const sentence = t.slice(from).split(/[.\n]/)[0];
+  // (the first "target" at or after the words the effect was read from; else the one just before them)
+  const all = [...sentence.matchAll(/\btarget /g)].map(m => m.index);
+  const at = all.find(a => a >= i - from) ?? all.at(-1) ?? -1;
+  if (at < 0) return null;
+  // (the phrase ends where the next clause starts; a second "target" belongs to something else)
+  const phrase = sentence.slice(at + 7).split(/[;:(]|, then\b| and (?!\/)|\bgets?\b|\bgains?\b|\bdeals?\b|\bfights?\b|\bcan't\b|\bunless\b|\bto (?:its|their)\b|\btarget\b|\bif\b|\buntil\b|\bbecomes?\b|\bis\b|\bhas\b|\bhave\b|\bloses?\b|\bdoesn't\b|\bphases?\b|\bexplores?\b|\bconnives?\b|\buntaps?\b/)[0];
+  const head = phrase.split(/ with | you | an opponent | that | from | of | on /)[0];
+  // ("artifact, enchantment, or tapped creature": a word after "or" belongs to the last kind only, so it is not kept)
+  const first = head.replace('attacking or blocking', 'attacking-or-blocking').split(/,? or /)[0];
+  /** @type {any} */
+  const tr = {};
+  const nots = [...head.matchAll(/\bnon-?(white|blue|black|red|green|artifact|creature|enchantment|legendary|token|basic|human|snow)\b/g)].map(m => m[1]);
+  if (nots.length) tr.not = [...new Set(nots)];
+  const cols = [...first.matchAll(/(?<!non-?)\b(white|blue|black|red|green)\b/g)].map(m => TR_COLORS[m[1]]);
+  if (cols.length) tr.colors = cols;
+  if (/\bmulticolored\b/.test(first)) tr.multi = true;
+  if (/\bmonocolored\b/.test(first)) tr.mono = true;
+  if (/\bcolorless\b/.test(first)) tr.colorless = true;
+  let m;
+  if ((m = first.match(/\b(attacking-or-blocking|attacking|blocking)\b/))) tr.state = m[1].replace(/-/g, ' ');
+  if ((m = first.match(/\b(un)?tapped\b/))) tr.tapped = !m[1];
+  if (/(?<!non-?)\blegendary\b/.test(first)) tr.legendary = true;
+  if (/\btoken\b/.test(head) && !/\bnon-?token\b/.test(head)) tr.token = true;
+  if (/^(?:an)?other\b/.test(head) || /\b(?:an)?other $/.test(sentence.slice(0, at))) tr.other = true;
+  // ("creature or enchantment", "artifact, creature, or planeswalker": each kind the target may be, when every word is
+  // a card type; the effect's own "what" keeps its older, narrower reading for games before rules 17)
+  if (/ or /.test(head.replace('attacking or blocking', ''))) {
+    const kinds = head.replace('attacking or blocking', '').split(/, or |, | or /).map(a => a.split(' ').filter(w => w && !/^(?:an)?other$|^(?:un)?tapped$|^attacking$|^blocking$|^legendary$|^non-?(?:white|blue|black|red|green|basic|legendary|token)$|^(?:white|blue|black|red|green)$/.test(w)).join(' '));
+    if (kinds.every(a => a && a.split(' ').every(w => TR_TYPES.has(w)))) tr.kinds = kinds;
+  }
+  if ((m = phrase.match(/ with mana value (\d+) or (less|greater)/))) tr.mv = m[2] === 'less' ? { max: +m[1] } : { min: +m[1] };
+  else if ((m = phrase.match(/ with mana value (\d+)\b/))) tr.mv = { min: +m[1], max: +m[1] };
+  for (const [word, key] of [['power', 'power'], ['toughness', 'tough']]) {
+    if ((m = phrase.match(new RegExp(` with ${word} (\\d+) or (less|greater)`)))) tr[key] = m[2] === 'less' ? { max: +m[1] } : { min: +m[1] };
+  }
+  if ((m = phrase.match(new RegExp(` with (${TR_KW})(?: or (${TR_KW}))?\\b`)))) tr.kw = [m[1], m[2]].filter(Boolean);
+  if ((m = phrase.match(new RegExp(` without (${TR_KW})\\b`)))) tr.noKw = m[1];
+  // ("you control" / "you don't control": not for a fight or bite, whose own creature is named first)
+  if (k !== 'fight') {
+    if (/ you control\b/.test(phrase) && !/ you don't control\b/.test(phrase)) tr.ctl = 'you';
+    else if (/ you don't control\b| an opponent controls\b/.test(phrase)) tr.ctl = 'opp';
+  }
+  return Object.keys(tr).length ? tr : null;
 }
 
 // Second halves of sentences the patterns above leave out. Each is a mark on an effect already read, used by the
@@ -965,8 +1113,45 @@ function readRiders(t, found, effects) {
     seen.add(key);
   }
   let m;
+  // (item 208, used from rules 17) A counterspell's conditions: "unless its controller pays {N}" (unless), "with mana
+  // value N [or less / or greater]" (mv), "target blue spell" (color: only a legal target when it is that color) and
+  // "if it's blue" (ifColor: any target, but nothing happens to another color; also on Pyroblast's "destroy" half)
+  const COLS = 'white|blue|black|red|green', colOf = (/** @type {string} */ w) => 'WUBRG'[COLS.split('|').indexOf(w)];
+  for (const e of effects) {
+    if (e.dup) continue;
+    if (e.k === 'counter') {
+      if ((m = t.match(/counter target [\w, ]*?spell unless its controller pays \{(\d+)\}/))) e.unless = +m[1];
+      if ((m = t.match(/counter target [\w, ]*?spell with mana value (\d+)(?: or (less|greater))?/))) e.mv = m[2] === 'less' ? { max: +m[1] } : m[2] === 'greater' ? { min: +m[1] } : { min: +m[1], max: +m[1] };
+      if ((m = t.match(new RegExp(`counter target (${COLS}) spell`)))) e.color = colOf(m[1]);
+      if ((m = t.match(new RegExp(`counter target [\\w, ]*?spell if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
+    } else if (e.k === 'remove' && (m = t.match(new RegExp(`(?:destroy|exile) target [\\w, ]*?permanent if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
+  }
+  // (item 209, used from rules 17) What a targeted effect's words ask of its target, beyond the kind of permanent:
+  // tr = { not: ['black', 'artifact'], colors: ['U'], mv: { max: 3 }, power / tough: { min: 4 }, state: 'attacking',
+  // tapped, legendary, ctl: 'you' | 'opp', kw: ['flying'], other }. One reading for every targeted effect
+  // (resolve.js targetFits is the one test the engine, the AI and a person's target list share).
+  for (const x of found) {
+    if (x.e.dup || x.e.tr || !TARGETED.has(x.e.k)) continue;
+    const tr = targetWords(t, x.i, x.e.k);
+    if (tr) x.e.tr = tr;
+  }
+  // (item 211, used from rules 17) "… for each burden counter on ~" (The One Ring): the amount is counted on
+  // resolution (nPer); older games keep the plain 1
+  for (const x of found) {
+    if (x.e.n !== 1 || x.e.dup || !['draw', 'loseSelf', 'gain', 'loseLife', 'drain', 'mill', 'treasure'].includes(x.e.k)) continue;
+    const per = t.slice(x.i).split(/[.\n]|, then /)[0].match(/ for each (\w+) counter on (?:~|this \w+)$/);
+    if (per && !/^\+1\/\+1$|^-1\/-1$/.test(per[1])) x.e.nPer = { dyn: 'namedCounters', kind: per[1] };
+  }
+  // (item 210, used from rules 17) "exile target … until ~ leaves the battlefield" (Banishing Light, Grasp of Fate;
+  // Hostage Taker: 'cast' when its controller may cast the exiled card)
+  for (const x of found) {
+    if (x.e.k !== 'remove' || x.e.mode !== 'exile' || x.e.dup) continue;
+    const from = Math.max(t.lastIndexOf('.', x.i), t.lastIndexOf('\n', x.i)) + 1;
+    const rest = t.slice(from), sentence = rest.split(/[.\n]/)[0];
+    if (/ until (?:~|this (?:creature|enchantment|artifact|permanent|land)) leaves the battlefield/.test(sentence)) x.e.untilLeaves = /^[^.\n]*\. you may cast that card for as long as it remains exiled/.test(rest) ? 'cast' : true;
+  }
   const ctl = "(?:its|that (?:creature|permanent|spell|land)'s) controller";
-  const hit = [...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
+  const hit =[...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
   if (hit) {
     const comp = {};
     if (new RegExp(`${ctl} gains life equal to its power`).test(t)) comp.gain = 'power';
@@ -994,7 +1179,7 @@ function readRiders(t, found, effects) {
 export function needsTargetIn(e, rules) { return needsTarget(e) && !(rules >= 6 && (e.dup || e.gyCard)); }
 export function needsTarget(e) {
   if (e.k === 'copyToken' && e.of) return false;
-  if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock', 'tuck'].includes(e.k)) return true;
+  if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock', 'tuck', 'equipAttach'].includes(e.k)) return true;
   if (e.k === 'goad') return !e.all;
   if (e.k === 'evade' || e.k === 'kwCounter') return !e.self && !e.all;
   if (e.k === 'regen') return !e.self && !e.all;
@@ -1057,6 +1242,8 @@ export function analyzeCard(card) {
   let gate = null, classLevel = 1, bgMark = null;
   // Mana that costs life (rules 6): painlands, Talismans, Ancient Tomb, Mana Confluence (see the mana lines below)
   let painN = 0, painless = false, painLife = false;
+  /** @type {{ cols: string[], need: any }[]} (rules 16: each mana line's colors and its "activate only if you control" condition) */
+  const manaLines = [];
   // A background's granted ability only works while you control a commander
   const applyBg = () => {
     if (!bgMark) return;
@@ -1073,8 +1260,20 @@ export function analyzeCard(card) {
     gate = null;
   };
   const openGate = (kind, n) => { gate = { kind, n, a: fx.abilities.length, w: fx.watch.length, mana: !!fx.mana }; };
+  // (rules 9) "This ability triggers only once each turn" / "Do this only once each turn": the triggers that line
+  // made fire once a turn per permanent (Game.onceOk)
+  let onceMark = null;
+  const applyOnce = () => {
+    if (!onceMark) return;
+    for (const w of fx.watch.slice(onceMark.w)) w.turnOnce9 = true;
+    if (fx.onDeath && fx.onDeath !== onceMark.death) fx.onDeath.turnOnce9 = true;
+    if (fx.onCast && fx.onCast !== onceMark.cast) fx.onCast.turnOnce9 = true;
+    onceMark = null;
+  };
   for (let li = 0; li < lines.length; li++) {
     check();
+    applyOnce();
+    if (/\b(?:this ability triggers|do this) only once each turn\b/.test(lines[li])) onceMark = { w: fx.watch.length, death: fx.onDeath, cast: fx.onCast };
     applyGate();
     applyBg();
     if (classLevel > 1) openGate('level', classLevel);
@@ -1635,6 +1834,13 @@ export function analyzeCard(card) {
     if (/^(?:choose a background|partner(?: with [^.]*)?|friends forever|doctor's companion|a deck can have any number of cards named ~|a deck can have up to \w+ cards named ~|companion — .*)\.?$/.test(line)) { pending = null; continue; }
     // Leylines: "If ~ is in your opening hand, you may begin the game with it on the battlefield"
     if (/^if ~ is in your opening hand(?: and you're not the starting player)?, you may begin the game with (?:it|~) on the battlefield/.test(line)) { fx.leyline = true; continue; }
+    // (item 210, used from rules 17) Oblivion Ring: a second trigger returns what the first one exiled ('ring': the
+    // card stays exiled for good if the Ring left before its first trigger resolved)
+    if (/^when ~ leaves the battlefield, return the exiled cards? to the battlefield under (?:its|their) owners?'s? control\.?$/.test(line) && fx.etb.some(e => e.k === 'remove' && e.mode === 'exile')) {
+      for (const e of fx.etb) if (e.k === 'remove' && e.mode === 'exile') e.untilLeaves = 'ring';
+      pending = null;
+      continue;
+    }
     if (/^rebound$/.test(line)) { fx.rebound = true; continue; }
     if ((m = line.match(/^(other )?creature tokens you control get \+(\d+)\/\+(\d+)(?: and have ([\w ,]+))?\.?$/))) { fx.anthem = { other: !!m[1], tribe: 'token', p: +m[2], t: +m[3], kw: kwList(m[4]) }; continue; }
     if (/^creatures you control are every creature type/.test(line)) { fx.allTypesTeam = true; fx.allTypes = true; continue; }
@@ -1673,7 +1879,12 @@ export function analyzeCard(card) {
     }
     // Lands that enter tapped unless a condition holds (check lands, shock lands, fast lands): the simulator
     // lets them in untapped, which is how they're played most of the time
-    if (type.land && /^(?:~ enters(?: the battlefield)? tapped unless|as ~ enters(?: the battlefield)?, you may (?:pay \d+ life|reveal)|if you control two or more other lands, ~ enters tapped)/.test(line)) { pending = null; continue; }
+    if (type.land && /^(?:~ enters(?: the battlefield)? tapped unless|as ~ enters(?: the battlefield)?, you may (?:pay \d+ life|reveal)|if you control two or more other lands, ~ enters tapped)/.test(line)) {
+      // (rules 9) the condition is checked as it enters (Game.entersTappedNow); one not read here stays reported
+      const cond = enterCond(line);
+      if (cond) { fx.enterCond9 = cond; pending = null; }
+      continue;
+    }
     if (/^you have no maximum hand size/.test(line)) { fx.noMaxHand = true; continue; }
     if ((m = line.match(/^you may play (an additional land|two additional lands|any number of lands) on each of your turns/))) { fx.extraLands = m[1] === 'an additional land' ? 1 : m[1].startsWith('two') ? 2 : 9; continue; }
     // "As ~ enters, choose a creature type": the type that matters most in the deck (see Game.entered)
@@ -1748,6 +1959,8 @@ export function analyzeCard(card) {
     if (/^you control enchanted (creature|permanent|artifact|land)/.test(line)) { fx.controlAura = true; continue; }
     // Mana abilities, including ones with a mana cost first (Signets: "{1}, {T}: Add {U}{B}" nets one mana)
     if ((m = line.match(/^(?:\{(\d)\}, )?\{t\}(, sacrifice ~|, pay \d+ life|, tap an untapped creature you control)?: add ([^.]+)/))) {
+      // (the line that sets the card's mana: a condition on it applies to all of its mana)
+      const firstMana = !fx.mana;
       // ("~ deals 1 damage to you" after the mana, or "pay 1 life" in the cost; a painland's {C} line costs nothing)
       const pain = line.match(/(?:~|this (?:land|artifact|creature)) deals (\d+) damage to you|^\{t\}, pay (\d+) life:/);
       if (pain) { painN = Math.max(painN, +(pain[1] || pain[2])); painLife ||= !!pain[2]; } else painless = true;
@@ -1764,6 +1977,23 @@ export function analyzeCard(card) {
         // Gaea's Cradle, Elvish Archdruid: "Add {G} for each creature (elf) you control"
         const each = clause.match(/for each ([\w -]+?) you control/);
         if (each) fx.mana.dyn = each[1].replace(/s$/, '');
+      }
+      // (rules 13, Phase 2E: mana.js) Temple of the False God: "Activate only if you control five or more lands";
+      // Cavern of Souls: its colored mana only for a creature spell of the chosen type, which then can't be countered
+      // (read from any of the land's mana lines, as the first one sets fx.mana)
+      // (only when that line is the card's mana ability: Shrine of the Forsaken Gods's condition is on its second
+      // ability alone, and "lands with the same name" is another condition)
+      const landsNeed = line.match(/activate only if you control (\w+) or more lands\.?$/);
+      if (fx.mana && firstMana && landsNeed && num(landsNeed[1]) > 0) fx.mana.landsAtLeast = num(landsNeed[1]);
+      if (fx.mana && /spend this mana only to cast a creature spell of the chosen type, and that spell can't be countered/.test(line)) fx.mana.cavern = true;
+      // (rules 16, mana.js manaColors16) "Activate only if you control a Swamp or a Mountain" / "an artifact" /
+      // "three or more artifacts" on one of the mana lines (Tainted lands, Verges, Spire of Industry, Mox Opal)
+      {
+        const cl = m[3];
+        const cols = /any (?:one )?color|any combination of colors/.test(cl) ? ['W', 'U', 'B', 'R', 'G'] : [...new Set((cl.match(/\{[wubrgc]\}/g) || []).map(x => x[1].toUpperCase()))];
+        const cm = line.match(/activate only if you control (a|an|\w+ or more) ([a-z]+?)s?(?: or (?:a|an) ([a-z]+))?\.?$/);
+        const need = cm && !(firstMana && landsNeed) ? { n: /or more/.test(cm[1]) ? num(cm[1].split(' ')[0]) : 1, any: [cm[2], cm[3]].filter(Boolean) } : null;
+        manaLines.push({ cols, need: need && need.any.every(w => MANA_COND.test(w)) ? need : cm && !(firstMana && landsNeed) ? { unread: true } : null });
       }
       // (a second mana ability, a pain land's damage or a spending restriction doesn't change what it makes)
       pending = null;
@@ -1822,15 +2052,126 @@ export function analyzeCard(card) {
     }
   }
   check();
+  applyOnce();
   applyGate();
   applyBg();
   // (colored: only colored mana hurts, as the painland also has a painless {C} line)
   if (fx.mana && painN) fx.mana.pain = { n: painN, colored: painless, ...(painLife ? { life: true } : {}) };
+  // (rules 16) colors only a conditional mana line adds need its condition (a color an unconditional line adds doesn't)
+  if (fx.mana && manaLines.some(l => l.need && !l.need.unread) && !manaLines.some(l => l.need?.unread)) {
+    const free = new Set(manaLines.filter(l => !l.need).flatMap(l => l.cols));
+    const cond16 = manaLines.filter(l => l.need).map(l => ({ colors: l.cols.filter(c => !free.has(c)), need: l.need })).filter(x => x.colors.length);
+    if (cond16.length) fx.mana.cond16 = cond16;
+  }
+  // (item 211, used from rules 17) Chrome Mox: mana only of the imprinted card's colors (mana.js units)
+  if (fx.mana && fx.imprint && /add one mana of any of the exiled card's colors/.test(t)) fx.mana.imprintColors = true;
   if (type.land) {
     if (!fx.mana && produced.length) fx.mana = { amount: 1, colors: produced, sac: false };
     if (!produced.length && /search your library for/.test(t)) fx.fetch = true;
   }
+  comboReadings(t, fx);
+  readings13(t, fx);
   return fx;
+}
+
+// (rules 13, Phase 2E) Spells read in full: fx.spell13 replaces fx.spell from rules 13 on (Game.cast), so older games
+// keep their reading and the AI's values for them. Each is a family of text, not one card's name:
+//   delayed mana after a counter (Mana Drain), delayed draws after a counter (Arcane Denial), "your life total can't
+//   change" + "all permanents you control phase out" (Teferi's Protection), "the owner of target permanent shuffles it
+//   into their library, then reveals the top card… if it's a permanent card, they put it onto the battlefield"
+//   (Chaos Warp)
+function readings13(t, fx) {
+  if (!fx.type.instant && !fx.type.sorcery) return;
+  const lines = t.split('\n').map(s => s.trim());
+  const has = re => lines.some(l => re.test(l));
+  let spell = null;
+  if (has(/^counter target spell\. at the beginning of your next main phase, add an amount of \{c\} equal to that spell's mana value\.?$/)) {
+    spell = fx.spell.map(e => (e.k === 'counter' ? { ...e, laterMana: true } : e));
+  }
+  const denial = lines.map(l => l.match(/^counter target spell\. its controller may draw up to (\w+) cards? at the beginning of the next turn's upkeep\.?$/)).find(Boolean);
+  if (denial) {
+    const mine = has(/^you draw a card at the beginning of the next turn's upkeep\.?$/);
+    spell = fx.spell.map(e => (e.k === 'counter' ? { ...e, laterDraw: num(denial[1]) } : e.k === 'draw' && mine ? { k: 'laterDraw', n: 1 } : e));
+  }
+  if (has(/^until your next turn, your life total can't change and you gain protection from everything\. all permanents you control phase out\.?$/)) {
+    spell = fx.spell.flatMap(e => (e.k === 'shieldSelf' ? [e, { k: 'lifeLock' }, { k: 'phaseOut', who: 'you' }] : [e]));
+  }
+  const warp = lines.map(l => l.match(/^the owner of target (permanent|creature|nonland permanent) shuffles it into their library, then reveals the top card of their library\. if it's a permanent card, they put it onto the battlefield\.?$/)).find(Boolean);
+  // (still a "remove" for choosing and checking the target; resolve.js does the shuffle and the reveal)
+  if (warp) spell = [{ k: 'remove', mode: 'warp', what: warp[1], warp: true }];
+  if (spell) fx.spell13 = spell;
+}
+
+// Combo pieces read in full (rules 7, the combo audit). Everything added here is a field only rules 7 code looks at
+// (abilities7, watch7, effects7, grants and flags on effects), so games at rules 6 and older play exactly as before,
+// and the AI's card values (which count abilities and triggers) don't change for them either.
+function comboReadings(t, fx) {
+  let m;
+  const read = re => { fx.unread = fx.unread.filter(u => !re.test(u)); };
+  // Demonic Consultation: name a card, exile six, then reveal until the named card (all of it if it isn't there)
+  if ((m = t.match(/choose a card name\. exile the top (\w+) cards of your library, then reveal cards from the top of your library until you reveal a card with the chosen name/))) {
+    for (const e of fx.spell) if (e.k === 'tutor') e.consult = num(m[1]);
+  }
+  // Tainted Pact: exile one at a time; take one, or stop at the first repeated name
+  if (/exile the top card of your library\. you may put that card into your hand unless it has the same name as another card exiled this way/.test(t)) {
+    for (const e of fx.spell) if (e.k === 'tutor') e.pact = true;
+  }
+  // Food Chain: X is 1 plus the exiled creature's mana value, and the mana is only for creature spells
+  if (/add x mana of any one color, where x is 1 plus the exiled creature's mana value/.test(t)) {
+    const only = /spend this mana only to cast creature spells/.test(t) ? 'creatureSpell' : null;
+    for (const ab of fx.abilities) if (ab.costs?.exileOwn && ab.effects.some(e => e.k === 'addManaN' && e.n === 'X')) {
+      for (const e of ab.effects) {
+        if (e.k === 'addManaN') e.exiledMv = true;
+        if (only && (e.k === 'addManaN' || e.k === 'addMana')) e.only = only;
+      }
+    }
+  }
+  // Eternal Scourge, Misthollow Griffin: "You may cast ~ from exile."
+  if (/^you may cast ~ from exile\.?$/m.test(t)) { fx.exileCast = true; read(/^you may cast ~ from exile/); }
+  // Isochron Scepter: copy the imprinted instant and cast the copy for free
+  if (fx.imprint && (m = t.match(/^((?:\{[^}]+\})+), \{t\}: you may copy the exiled card\. if you do, you may cast the copy without paying its mana cost\.?$/m))) {
+    (fx.abilities7 ||= []).push({ cost: m[1].toUpperCase(), tap: true, effects: [{ k: 'castImprint' }], text: 'copy the exiled card and cast the copy without paying its mana cost.', sorcery: false,
+      costs: { mana: m[1].toUpperCase(), tap: true, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null }, sacSelf: false, life: 0, discard: 0, minRules: 7 });
+    read(/you may copy the exiled card/);
+  }
+  // Splinter Twin and kin: the enchanted creature gets "{T}: Create a token that's a copy of this creature…"
+  if ((m = t.match(/^enchanted creature has "\{t\}: create a token that's a copy of ~, except it has haste\. exile that token at the beginning of the next end step\.?"\.?$/m))) {
+    fx.grants = [{ cost: '', tap: true, effects: [{ k: 'copyToken', of: '~', haste: true, temp: 'exile' }], text: "create a token that's a copy of this creature with haste (exiled at the next end step).", sorcery: false,
+      costs: { mana: '', tap: true, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null }, sacSelf: false, life: 0, discard: 0, minRules: 7 }];
+    read(/^enchanted creature has "\{t\}: create a token that's a copy/);
+  }
+  // Temur Sabertooth: the bounce half of "return another creature you control to its owner's hand. If you do, …"
+  if (/you may return another creature you control to its owner's hand\. if you do, ~ gains indestructible/.test(t)) {
+    for (const ab of fx.abilities) if (/return another creature you control/.test(ab.text)) ab.effects7 = [{ k: 'bounceOther', what: 'creature' }, ...ab.effects];
+  }
+  // Reveillark: "When ~ leaves the battlefield, return up to two target creature cards with power 2 or less…"
+  if ((m = t.match(/^when ~ leaves the battlefield, return up to (\w+) target creature cards with power (\d+) or less from your graveyard to the battlefield\.?$/m))) {
+    (fx.watch7 ||= []).push({ ev: 'ltb', self: true, effects: [{ k: 'returnLowPower', n: num(m[1]), maxPower: +m[2] }] });
+    read(/^when ~ leaves the battlefield, return up to/);
+  }
+  // Grand Architect: "{U}: Target artifact creature becomes blue until end of turn."
+  if ((m = t.match(/^((?:\{[^}]+\})+): target artifact creature becomes blue until end of turn\.?$/m))) {
+    (fx.abilities7 ||= []).push({ cost: m[1].toUpperCase(), tap: false, effects: [{ k: 'makeColor', color: 'U', what: 'artifact creature' }], text: 'target artifact creature becomes blue until end of turn.', sorcery: false,
+      costs: { mana: m[1].toUpperCase(), tap: false, life: 0, discard: null, discardHand: false, sacSelf: false, sac: null, exileSelf: false, exileGy: 0, tapOthers: null, removeCounters: 0, bounce: null }, sacSelf: false, life: 0, discard: 0, minRules: 7 });
+    read(/becomes blue until end of turn/);
+  }
+  // Curiosity, Ophidian Eye: any damage to an opponent counts, not only combat damage
+  if (/^whenever enchanted creature deals damage to an opponent/m.test(t)) {
+    for (const w of fx.watch) if (w.ev === 'attachedDamage') {
+      w.anyDamage = true;
+      if (/deals damage to an opponent, you may draw a card/.test(t)) for (const e of w.effects) if (e.k === 'draw') e.may = true;
+    }
+  }
+  // Painter's Servant: everything is also the chosen color
+  if (/all cards that aren't on the battlefield, spells, and permanents are the chosen color in addition to their other colors/.test(t)) { fx.paintAll = true; read(/are the chosen color in addition/); }
+  // Grindstone: repeat while the two milled cards share a color
+  if (/if two cards that share a color were milled this way, repeat this process/.test(t)) for (const ab of fx.abilities) for (const e of ab.effects) if (e.k === 'mill') e.repeatShared = true;
+  // Nim Deathmantle: "you may pay {4}. If you do, return that card to the battlefield and attach ~ to it"
+  if (/you may pay \{\d+\}\. if you do, return that card to the battlefield and attach ~ to it/.test(t)) for (const w of fx.watch) for (const e of w.effects) if (e.k === 'payFor') e.returnTrig = true;
+  // Saheeli Rai: "a copy of target artifact or creature you control" (read as artifact only before rules 7)
+  if (/create a token that's a copy of target artifact or creature you control/.test(t)) for (const a of fx.pw) for (const e of a.effects) if (e.k === 'copyToken') e.what7 = 'artifact or creature';
+  // Chain of Smog and the other chain spells: the target player may copy it
+  if (/^target player discards two cards\. that player may copy (?:this spell|~) and may choose a new target for that copy\.?$/m.test(t)) for (const e of fx.spell) if (e.k === 'discard') e.chainCopy = true;
 }
 
 // How a counted amount reads: 3, X, "your devotion to B", "# creatures you control"
@@ -1920,6 +2261,10 @@ const EFFECT_TEXT = {
   modal: e => `choose ${e.n >= 99 ? 'any' : e.n}: ${e.modes.map(list).join(' / ')}`,
   doubleCounters: e => `double the +1/+1 counters on ${e.on}`,
   returnSelfHand: () => 'return it to hand',
+  castImprint: () => 'copy the imprinted card and cast the copy free',
+  bounceOther: e => `return another ${e.what} you control to hand`,
+  returnLowPower: e => `return up to ${e.n} creature cards with power ${e.maxPower} or less from your graveyard to the battlefield`,
+  makeColor: e => `a ${e.what} you control becomes ${{ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' }[e.color]} this turn`,
   fog: () => 'prevent all combat damage this turn',
   win: () => 'win the game',
   exileSelf: () => 'exile this',
@@ -1955,6 +2300,9 @@ export function ignoredText(card) {
 
   // Any line of its text the simulator couldn't read (see analyzeCard)
   if (fx.unread?.length) return `not read: ${fx.unread.map(l => l.length > 70 ? l.slice(0, 68) + '…' : l).join(' / ')}`;
+  // (item 188) a line that was read but with a sentence skipped
+  const dropped = droppedSentences(card);
+  if (dropped.length) return `partly read: ${dropped.map(l => l.length > 70 ? l.slice(0, 68) + '…' : l).join(' / ')}`;
   if (fx.type.land) return null;
   // Keyword-only lines ("flying, vigilance", "flash", "ward {2}") are handled
   const kwLine = l => keywordLine(l, { kw: new Set(), kwN: {}, dies: [], etb: [], abilities: [] })
@@ -1962,6 +2310,70 @@ export function ignoredText(card) {
   const rest = lines.filter(l => !kwLine(l));
   if (!rest.length) return null;
   return describeFx(fx).length ? null : 'its abilities';
+}
+
+// (rules 9) When a land with "enters tapped unless …" or "as it enters, you may pay N life / reveal …" enters
+// untapped (Game.entersTappedNow checks it then)
+const WORDN = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8 };
+export function enterCond(line) {
+  let m;
+  if ((m = line.match(/^as ~ enters(?: the battlefield)?, you may pay (\d+) life\. if you don't, (?:~|it) enters tapped\.?$/))) return { k: 'pay', n: +m[1] };
+  if ((m = line.match(/^as ~ enters(?: the battlefield)?, you may reveal an? (.+?) card from your hand\. (?:if you don't, (?:~|it) enters tapped|~ enters tapped unless you revealed an? .+? card this way|.*)\.?$/))) return { k: 'reveal', what: m[1].split(/ or an? | or /) };
+  if ((m = line.match(/^if you control (\w+) or more other lands, ~ enters tapped\.?$/)) && WORDN[m[1]]) return { k: 'fewer', n: WORDN[m[1]] - 1 };
+  if (!(m = line.match(/^~ enters(?: the battlefield)? tapped unless (.+?)\.?$/))) return null;
+  const c = m[1];
+  if ((m = c.match(/^you control (\w+) or fewer other lands$/)) && WORDN[m[1]] != null) return { k: 'fewer', n: WORDN[m[1]] };
+  if ((m = c.match(/^you control (\w+) or more (other )?(basic lands|lands|plains|islands|swamps|mountains|forests)$/)) && WORDN[m[1]]) return { k: 'count', n: WORDN[m[1]], other: !!m[2], what: m[3] === 'lands' ? 'land' : m[3] === 'basic lands' ? 'basic land' : m[3] === 'plains' ? 'plains' : m[3].replace(/s$/, '') };
+  if ((m = c.match(/^you have (\w+) or more opponents$/)) && WORDN[m[1]]) return { k: 'opps', n: WORDN[m[1]] };
+  if ((m = c.match(/^your opponents control (\w+) or more lands$/)) && WORDN[m[1]]) return { k: 'oppLands', n: WORDN[m[1]] };
+  if (/^it's your first, second, or third turn of the game$/.test(c)) return { k: 'early', n: 3 };
+  if ((m = c.match(/^you control an? ([a-z ]+?)(?: or an? ([a-z ]+))?$/))) return { k: 'control', what: [m[1], m[2]].filter(Boolean) };
+  return null;
+}
+
+// Sentences of a line the reader skipped although the line as a whole was read (item 188): each sentence of a
+// line with more than one is taken out in turn and the card read again; when its reading comes out the same, the
+// sentence changed nothing. (Reminder text is left out; quoted granted abilities stay with their sentence.)
+const dropCache = new WeakMap();
+// (sentences that change nothing the simulator models: library order after a search, an instant-speed timing note,
+// rounding, and the option to keep a copy's targets, which is always a legal choice)
+const HARMLESS = /^(?:then (?:that player )?shuffles?|(?:you may )?shuffle|then shuffle|put the rest on the bottom of (?:your|their) library in (?:a )?random order|activate only as an instant|round (?:up|down) each time|you may choose new targets for the cop(?:y|ies)|if you search your library this way, shuffle)\.?$/i;
+const fxPrint = fx => JSON.stringify(fx, (k, v) => (k === 'unread' ? undefined : v instanceof Set ? [...v].sort() : v));
+export function sentencesOf(line) {
+  const out = [];
+  let cur = '', quote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    cur += ch;
+    if (ch === '"' || ch === '“' || ch === '”') quote = ch === '“' ? true : ch === '”' ? false : !quote;
+    if (!quote && ch === '.' && (i === line.length - 1 || /\s/.test(line[i + 1]))) { out.push(cur.trim()); cur = ''; }
+  }
+  if (cur.trim()) out.push(cur.trim());
+  return out;
+}
+export function droppedSentences(card) {
+  if (!card?.fx || !card.text) return [];
+  if (dropCache.has(card)) return dropCache.get(card);
+  const out = [];
+  const lines = card.text.replace(/\([^)]*\)/g, '').split('\n');
+  const unread = new Set(card.fx.unread || []);
+  const whole = fxPrint(analyzeCard({ ...card, text: lines.join('\n') }));
+  // (a threaten effect untaps what it takes and gives it haste by itself: resolve.js 'steal', 'insurrection')
+  const threaten = /"k":"steal"[^{}]*"temp":true|"k":"insurrection"/.test(whole);
+  const covered = (/** @type {string} */ x) => HARMLESS.test(x) || (threaten && /^(?:untap (?:that|those|them|it)\b[^.]*|(?:they|it) gains? haste until end of turn)\.?$/i.test(x));
+  lines.forEach((line, li) => {
+    const ss = sentencesOf(line.trim());
+    if (ss.length < 2) return;
+    // (a line the reader skipped entirely is already reported as unread)
+    if (unread.has(cleanText(line, card.frontName || card.name).trim())) return;
+    const same = drop => fxPrint(analyzeCard({ ...card, text: lines.map((l, k) => (k === li ? ss.filter((_, j) => !drop.includes(j)).join(' ') : l)).join('\n') })) === whole;
+    const cand = ss.map((_, si) => si).filter(si => same([si]));
+    // (two sentences that each say enough on their own, like a shockland's "pay 2 life" and "if you don't, it enters
+    // tapped", aren't dropped: only one that can go together with any other candidate is)
+    for (const si of cand) if (!covered(ss[si]) && !(card.fx.mana && /^\{t\}: add [^.]*\.$/i.test(ss[si])) && cand.every(sj => sj === si || same([si, sj]))) out.push(ss[si]);
+  });
+  dropCache.set(card, out);
+  return out;
 }
 
 // Coverage for a whole deck: share of cards with understood text, and which ones aren't
@@ -2040,13 +2452,20 @@ export function describeFx(fx) {
   if (fx.upkeep.length) out.push(`upkeep: ${list(fx.upkeep)}`);
   if (fx.endstep.length) out.push(`end step: ${list(fx.endstep)}`);
   if (fx.dies.length) out.push(`dies: ${list(fx.dies)}`);
-  if (fx.onDeath) out.push(`whenever ${fx.onDeath.other ? 'another ' : 'a '}creature${{ yours: ' you control', opponents: ' an opponent controls', any: '' }[fx.onDeath.who]} dies: ${list(fx.onDeath.effects)}`);
+  // (the creature type it watches is shown too: "another zombie you control dies")
+  if (fx.onDeath) out.push(`whenever ${fx.onDeath.other ? 'another ' : 'a '}${fx.onDeath.what ? `${fx.onDeath.what} ` : ''}creature${{ yours: ' you control', opponents: ' an opponent controls', any: '' }[fx.onDeath.who]} dies: ${list(fx.onDeath.effects)}`);
   if (fx.sacOutlet) out.push(`sacrifice ${fx.sacOutlet.other ? 'another' : 'a'} ${fx.sacOutlet.what}${fx.sacOutlet.cost ? ` (${fx.sacOutlet.cost})` : ''}: ${fx.sacOutlet.effects.length ? list(fx.sacOutlet.effects) : fx.sacOutlet.mana ? 'add mana' : 'other effect'}`);
   if (fx.anthem) out.push(`anthem +${fx.anthem.p}/+${fx.anthem.t}${fx.anthem.tribe ? ` (${fx.anthem.tribe})` : ''}`);
   if (fx.attachBuff) out.push(`attached: ${fx.attachBuff.p >= 0 ? '+' : ''}${fx.attachBuff.p}/${fx.attachBuff.t >= 0 ? '+' : ''}${fx.attachBuff.t}${fx.attachBuff.kw.length ? ' ' + fx.attachBuff.kw.join(', ') : ''}`);
   if (fx.pacify) out.push("enchanted creature can't attack");
   if (fx.equip) out.push(`equip ${fx.equip}`);
-  for (const a of fx.abilities) out.push(`ability ${a.costs ? costText(a.costs) : `${a.cost}${a.tap ? '{T}' : ''}`}: ${list(a.effects)}`);
+  for (const a of fx.abilities) out.push(`ability ${a.costs ? costText(a.costs) : `${a.cost}${a.tap ? '{T}' : ''}`}: ${list(a.effects7 || a.effects)}`);
+  // (rules 7, the combo audit)
+  for (const a of fx.abilities7 || []) out.push(`ability ${costText(a.costs)}: ${list(a.effects)}`);
+  for (const a of fx.grants || []) out.push(`enchanted creature has: ${costText(a.costs)}: ${list(a.effects)}`);
+  for (const w of fx.watch7 || []) out.push(`when it leaves the battlefield: ${list(w.effects)}`);
+  if (fx.exileCast) out.push('can be cast from exile');
+  if (fx.paintAll) out.push('every card, spell and permanent is also the chosen color');
   if (fx.addCost) out.push(`additional cost: ${costText(fx.addCost)}`);
   for (const a of fx.pw) out.push(`[${a.cost > 0 ? '+' : ''}${a.cost}] ${a.effects.length ? list(a.effects) : '(not modelled)'}`);
   for (const k of ['unblockable', 'cantblock']) if (fx.kw.has(k)) out.push(k === 'unblockable' ? "can't be blocked" : "can't block");

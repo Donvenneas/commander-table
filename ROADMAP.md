@@ -536,6 +536,216 @@ on top of the ones above:
     harmless or read by a whole-line pattern; see the notes below), The Scarab God and Abyssal Harvester copy a
     battlefield creature instead of the exiled card, Twinflame copies nothing, Humility/Opalescence (item 90), a
     target that stops being a creature isn't rechecked on resolution (608.2b).
+- [x] 186. Combo interaction audit (asked 2026-11-11): every combo played with the real cards step by step, not only
+  through the combo shortcut; no fixed limits on legitimate loops; regression tests for each.
+  - Done (rules 7; replays at rules 4, 5 and 6 play exactly as before, golden games for all four): probes of each
+    built-in combo with its cards found these broken and fixed them: (1) Demonic Consultation and Tainted Pact were
+    plain tutors (Oracle/Lab Man only won through the shortcut); they now exile from the top (the AI names a missing
+    card when Oracle is castable or Lab Man/Jace is out; people choose). (2) Curiosity/Ophidian Eye only saw combat
+    damage, so Niv-Mizzet loops never ran; its draw is optional (no self-decking). (3) Kiki-Jiki copies of Zealous
+    Conscripts, Deceiver Exarch, Restoration Angel and Felidar Guardian never untapped/blinked Kiki (Agent.loopEngine;
+    Conscripts on your own permanent untaps it). (4) Splinter Twin granted nothing (fx.grants). (5) Saheeli Rai copied
+    "artifact" only. (6) Isochron Scepter's ability was unread (castImprint casts a copy; copies cease to exist).
+    (7) Rings of Brighthearth didn't copy Basalt Monolith's untap (now +1 mana per loop). (8) Food Chain made 1 mana
+    whatever was exiled; its mana is creature-only; Eternal Scourge/Misthollow Griffin cast from exile. (9) Undying
+    and persist granted by another permanent (Mikaeus + Triskelion) were ignored. (10) Grindstone never repeated;
+    Painter's Servant colors. (11) Chain of Smog copies + magecraft. (12) Grand Architect's {U} and "blue creature"
+    checks (colors were never matched by isA). (13) Temur Sabertooth's bounce, Reveillark's leave trigger, Nim
+    Deathmantle's return. Loops: the 300/600 trigger caps are replaced by detection (same triggers + a game state seen
+    before = draw, 104.4b) and a 20,000 backstop; Exquisite Blood + Sanguine Bond vs 1,000 life now finishes. The
+    human loop shortcut also repeats sacrifices to an outlet and creature spells cast again. New fields stay out of
+    old games' AI values (abilities7, watch7, effects7). Tests: interactions 139 (41 combo tests, 46 shortcut
+    sweeps, loop tests), cards (2 readings changed), golden 24, fuzz 12 + 60, hidden 0, type check 0, self-test 19/19.
+    Still open: Deadeye Navigator and Tandem Lookout soulbond, Worldgorger Dragon + Animate Dead, Scrap Trawler,
+    Dualcaster Mage + Twinflame by hand (Twinflame copies only through the shortcut), Underworld Breach + LED by hand
+    (escape is read; LED + Brain Freeze sequencing untested), optional "may" loops the AI keeps choosing are judged a
+    draw like mandatory ones once the state repeats.
+- [x] 187. Card data audit, multi-faced cards (asked 2026-11-12): check how Scryfall data becomes game cards and fix
+  characteristics that come out wrong for transforming, modal double-faced, split, adventure and Room cards.
+  - Done (rules 8; replays at rules 4–7 play exactly as before, golden games for all five): normalize() gave every face
+    Scryfall's keyword list for the whole card, so 9 snapshot cards had a back face's keywords on the front (Westvale
+    Abbey had flying, lifelink, indestructible and haste as a land; Etali indestructible; Sephiroth, Kefka and Lunarch
+    Veteran flying) and back faces had the front's; each face now keeps only its own keyword lines (faceKeywords).
+    A split card's half was cast with both halves' mana value (Wear 3, Dusk 9): it now has its own on the stack
+    (709.3b), and a Room has only its unlocked door's mana value until both are unlocked (709.5); a second half's
+    hybrid {2/W} now counts 2 (costMv). The corrected reading is card.v8, used by Game.mk at rules 8. Tests:
+    interactions 145 (6 new, with rules 7 checks), cards 0 changed, golden 30, fuzz 12 + 60 and hidden 0 problems,
+    type check 0, self-test 19/19, 20 browser games with these cards (0 errors, no rule broken). Still open: prototype
+    (no reading), meld (no melded back face), a split half's mana value while its cost is worked out (601.2f).
+- [x] 188. Skipped sentences (asked 2026-11-12): find sentences the reader skips inside lines it counts as read, report
+  them as not simulated, and fix the most common ones.
+  - Done (rules 9; replays at rules 4–8 play exactly as before, golden games for all six): effects.js droppedSentences
+    reads a card again with each sentence of a multi-sentence line taken out; a sentence whose removal changes nothing
+    (also when taken out with any other such sentence, so two that each say enough aren't counted) is reported, except
+    harmless ones (shuffles, random bottom order, "activate only as an instant", rounding, keeping a copy's targets, a
+    threaten effect's untap and haste, mana already read from Scryfall's produced list). ignoredText, the deck coverage
+    figure, the card details and tests/cards.mjs now count them: the snapshot is 79.6% fully read (2,786 of 3,500), not
+    the 88.4% reported before (308 cards had a hidden skipped sentence). Fixed families: "This ability triggers only once
+    each turn" / "Do this only once each turn" (Morbid Opportunist, Welcoming Vampire, Jin-Gitaxias and other watch, death and cast triggers:
+    Game.onceOk, kept in a string so look-ahead copies don't share it); shock, check, fast, slow, reveal, battlebond,
+    "opponents control eight or more lands" and "first three turns" lands, which all entered untapped for free
+    (enterCond, Game.entersTappedNow: people are asked to pay the life, the AI pays when the mana lets it cast something
+    that turn); "It/They can't be regenerated" (Terminate, Putrefy, Snuff Out, Pongify…). Tests: interactions 155 (10
+    new, with rules 8 checks), cards 0 changed after accepting the flags (0 other reading changes), golden 36, fuzz
+    12 + 60 and hidden 0 problems, type check 0, self-test 19/19, 20 browser games with these lands (0 errors, no rule
+    broken; the AI paid 2 life 31 times). Still open: 325 cards with a skipped sentence, mostly one of a kind (Memory
+    Lapse puts the spell on top, Tainted lands' Swamp condition, channel lands' cost reduction, Mob Rule's untap and
+    haste, mana spending restrictions), Multiversal Passage.
+- [x] 189. Replay exactness (asked 2026-11-12, Phase 2A of the engine audit): a saved game must load later with the
+  same card data, combos and rules, whatever Scryfall and Commander Spellbook say by then.
+  - Done (replay format 7, version 1.24.0; no rules change, golden games unchanged): replaydata.js saves every card's
+    Scryfall data as read (scryfall.js slimCard, about 1 KB a card), a hash of it, a hash of its reading, each seat's
+    Spellbook combos with their prerequisites, the built-in combo list's fingerprint and the engine's rules version.
+    Loading pins those cards (scryfall.js pinCards, before the browser's cache and Scryfall) and the saved combos, so
+    nothing is fetched; a card whose data doesn't match its hash, or a newer rules version, stops the load with the
+    reason; the log notes cards Scryfall has changed since (game-relevant fields only), cards read differently by this
+    version, and a changed built-in list. Combos are no longer one shared list: COMBOS is frozen, fetchSpellbook keeps
+    its answer with the deck, and each Game builds its own book (opts.spellbook, Game.combosFor; AI, card preview and
+    look-ahead copies use it), so combos fetched for another deck can't reach a game. Older replays load as before
+    with a log note that they use today's data. Tests: tests/replay.mjs (9: reload, changed Scryfall data, different
+    Spellbook answer, another game first, isolation, hashes, old files, determinism; in CI), golden 36, interactions
+    155, cards 0 changed, fuzz 12, hidden 0, type check 0, self-test 19/19, a browser round trip (18-round game with 4
+    live Spellbook combos, identical; 0 Scryfall and 0 Spellbook requests while loading). Still open: card images
+    come from Scryfall's URLs; workers for batch runs still use only the built-in combos (as before); a replay saved
+    before 1.24.0 can't be made exact.
+- [x] 190. Loops and freezes (asked 2026-11-12, Phase 2B of the engine audit): endless loops froze the page or made
+  turns endless; recognise loops and keep the page responsive without cutting legitimate chains short.
+  - Done (rules 10, version 1.25.0; rules 4–9 golden games unchanged, 60 AI games identical at rules 9 and 10 apart
+    from the new log line in the 3 that looped): the cause was sbaPass checking each creature's toughness through
+    attachments() and bonus(), which scan the whole table (O(N²) a check, O(N³) a chain: 2,000 tokens took 31 s, a
+    full run more than 10 minutes, with nothing yielding at full speed). sbaPass now skips those scans when nothing
+    is attached and no anthem exists (every rules version, same results: 10,000 tokens in 24 s), and flushTriggers
+    yields every 64 triggers. loops.js watches each chain: the pattern by card, event and controller (so a token
+    copying itself counts), the change per repetition in life, poison, zones, permanents, tokens, counters, damage,
+    mana and waiting triggers over 4 repetitions, and classifies it (repeating, ends, endless, irregular). Loops that
+    end run on without the clock's waits (Game.loopFast); mandatory endless ones are a draw (104.4b); a "you may"
+    trigger (read from the card's text) lets its controller choose (Agent.loopReps, HumanAgent.loopRepsAsync: stop,
+    10 or 100 more); triggers piling up under a loop are ordered first by the AI (603.3b). The 20,000 backstop no
+    longer skips triggers: a person is asked to go on or call a draw, an AI-only game is a draw with the reason. One
+    log line and a Game.loopLog entry per loop. Tests: tests/loops.mjs (18, in CI), golden 42, interactions 155,
+    replays 9, cards 0 changed, fuzz 12 + 60, hidden 0, type check 0. Still open: "you may" is read from the text
+    (a card with several trigger lines where only some say "may" can be read as mandatory); the AI's 100-repetition
+    cap is a fixed rule of thumb; activated-ability loops are unchanged (the AI and the loop shortcut decide those).
+- [x] 191. Combos played out with the real cards (asked 2026-11-12, Phase 2C of the engine audit): no combo result
+  granted from its description; every built-in and Commander Spellbook combo gets a status and a reason.
+  - Done (rules 11, version 1.26.0; rules 4–10 golden games unchanged, old shortcut kept for their replays): Game.goOff
+    still casts the pieces for real, then comboplay.js plays the loop with the cards' own abilities instead of the
+    shortcut (abstract repetitions, life set directly, lethal noncombat "attack" damage, a library spliced into the
+    graveyard). Kiki-Jiki, Splinter Twin and Saheeli make real hasty copies (targets steered to the partner and the
+    copier) and the AI then attacks with everything in the combat step (ai.js comboAlphaStrike: the usual planner
+    looks at nine attackers at most); Heliod + Ballista and Mikaeus + Triskelion ping through damagePlayer (prevention
+    stops them, lifelink and Heliod's trigger as written); Exquisite Blood and Niv-Mizzet run on their own triggers;
+    Grindstone mills through Game.move (Rest in Peace, Blightsteel Colossus); mana loops are repeated three times for
+    real and must gain each time before the 727.1c shortcut (Player.infiniteMana), and the finisher casts or activates
+    Walking Ballista and Thrasios for real. Statuses (combos.js comboPlay): 36 built-ins supported, 3 partial (Food
+    Chain: creature-only mana), 7 unsupported (Dualcaster Mage x2, Underworld Breach + LED + Brain Freeze, Deadeye
+    Navigator x2, Tandem Lookout x2); at rules 11 the AI only goes for supported ones, and Spellbook-only combos are
+    known but not pursued. readSpellbook lists every Spellbook answer (supported, partial, unsupported or invalid, with
+    the reason, shown in the deck viewer) instead of dropping some silently; answers are kept a week in the browser
+    profile (ct.spellbook). Readiness at rules 11: Thassa's Oracle must still be cast (not already on the
+    battlefield), and the play-out's own cost counts, colors included (Heliod's {1}{W}). Tests: tests/combos.mjs (21,
+    in CI), replays 10 (Spellbook replay tests at rules 10, plus a rules 11 reload), golden 48, interactions 155 (the
+    old shortcut sweep pinned to rules 10), loops 18, cards 0 changed, fuzz 12 + 60, hidden 0, type check 0; 60 AI
+    games at rules 11: 0 errors, 0 broken rules, every game won. Still open: the AI's block planner doesn't block when
+    an attack is lethal by a wide margin (found here, separate fix); Walking Ballista and Triskelion pings don't use
+    the stack; "can't lose life" effects aren't modelled; Kozilek and Ulamog's graveyard shuffle isn't read; Lab Man
+    and the Exquisite Blood and Niv-Mizzet Parun loops wait for a real draw or life gain rather than starting one.
+- [x] 192. Phyrexian, hybrid and two-brid mana (asked 2026-11-13, Phase 2D of the engine audit): {B/P} payable with 2
+  life, {2/W} with {2}, with the player choosing and no partial payments.
+  - Done (rules 12, version 1.27.0; rules 4–11 golden games unchanged): parseCost read {B/P} as {B} and {2/W} as {W},
+    so Dismember needed {1}{B}{B}, Gitaxian Probe needed {U} and Reaper King one mana of each color. It now tags those
+    pips (phy, two) and keeps their colors, so older rules versions read them as before. mana.js planTagged (rules 12)
+    tries every subset of Phyrexian symbols paid with life and of two-brid symbols paid with {2} before anything is
+    paid, picking the plan that taps the fewest new sources (floating mana first) and then the fewest units; life is
+    limited so a payment never goes below 1 life (the request; 119.4 would allow 0). commitPayment pays the life as a
+    payment, not damage (a life-loss event, logged). Game.withPhyrexianChoice asks the payer how many symbols to pay
+    with life when several complete payments exist, for spells and activated abilities alike: the AI
+    (Agent.phyrexianLife) pays life while it stays at half its starting life or more, people get one button per
+    complete payment (HumanAgent.phyrexianLifeAsync, recorded like other answers). Hybrid {W/U} already worked;
+    hybrid Phyrexian {G/W/P} now works too. The rules checker counts life-paid symbols. Tests: tests/mana.mjs (21, in
+    CI) with Dismember, Gitaxian Probe, Phyrexian Metamorph, Mental Misstep, Kitchen Finks, Spectral Procession,
+    Reaper King, Ajani, Sleeper Agent and Birthing Pod (three fetched into interaction-cards.json); golden 54, all
+    other suites; 60 AI games at rules 12: 0 errors, 0 broken rules, 12 Phyrexian life payments, same speed. Still
+    open: two-brid and hybrid choices are automatic (people steer them by tapping sources first); paying life can't
+    be used down to exactly 0; Compleated planeswalkers don't enter with fewer loyalty counters when life is paid;
+    "can't pay life" effects aren't modelled; snow {S} is still read as generic.
+- [x] 193. Card coverage audit and six popular cards (asked 2026-11-13, Phase 2E of the engine audit): a coverage
+  report for the 3,500 most-played cards, and Teferi's Protection, Mana Drain, Arcane Denial, Chaos Warp, Cavern of
+  Souls and Temple of the False God read and played in full.
+  - Done (rules 13, version 1.28.0; rules 4–12 golden games unchanged): tests/coverage.mjs reads the snapshot (Scryfall,
+    Commander-legal paper cards in EDHREC order) and checks every effect the reader produces against the engine's
+    handlers: 2,787 full, 446 partial, 106 with an unread restriction (stronger than printed), 10 with a field no module
+    reads (hideaway, escalate, strive, copyPlus, abundance), 151 not read; report in tests/card-coverage.md. Shared
+    pieces: delayed triggered abilities (Game.later, addLater, fireLater at the beginning of upkeep and of main
+    phases, queued as real triggers), phasing (Game.phaseOut/phaseIn: off the battlefield lists in zone 'phased', no
+    zone change or triggers, attachments go along, removed from combat, back at the controller's untap step before
+    untapping), "your life total can't change" (Player.lifeLock: undone in Game.emit, no triggers, no life payments),
+    protection from everything stops targeting the player (validTarget; the AI picks another opponent). Readings:
+    fx.spell13 (used from rules 13, so older games and their AI values keep fx.spell), fx.mana.landsAtLeast,
+    fx.mana.cavern. Chaos Warp exiled before (wrong at every version; replays keep it); Arcane Denial's caster drew at
+    once; Cavern made unrestricted colored mana; Temple had no condition; a spell that exiles itself went to the
+    graveyard. Tests: interactions 171 (16 new), cards 6 changed (only these six), golden 60, all other suites; 60 AI
+    games at rules 13: 0 errors, 0 broken rules, Mana Drain mana and Teferi's Protection phasing used. Still open:
+    Cavern tapped by hand makes {C}; "up to" draws are asked of people, the AI takes all; phased-out permanents aren't
+    shown on the table; next batch proposed in the Phase 2E report (Path of Ancestry, channel cost reductions,
+    restricted mana lands, Mox Opal, Mox Diamond, Animate Dead, Sylvan Library, Force of Negation).
+- [x] 194. Replacement effects (asked 2026-11-13, Phase 2F of the engine audit): one framework for "instead",
+  "enters tapped", prevention and token replacements, with rule 616 ordering.
+  - Done (rules 14, version 1.29.0; rules 4–13 golden games unchanged): replacements.js holds the replacement effects
+    for each event kind, read from the cards in play: move (Rest in Peace, Leyline of the Void, Dauthi Voidwalker,
+    gyExileTurn, unearth, Blightsteel, God-Eternals), draw (Alhammarret's Archive, Notion Thief, Underrealm Lich,
+    dredge), damage to a player (prevention shields, Glacial Chasm), enter (enters tapped / untapped) and tokens
+    (doublers, Academy Manufactor, Chatterfang, Xorn). Self-replacements first (616.1a), then the affected player
+    orders the rest; each applies once per event (614.5), the event is rechecked after each, MAX_STEPS stops runaways.
+    Async events (tokens) ask a person when the order changes the result, each choice showing its result; sync ones
+    (move, draw, damage) take the best order for that player and log it. Replaced events don't trigger (Rest in
+    Peace: no "dies"); prevented damage isn't dealt. Unread replacement text (redirection, "the next time" shields,
+    others) is logged once a game per card and listed in tests/card-coverage.md (20 cards), never approximated.
+    Tests: replacements 15 (new), golden 66, all other suites; 60 AI games at rules 14: 0 errors, 0 broken rules,
+    30 replacement events. Still open: people aren't asked on sync events, dredge isn't offered to people,
+    redirection and next-time shields, damage to creatures, counters, life gain and destroy replacements
+    (regeneration, umbra armor) still use the old inline order.
+- [x] 195. The stack and priority (asked 2026-11-13, Phase 2G of the engine audit): stack objects with their own
+  identity, priority until every player passes in succession, simultaneous triggers on the stack together, targets
+  checked while casting, and the "responses stop after eight" limit removed.
+  - Done (rules 15, version 1.30.0; rules 4–14 golden games unchanged): the limit was the loop in Game.priority
+    (`actions < 8`): after eight responses to one object it resolved even if players still wanted to respond, and
+    after each response priority restarted with the player after the caster. stack.js priority15: the controller first
+    (117.3c), then turn order; a new object resets the passes and, once it has resolved, the active player gets
+    priority (117.3b); the object resolves when every player still in the game has passed in a row (117.4). Safeguards
+    in place of the cap: the same response repeated 30 times to one object counts as a pass, 200 responses to one object
+    is reported as an engine fault, the page gets a moment every 16. Stack objects (stamp, every rules version): sid,
+    kind, controller, srcIid, name, status, frozen announced targets/X/modes, paid. Triggers (triggers.js
+    flushTriggers15): all waiting triggers go on the stack at once in APNAP order with targets and modes chosen then
+    (603.3d), then resolve one at a time from the top, new ones above the rest; the loop watcher sees each before it
+    resolves and counts the ones waiting on the stack. putAbility/resolveAbility split stackAbility; an ability's
+    resolution is followed by state-based actions and triggers before priority (117.5). Casting (601.2c) and activating
+    (602.2b: targets now chosen before costs) refuse illegal or missing targets before anything is paid. People with
+    full control are asked about their own spells. Stack panel: spell/ability/trigger, "resolves next", priority
+    holder and passes. Tests: stack 22 (new), golden 72, all other suites; 60 AI games at rules 15: 0 errors, 0 broken
+    rules, stack up to 12 objects, 343 trigger batches. Still open: empty-stack priority is the existing windows
+    (main phases, combat, end of turn, stops for people), not a pass round in every step; Walking Ballista pings and
+    sacrifice-outlet responses still resolve at once instead of using the stack; split second only stops responses.
+- [x] 196. Card abilities (asked 2026-11-13, Phase 2I of the engine audit): an ability-by-ability coverage audit of the
+  3,500 most-played cards, keyword checks, and the abilities found wrong fixed through the engine's own systems.
+  - Done (rules 16, version 1.31.0; rules 4–15 golden games unchanged): protection is one check
+    (Game.protectedFrom, DEBT 702.16b–f: targeting, blocking, damage, Auras and Equipment falling off) with colors,
+    everything, each color, card types, multicolored; granted protection (Mother of Runes, Gods Willing) was hexproof
+    and is now protection from the chosen color (the color of the opposing spell targeting it, else the commonest
+    opposing color). Prowess is a trigger on the stack and counts granted prowess (Bria). The regular combat damage
+    step is dealt by creatures without first or double strike as the first step began, plus double strikers (510.4).
+    Deathtouch destroys through -1/-1 counter damage (infect, wither). Equip, cycling, landcycling and unearth use the
+    stack; unearth, embalm and eternalize only as a sorcery. "You draw a card and lose 1 life" lost its life loss
+    (Phyrexian Arena, Night's Whisper, Plumb the Forbidden, Vraska's 0, Cryptbreaker: effects carry since: 16).
+    "Activate only if you control …" on mana abilities (Tainted lands, Verges, Spire of Industry, Mox Opal:
+    fx.mana.cond16). Cavern of Souls tapped by hand keeps its restricted mana in the pool. Token readings are shared
+    (zones.js tokenFx). tests/coverage.mjs: ability types per printed line, a keyword table, a misreading check
+    (MISREAD) and cards named in a test; report in tests/card-coverage.md, phase report in tests/phase-2i-report.md.
+    Coverage 2,796 full / 444 partial / 92 restriction / 8 incorrect / 10 unhandled / 150 unsupported (was 2,787 /
+    446 / 106 / not measured / 10 / 151). Tests: new tests/abilities.mjs (47), interactions 171, golden 78, all other
+    suites. Still open: spell timing is checked by the callers, not Game.cast; a person isn't asked which protection
+    color; "target player draws … and loses N life" (Sign in Blood) reads as you drawing; Giver of Runes is still
+    hexproof; mutate has no card in the test data.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
@@ -1098,6 +1308,12 @@ on top of the ones above:
     Help on the start menu shows a contents list, the section (bold, code, links, lists, tables) and a search that
     ranks sections and highlights the words. The manual itself stays in English: item 129 translated the interface,
     not README. Tested: 25 sections, a search for "gauntlet" found Progress, the formats table renders.
+
+## Round 6 (asked for 2026-11-13: "evaluate this program, find all errors and what can be improved")
+
+The audit of version 1.31.0 and its fix list are in `AUDIT-ROADMAP.md` (items 197 to 218, self-contained so another
+chat or model can take any item). Reproductions: `node tests/audit-probes.mjs` (16 boards that fail today) and
+`node tests/audit-probes.mjs --scan` (cards counted as fully read whose text is not all used). Tick the items there.
 
 ## Notes from sessions
 

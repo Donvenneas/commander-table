@@ -309,6 +309,8 @@ In a seat's style menu, choose **You play this seat**. Your hand is shown face u
 
 - whether to keep your opening hand, and which cards to put back after a mulligan
 - in your main phases, what to play: click a highlighted card to play a land, cast a spell (including from your graveyard with flashback), activate a planeswalker or ability, equip, or sacrifice
+- **Phyrexian mana** ({B/P}, also hybrid ones like {G/W/P}; from version 1.27.0): each symbol is paid with its color or 2 life, in costs to cast and costs to activate (Birthing Pod). When there's more than one way to pay, you're asked: **Pay with mana**, **Pay 2 life and the rest with mana** or **Pay 4 life**. Only complete payments are offered. Paying life is a payment, not damage, and counts as losing life. A payment never takes you below 1 life. The AI pays with life while it stays at half its starting life or more.
+- **Hybrid and two-brid mana:** {W/U} is paid with either color, and {2/W} with one white mana or two of any kind (Spectral Procession for six Swamps, Reaper King with any mix). The game picks which, using mana you've already tapped first; tap the sources yourself to choose. A cost is only paid when all of it can be: nothing is tapped or lost for a spell you can't finish paying for. Replays saved before 1.27.0 keep the old reading, where {B/P} needed black mana and {2/W} needed white.
 - which permanents pay: click an untapped land, mana creature or mana rock (in your main phase, or when you're asked to respond) to tap it for mana yourself. The mana waits in your pool, shown in the action bar, and is spent first; anything still owed is tapped for you. The pool empties at the end of the step
 - what every search of your library finds: tutors, fetch lands (only the land types printed on them, such as an Island or Swamp for Polluted Delta), land-search spells like Cultivate, Nature's Lore and Rampant Growth, and landcycling. Identical cards share one button with a count (Forest ×20); for Cultivate-style spells the first land you pick goes onto the battlefield
 - which permanents to untap, when an effect untaps some of them (Frantic Search, Snap, Peregrine Drake) or Winter Orb lets only one land untap
@@ -321,16 +323,99 @@ In a seat's style menu, choose **You play this seat**. Your hand is shown face u
 **Undo** (or the U key) takes back your last decision: the game is rebuilt from its seed with your earlier answers replayed.
 
 **Stops** (⏸ Stops in the top bar) sets where the game stops for the seats you play:
-- **Full control:** stop at every priority point, even when you have nothing to play.
+- **Full control:** stop at every priority point, even when you have nothing to play (from 1.30.0 also for your own spells and abilities).
 - **Steps to stop at:** upkeep, draw step, beginning of combat and end step, on your turn and on opponents' turns. Each stop shows a Pass button, plus any instants and abilities you could use.
 - **Trigger order:** when several of your triggers happen at once, you choose which resolves first (or **Order them for me**). Untick it to let them resolve in the order they happened.
 - Changes apply from the next game; a game keeps the stops it started with, and saved replays remember them.
 
 **Taking back a tap:** click a land or mana source you tapped by hand again to untap it and take its mana back out of your pool. This works while that mana is unspent and the step hasn't changed, but not for a source that sacrificed itself, discarded your hand, or set off a "becomes tapped" trigger.
 
-**Loop shortcut:** play the same abilities twice in a row in your main phase (for example tapping Basalt Monolith for mana, then paying to untap it) and the action bar offers **Repeat this loop ×10** or **×99**. Every pass is checked, and it stops at the first step that can't be done the same way; the log says how many times it ran and why it stopped.
+**Loop shortcut:** play the same actions twice in a row in your main phase (for example tapping Basalt Monolith for mana, then paying to untap it; or sacrificing Gravecrawler to Phyrexian Altar and casting it again from your graveyard; or exiling Squee to Food Chain and recasting it) and the action bar offers **Repeat this loop ×10** or **×99**. Abilities, mana taps, sacrifices to an outlet and creature spells with nothing to choose can be part of a loop. Every pass is checked, and it stops at the first step that can't be done the same way; the log says how many times it ran and why it stopped.
 
-**Loops nobody can stop:** when the same few triggers keep repeating 600 times in a turn with nothing else happening, the game ends in a draw (rule 104.4b). A long chain of different triggers still just stops there, as before.
+**Combos are played with the real cards:** Demonic Consultation and Tainted Pact exile your library for Thassa's Oracle or Laboratory Maniac, Kiki-Jiki's copies of Zealous Conscripts, Deceiver Exarch, Restoration Angel or Felidar Guardian untap or blink it, Splinter Twin grants its copy ability, Isochron Scepter casts its imprinted Dramatic Reversal, Basalt Monolith with Rings of Brighthearth nets a mana per loop, Niv-Mizzet with Curiosity pings for each card drawn, and so on. You can play these loops by hand.
+
+**When the AI goes for a combo** (from version 1.26.0), it plays it out with the same cards. Nothing is declared won:
+- **Kiki-Jiki, Splinter Twin and Saheeli make real hasty copies**, which then attack in the combat step. Blockers, Fog, protection and combat damage apply as in any attack.
+- **Heliod + Walking Ballista and Mikaeus + Triskelion** ping one point at a time through the damage system. Prevention stops them, and lifelink and Heliod's trigger work as written.
+- **Exquisite Blood and Niv-Mizzet loops** run on their own triggers once life is gained or a card is drawn.
+- **Grindstone** mills card by card, so Rest in Peace exiles the cards and Blightsteel Colossus shuffles itself back.
+- **Mana loops** are first repeated three times with the real cards. Only once each repetition has made more mana is the loop repeated "as often as needed" (rule 727.1c). The mana then goes into Walking Ballista or Thrasios, cast and activated for real.
+
+If a cost can't be paid, a piece is answered or damage is prevented, the combo stops there and the log says why.
+
+Each combo has a status, shown in the deck viewer:
+- **Supported:** played out like this.
+- **Partial:** the cards work by hand, but part of the loop can't be played out faithfully yet. Example: Food Chain's creature-only mana.
+- **Unsupported:** an ability or a step isn't modelled. Examples: Dualcaster Mage's copies, Underworld Breach with Lion's Eye Diamond and Brain Freeze, soulbond.
+
+The AI only goes for supported combos.
+
+**Six popular cards read in full** (from version 1.28.0):
+- **Teferi's Protection:** your life total can't change and you have protection from everything until your next turn. Nothing can target you and damage to you is prevented. All your permanents phase out: they're treated as though they don't exist, but they keep their counters, attachments and tapped state, and nothing leaves the battlefield or triggers. They phase back in at your next untap step, before untapping, with no enter triggers. The card then exiles itself.
+- **Mana Drain:** counters the spell. At the beginning of your next main phase, a trigger adds {C} equal to that spell's mana value, not before.
+- **Arcane Denial:** counters the spell. At the beginning of the next turn's upkeep, its controller may draw up to two cards and you draw one.
+- **Chaos Warp:** the owner shuffles the permanent into their library and reveals the top card. A permanent card enters the battlefield, with its enter abilities. (Before, it exiled.)
+- **Cavern of Souls:** its colored mana only pays for a creature spell of the chosen type, and that spell can't be countered. For anything else, or when tapped by hand, it makes {C}.
+- **Temple of the False God:** makes mana only while you control five or more lands (counting the Temple).
+
+These use two new parts of the engine:
+- **Delayed triggers** ("at the beginning of the next upkeep", "of your next main phase"): they go on the stack like any trigger.
+- **Phasing.**
+
+Replays saved before 1.28.0 keep the old readings.
+
+**Replacement effects** (from version 1.29.0): effects that say "instead" or "enters tapped", and prevention, now go through one system for these events:
+- **a card changing zones:** Rest in Peace, Leyline of the Void, Dauthi Voidwalker, unearth, Blightsteel Colossus, God-Eternals;
+- **drawing a card:** Alhammarret's Archive, Notion Thief, Underrealm Lich, dredge;
+- **damage to a player being prevented:** Glacial Chasm, Fog effects and similar shields;
+- **a permanent entering the battlefield:** Authority of the Consuls, Blind Obedience;
+- **tokens being created:** Anointed Procession, Doubling Season, Parallel Lives, Academy Manufactor, Chatterfang, Xorn.
+
+The rules for these:
+- A card's own replacement (such as Blightsteel shuffling itself into its library) applies first.
+- After that, the affected player chooses the order. When the order changes the result, you're asked, and each button shows what that order gives you (for example Xorn and Anointed Procession: 4 Treasures or 3).
+- Each replacement applies once to an event.
+- A replaced event doesn't happen, so it doesn't trigger: a creature exiled by Rest in Peace doesn't "die".
+- Prevented damage isn't dealt, so it gives no lifelink and no "deals damage" triggers.
+
+Three of these happen in the middle of other rules (a card changing zones, a draw, damage), so the game can't stop to ask you there. For those it uses the order that's best for you and writes it in the log.
+
+Cards whose replacement text isn't read yet are named in the log once a game when they enter, and nothing is approximated. This covers damage redirection (Pariah, Ram Through) and "the next time" shields (Deflecting Palm). Replays saved before 1.29.0 keep the old behaviour.
+
+**The stack and priority** (from version 1.30.0):
+- **No limit on responses.** Players can keep responding to a spell or ability, and to each other's responses, until everyone passes in a row. Before, responses to one spell stopped after eight, and the spell then resolved.
+- **Who gets priority:** the player who cast the spell or activated the ability first, then each player in turn order. After something resolves, the active player gets priority first, once dead creatures are gone and new triggers are on the stack.
+- **Triggers that happen together** all go on the stack at once. The active player's go on first, so the other players' resolve first, and each player puts their own in the order they choose. Targets are chosen as each one goes on the stack, and you can respond to them (or Stifle one) while they wait.
+- **Targets are checked while casting.** A spell or ability can't be cast or activated with an illegal target, or without a target it needs, and nothing is paid. Targets are checked again as it resolves: if none is still legal, it does nothing.
+- **Abilities stay on the stack** even if their source leaves the battlefield. Mana abilities don't use the stack.
+- **The stack panel** shows each object as a spell, ability or trigger, marks the one that resolves next, and shows who has priority.
+- **Responding to your own spell:** with **Full control** on, you're also asked whether to respond to your own spell or ability.
+
+Replays saved before 1.30.0 keep the old priority rules.
+
+**Card abilities** (from version 1.31.0):
+- **Protection** works fully: a creature with protection from red can't be targeted, blocked, damaged, enchanted or equipped by anything red. "Protection from the color of your choice" (Mother of Runes, Gods Willing) gives real protection, not hexproof: the AI picks the color of the spell aimed at the creature. More kinds of protection are read: from everything, each color, creatures, artifacts, multicolored.
+- **Prowess** goes on the stack like other triggers, and prowess given by another card (Bria, Riptide Rogue) works.
+- **First strike and double strike:** a creature that gains first strike after first-strike damage still deals its damage; one that loses it doesn't deal damage twice.
+- **Deathtouch** also kills when its damage comes as -1/-1 counters (infect, wither).
+- **Equip, cycling, landcycling and unearth** use the stack, so players can respond. Unearth, embalm and eternalize can only be used at sorcery speed.
+- **Life loss is read in full:** Phyrexian Arena, Night's Whisper, Plumb the Forbidden and similar cards now make you lose the life as well as draw.
+- **Mana conditions:** Tainted lands, the Verges, Spire of Industry and Mox Opal only make their extra colors when you control what they ask for.
+- **Cavern of Souls** keeps its "any color for the chosen creature type" mana when you tap it by hand.
+
+Replays saved before 1.31.0 keep the old behaviour.
+
+**Long and endless loops:** when the same few triggers keep repeating, the game watches what each repetition changes (life, poison, cards in each zone, permanents, tokens, counters, damage, mana, waiting triggers):
+- **It ends by itself** (someone's life, library or permanents run down, or poison builds up): it keeps going, at full speed, until it does. Exquisite Blood with Sanguine Bond drains each opponent in turn.
+- **It never ends and every trigger is mandatory** (a token every time, life gained every time, the same board again and again): the game is a draw (rule 104.4b). Each opponent still gets priority on every trigger first.
+- **A trigger in it says "you may":** its controller chooses. The AI repeats a loop that helps it up to 100 times, then stops. You're asked: **Stop the loop**, **10 more times** or **100 more times**. Stopping declines that trigger for the rest of the chain.
+- **A player's own triggers are piling up underneath it** (they triggered at the same time as the loop's, and the loop's went first): that player can order them the other way (rule 603.3b). The AI does, so the loop can end. If you order your triggers yourself, the log says which order would end it.
+
+The log has one line for each loop with what it found and why the game went on, stopped or ended. A chain the game can't classify that reaches 20,000 triggers in a turn asks a person at the table whether to keep going or end as a draw. With only AI players, it's a draw, with the reason. Long chains no longer freeze the page: it gets a moment every 64 triggers, and a recognised loop plays without the game speed's pauses. Replays saved by older versions keep the old handling.
+
+**Cards with two faces:** each face has only its own keywords (Westvale Abbey no longer flies as a land), and a split card's half has its own mana value while it is a spell (Wear is 2, not 3), as does a Room with one door unlocked. Older replays play as they were recorded.
+
+**Lands and once-a-turn abilities:** shock lands ask whether to pay 2 life (or enter tapped), and check, fast, slow, reveal and "two or more opponents" lands enter tapped unless their condition holds. "This ability triggers only once each turn" is followed (Morbid Opportunist draws once a turn), and "it can't be regenerated" (Terminate) goes through regeneration shields. Older replays play as they were recorded.
 
 **Deals:** when you play a seat, **🤝 Deal** under the game log offers another player a truce, a gang-up on the archenemy, a no-counterspell pact, or tribute. It's put to them at the start of the next turn.
 
@@ -445,10 +530,12 @@ Kinnan can't dig Ballista out: it puts the creature onto the battlefield with no
 Every game is generated from a random seed, and any decisions you made are recorded. The timeline under the top bar lets you:
 - jump back to the start, step back or forward a turn, or drag the slider to any point
 - skip to the end
-- **Save replay**: download the game as a small file
+- **Save replay**: download the game as a file (it holds the decks' card data, so it's a few hundred KB)
 - **Export log**: download the game log as text
 
 **Watch replay** on the results screen restarts the game from the beginning. **Load replay…** on the setup screen opens a saved file. It reloads the decks and plays the identical game, including your decisions if you played a seat. When a loaded replay runs out of recorded decisions, you continue playing live.
+
+Replays saved from version 1.24.0 on keep everything the game was played with: each card's Scryfall data as it was (Oracle text, costs, types), a hash of each card, the Commander Spellbook combos found for the decks (with their prerequisites), a fingerprint of the built-in combo list, and the rules version. Loading one asks neither Scryfall nor Commander Spellbook, so later card updates or different Spellbook answers can't change it. Each game also has its own combo list: combos found for another deck you loaded can't change a game they weren't part of. The log of a loaded replay says when something may differ: Scryfall has changed a card since (the replay still uses the card as it was), or this version reads a card's text differently. A file whose card data doesn't match its hashes, or one from a newer version, isn't loaded, and you're told why. Replays from earlier versions still load, but with today's card data and Spellbook combos, and the log says so.
 
 **Resume:** the game in progress is saved in the browser profile at every turn and every answer. If the app closes or crashes, **Resume** on the start menu plays it back to where it was and pauses there. An online game reopens its room with the same friend links, so friends rejoin by opening their link again (internet links change when the tunnel restarts). Puzzles, lessons and campaigns aren't saved this way.
 
@@ -528,7 +615,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
   - copying spells and protection spells
   - "can't" effects such as Drannith Magistrate
   - storm, mill, escape from the graveyard (Underworld Breach), Lion's Eye Diamond, untap effects (Dramatic Reversal), flash for noncreature spells, redirecting spells, and control that ends when its source leaves (Control Magic, Sower of Temptation)
-  - a turn stops resolving waiting triggers after 600, so a loop nobody can stop (two blinkers feeding each other) ends instead of freezing the game
+  - loops of triggers are recognised and handled as described under "Long and endless loops" (a loop nobody can stop is a draw instead of freezing the game)
   - **library**: scry, surveil, milling yourself, "look at the top N, take one" (Impulse, Dig Through Time, Satyr Wayfinder), impulse draw (exile the top card and play it this turn), playing from the top of the library (Courser of Kruphix, Oracle of Mul Daya), tutors to hand, top, battlefield or graveyard (Entomb). When you play a seat you make these choices yourself: keep or bottom each scried card, and pick from a searchable list when you tutor or dig
   - **graveyard**: returning cards to hand by type and number (Eternal Witness, Archaeomancer), reanimating any permanent type from any graveyard, mass reanimation, exiling graveyards, shuffling a graveyard back, and the graveyard keywords flashback, escape, jump-start, unearth, embalm and eternalize
   - **conditions**: "if" and "instead" text (kicker bonuses, Cabal Ritual's threshold), intervening-if triggers, and "as long as" bonuses. Ability words are read from the condition they name: threshold, metalcraft, delirium, morbid, raid, hellbent, ferocious, revolt, spell mastery, coven, formidable, corrupted, fateful hour, lieutenant and battalion
@@ -546,7 +633,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
   - **more cards read** (1.17.0): foretell, plot, impending (the Overlords aren't creatures until their time counters are gone), encore, devour, typecycling (wizardcycling), "becomes a copy" effects (Mirage Mirror, Thespian's Stage, Shifting Woodland, Cursed Mirror), copying triggered abilities (Strionic Resonator), granted cascade (Imoti, Zhulodok, Wild-Magic Sorcerer) and convoke (Dazzling Theater), once-a-turn casting from the graveyard (Kess, Lurrus, Serra Paragon, Muldrotha), Lier's flashback, backgrounds' granted abilities (they need your commander out), Bribery, Praetor's Grasp, Hermit Druid, Doubling Cube, Peer into the Abyss, Wound Reflection, Heartless Hidetsugu, Kaalia of the Vast, Ghalta, It That Betrays and Tergrid, Liesa, Uro, Torrential Gearhulk, Geode Golem, Lavinia, Silent Arbiter, Sandwurm Convergence, Fog Bank, Aven Mindcensor, Vorinclex's halved counters, Solphim, Collective Inferno, Virtue of Strength, Door of Destinies-style counter anthems, Arwen/Master Biomancer/Giada entering counters, and about 200 more one-of-a-kind lines
   - **fixes** (1.7.1): Shang-Chi, Master of Kung Fu (and Thousand-Year Elixir-style cards) now let summoning-sick creatures tap for mana, not only use other {T} abilities; mana abilities that make two or more mana of one color are read correctly, and mana that may only be spent on creature abilities (Shang-Chi) or creature spells is kept for that
   - **fixes** (1.7.3): Jeska's Will adds {R} for each card in the hand of the opponent with the most cards (it used to add one {R}); your seat can use instant-speed activated abilities, like Grim Monolith's untap, at the end of opponents' turns and when attacked
-  - **what isn't read**: every line of a card's text is checked as the deck loads. The deck viewer and coverage figure list each card with a line the simulator can't read, and show that line. Of the 3,500 most-played Commander cards, about 88% are read completely; the rest are mostly one-of-a-kind effects. Hovering a card shows any line that isn't simulated under "⚠ Not simulated"
+  - **what isn't read**: every line of a card's text, and every sentence inside it, is checked as the deck loads. The deck viewer and coverage figure list each card with a line or sentence the simulator can't read, and show it. Of the 3,500 most-played Commander cards, about 80% are read completely (before 1.23.0 the figure was 88%, because a sentence skipped inside a line that was otherwise read went unnoticed); the rest are mostly one-of-a-kind effects. Hovering a card shows any line that isn't simulated under "⚠ Not simulated"
   - cards show what they're doing: -1/-1 counters, regeneration shields 🛡, goad 🎯, time and age counters ⏳, crewed vehicles ⚙, dashed, blitzed or unearthed creatures, monstrous 👹; players show the monarch 👑, poison counters ☠ and, with Courser of Kruphix and friends, the top card of your library 👁
   - **keyword actions**: investigate, fight and "bite" removal, goad, proliferate, populate, monstrosity, adapt, bolster, support, connive, explore, discover, cascade, regenerate, tap effects, -1/-1 counters and shrink effects, each-player draws, looting, and the monarch
   - **keyword abilities**: fear, intimidate, shadow, horsemanship, skulk, landwalk, protection from colors, ward, infect, wither, toxic, exalted, battle cry, bushido, flanking, rampage, annihilator, afflict, melee, dethrone, training, mentor, evolve, riot, modular, fabricate, backup, bloodthirst, undying, persist, afterlife, decayed, changeling, kicker, buyback, cycling and landcycling, channel, dash, blitz, spectacle, affinity for artifacts, improvise, echo, vanishing, fading, cumulative upkeep, split second, extort and ninjutsu
@@ -601,7 +688,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
   - a **battle preview** after blockers are declared: every attacker against its blockers (or the player it's hitting), with the expected result (who falls, how much damage gets through). It stays until combat damage is dealt; click it to close it sooner
   - **effects**: spells flare from the caster's portrait, clashes spark when combat starts, hits throw sparks, dying creatures leave embers, life gained glows green, combos light up the whole table, and slow motes drift over an arcane, slowly moving backdrop. Boards have glowing edges in each player's color (the active player's breathes), life totals are lit gems that pulse when low, and cards lift and glow on hover. "Fewer animations" in Display turns all of this down.
   - **music**: the Sound switch also plays background music, composed live in the browser (no audio files): a slow, magical theme that swells into war drums and driving strings during combat, then settles back
-  - a **stack panel** on the table while anything is waiting to resolve (newest first, with targets and countered spells)
+  - a **stack panel** on the table while anything is waiting to resolve (newest first, with targets and countered spells; from 1.30.0 also spell, ability or trigger, which resolves next and who has priority)
   - damage numbers float off creatures; draws, discards, deaths and exiles animate to their zones
   - **log filters**: spells, combat, removal, combos, politics and chat, or AI explanations, and one player at a time
   - **History**: every finished game you played or watched, your win rate, and which decks win most
@@ -616,4 +703,10 @@ Unusual card effects are cast and put onto the battlefield, but their abilities 
 
 Some simplifications:
 - Whatever you haven't tapped yourself is tapped automatically when you pay.
-- Combos from Commander Spellbook are only used when the engine can run their result. A loop that only produces something like "infinite ETB triggers" counts when the deck also has a finisher for it (Blood Artist, Impact Tremors, Thassa's Oracle, Brain Freeze and others); otherwise it's skipped.
+- Commander Spellbook is a reference, not proof that a combo can be played. Every combo it lists for a deck appears in the deck viewer with a status and the reason:
+  - **supported:** the same cards as a built-in combo the game plays out;
+  - **partial:** a known combo the game has no step-by-step way to play yet;
+  - **unsupported:** it needs a card in the graveyard, exile or library to start, cards described only by type, more than four cards, a result the game can't check, or a prerequisite the game can't check (the sentence is quoted);
+  - **invalid:** the answer was incomplete.
+
+  The AI doesn't go for Spellbook-only combos, but their cards still interact as usual when played. Spellbook's answer is kept for a week, so loading the deck again works offline. Replays saved before 1.26.0 keep the old behaviour, where Spellbook combos with a recognised result were played through the combo shortcut.

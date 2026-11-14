@@ -45,7 +45,13 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, 'public')
 CACHE = os.path.join(HERE, 'cache')
 DATA = os.path.join(HERE, 'data')
-UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 CommanderTable/1.0'
+# (item 204) An honest client name for every site: the game never poses as a web browser
+UA = 'CommanderTable/1.0 (local deck viewer; no browser)'
+# (item 201) What the game's pages may load and call: their own files, Scryfall (cards, images), Commander Spellbook
+# and MTGJSON. A script that got into a page through a name or a card text can't run or send anything elsewhere.
+CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+# (item 202) The most a friend's page may send in one request (a 200,000-character decklist fits)
+FRIEND_BODY_MAX = 262144
 ALLOWED_HOSTS = {
     'archidekt.com', 'www.archidekt.com',
     'api2.moxfield.com', 'api.moxfield.com', 'moxfield.com', 'www.moxfield.com',
@@ -63,16 +69,28 @@ MIME = {
 IMAGE_CACHE_MAX = 400 * 1024 * 1024
 
 
-def get_remote(url, data=None, content_type=None, timeout=30):
+class _ListedRedirects(urllib.request.HTTPRedirectHandler):
+    """(item 202) The deck-site proxy follows a redirect only to another https address on the allowed list."""
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        u = urllib.parse.urlparse(newurl)
+        if u.scheme != 'https' or (u.hostname or '').lower() not in ALLOWED_HOSTS:
+            raise urllib.error.HTTPError(newurl, 400, 'That site sent the request to an address that is not on the allowed deck-site list.', headers, None)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def get_remote(url, data=None, content_type=None, timeout=30, listed_only=False):
     """(status, content type, body) for a GET, or a POST when data is given; HTTP errors are returned, not raised."""
     headers = {'User-Agent': UA, 'Accept': 'application/json, text/plain, text/html;q=0.9, */*;q=0.8', 'Accept-Language': 'en-US,en;q=0.9'}
     if content_type:
         headers['Content-Type'] = content_type
     req = urllib.request.Request(url, data=data, headers=headers, method='POST' if data is not None else 'GET')
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        opener = urllib.request.build_opener(_ListedRedirects) if listed_only else urllib.request.build_opener()
+        with opener.open(req, timeout=timeout) as r:
             return r.status, r.headers.get('Content-Type') or 'application/octet-stream', r.read()
     except urllib.error.HTTPError as e:
+        if e.fp is None:   # (a redirect that was refused: no body came with it)
+            return e.code, 'text/plain; charset=utf-8', str(e.reason).encode('utf-8')
         return e.code, e.headers.get('Content-Type') or 'text/plain', e.read()
 
 
@@ -474,6 +492,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', ctype)
         self.send_header('Content-Length', str(len(body)))
         self.send_header('Cache-Control', 'no-store')
+        self.send_header('X-Content-Type-Options', 'nosniff')
+        if ctype.startswith('text/html'):
+            self.send_header('Content-Security-Policy', CSP)
         for k, v in (headers or {}).items():
             self.send_header(k, re.sub(r'[^\x20-\x7e]', '', str(v)))
         self.end_headers()
@@ -521,6 +542,9 @@ class Handler(BaseHTTPRequestHandler):
         if self.local and self.foreign(path.startswith('/api/')):
             return self.text(403, 'Only the Commander Table page on this computer can use this.')
         try:
+            # (item 202) the same limit on all three servers; too much is refused, never cut short
+            if not self.local and int(self.headers.get('Content-Length') or 0) > FRIEND_BODY_MAX:
+                return self.text(413, 'That is too much to send in one go.')
             if path.startswith('/api/room/'):
                 try:
                     seat = int(q.get('seat', '0'))
@@ -534,7 +558,7 @@ class Handler(BaseHTTPRequestHandler):
                 u = urllib.parse.urlparse(q.get('url', ''))
                 if u.scheme != 'https' or (u.hostname or '').lower() not in ALLOWED_HOSTS:
                     return self.text(400, 'That URL is not on the allowed deck-site list.')
-                status, ctype, body = get_remote(q['url'])
+                status, ctype, body = get_remote(q['url'], listed_only=True)
                 return self.send(status, ctype, body, {'X-Upstream-Status': str(status)})
             if path == '/api/edhtop16' and self.command == 'POST':
                 status, ctype, body = get_remote('https://edhtop16.com/api/graphql', self.body().encode('utf-8'), 'application/json')
@@ -589,7 +613,10 @@ class Handler(BaseHTTPRequestHandler):
         # Friends only get the join page and the files it uses, never the host's own page or other endpoints
         if path == '/':
             path = '/play.html'
-        if path.startswith('/api/') or path == '/index.html':
+        # (item 202: compared as files, so "/INDEX.HTML" or "/./index.html" is the host's page too)
+        full = os.path.realpath(os.path.join(ROOT, *path.lstrip('/').split('/')))
+        host_page = os.path.realpath(os.path.join(ROOT, 'index.html'))
+        if path.startswith('/api/') or os.path.normcase(full) == os.path.normcase(host_page):
             return self.text(404, 'Not found')
         return self.serve_file(path)
 

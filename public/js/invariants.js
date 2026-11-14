@@ -91,7 +91,8 @@ export function watchGame(g) {
   /** @type {{ o: any, spent: number } | null} */
   let paying = null;
   g.commitPayment = (p, plan) => {
-    if (paying && g.payingFor?.o === paying.o && !plan.free) paying.spent += plan.used?.size || 0;
+    // (rules 12: a Phyrexian symbol paid with 2 life counts as paid; a two-brid symbol paid with {2} spends two units)
+    if (paying && g.payingFor?.o === paying.o && !plan.free) paying.spent += (plan.used?.size || 0) + (plan.lifeSymbols || 0);
     if (paying && plan.free) paying.spent = Infinity;
     return commit(p, plan);
   };

@@ -443,6 +443,8 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .sp-text i { color: #c8b6ff; font-style: normal; font-size: 11px; }
 .sp-text small { color: var(--muted); font-size: 10.5px; }
 .sp-wait { padding: 5px 10px; color: var(--muted); font-style: italic; font-size: 11px; }
+.sp-kind { font-weight: 700; text-transform: uppercase; letter-spacing: .03em; font-size: 9.5px; }
+.sp-prio { padding: 5px 10px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--line); }
 @keyframes hit { 30% { filter: brightness(1.8) sepia(1) hue-rotate(-30deg) saturate(5); } }
 .card.enter { animation: enter .45s ease-out; }
 @keyframes enter { from { opacity: 0; transform: scale(.6) translateY(-14px); } }

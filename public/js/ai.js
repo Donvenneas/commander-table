@@ -4,12 +4,14 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
-import { combosFor, combosIn, comboState, comboBlocked } from './combos.js';
+import { spellFits, counterFits, targetFits, matchesWhat, withKinds } from './resolve.js';
+import { combosIn, comboState, comboBlocked, comboPlay } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
 import { knownType, isKing, comboSpares } from './kingdomsPlay.js';
 import { lookAheadPlay, lookAheadRespond, lookAheadAttacks, lookAheadEot } from './lookahead.js';
 import { DUNGEONS, roomEffects } from './dungeons.js';
+import { AI_LOOP_REPS } from './loops.js';
 import { threatMult } from './threat.js';
 
 // Kingdoms: how much this pilot wants to fight player q, by its own role and what it can see of q's
@@ -59,9 +61,27 @@ export const STYLES = {
 export const LOOKAHEAD_STYLES = new Set(['cedh', 'balanced', 'combo', 'aggressive', 'defensive']);
 export const wantsLookahead = (style, noise = 0) => LOOKAHEAD_STYLES.has(style) && noise <= 0.05;
 
+// (rules 11) After a combo made hasty copies: every creature that can attack does, the strongest first, each going to
+// the opponent with the lowest life still short of what's assigned to them (life + 2 for each creature that can
+// block). Public information only.
+/** @param {import('./engine.js').Game} g */
+export function comboAlphaStrike(g, p) {
+  const ready = p.battlefield.filter(o => g.canAttack(o) && g.power(o) > 0).sort((a, b) => g.power(b) - g.power(a) || a.iid - b.iid);
+  const opps = [...g.opponents(p)].sort((a, b) => a.life - b.life || a.idx - b.idx);
+  if (!opps.length) return [];
+  const need = new Map(opps.map(q => [q, Math.max(1, q.life) + 2 * q.battlefield.filter(o => o.fx.type.creature && !o.tapped).length]));
+  const out = [];
+  for (const o of ready) {
+    const q = opps.find(x => need.get(x) > 0) || opps[opps.length - 1];
+    need.set(q, need.get(q) - g.power(o));
+    out.push({ o, target: q.idx });
+  }
+  return out;
+}
+
 export function guessStyle(deck) {
   const all = deck.cards.flatMap(({ card, qty }) => Array(qty).fill(card));
-  const combos = combosIn([...deck.commanders, ...all]);
+  const combos = combosIn([...deck.commanders, ...all], deck.spellbook);
   // cEDH: real win combos plus lots of tutors and fast mana
   const tutors = all.filter(c => [...c.fx.spell, ...c.fx.etb].some(e => e.k === 'tutor')).length;
   const fast = all.filter(c => !c.fx.type.land && (c.cmc || 0) <= 2 && (c.fx.mana || c.fx.spell.some(e => e.k === 'addMana'))).length;
@@ -88,7 +108,7 @@ export class Agent {
     // (per-deck memory, filled in by the engine from learn.js; how many look-aheads this turn)
     this.learned = null; this.laTurn = -1; this.laCount = 0;
     // (head-to-head tests switch the graveyard plans of item 107 off with this)
-    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** the spell a counter ability answers (item 97) @type {any} */ this.spellHint = null; /** @type {any[] | null} */ this.forcedAttacks = null;
+    this.noGyPlan = false; /** item 101 off (tuning runs) */ this.noLaRespond = false; /** item 106 off (tuning runs) */ this.noVeil = false; /** item 108 off (tuning runs) */ this.noThreatTable = false; /** item 109 off (tuning runs) */ this.noPeople = false; /** item 102 off (tuning runs) */ this.noLaAttack = false; /** item 101 end-of-turn look-ahead off (tuning runs) */ this.noLaEot = false; /** the spell a counter ability answers (item 97) @type {any} */ this.spellHint = null; /** (item 209) the target test while a target is chosen @type {((o: any) => boolean) | null} */ this.fitNow = null; /** @type {any[] | null} */ this.forcedAttacks = null;
     // (true for seats played by a person: HumanAgent)
     this.human = false;
   }
@@ -154,7 +174,7 @@ export class Agent {
 
   // How close a permanent is to completing a known combo, judged only from what's on the battlefield
   comboDanger(g, o) {
-    const list = combosFor(o.card);
+    const list = g.combosFor(o.card);
     if (!list.length || o.zone !== 'battlefield') return 0;
     const q = g.players[o.controller];
     let d = 2;
@@ -229,6 +249,29 @@ export class Agent {
     return cs.sort((a, b) => this.value(g, a) + this.pieceWorth(g, p, a) - this.value(g, b) - this.pieceWorth(g, p, b))[0] || null;
   }
 
+  // (rules 7, combo audit) Demonic Consultation / Tainted Pact: exile the whole library when that wins — Laboratory
+  // Maniac or Jace already out, or Thassa's Oracle in hand with the mana to cast it right after
+  wantsEmptyLibrary(g, p, src) {
+    if (p.battlefield.some(o => o.fx.labMan)) return true;
+    const oracle = [...p.hand, ...p.command].find(o => o !== src && o.fx.etb.some(e => e.k === 'if' && e.cond?.c === 'oracle'));
+    return !!oracle && g.canCast(p, oracle);
+  }
+  // Tainted Pact: take the first spell (a land only when the library is nearly gone), unless emptying the library
+  takePactCard(g, p, c, wantEmpty) { return !wantEmpty && (!c.fx.type.land || p.library.length < 4); }
+  // Chain of Smog: copy it back at ourselves while magecraft drains the table (and stop once a copy changes nothing)
+  chainCopyTarget(g, p, src) {
+    if (p.chainNoProgress) { p.chainNoProgress = false; return null; }
+    const drains = p.battlefield.some(s => s.fx.onCast && /cast or copy/.test(s.card.text || '') && s.fx.onCast.effects.some(e => ['drain', 'damage', 'loseLife'].includes(e.k)));
+    return drains && g.opponents(p).length ? p.idx : null;
+  }
+  // (rules 7) A permanent of ours that keeps a combo loop going when it's untapped or blinked: a tapped one whose {T}
+  // ability copies a creature (Kiki-Jiki, a creature enchanted with Splinter Twin), or a planeswalker that has used its
+  // copy ability this turn (Saheeli Rai). Returns null in older games.
+  loopEngine(g, p, src) {
+    if (g.rules < 7) return null;
+    const copies = es => (es || []).some(e => e.k === 'copyToken');
+    return p.battlefield.find(o => o !== src && ((o.tapped && g.abilitiesOf(o).some(ab => ab.tap && copies(ab.effects))) || (o.fx.type.planeswalker && o.usedPW && o.fx.pw.some(a => copies(a.effects))))) || null;
+  }
   // Tutors finish our own combos first, then look for an answer to an opponent's combo
   pickTutor(g, p, e = {}) {
     const okType = o => !e.types?.length || e.types.some(t => o.fx.type[t]);
@@ -269,7 +312,7 @@ export class Agent {
     const seen = [...q.battlefield, ...q.command, ...q.graveyard];
     let best = 0;
     const keys = new Set(seen.flatMap(x => [x.card.name.toLowerCase(), (x.card.frontName || '').toLowerCase()]));
-    for (const o of seen) for (const c of combosFor(o.card)) {
+    for (const o of seen) for (const c of g.combosFor(o.card)) {
       const have = c.keys.filter(k => keys.has(k)).length;
       best = Math.max(best, have / c.keys.length);
     }
@@ -292,12 +335,19 @@ export class Agent {
 
   // Value of a card as part of one of our combos (kept in hand, not discarded or bottomed)
   pieceWorth(g, p, o) {
-    return combosFor(o.card).some(c => p.combos.includes(c)) ? 8 : 0;
+    return g.combosFor(o.card).some(c => p.combos.includes(c)) ? 8 : 0;
   }
 
+  // (item 211) Chrome Mox: the colored nonartifact, nonland card in hand we need least (never a combo piece if
+  // another card will do); without one the Mox makes no mana
+  chooseMoxImprint(g, p, host) {
+    const options = p.hand.filter(o => o !== host && !o.fx.type.artifact && !o.fx.type.land && g.colorsOf(o).length);
+    const spare = options.filter(o => !g.combosFor(o.card).some(c => p.combos.includes(c)));
+    return (spare.length ? spare : options).sort((a, b) => this.value(g, a) - this.value(g, b) || a.iid - b.iid)[0] || null;
+  }
   chooseImprint(g, p, host) {
     const options = p.hand.filter(o => o.fx.type.instant && (o.card.cmc || 0) <= 2);
-    const piece = options.find(o => combosFor(o.card).some(c => c.imprint && p.combos.includes(c)));
+    const piece = options.find(o => g.combosFor(o.card).some(c => c.imprint && p.combos.includes(c)));
     return piece || this.pickBest(g, options.filter(o => o.fx.spell.some(e => e.k === 'draw' || e.k === 'remove')));
   }
 
@@ -409,25 +459,7 @@ export class Agent {
   }
 
   // ---------- targeting
-  matches(o, what, g = null) {
-    const t = o.fx.type;
-    // (rules 6: "target land" means a land, and a God below its devotion or an uncharged Spacecraft isn't a creature)
-    if (g && g.rules >= 6) {
-      if (what === 'land') return t.land;
-      if (t.creature && g.dormant(o) && /creature/.test(what || 'creature')) return what === 'creature or planeswalker' ? t.planeswalker : false;
-    }
-    switch (what) {
-      case 'creature': return t.creature;
-      case 'artifact': return t.artifact;
-      case 'enchantment': return t.enchantment;
-      case 'planeswalker': return t.planeswalker;
-      case 'creature or planeswalker': return t.creature || t.planeswalker;
-      case 'artifact or enchantment': return t.artifact || t.enchantment;
-      case 'nonland permanent': return !t.land;
-      case 'permanent': return true;
-      default: return t.creature;
-    }
-  }
+  matches(o, what, g = null) { return matchesWhat(o, what, g); }
   threatRank(g, p) {
     const opps = g.opponents(p).map(q => [q.idx, this.threat(g, p, q)]).sort((a, b) => b[1] - a[1]);
     const m = new Map();
@@ -438,7 +470,7 @@ export class Agent {
     const rank = this.threatRank(g, p);
     let best = null, bv = 0;
     for (const q of g.opponents(p)) for (const o of q.battlefield) {
-      if (!filter(o) || !g.canTarget(p, o)) continue;
+      if (!filter(o) || !g.canTarget(p, o) || (this.fitNow && !this.fitNow(o))) continue;
       const v = (this.value(g, o) + this.comboDanger(g, o)) * (rank.get(q.idx) || 1);
       if (v > bv) { bv = v; best = o; }
     }
@@ -446,14 +478,33 @@ export class Agent {
   }
   bestOwn(g, p, filter = o => o.fx.type.creature) {
     let best = null, bv = -1;
-    for (const o of p.battlefield) if (filter(o)) { const v = this.value(g, o); if (v > bv) { bv = v; best = o; } }
+    for (const o of p.battlefield) if (filter(o) && (!this.fitNow || this.fitNow(o))) { const v = this.value(g, o); if (v > bv) { bv = v; best = o; } }
     return best;
   }
   weakestOpponent(g, p) {
     return g.opponents(p).sort((a, b) => (a.life - b.life) || (this.threat(g, p, b) - this.threat(g, p, a)))[0];
   }
 
+  // (rules 13) A player with protection from everything (Teferi's Protection) can't be targeted: another opponent instead,
+  // the one with the least life, or no target at all
+  /** @returns {any} */
   chooseTarget(g, p, e, src) {
+    // (rules 16: Game.canTarget knows the source while targets are chosen, for protection)
+    const prev = g.targetSrc;
+    g.targetSrc = src;
+    let t;
+    // (item 209, rules 17: bestEnemy and bestOwn only see permanents the effect's words allow)
+    const prevFit = this.fitNow;
+    this.fitNow = g.rules >= 17 && e.tr ? o => targetFits(g, p, e, o, src) : null;
+    try { t = this.chooseTarget0(g, p, withKinds(g, e), src); } finally { g.targetSrc = prev; this.fitNow = prevFit; }
+    if (t?.obj && !targetFits(g, p, e, t.obj, src)) return null;
+    if (g.rules >= 13 && t?.player != null && t.player !== p.idx && g.players[t.player]?.shield >= g.turn) {
+      const other = g.opponents(p).filter(q => !(q.shield >= g.turn)).sort((a, b) => a.life - b.life || a.idx - b.idx)[0];
+      return other ? { ...t, player: other.idx } : null;
+    }
+    return t;
+  }
+  chooseTarget0(g, p, e, src) {
     // (a counter ability used in response: the spell it answers, item 97)
     if (e.k === 'counter' && this.spellHint) return { spell: this.spellHint };
     // (an ability's X is already paid while its targets are chosen: g.xNow)
@@ -473,10 +524,20 @@ export class Agent {
       case 'silence': { const q = [...g.opponents(p)].sort((a, b) => this.threat(g, p, b) - this.threat(g, p, a))[0]; return q ? { player: q.idx } : null; }
       // Mill whoever is closest to running out
       case 'mill': { const q = [...g.opponents(p)].sort((a, b) => a.library.length - b.library.length)[0]; return q ? { player: q.idx } : null; }
-      case 'copyToken': { const o = this.bestOwn(g, p, x => this.matches(x, e.what, g) && !x.fx.type.legendary); return o ? { obj: o, v: this.value(g, o) } : null; }
+      case 'copyToken': {
+        // (rules 7: Saheeli Rai copies "target artifact or creature"; a creature that blinks or untaps the loop engine first)
+        const what = (g.rules >= 7 && e.what7) || e.what;
+        const eng = g.rules >= 7 && this.loopEngine(g, p, src);
+        const partner = eng && p.battlefield.find(x => x !== eng && this.matches(x, what, g) && !x.fx.type.legendary && x.fx.etb.some(y => ['blink', 'untapAll', 'steal'].includes(y.k)));
+        const o = partner || this.bestOwn(g, p, x => this.matches(x, what, g) && !x.fx.type.legendary);
+        return o ? { obj: o, v: this.value(g, o) } : null;
+      }
       // (rules 6: only a creature now: not Heliod below its devotion, so Heliod's counter goes on Walking Ballista)
       case 'pump': case 'counters': case 'protect': case 'doublePT': { const o = this.bestOwn(g, p, g.rules >= 6 ? x => x.fx.type.creature && !g.dormant(x) : undefined); return o ? { obj: o } : null; }
       case 'blink': {
+        // (rules 7) Restoration Angel, Felidar Guardian copies: blink the loop engine (Kiki-Jiki, Saheeli Rai)
+        const eng = this.loopEngine(g, p, src);
+        if (eng && (e.what !== 'creature' || eng.fx.type.creature)) return { obj: eng, v: 10 };
         // The creature whose enters-the-battlefield effect is worth the most to repeat
         let best = null, bv = 0;
         for (const o of p.battlefield) {
@@ -488,10 +549,14 @@ export class Agent {
         }
         return best ? { obj: best, v: bv } : null;
       }
-      case 'steal':
+      case 'steal': {
+        // (rules 7) Zealous Conscripts copies: "gain control of" our own tapped Kiki-Jiki just untaps it
+        const eng = e.temp && this.loopEngine(g, p, src);
+        if (eng?.tapped) return { obj: eng, v: 10 };
         // A creature borrowed for a turn is only worth taking if it can swing hard
         return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land
           && (!e.temp || (o.fx.type.creature && g.power(o) >= 3 && !g.has(o, 'defender'))));
+      }
       case 'flickerDelay': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land && !o.token);
       case 'fight': {
         const mine = src.zone === 'battlefield' && src.fx.type.creature ? src : this.bestOwn(g, p);
@@ -546,6 +611,11 @@ export class Agent {
     return after >= 0 && !wanted.length;
   }
   chooseAuraTarget(g, p, aura) {
+    const prev = g.targetSrc;
+    g.targetSrc = aura;
+    try { return this.chooseAuraTarget0(g, p, aura); } finally { g.targetSrc = prev; }
+  }
+  chooseAuraTarget0(g, p, aura) {
     const buff = aura.fx.attachBuff;
     // "Enchant artifact" (Power Artifact): the artifact of ours whose activated abilities it helps most
     const what = (aura.card.text.match(/^enchant (\w+)/im) || [])[1]?.toLowerCase();
@@ -561,7 +631,10 @@ export class Agent {
 
   // ---------- combos
   comboCost(g, p, combo, st) {
-    const total = { generic: combo.mana || 0, pips: [], x: 0 };
+    // (rules 11: besides the pieces, what playing it out really costs, colors included: Heliod's {1}{W}. The old
+    // shortcut's generic "mana to start the loop" is for rules 10 and earlier.)
+    const extra = g.rules >= 11 ? parseCost(comboPlay(combo).cost || '') : { generic: combo.mana || 0, pips: [] };
+    const total = { generic: extra.generic, pips: [...extra.pips], x: 0 };
     for (const f of st.found) {
       if (f.zone !== 'hand' && f.zone !== 'command') continue;
       if (combo.imprint && f.key === combo.imprint.card.toLowerCase()) continue;
@@ -675,6 +748,15 @@ export class Agent {
       return s;
     };
     return lands.sort((a, b) => score(b) - score(a))[0];
+  }
+
+  // (rules 9) Shock lands and the like: pay N life for the land to enter untapped when its mana is wanted this turn
+  // (a spell in hand or the command zone that the extra mana makes castable) and life isn't short
+  payForUntappedLand(g, p, o, n) {
+    if (p.life - n < Math.max(6, g.startLife ? g.startLife / 4 : 10)) return false;
+    if (g.active !== p.idx || g.phase === 'end') return false;
+    const avail = g.availableMana(p) + 1;
+    return p.hand.concat(p.command).some(x => x !== o && !x.fx.type.land && x.card.manaCost && (x.card.cmc || 0) <= avail && (x.card.cmc || 0) >= avail - 1);
   }
 
   // Mana to keep open after main phase 2: counterspells first, then instant-speed answers.
@@ -1100,6 +1182,9 @@ export class Agent {
       case 'untapAll': {
         const kinds = { 'nonland permanents': o => !o.fx.type.land, artifacts: o => o.fx.type.artifact, creatures: o => o.fx.type.creature, lands: o => o.fx.type.land };
         const ok = kinds[e.what] || (() => true);
+        // (rules 7) Deceiver Exarch, Pestermite copies: untapping the loop engine is the whole point
+        const eng = this.loopEngine(g, p, src);
+        if (eng?.tapped && ok(eng)) return 10;
         let tapped = p.battlefield.filter(o => o.tapped && o.fx.mana && ok(o)).map(o => o.fx.mana.amount).sort((a, b) => b - a);
         if (e.n) tapped = tapped.slice(0, e.n);
         const back = tapped.reduce((a, b) => a + b, 0) - (src.card.cmc || 0);
@@ -1142,7 +1227,7 @@ export class Agent {
       case 'counter': case 'counterAbility': case 'copySpell': case 'protect': return isSpell ? -100 : 0;
       case 'if': {
         const ok = g.evalCond(p, src, e.cond, { x: e.cond.c === 'x' ? N('X') : 0, kicked: g.availableMana(p) >= (src.card.cmc || 0) + 2 });
-        const branch = ok && !(e.cond.c === '?' && (e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
+        const branch = ok && !(e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && (g.rules >= 17 || e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
         return branch.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0);
       }
       case 'scry': return N(e.n) * 0.5;
@@ -1560,6 +1645,27 @@ export class Agent {
     return null;
   }
 
+  // (rules 13) "May draw up to N cards" (Arcane Denial's gift): all of them, unless the library is nearly empty
+  drawUpTo(g, p, src, max) { return Math.max(0, Math.min(max, p.library.length - 2)); }
+
+  // (rules 12) A cost with Phyrexian symbols that can be paid more than one way: how many to pay with 2 life each.
+  // options: the numbers that make a complete payment (0 = all with mana). The AI keeps its mana and pays life while
+  // that leaves it at half its starting life or more; below that, as much mana as it can.
+  /** @param {any} g @param {any} p @param {any} src @param {{ options: number[] }} info */
+  phyrexianLife(g, p, src, info) {
+    const most = Math.max(...info.options), least = Math.min(...info.options);
+    return p.life - 2 * most >= (g.startLife || 40) / 2 ? most : least;
+  }
+
+  // (rules 10) A loop of triggers with an optional ("you may") trigger of ours that never ends by itself: how many
+  // more times to repeat it (0 stops it, loops.js). A loop that changes nothing is stopped at once; one that helps
+  // us (its value from public numbers only: loops.loopValue) goes on until AI_LOOP_REPS repetitions, then stops.
+  /** @param {any} g @param {any} p @param {{ cls: string, reps: number, value: number }} info */
+  loopReps(g, p, info) {
+    if (info.cls === 'repeating' || info.value <= 0) return 0;
+    return Math.max(0, AI_LOOP_REPS - info.reps);
+  }
+
   // Between iterations of an opponent's combo loop: kill a piece if we can
   /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   respondToLoop(g, q, p, pieces) {
@@ -1772,7 +1878,7 @@ export class Agent {
   counterResponse(g, q, item) {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
-    const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.fits(o, item.o));
+    const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.counterUsable(g, q, o, item));
     // (rules 5, item 97: a permanent's counter ability — Glen Elendra Archmage, Siren Stormtamer — when there's no
     // counterspell in hand; Stormtamer only answers something aimed at us or our creatures)
     if (!usable.length && g.rules >= 5) {
@@ -1928,6 +2034,10 @@ export class Agent {
       this.forcedAttacks = null;
       return f.map(x => ({ o: p.battlefield.find(o => o.iid === x.iid), target: x.target, ...(x.obj != null ? { obj: g.objects.get(x.obj) } : {}) })).filter(x => x.o);
     }
+    // (rules 11) Hasty copies just made by a combo (comboplay.js) are the point of the combo: everything that can
+    // attack does, spread so each opponent gets at least their life total plus a little for blockers. The usual
+    // planner looks at nine attackers at most. Blocks, Fog, protection and damage are all left to combat.
+    if (g.rules >= 11 && p.comboAttack === g.turn) return comboAlphaStrike(g, p);
     const usual = this.declareAttackersPlan(g, p);
     if (this.lookahead && !this.noLaAttack && !g.sim && g.rules >= 5) return lookAheadAttacks(this, g, p, usual);
     return usual;
@@ -2105,23 +2215,33 @@ export class Agent {
   }
 
   // ---------- counterspells
-  fits(c, spell) { return this.fitsWhat(c.fx.spell.find(e => e.k === 'counter').what, spell); }
+  // (rules 17, item 208: with the game and the stack item, the counterspell's mana value and color limits count too)
+  fits(c, spell, g = null, item = null) {
+    const e = c.fx.spell.find(x => x.k === 'counter');
+    return g && item && g.rules >= 17 ? counterFits(g, e, item) : this.fitsWhat(e.what, spell);
+  }
   // Can a counter for "what" (any, noncreature, instant or sorcery…) answer this spell?
-  fitsWhat(what, spell) {
-    const t = spell.fx.type;
-    if (what === 'any') return true;
-    if (what.includes('noncreature')) return !t.creature;
-    if (what.includes('creature')) return t.creature;
-    if (what.includes('instant or sorcery')) return t.instant || t.sorcery;
-    if (what.includes('artifact')) return t.artifact;
-    if (what.includes('enchantment')) return t.enchantment;
-    return true;
+  fitsWhat(what, spell) { return spellFits(what, spell); }
+  // (item 208, rules 17) A counterspell worth casting at this spell: it fits, and a "unless its controller pays {N}"
+  // one isn't aimed at a player who visibly has the mana to pay (untapped permanents are public)
+  counterUsable(g, q, c, item) {
+    if (!this.fits(c, item.o, g, item)) return false;
+    const e = c.fx.spell.find(x => x.k === 'counter');
+    return !(g.rules >= 17 && e.unless && (g.infinite(item.p) || g.availableMana(item.p) >= e.unless));
+  }
+  // (item 208) "Counter target spell unless its controller pays {N}", aimed at our spell: pay when we can, unless the
+  // spell is worth less than the mana (a cheap spell that is neither a combo piece nor the commander)
+  payUnless(g, p, src, e, item) {
+    if (g.infinite(p)) return true;
+    if (g.availableMana(p) < e.unless) return false;
+    const o = item.o;
+    return !!(item.combo || o.isCommander || (o.card.cmc || 0) + 1 >= e.unless || this.value(g, o) >= 5);
   }
 
   // Is this spell part of a combo the caster is visibly close to completing?
   comboSpell(g, item) {
     if (item.combo) return true;
-    return combosFor(item.o.card).some(c => {
+    return g.combosFor(item.o.card).some(c => {
       const st = comboState(g, item.p, c);
       return comboScore(c, item.p) >= 500 && st.onBoard >= c.pieces.length - 1;
     });

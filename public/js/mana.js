@@ -7,8 +7,28 @@ import { parseCost, COLORS } from './engine.js';
 export function sources(g, p, exclude) {
   return p.battlefield.filter(o => o !== exclude && !o.tapped && o.fx.mana && g.canTapNow(p, o)
     && (!o.fx.mana.gate || g.gateOk(o, o.fx.mana.gate)) && (o.fx.type.land || !g.abilityLocked(p, o))
-    && g.spendOk(o.fx.mana.only));
+    && g.spendOk(o.fx.mana.only) && landsOk(g, p, o) && (g.rules < 16 || !o.fx.mana.cond16 || manaColors16(g, p, o, o.fx.mana.colors).length > 0));
 }
+// (rules 13) Temple of the False God: "Activate only if you control five or more lands" (the Temple counts: it is a
+// land you control)
+// (rules 16) "Activate only if you control a Swamp / an artifact / three or more artifacts" (effects.js cond16): the
+// colors the source may make now; colors no condition covers are always allowed (the source itself counts)
+export function manaColors16(g, p, o, colors) {
+  const cs = g.rules >= 16 && o.fx.mana?.cond16;
+  if (!cs) return colors;
+  const has = (/** @type {string} */ w, /** @type {number} */ n) => p.battlefield.filter(x => (w === 'legendary' ? x.fx.type.legendary : x.fx.type[w] || x.fx.subtypes.includes(w))).length >= n;
+  const bad = new Set(cs.filter((/** @type {any} */ c) => !c.need.any.some((/** @type {string} */ w) => has(w, c.need.n))).flatMap((/** @type {any} */ c) => c.colors));
+  return bad.size ? colors.filter((/** @type {string} */ c) => !bad.has(c)) : colors;
+}
+const landsOk = (g, p, o) => !(g.rules >= 13 && o.fx.mana.landsAtLeast) || p.battlefield.filter(x => x.fx.type.land).length >= o.fx.mana.landsAtLeast;
+// (rules 13) Cavern of Souls: its "one mana of any color" can only pay for a creature spell of the chosen type, and
+// that spell then can't be countered (Game.cast: unit.cavern). For anything else it taps for {C}.
+const cavernSpell = (g, s) => cavernFor(g, s.chosenType);
+const cavernFor = (g, type) => {
+  const f = g.payingFor;
+  const o = f && !f.ability && !f.all ? f.o : null;
+  return !!o && o.fx.type.creature && !!type && (o.fx.subtypes.includes(type) || o.fx.kw.has('changeling'));
+};
 // A creature can use {T} abilities (mana included) once it's been under your control since your turn began,
 // or with haste, or with Shang-Chi / Thousand-Year Elixir-style "as though it had haste"
 /** @param {import('./engine.js').Game} g */
@@ -43,7 +63,12 @@ export function manaAmount(g, p, s) {
 }
 /** @param {import('./engine.js').Game} g */
 export function units(g, p, exclude) {
-  const u = p.pool.filter(x => g.spendOk(x.only)).map(x => ({ ref: x, colors: x.colors, pool: true }));
+  const u = p.pool.filter(x => g.spendOk(x.only)).map(x => {
+    // (rules 16) Cavern of Souls mana in the pool (tapped by hand): any color for a creature spell of its chosen type,
+    // which then can't be countered; {C} for anything else
+    if (x.cavernType && g.rules >= 16) { const ok = cavernFor(g, x.cavernType); return { ref: x, colors: ok ? x.colors : ['C'], pool: true, ...(ok ? { cavern: true } : {}) }; }
+    return { ref: x, colors: x.colors, pool: true };
+  });
   // Kinnan: nonland mana sources make one extra
   const boost = p.battlefield.some(o => o.fx.manaBoost);
   // Chromatic Lantern: lands tap for any color; Crypt Ghast, Mirari's Wake: extra mana from some sources
@@ -57,11 +82,22 @@ export function units(g, p, exclude) {
   for (const s of g.sources(p, exclude)) {
     // Lion's Eye Diamond discards the hand: only worth it once the hand is (nearly) empty
     if (s.fx.mana.discardHand && p.hand.filter(c => c !== p.casting).length > 1) continue;
+    // (item 211, rules 17) Chrome Mox: one mana of any of the imprinted card's colors; none with nothing imprinted,
+    // a colorless card, or the card gone from exile
+    const mox = g.rules >= 17 && s.fx.mana.imprintColors ? (s.imprintedObj?.zone === 'exile' ? g.colorsOf(s.imprintedObj) : []) : null;
+    if (mox && !mox.length) continue;
     const n = g.manaAmount(p, s) + (boost && !s.fx.type.land ? 1 : 0);
     // Blood Moon: nonbasic lands only make {R}
     const moon = s.fx.type.land && !s.fx.type.basic && g.alive().some(q => q.battlefield.some(o => o.fx.bloodMoon));
-    const colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : s.fx.mana.colors;
-    for (let i = 0; i < n; i++) u.push({ src: s, colors, land: s.fx.type.land, only: s.fx.mana.only });
+    let colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : mox || s.fx.mana.colors;
+    // (rules 13) Cavern of Souls: any color (and can't-be-countered) for a creature spell of the chosen type, else {C}
+    // (under Blood Moon it is a Mountain, which makes {R})
+    const cav = g.rules >= 13 && s.fx.mana.cavern && !moon, cavOk = cav && cavernSpell(g, s);
+    // (rules 16) colors behind an unmet "activate only if you control" condition aren't offered
+    if (g.rules >= 16 && s.fx.mana.cond16 && !moon) colors = manaColors16(g, p, s, colors);
+    // (rules 16: tapped by hand, it keeps both choices in the pool until the mana is spent: units() above)
+    const cavHand = cav && !cavOk && g.rules >= 16 && g.payingFor?.all && !!s.chosenType;
+    for (let i = 0; i < n; i++) u.push({ src: s, colors: cav ? (cavOk || cavHand ? [...COLORS, 'C'] : ['C']) : colors, land: s.fx.type.land, only: s.fx.mana.only, ...(cavOk ? { cavern: true } : {}), ...(cavHand ? { cavernType: s.chosenType } : {}) });
     // Utopia Sprawl, Wild Growth on this land
     if (s.fx.type.land) for (const a of g.attachments(s)) if (a.fx.auraMana) u.push({ src: s, colors: a.fx.auraMana === '*' ? COLORS : [a.fx.auraMana], land: true });
     // Abundant Growth: the enchanted land taps for any color
@@ -145,6 +181,62 @@ export function availableMana(g, p) { return g.infinite(p) ? 99 : g.units(p).len
 export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null, help = []) {
   if (g.infinite(p)) return { free: true };
   const units = g.units(p, exclude).concat(help);
+  // (rules 12) Phyrexian and two-brid symbols have two ways to be paid: planTagged tries them
+  if (g.rules >= 12 && cost.pips.some((/** @type {any} */ x) => x.phy || x.two)) return planTagged(g, p, units, cost, extra, avoid);
+  return greedyPlan(units, cost.pips, cost.generic + extra, avoid);
+}
+// How many Phyrexian symbols p can pay with life: 2 life each, never going below 1 life (Phase 2D's rule; the
+// Comprehensive Rules (119.4) would let a player pay down to 0)
+// (rules 13: none while the player's life total can't change, 119.8; lifeLock is only ever set from rules 13)
+export const lifeSymbolsMax = p => (p.lifeLock ? 0 : Math.max(0, Math.floor(((p.life || 0) - 1) / 2)));
+// (rules 12) A cost with Phyrexian ({B/P}: its color or 2 life) or two-brid ({2/W}: its color or {2}) symbols. Every way
+// of paying is checked before anything is paid; the plan says how much life (plan.life) goes with the mana.
+//   g.payLife: how many Phyrexian symbols the payer chose to pay with life (Game.choosePhyrexian); unset, as few as
+//   possible (mana first). Two-brid symbols: the plan that taps the fewest new sources (mana already floating first),
+//   then the one using the fewest mana units, so {2/W} takes a {W} when there is one and {2} otherwise.
+/** @param {import('./engine.js').Game} g */
+function planTagged(g, p, units, cost, extra, avoid) {
+  const phy = cost.pips.filter((/** @type {any} */ x) => x.phy);
+  const two = cost.pips.filter((/** @type {any} */ x) => x.two && !x.phy);
+  const plain = cost.pips.filter((/** @type {any} */ x) => !x.phy && !x.two);
+  const most = Math.min(phy.length, lifeSymbolsMax(p));
+  const ks = g.payLife != null ? [g.payLife] : Array.from({ length: most + 1 }, (_, k) => k);
+  // (which symbols, not just how many: Reaper King with a Plains and an Island pays {2/W} and {2/U} with them and the
+  // other three with {2}; every subset is tried, and costs have few such symbols)
+  const subsets = n => Array.from({ length: 2 ** n }, (_, m) => m);
+  const bits = m => { let c = 0; for (; m; m &= m - 1) c++; return c; };
+  for (const k of ks) {
+    if (k < 0 || k > most) continue;
+    let best = null;
+    for (const lm of subsets(phy.length)) {
+      if (bits(lm) !== k) continue;
+      const phyMana = phy.filter((_, i) => !(lm & (1 << i)));
+      for (const tm of subsets(two.length)) {
+        const generic = cost.generic + extra + two.filter((_, i) => tm & (1 << i)).reduce((/** @type {number} */ s, /** @type {any} */ x) => s + x.two, 0);
+        const plan = greedyPlan(units, [...plain, ...two.filter((_, i) => !(tm & (1 << i))), ...phyMana], generic, avoid);
+        if (!plan) continue;
+        const fresh = [...plan.used].filter(i => !units[i].pool).length;
+        if (!best || fresh < best.fresh || (fresh === best.fresh && plan.used.size < best.plan.used.size)) best = { plan, fresh };
+      }
+    }
+    if (best) return { ...best.plan, life: 2 * k, lifeSymbols: k };
+  }
+  return null;
+}
+// (rules 12) The numbers of Phyrexian symbols that could be paid with life for this cost, each a complete payment
+/** @param {import('./engine.js').Game} g */
+export function phyrexianOptions(g, p, cost, extra = 0, exclude = null, help = []) {
+  if (g.infinite(p)) return [0];
+  const out = [];
+  const prev = g.payLife;
+  try {
+    for (let k = 0; k <= Math.min(cost.pips.filter((/** @type {any} */ x) => x.phy).length, lifeSymbolsMax(p)); k++) { g.payLife = k; if (g.planPayment(p, cost, extra, exclude, null, help)) out.push(k); }
+  } finally { g.payLife = prev; }
+  return out;
+}
+// The greedy plan: colored pips first (the narrowest first), then generic, preferring floating mana, the same
+// source again, and sources that make one color
+function greedyPlan(units, pips, generic, avoid) {
   const used = new Set();
   const srcs = new Set();
   // (the units that paid a colored pip: a painland tapped for colored mana hurts, for {C} it doesn't)
@@ -171,20 +263,27 @@ export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null,
     if (units[best].src) srcs.add(units[best].src);
     return true;
   };
-  for (const pip of [...cost.pips].sort((a, b) => a.length - b.length)) if (!pick(u => pip.some(c => u.colors.includes(c)))) return null;
-  for (let i = 0; i < cost.generic + extra; i++) if (!pick(() => true, true)) return null;
+  for (const pip of [...pips].sort((a, b) => a.length - b.length)) if (!pick(u => pip.some(c => u.colors.includes(c)))) return null;
+  for (let i = 0; i < generic; i++) if (!pick(() => true, true)) return null;
   return { units, used, srcs: [...srcs], colored };
 }
 /** @param {import('./engine.js').Game} g */
 export function commitPayment(g, p, plan) {
   if (plan.free) return;
+  // (rules 12) Phyrexian symbols paid with life: paid, not dealt as damage; it is life lost (119.4, 119.3) and
+  // triggers "whenever you lose life". The plan was checked whole before anything is paid.
+  if (plan.life) {
+    p.life -= plan.life;
+    g.emit('life', { p: p.idx, d: -plan.life });
+    g.log(`${g.pn(p)} pays ${plan.life} life for ${plan.lifeSymbols === 1 ? 'a Phyrexian mana symbol' : `${plan.lifeSymbols} Phyrexian mana symbols`}`, { kind: 'minor', rule: '107.4f' });
+  }
   const usedPool = new Set();
   plan.units.forEach((u, i) => { if (u.pool && plan.used.has(i)) usedPool.add(u.ref); });
   p.pool = p.pool.filter(x => !usedPool.has(x));
   for (const s of plan.srcs) {
     s.tapped = true;
     if (s.fx.watch?.length || p.battlefield.some(x => x.fx.watch?.some(w => w.ev === 'tapped'))) g.fire('tapped', { o: s, p: p.idx });
-    plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only }); });
+    plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only, ...(u.cavernType ? { cavernType: u.cavernType } : {}) }); });
     // (rules 6) Painlands, Talismans: colored mana deals damage to you; Ancient Tomb, Mana Confluence: any mana
     const pain = s.fx.mana?.pain;
     if (pain && g.rules >= 6 && plan.units.some((u, i) => u.src === s && !u.convoke && (!pain.colored || !plan.used.has(i) || (plan.colored?.has(i) && u.colors.some(c => c !== 'C'))))) {
@@ -235,6 +334,7 @@ export function spellIs(g, o, what) {
 // How many permanents p controls of a type or subtype ("creature", "elf", "artifact creature")
 /** @param {import('./engine.js').Game} g */
 export function countControlled(g, p, what) { return p.battlefield.filter(o => g.isA(o, what)).length; }
+const COLOR_WORDS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 /** @param {import('./engine.js').Game} g */
 export function isA(g, o, what) {
   if (!what || what === 'permanent' || what === 'any') return true;
@@ -244,6 +344,8 @@ export function isA(g, o, what) {
     if (w === 'nonland') return !o.fx.type.land;
     if (w === 'noncreature') return !o.fx.type.creature;
     if (w in o.fx.type) return o.fx.type[w];
+    // (rules 7) colors: "blue creature" (Grand Architect), "white permanent"…
+    if (g.rules >= 7 && w in COLOR_WORDS) return g.colorsOf(o).includes(COLOR_WORDS[w]);
     return o.fx.subtypes.includes(w) || o.fx.subtypes.includes(w.replace(/s$/, '')) || (o.fx.type.creature && (o.fx.kw.has('changeling') || o.fx.allTypes || !!g.players[o.controller]?.battlefield.some(s => s.fx.allTypesTeam)));
   });
 }
@@ -298,6 +400,17 @@ export function dynValue(g, p, d, ctx = {}) {
   // Earthquake Dragon, Excalibur: the total mana value of what you control
   if (d.dyn === 'sumMv') return p.battlefield.filter(o => g.isA(o, d.what === 'historic permanent' ? 'permanent' : d.what) && (d.what !== 'historic permanent' || o.fx.type.artifact || o.fx.type.legendary || o.fx.subtypes.includes('saga'))).reduce((s, o) => s + (o.card.cmc || 0), 0);
   if (d.dyn === 'countWhere') return (d.where === 'gy' ? p.graveyard : d.where === 'all' ? g.alive().flatMap(q => q.battlefield) : p.battlefield).filter(o => g.isA(o, d.what)).length;
+  // (item 207, rules 17) "X, where X is …" amounts (effects.js whereX)
+  if (d.dyn === 'countX') {
+    const n = (d.where === 'all' ? g.alive().flatMap(q => q.battlefield) : p.battlefield).filter(o => g.isA(o, d.what) && (!d.other || o !== ctx.src) && (!d.tapped || o.tapped)).length;
+    return d.half ? (d.half === 'up' ? Math.ceil(n / 2) : Math.floor(n / 2)) : n;
+  }
+  if (d.dyn === 'selfCounters') return ctx.src ? Math.max(0, ctx.src.zone === 'battlefield' ? ctx.src.counters || 0 : ctx.src.lastCounters || 0) : 0;
+  if (d.dyn === 'namedCounters') return ctx.src?.named?.[d.kind] || 0;
+  if (d.dyn === 'attackers') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking != null && (!d.other || o !== ctx.src)).length;
+  if (d.dyn === 'life') return Math.max(0, p.life);
+  if (d.dyn === 'oppArtEnch') return g.opponents(p).reduce((n, q) => n + q.battlefield.filter(o => o.fx.type.artifact || o.fx.type.enchantment).length, 0);
+  if (d.dyn === 'thatPower') { const o = ctx.trig?.o; return o ? Math.max(0, o.zone === 'battlefield' ? g.power(o) : g.basePower(o.card) + (o.lastCounters || 0)) : p.lastSacPower || 0; }
   // "That many", "its power": from the event that set off the trigger
   const t = ctx.trig || {};
   if (d.dyn === 'trigN') return t.n ?? 1;
@@ -359,7 +472,7 @@ export function castModeRaw(g, p, o) {
     if (o.fx.foretell) return g.planPayment(p, parseCost(o.fx.foretell), 0) ? { alt: 'foretold' } : null;
     return g.active === p.idx && (g.phase === 'main1' || g.phase === 'main2') && !g.stack.length ? { alt: 'free' } : null;
   }
-  if (o.zone === 'exile' && !(o.mayPlay && o.mayPlay.p === p.idx && o.mayPlay.until >= g.turn) && !(o.fx.gyCastSelf?.exile && o.owner === p.idx)) return null;
+  if (o.zone === 'exile' && !(o.mayPlay && o.mayPlay.p === p.idx && o.mayPlay.until >= g.turn) && !(o.fx.gyCastSelf?.exile && o.owner === p.idx) && !(g.rules >= 7 && o.fx.exileCast && o.owner === p.idx)) return null;
   // Urza, Lord High Artificer: the exiled card may be played without paying its mana cost
   if (o.zone === 'exile' && o.mayPlay?.free && o.mayPlay.p === p.idx) return { alt: 'free' };
   // Lavinia: opponents can't cast noncreature spells costing more than their land count

@@ -54,13 +54,13 @@ export function cloneGame(g, seed, budget = LOOKAHEAD.steps) {
     }
     return r;
   };
-  const SKIP = new Set(['clock', 'handlers', 'logEntries', 'rand', 'comboLog', 'chat', 'format', 'puzzle']);
+  const SKIP = new Set(['clock', 'handlers', 'logEntries', 'rand', 'comboLog', 'chat', 'format', 'puzzle', 'comboBook']);
   // (functions put on the game object itself, like the self-test's rules watcher, act on the real game: the copy
   // keeps the plain engine methods instead)
   for (const k of Object.keys(g)) if (!SKIP.has(k) && typeof g[k] !== 'function') ng[k] = cp(g[k]);
   // (players' deck lists and combo definitions never change: copied by reference above via shared card defs)
   Object.assign(ng, {
-    format: g.format, puzzle: g.puzzle, handlers: {}, logEntries: [], comboLog: [], explain: false, sim: true,
+    format: g.format, puzzle: g.puzzle, comboBook: g.comboBook, handlers: {}, logEntries: [], comboLog: [], explain: false, sim: true,
     rand: makeRng(seed), steps: 0,
     // (in a page, every 25 simulated steps hand the browser a moment so the table stays smooth while the AI thinks,
     // item 169; the steps and the result are the same either way)
@@ -284,7 +284,7 @@ export async function lookAheadRespond(agent, g, q, item, isCounter) {
   const other = !!usual && !isCounter(usual.card);
   if (!usual && (item.p === q || item.targets.some(t => t?.spell))) return null;
   if (!other && (item.o.fx.uncounterable || item.uncounterable || agent.comboSpell(g, item))) return usual;
-  const usable = other ? [] : q.hand.filter(o => isCounter(o) && g.canCast(q, o) && agent.fits(o, item.o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
+  const usable = other ? [] : q.hand.filter(o => isCounter(o) && g.canCast(q, o) && agent.counterUsable(g, q, o, item)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
   if (!other && !usable.length) return usual;
   if (other && (item.loopStart || item.combo)) return usual;
   if (agent.laTurn !== g.turn) { agent.laTurn = g.turn; agent.laCount = 0; }

@@ -1,6 +1,6 @@
 // Playtester-style table view: four boards, a stack spotlight, a game log and card previews.
 import { PHASES } from './engine.js';
-import { describeFx } from './effects.js';
+import { describeFx, droppedSentences } from './effects.js';
 import { STYLES } from './ai.js';
 import { combosFor, RESULT_TEXT } from './combos.js';
 import { esc, symbolize } from './util.js';
@@ -524,13 +524,19 @@ export class TableView {
     const g = this.g;
     const items = [...g.stack].reverse();
     const waiting = g.queue?.length || 0;
+    // (Phase 2G) each object says whether it's a spell, an activated ability or a triggered ability; the top one is
+    // marked as resolving next; the footer says who has priority and how many have passed in a row (rules 15)
+    const KIND = { spell: 'Spell', ability: 'Ability', trigger: 'Trigger' };
+    const pr = g.prio && g.players[g.prio.holder];
+    const prioLine = pr && items.length ? `<div class="sp-prio">Priority: <b style="color:${pr.color}">${esc(pr.name)}</b>${g.prio.passes ? ` · ${g.prio.passes} passed` : ''}</div>` : '';
     const html = !items.length && !waiting ? '' : `<div class="sp-head">Stack · ${items.length}<span>resolves top first</span></div>
       ${items.map((it, i) => {
         const tg = (it.targets || []).filter(Boolean).map(t => g.tname(t)).filter(Boolean);
+        const kind = KIND[it.kind] || (it.ability ? 'Ability' : 'Spell');
         return `<div class="sp-item ${it.countered ? 'countered' : ''}" style="--pc:${it.p.color}" data-iid="${it.o.iid}">
           <span class="sp-n">${i + 1}</span><span class="sp-text"><b>${esc(it.o.card.name)}</b>${it.ability ? ` <i>${esc(String(it.label || 'ability').slice(0, 40))}</i>` : ''}
-          <small>${esc(it.p.name)}${tg.length ? ` → ${tg.map(t => { const d = document.createElement('div'); d.innerHTML = t; return esc(d.textContent); }).join(', ')}` : ''}${it.countered ? ' · countered' : ''}</small></span></div>`;
-      }).join('')}${waiting ? `<div class="sp-wait">${waiting} trigger${waiting === 1 ? '' : 's'} waiting to go on the stack</div>` : ''}`;
+          <small><span class="sp-kind">${kind}</span> · ${esc(it.p.name)}${tg.length ? ` → ${tg.map(t => { const d = document.createElement('div'); d.innerHTML = t; return esc(d.textContent); }).join(', ')}` : ''}${it.countered ? ' · countered' : i === 0 ? ' · resolves next' : ''}</small></span></div>`;
+      }).join('')}${prioLine}${waiting ? `<div class="sp-wait">${waiting} trigger${waiting === 1 ? '' : 's'} waiting to go on the stack</div>` : ''}`;
     if (this.stackPanel.dataset.v === html) return;
     this.stackPanel.dataset.v = html;
     this.stackPanel.innerHTML = html;
@@ -669,7 +675,8 @@ export function installDetails(getObject, getView) {
   }
   const open = o => {
     const c = o.card;
-    const unread = new Set(o.fx.unread || []);
+    // (lines not read at all, then sentences skipped inside lines that were read)
+    const unread = new Set([...(o.fx.unread || []), ...droppedSentences(c)]);
     const lines = String(c.fullText || c.text || '').split('\n').filter(Boolean);
     const reads = describeFx(o.fx);
     box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close">✕</button>
@@ -746,7 +753,7 @@ function previewHtml(o) {
   const kws = [...o.fx.kw].filter(k => !['unblockable', 'cantblock'].includes(k));
   const kwRules = Rules.loaded ? kws.map(k => Rules.keyword(k)).filter(Boolean) : [];
   const fx = describeFx(o.fx);
-  const combos = combosFor(c);
+  const combos = o.game?.combosFor ? o.game.combosFor(c) : combosFor(c);
   const pt = c.power != null ? `${c.power}/${c.toughness}` : c.loyalty ? `Loyalty ${c.loyalty}` : '';
   return `
     <div class="imgs">
@@ -758,7 +765,7 @@ function previewHtml(o) {
       <div class="ptype">${esc(c.typeLine)}${pt ? ` · ${esc(pt)}` : ''}</div>
       <div class="oracle">${Rules.glossify(symbolize(c.fullText || c.text || ''))}</div>
       ${fx.length ? `<div class="sec"><h4>Simulator understands</h4><div class="fxl">${fx.map(esc).join('<br>')}</div></div>` : ''}
-      ${o.fx.unread?.length ? `<div class="sec warn"><h4>⚠ Not simulated</h4><div class="fxl">${o.fx.unread.map(esc).join('<br>')}</div></div>` : ''}
+      ${(() => { const miss = [...(o.fx.unread || []), ...droppedSentences(c)]; return miss.length ? `<div class="sec warn"><h4>⚠ Not simulated</h4><div class="fxl">${miss.map(esc).join('<br>')}</div></div>` : ''; })()}
       ${o.chosenType ? `<div class="sec"><h4>Chosen type</h4><div class="fxl">${esc(o.chosenType)}</div></div>` : ''}
       ${combos.length ? `<div class="sec"><h4>Known combos</h4><div class="fxl">${combos.map(k => `<b>${esc(k.label)}</b>: ${esc(RESULT_TEXT[k.result])}`).join('<br>')}</div></div>` : ''}
       ${kwRules.length ? `<div class="sec"><h4>Rules</h4>${kwRules.map(r => `<div class="kwr"><b>${r.id}</b> ${esc(r.text)}</div>`).join('')}</div>` : ''}

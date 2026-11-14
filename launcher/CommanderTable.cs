@@ -22,7 +22,12 @@ using System.Windows.Forms;
 
 static class CommanderTable
 {
-    const string UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 CommanderTable/1.0";
+    // (item 204) An honest client name for every site: the game never poses as a web browser
+    const string UA = "CommanderTable/1.0 (local deck viewer; no browser)";
+    // (item 201) What the game's pages may load and call: their own files, Scryfall, Commander Spellbook and MTGJSON
+    const string CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    // (item 202) The most a friend's page may send in one request (a 200,000-character decklist fits)
+    const int FriendBodyMax = 262144;
     static readonly HashSet<string> AllowedHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
         "archidekt.com", "www.archidekt.com",
         "api2.moxfield.com", "api.moxfield.com", "moxfield.com", "www.moxfield.com",
@@ -382,7 +387,7 @@ static class CommanderTable
             return;
         }
         int status; string type;
-        var body = GetRemote(u.AbsoluteUri, out status, out type);
+        var body = GetRemote(u.AbsoluteUri, out status, out type, true);
         Send(ctx, status, type, body, "X-Upstream-Status", status.ToString());
     }
 
@@ -630,9 +635,34 @@ static class CommanderTable
         catch { }
     }
 
-    static byte[] GetRemote(string url, out int status, out string type)
+    static byte[] GetRemote(string url, out int status, out string type) { return GetRemote(url, out status, out type, false); }
+
+    // listedOnly (item 202): the deck-site proxy follows a redirect only to another https address on the allowed list
+    static byte[] GetRemote(string url, out int status, out string type, bool listedOnly)
     {
+        for (int hop = 0; listedOnly && hop < 5; hop++)
+        {
+            var probe = (HttpWebRequest)WebRequest.Create(url);
+            probe.UserAgent = UA; probe.Method = "HEAD"; probe.AllowAutoRedirect = false; probe.Timeout = 30000;
+            HttpWebResponse pr;
+            try { pr = (HttpWebResponse)probe.GetResponse(); }
+            catch (WebException we) { pr = we.Response as HttpWebResponse; if (pr == null) break; }
+            using (pr)
+            {
+                int code = (int)pr.StatusCode;
+                var loc = pr.Headers["Location"];
+                if (code < 300 || code > 399 || string.IsNullOrEmpty(loc)) break;
+                Uri next;
+                if (!Uri.TryCreate(new Uri(url), loc, out next) || next.Scheme != "https" || !AllowedHosts.Contains(next.Host))
+                {
+                    status = 400; type = "text/plain; charset=utf-8";
+                    return Encoding.UTF8.GetBytes("That site sent the request to an address that is not on the allowed deck-site list.");
+                }
+                url = next.AbsoluteUri;
+            }
+        }
         var req = (HttpWebRequest)WebRequest.Create(url);
+        if (listedOnly) req.AllowAutoRedirect = false;
         req.UserAgent = UA;
         req.Accept = "application/json, text/plain, text/html;q=0.9, */*;q=0.8";
         req.Headers.Add("Accept-Language", "en-US,en;q=0.9");
@@ -752,7 +782,21 @@ static class CommanderTable
         using (var r = new StreamReader(s, Encoding.UTF8)) return r.ReadToEnd();
     }
 
-    static string Js(string s) { return "\"" + (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n").Replace("\r", "") + "\""; }
+    // (item 202: every control character is escaped, so a tab in a name can't break the JSON)
+    static string Js(string s)
+    {
+        var sb = new StringBuilder("\"");
+        foreach (var ch in s ?? "")
+        {
+            if (ch == '\\') sb.Append("\\\\");
+            else if (ch == '"') sb.Append("\\\"");
+            else if (ch == '\n') sb.Append("\\n");
+            else if (ch == '\r') { }
+            else if (ch < ' ') sb.Append("\\u").Append(((int)ch).ToString("x4"));
+            else sb.Append(ch);
+        }
+        return sb.Append('"').ToString();
+    }
 
     static Reply Room(string method, string path, string seatStr, string code, string body, bool local)
     {
@@ -1016,7 +1060,13 @@ static class CommanderTable
                 if (first.Length < 2) return;
                 int len = 0;
                 foreach (var l in lines) if (l.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) int.TryParse(l.Substring(15).Trim(), out len);
-                len = Math.Min(len, 65536);
+                // (item 202) the same limit on all three servers; too much is refused, never cut short
+                if (len > FriendBodyMax || len < 0)
+                {
+                    var no = Encoding.ASCII.GetBytes("HTTP/1.1 413 Error\r\nContent-Type: text/plain\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    stream.Write(no, 0, no.Length);
+                    return;
+                }
                 var buf = new byte[len];
                 for (int read = 0; read < len;) { int n = stream.Read(buf, read, len - read); if (n <= 0) break; read += n; }
                 var uri = new Uri("http://lan" + first[1]);
@@ -1033,10 +1083,12 @@ static class CommanderTable
                     if (path == "/") path = "/play.html";
                     var full = Path.GetFullPath(Path.Combine(Root, path.TrimStart('/').Replace('/', '\\')));
                     // Friends only get the join page and the files it uses, never the host's own page
-                    if (path.StartsWith("/api/") || path == "/index.html" || !full.StartsWith(Root, StringComparison.OrdinalIgnoreCase) || !File.Exists(full)) { status = 404; type = "text/plain"; body = Encoding.UTF8.GetBytes("Not found"); }
+                    // (item 202: compared as files, so "/INDEX.HTML" or "/./index.html" is the host's page too)
+                    var hostPage = Path.GetFullPath(Path.Combine(Root, "index.html"));
+                    if (path.StartsWith("/api/") || full.Equals(hostPage, StringComparison.OrdinalIgnoreCase) || !full.StartsWith(Root.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase) || !File.Exists(full)) { status = 404; type = "text/plain"; body = Encoding.UTF8.GetBytes("Not found"); }
                     else { status = 200; if (!Mime.TryGetValue(Path.GetExtension(full), out type)) type = "application/octet-stream"; body = File.ReadAllBytes(full); }
                 }
-                var headBytes = Encoding.ASCII.GetBytes("HTTP/1.1 " + status + " " + (status == 200 ? "OK" : "Error") + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length + "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n");
+                var headBytes = Encoding.ASCII.GetBytes("HTTP/1.1 " + status + " " + (status == 200 ? "OK" : "Error") + "\r\nContent-Type: " + type + "\r\nContent-Length: " + body.Length + "\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff" + (type.StartsWith("text/html") ? "\r\nContent-Security-Policy: " + CSP : "") + "\r\nConnection: close\r\n\r\n");
                 stream.Write(headBytes, 0, headBytes.Length);
                 stream.Write(body, 0, body.Length);
             }
@@ -1052,6 +1104,8 @@ static class CommanderTable
             res.StatusCode = status;
             res.ContentType = type;
             res.Headers["Cache-Control"] = "no-store";
+            res.Headers["X-Content-Type-Options"] = "nosniff";
+            if (type != null && type.StartsWith("text/html")) res.Headers["Content-Security-Policy"] = CSP;
             if (header != null) res.Headers[header] = value;
             res.ContentLength64 = body.Length;
             res.OutputStream.Write(body, 0, body.Length);
