@@ -669,7 +669,34 @@ export function parseCond(s) {
     const what = m[2].replace(/ (?:card|permanent)$/, '').trim();
     return { c: 'control', n: m[1] === 'another' ? 1 : num(m[1]), what: what.replace(/s$/, ''), other: /other|another/.test(s) };
   }
-  return { c: '?', text: s };
+  // (item 206) Still '?' for games at rules 16 and earlier, which count it as met. From rules 17 the reading in r is
+  // checked instead, and a condition with no r is not met (and is reported), never assumed.
+  const r = cond17(s);
+  return r ? { c: '?', text: s, r } : { c: '?', text: s };
+}
+// (item 206, rules 17) Conditions read since the 1.31.0 audit (triggers.js evalCond)
+function cond17(s) {
+  let m;
+  if ((m = s.match(/^you (win|lose) the flip$/))) return { c: 'coin', win: m[1] === 'win' };
+  if ((m = s.match(/^it was an? ([\w ]+?)(?: card)?$/)) && typeWords(m[1]).length) return { c: 'trigIs', types: typeWords(m[1]) };
+  if (/^you cast (?:it|~)$/.test(s)) return { c: 'wasCast' };
+  if (/^~ was cast from your hand$/.test(s)) return { c: 'castFromHand' };
+  if ((m = s.match(/^you gained (\d+) or more life this turn$/))) return { c: 'gainedN', n: +m[1] };
+  if ((m = s.match(/^(?:an opponent|a player) lost (\d+) or more life this turn$/))) return { c: 'lostN', n: +m[1], any: /^a player/.test(s) };
+  if (/^you didn't lose life this turn$/.test(s)) return { c: 'noLifeLost' };
+  if ((m = s.match(/^~ is in your graveyard and you control an? (\w+)$/))) return { c: 'selfGyControl', what: m[1] };
+  if ((m = s.match(/^you control no (\w+)$/))) return { c: 'controlNone', what: singular(m[1]) };
+  if ((m = s.match(new RegExp(`^you control at least ${COUNTW} other (\\w+)$`)))) return { c: 'control', n: num(m[1]), what: singular(m[2]), other: true };
+  if ((m = s.match(/^an opponent has (\d+) or less life$/))) return { c: 'oppLifeLE', n: +m[1] };
+  if ((m = s.match(new RegExp(`^an opponent controls ${COUNTW} or more (\\w+)$`)))) return { c: 'oppControl', n: num(m[1]), what: singular(m[2]) };
+  if ((m = s.match(/^an opponent controls an? (\w+)$/))) return { c: 'oppControl', n: 1, what: m[1] };
+  if (/^an opponent is the monarch$/.test(s)) return { c: 'oppMonarch' };
+  if (/^no creatures are on the battlefield$/.test(s)) return { c: 'bfNoCreatures' };
+  if ((m = s.match(new RegExp(`^(?:~|it) has ${COUNTW} or more \\+1/\\+1 counters on it$`)))) return { c: 'selfCounters', min: num(m[1]) };
+  if ((m = s.match(new RegExp(`^~ has fewer than ${COUNTW} \\+1/\\+1 counters on it$`)))) return { c: 'selfCounters', max: num(m[1]) - 1 };
+  if ((m = s.match(new RegExp(`^you have fewer than ${COUNTW} cards in hand$`)))) return { c: 'handLT', n: num(m[1]) };
+  if ((m = s.match(/^this is the (second|third|fourth) time this ability has resolved this turn$/))) return { c: 'nthResolve', n: { second: 2, third: 3, fourth: 4 }[m[1]] };
+  return null;
 }
 const COND_TEXT = {
   kicked: () => 'kicked', gy: c => `${c.n}+ cards in graveyard`, gyTypes: c => `${c.n}+ card types in graveyard`, gyType: c => `${c.n}+ ${c.types.join('/')} cards in graveyard`,
@@ -985,9 +1012,34 @@ function parseFlat(t) {
   if (dyn) {
     const d = dyn[1] ? { dyn: 'devotion', color: 'WUBRG'['white blue black red green'.split(' ').indexOf(dyn[1])] } : dyn[2] ? { dyn: 'count', what: dyn[2] } : dyn[3] ? { dyn: 'maxPower' } : dyn[4] ? { dyn: 'gy' } : dyn[5] ? { dyn: 'trigMV' } : { dyn: 'hand' };
     for (const e of effects) for (const f of ['n', 'p', 't']) if (e[f] === 'X') e[f] = d;
+  } else {
+    // (item 207) Every other "where X is …": kept beside the effect as xw and counted on resolution from rules 17
+    // (before, X was the X paid on casting: 0). A clause that isn't understood is { dyn: '?' }: still 0, and the
+    // coverage report lists the card as misread.
+    const w = t.match(/where x is ([^.\n]+)/);
+    if (w) { const d = whereX(w[1].trim()); for (const e of effects) if (['n', 'p', 't'].some(f => e[f] === 'X')) e.xw = d; }
   }
   readRiders(t, found, effects);
   return effects;
+}
+
+// (item 207) What X stands for in "…, where X is <clause>", as a counted amount (mana.js dynValue)
+function whereX(c) {
+  let m;
+  if (/^(?:~'s|this creature's) power\b/.test(c)) return { dyn: 'selfPower' };
+  if (/^(?:that creature's|its) power\b/.test(c)) return { dyn: 'thatPower' };
+  if (/^the sacrificed creature's power\b/.test(c)) return { dyn: 'sacPower' };
+  if (/^the sacrificed (?:creature|artifact|enchantment|permanent)'s mana value\b/.test(c)) return { dyn: 'sacMv' };
+  if (/^(?:that (?:card|spell)'s mana value|the mana value of that spell)\b/.test(c)) return { dyn: 'trigMV' };
+  if (/^the number of \+1\/\+1 counters on (?:~|this creature)$/.test(c)) return { dyn: 'selfCounters' };
+  if ((m = c.match(/^the number of (\w+) counters on (?:~|this \w+)$/))) return { dyn: 'namedCounters', kind: m[1] };
+  if ((m = c.match(/^the number of (other )?attacking creatures$/))) return { dyn: 'attackers', other: !!m[1] };
+  if (c === 'your life total') return { dyn: 'life' };
+  if (/^the number of artifacts and enchantments your opponents control$/.test(c)) return { dyn: 'oppArtEnch' };
+  if ((m = c.match(/^(half )?the number of (other )?(tapped )?([a-z' -]+?) (you control|on the battlefield)(?:, rounded (down|up))?$/)) && !/ and | or /.test(m[4])) {
+    return { dyn: 'countX', what: m[4].split(' ').map(singular).join(' '), where: m[5] === 'you control' ? 'you' : 'all', ...(m[1] ? { half: m[6] || 'down' } : {}), ...(m[2] ? { other: true } : {}), ...(m[3] ? { tapped: true } : {}) };
+  }
+  return { dyn: '?' };
 }
 
 // Second halves of sentences the patterns above leave out. Each is a mark on an effect already read, used by the

@@ -19,7 +19,12 @@ $AllowedHosts = @(
   'cedh-decklist-database.com', 'www.cedh-decklist-database.com',
   'cubecobra.com', 'www.cubecobra.com'
 )
-$UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36 CommanderTable/1.0'
+# (item 204) An honest client name for every site: the game never poses as a web browser
+$UA = 'CommanderTable/1.0 (local deck viewer; no browser)'
+# (item 201) What the game's pages may load and call: their own files, Scryfall, Commander Spellbook and MTGJSON
+$CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+# (item 202) The most a friend's page may send in one request (a 200,000-character decklist fits)
+$FriendBodyMax = 262144
 $Mime = @{
   '.html' = 'text/html; charset=utf-8'; '.js' = 'text/javascript; charset=utf-8'
   '.css'  = 'text/css; charset=utf-8';  '.json' = 'application/json'
@@ -27,8 +32,28 @@ $Mime = @{
   '.jpg'  = 'image/jpeg'; '.jpeg' = 'image/jpeg'; '.webp' = 'image/webp'
 }
 
-function Get-Remote([string]$Url) {
+# ListedOnly (item 202): the deck-site proxy follows a redirect only to another https address on the allowed list
+function Get-Remote([string]$Url, [switch]$ListedOnly) {
+  for ($hop = 0; $ListedOnly -and $hop -lt 5; $hop++) {
+    $probe = [Net.HttpWebRequest]::Create($Url)
+    $probe.UserAgent = $UA; $probe.Method = 'HEAD'; $probe.AllowAutoRedirect = $false; $probe.Timeout = 30000
+    $pr = $null
+    try { $pr = $probe.GetResponse() }
+    catch {
+      $ex = $_.Exception
+      while ($ex -and -not ($ex -is [Net.WebException])) { $ex = $ex.InnerException }
+      if ($ex -and $ex.Response) { $pr = $ex.Response } else { break }
+    }
+    $code = [int]$pr.StatusCode; $loc = $pr.Headers['Location']; $pr.Close()
+    if ($code -lt 300 -or $code -gt 399 -or -not $loc) { break }
+    $next = $null
+    if (-not [Uri]::TryCreate([Uri]$Url, $loc, [ref]$next) -or $next.Scheme -ne 'https' -or $AllowedHosts -notcontains $next.Host.ToLower()) {
+      return @{ Status = 400; Type = 'text/plain; charset=utf-8'; Body = [Text.Encoding]::UTF8.GetBytes('That site sent the request to an address that is not on the allowed deck-site list.') }
+    }
+    $Url = $next.AbsoluteUri
+  }
   $req = [Net.HttpWebRequest]::Create($Url)
+  if ($ListedOnly) { $req.AllowAutoRedirect = $false }
   $req.UserAgent = $UA
   $req.Accept = 'application/json, text/plain, text/html;q=0.9, */*;q=0.8'
   $req.Headers.Add('Accept-Language', 'en-US,en;q=0.9')
@@ -80,6 +105,8 @@ function Send-Response($Ctx, [int]$Status, [string]$Type, [byte[]]$Body, [hashta
     $res.StatusCode = $Status
     $res.ContentType = $Type
     $res.Headers['Cache-Control'] = 'no-store'
+    $res.Headers['X-Content-Type-Options'] = 'nosniff'
+    if ($Type -and $Type.StartsWith('text/html')) { $res.Headers['Content-Security-Policy'] = $CSP }
     foreach ($k in $Headers.Keys) { $res.Headers[$k] = [string]$Headers[$k] }
     $res.ContentLength64 = $Body.Length
     $res.OutputStream.Write($Body, 0, $Body.Length)
@@ -103,7 +130,7 @@ $Tunnel = @{ Status = 'off'; Url = ''; Error = ''; Proc = $null; Log = '' }
 $Rng = [Security.Cryptography.RandomNumberGenerator]::Create()
 function New-SeatKey { $b = New-Object byte[] 10; $Rng.GetBytes($b); -join ($b | ForEach-Object { 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[$_ % 32] }) }
 function New-Seat { @{ State = 'null'; Question = 'null'; Answer = $null; Name = ''; Seen = $null; LastChat = [DateTime]::MinValue; UndoAsk = $null; UndoReply = $null; Deck = $null; Key = (New-SeatKey) } }
-function JsStr([string]$s) { if ($null -eq $s) { $s = '' }; '"' + ($s -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace "`t", ' ') + '"' }
+function JsStr([string]$s) { if ($null -eq $s) { $s = '' }; '"' + ($s -replace '\\', '\\' -replace '"', '\"' -replace "`n", '\n' -replace "`r", '' -replace '[\x00-\x1f]', ' ') + '"' }
 # The image folder's cap: data\image-cache-mb.txt (set in the app), else 400 MB; the oldest go when it's over
 $script:ImagesSaved = 0
 function Get-ImageCap {
@@ -248,7 +275,12 @@ function Handle-LanClient($client) {
     $first = $lines[0].Split(' ')
     if ($first.Count -lt 2) { return }
     $len = 0
-    foreach ($l in $lines) { if ($l -match '^Content-Length:\s*(\d+)') { $len = [Math]::Min([int]$Matches[1], 65536) } }
+    foreach ($l in $lines) { if ($l -match '^Content-Length:\s*(\d{1,9})') { $len = [int]$Matches[1] } }
+    # (item 202) the same limit on all three servers; too much is refused, never cut short
+    if ($len -gt $FriendBodyMax) {
+      $no = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 413 Error`r`nContent-Type: text/plain`r`nContent-Length: 0`r`nConnection: close`r`n`r`n")
+      $stream.Write($no, 0, $no.Length); return
+    }
     $buf = New-Object byte[] $len
     $read = 0; while ($read -lt $len) { $k = $stream.Read($buf, $read, $len - $read); if ($k -le 0) { break }; $read += $k }
     $uri = [Uri]("http://lan" + $first[1])
@@ -261,14 +293,16 @@ function Handle-LanClient($client) {
     } else {
       if ($path -eq '/') { $path = '/play.html' }
       $full = [IO.Path]::GetFullPath((Join-Path $Root ($path.TrimStart('/') -replace '/', '\')))
-      if ($path.StartsWith('/api/') -or $path -eq '/index.html' -or -not $full.StartsWith($Root, [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path $full -PathType Leaf)) {
+      # (item 202: compared as files, so "/INDEX.HTML" or "/./index.html" is the host's page too)
+      $hostPage = [IO.Path]::GetFullPath((Join-Path $Root 'index.html'))
+      if ($path.StartsWith('/api/') -or $full.Equals($hostPage, [StringComparison]::OrdinalIgnoreCase) -or -not $full.StartsWith($Root.TrimEnd('\') + '\', [StringComparison]::OrdinalIgnoreCase) -or -not (Test-Path $full -PathType Leaf)) {
         $status = 404; $type = 'text/plain'; $body = [Text.Encoding]::UTF8.GetBytes('Not found')
       } else {
         $status = 200; $type = $Mime[[IO.Path]::GetExtension($full).ToLower()]; if (-not $type) { $type = 'application/octet-stream' }
         $body = [IO.File]::ReadAllBytes($full)
       }
     }
-    $hb = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $status $(if ($status -eq 200) { 'OK' } else { 'Error' })`r`nContent-Type: $type`r`nContent-Length: $($body.Length)`r`nCache-Control: no-store`r`nConnection: close`r`n`r`n")
+    $hb = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $status $(if ($status -eq 200) { 'OK' } else { 'Error' })`r`nContent-Type: $type`r`nContent-Length: $($body.Length)`r`nCache-Control: no-store`r`nX-Content-Type-Options: nosniff$(if ($type -and $type.StartsWith('text/html')) { "`r`nContent-Security-Policy: $CSP" })`r`nConnection: close`r`n`r`n")
     $stream.Write($hb, 0, $hb.Length); $stream.Write($body, 0, $body.Length)
   } catch { } finally { $client.Close() }
 }
@@ -334,7 +368,7 @@ try {
         if (-not [Uri]::TryCreate($target, [UriKind]::Absolute, [ref]$u) -or $u.Scheme -ne 'https' -or $AllowedHosts -notcontains $u.Host.ToLower()) {
           Send-Text $ctx 400 'That URL is not on the allowed deck-site list.'
         } else {
-          $r = Get-Remote $u.AbsoluteUri
+          $r = Get-Remote $u.AbsoluteUri -ListedOnly
           Write-Host "proxy $($r.Status) $($u.AbsoluteUri)"
           Send-Response $ctx $r.Status $r.Type $r.Body @{ 'X-Upstream-Status' = $r.Status }
         }

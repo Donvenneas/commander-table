@@ -51,7 +51,7 @@ if (arg !== '--scan') {
   // ---------- 207: "X, where X is …" plays as 0
   await test(207, 'Krenko, Mob Boss with three Goblins makes three tokens', ['Krenko, Mob Boss', 'Goblin Matron'], async () => {
     const g = await scenario([{ battlefield: ['Krenko, Mob Boss', 'Goblin Matron', 'Goblin Matron'] }, {}]);
-    g.active = 0; await g.activate(P(g, 0), find(g, 0, 'Krenko, Mob Boss'), 0, {}); await settle(g);
+    g.active = 0; const k = find(g, 0, 'Krenko, Mob Boss'); await g.activate(P(g, 0), k, k.fx.abilities[0], {}); await settle(g);
     eq(P(g, 0).battlefield.filter(o => o.token).length, 3, 'Goblin tokens');
   });
   await test(207, 'Chain Reaction with three creatures out deals 3 to each', ['Chain Reaction', 'Grizzly Bears'], async () => {

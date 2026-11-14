@@ -396,6 +396,17 @@ export function dynValue(g, p, d, ctx = {}) {
   // Earthquake Dragon, Excalibur: the total mana value of what you control
   if (d.dyn === 'sumMv') return p.battlefield.filter(o => g.isA(o, d.what === 'historic permanent' ? 'permanent' : d.what) && (d.what !== 'historic permanent' || o.fx.type.artifact || o.fx.type.legendary || o.fx.subtypes.includes('saga'))).reduce((s, o) => s + (o.card.cmc || 0), 0);
   if (d.dyn === 'countWhere') return (d.where === 'gy' ? p.graveyard : d.where === 'all' ? g.alive().flatMap(q => q.battlefield) : p.battlefield).filter(o => g.isA(o, d.what)).length;
+  // (item 207, rules 17) "X, where X is …" amounts (effects.js whereX)
+  if (d.dyn === 'countX') {
+    const n = (d.where === 'all' ? g.alive().flatMap(q => q.battlefield) : p.battlefield).filter(o => g.isA(o, d.what) && (!d.other || o !== ctx.src) && (!d.tapped || o.tapped)).length;
+    return d.half ? (d.half === 'up' ? Math.ceil(n / 2) : Math.floor(n / 2)) : n;
+  }
+  if (d.dyn === 'selfCounters') return ctx.src ? Math.max(0, ctx.src.zone === 'battlefield' ? ctx.src.counters || 0 : ctx.src.lastCounters || 0) : 0;
+  if (d.dyn === 'namedCounters') return ctx.src?.named?.[d.kind] || 0;
+  if (d.dyn === 'attackers') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking != null && (!d.other || o !== ctx.src)).length;
+  if (d.dyn === 'life') return Math.max(0, p.life);
+  if (d.dyn === 'oppArtEnch') return g.opponents(p).reduce((n, q) => n + q.battlefield.filter(o => o.fx.type.artifact || o.fx.type.enchantment).length, 0);
+  if (d.dyn === 'thatPower') { const o = ctx.trig?.o; return o ? Math.max(0, o.zone === 'battlefield' ? g.power(o) : g.basePower(o.card) + (o.lastCounters || 0)) : p.lastSacPower || 0; }
   // "That many", "its power": from the event that set off the trigger
   const t = ctx.trig || {};
   if (d.dyn === 'trigN') return t.n ?? 1;

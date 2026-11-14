@@ -2,7 +2,7 @@ import { roleChip } from './kingdomsPlay.js';
 // Online seats: friends on your network play a seat from their own browser.
 // The game itself runs here, in the host's window. For each friend's seat this module posts their view
 // of the table and any question waiting for them to the local server, and polls for their answer.
-import { unproxy } from './util.js';
+import { unproxy, esc } from './util.js';
 
 const post = (url, body) => fetch(url, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) });
 const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
@@ -115,7 +115,7 @@ export class RemoteUI {
     if (off === this.offline) return;
     this.offline = off;
     const name = this.game?.players[this.seat]?.name || `Seat ${this.seat + 1}`;
-    this.game?.log(off ? `${name} has disconnected; the AI plays for them until they rejoin with the same link` : `${name} is back`, { kind: 'minor' });
+    this.game?.log(off ? `${esc(name)} has disconnected; the AI plays for them until they rejoin with the same link` : `${esc(name)} is back`, { kind: 'minor' });
     this.game?.emit('update');
   }
   attach(game) { this.game = game; this.cancelled = false; }
@@ -143,7 +143,7 @@ export class RemoteUI {
     // Turn clock: the decision may take whatever is left in the bank; an empty bank means the AI decides
     const banked = this.bank != null;
     if (banked && this.bank <= 0) {
-      if (!this.outOfTime) { this.outOfTime = true; this.game?.log(`${this.game.players[this.seat].name} is out of time: the AI decides for them until their next turn`, { kind: 'minor' }); }
+      if (!this.outOfTime) { this.outOfTime = true; this.game?.log(`${esc(this.game.players[this.seat].name)} is out of time: the AI decides for them until their next turn`, { kind: 'minor' }); }
       return this.aiPick(buttons);
     }
     const limit = banked ? this.bank : this.timeout;
@@ -168,16 +168,18 @@ export class RemoteUI {
     await this.room.ask(this.seat, null);
     if (!ans) {
       // Timed out or disconnected: let the AI decide
-      if (!this.offline) this.game?.log(banked ? `${this.game.players[this.seat].name}'s time bank ran out: the AI decides for them until their next turn` : `${this.game.players[this.seat].name} took too long, so the AI decides for them`, { kind: 'minor' });
+      if (!this.offline) this.game?.log(banked ? `${esc(this.game.players[this.seat].name)}'s time bank ran out: the AI decides for them until their next turn` : `${esc(this.game.players[this.seat].name)} took too long, so the AI decides for them`, { kind: 'minor' });
       if (banked) this.outOfTime = true;
       return this.aiPick(buttons);
     }
+    // (item 199) Only what was offered counts: a card or player that wasn't among the choices, or anything that isn't
+    // a whole number, is no answer at all
     if (ans.obj != null) {
-      const o = objs.find(x => x.iid === ans.obj) || this.game.objects.get(ans.obj);
+      const o = objs.find(x => x.iid === ans.obj);
       return o ? { obj: o } : { button: 'cancel' };
     }
-    if (ans.player != null) return { player: ans.player };
-    return { button: buttons[ans.button]?.value ?? 'cancel' };
+    if (ans.player != null) return Number.isInteger(ans.player) && players.includes(ans.player) ? { player: ans.player } : { button: 'cancel' };
+    return { button: Number.isInteger(ans.button) && buttons[ans.button] ? buttons[ans.button].value : 'cancel' };
   }
   // Best of three (item 135): the friend sideboards between games. Sends their deck and sideboard, waits for the lists
   // back (the same cards in total, at least the minimum deck size), and returns them; null keeps the deck as it was.

@@ -7,7 +7,7 @@ them, then ticks them off here with a one-line note. Only free options: no paid 
 
 <!-- A session working on the roadmap writes its start time here and clears it when done.
      Another session that finds a lock younger than 3 hours stops without changing anything. -->
-LOCK: 2026-11-13 audit round 6 session (items 197-218)
+LOCK: none
 
 ## Rules for every session
 

@@ -50,6 +50,8 @@ export function move(g, o, to, opts = {}) {
   if (from === 'battlefield' && (to === 'graveyard' || to === 'exile') && o.fx.godEternal && !o.token && !o.isCommander) { to = 'library'; opts = { ...opts, third: true }; g.log(`${g.cn(o)} is put into its owner's library third from the top`, { kind: 'minor' }); }
   }
   const died = from === 'battlefield' && to === 'graveyard' && o.fx.type.creature;
+  // (item 206: "if you cast it" is about this stay on the stack and the battlefield only)
+  if (to !== 'battlefield' && to !== 'stack') o.wasCast = false;
   // (the table animates draws, discards, deaths and exiles; it reads the card's spot before it moves)
   g.emit('move', { iid: o.iid, owner: o.owner, from, to, died, token: !!o.token });
   // A permanent sits on its controller's battlefield, which isn't always its owner's

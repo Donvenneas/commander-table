@@ -439,6 +439,35 @@ export function evalCond(g, p, src, c, ctx = {}) {
     case 'monarch': return g.monarch === p.idx;
     case 'gift': return false;
     case 'control': return bf.filter(o => (!c.other || o !== src) && g.isA(o, c.what)).length >= (c.n === 'X' ? 1 : c.n);
+    // (item 206, rules 17) A condition read since the audit is checked through its reading (c.r). One that still can't
+    // be read is not met when a conditional effect resolves (ctx.resolving: the effect is reported, never assumed);
+    // elsewhere, and in games at rules 16 and earlier, it counts as met as before.
+    case '?':
+      if (g.rules < 17) return true;
+      if (c.r) return evalCond(g, p, src, c.r, ctx);
+      return !ctx.resolving;
+    // A seeded flip as the effect resolves; a look ahead of time (the AI valuing the card) never flips
+    case 'coin': return ctx.resolving ? (g.rand() < 0.5) === !!c.win : !!c.win;
+    case 'trigIs': return !!ctx.trig?.o && c.types.some(t => ctx.trig.o.fx.type[t]);
+    case 'wasCast': return !!src?.wasCast;
+    case 'gainedN': return p.gainedTurn === g.turn && (p.gainedAmt || 0) >= c.n;
+    case 'lostN': return (c.any ? g.alive() : g.opponents(p)).some(q => q.lostLifeTurn === g.turn && (q.lostAmt || 0) >= c.n);
+    case 'noLifeLost': return p.lostLifeTurn !== g.turn;
+    case 'selfGyControl': return src?.zone === 'graveyard' && bf.some(o => g.isA(o, c.what));
+    case 'controlNone': return !bf.some(o => g.isA(o, c.what));
+    case 'oppLifeLE': return g.opponents(p).some(q => q.life <= c.n);
+    case 'oppControl': return g.opponents(p).some(q => q.battlefield.filter(o => g.isA(o, c.what)).length >= c.n);
+    case 'oppMonarch': return g.monarch != null && g.monarch !== p.idx && g.opponents(p).some(q => q.idx === g.monarch);
+    case 'bfNoCreatures': return !g.alive().some(q => q.battlefield.some(o => o.fx.type.creature));
+    case 'selfCounters': { const n = src ? (src.zone === 'battlefield' ? src.counters || 0 : src.lastCounters || 0) : 0; return (c.min == null || n >= c.min) && (c.max == null || n <= c.max); }
+    case 'handLT': return p.hand.length < c.n;
+    // "This is the second time this ability has resolved this turn": counted on the source as it resolves
+    case 'nthResolve': {
+      if (!src) return false;
+      if (!ctx.resolving) return false;
+      const r = src.resolvedTurn?.turn === g.turn ? src.resolvedTurn : (src.resolvedTurn = { turn: g.turn, n: 0 });
+      return ++r.n === c.n;
+    }
     // A condition the simulator can't read (it depends on a revealed card, say) counts as met
     default: return true;
   }

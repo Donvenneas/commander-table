@@ -1234,7 +1234,7 @@ export class Agent {
       case 'counter': case 'counterAbility': case 'copySpell': case 'protect': return isSpell ? -100 : 0;
       case 'if': {
         const ok = g.evalCond(p, src, e.cond, { x: e.cond.c === 'x' ? N('X') : 0, kicked: g.availableMana(p) >= (src.card.cmc || 0) + 2 });
-        const branch = ok && !(e.cond.c === '?' && (e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
+        const branch = ok && !(e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && (g.rules >= 17 || e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
         return branch.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0);
       }
       case 'scry': return N(e.n) * 0.5;

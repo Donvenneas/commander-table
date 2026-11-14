@@ -50,6 +50,24 @@ const lifeKinds = new Set(['loseSelf', 'loseLife', 'drain', 'loseEach']);
 const MISREAD = [
   { why: '"target player / each player draws … and loses N life": the life loss (and the target) is not read', test: (t, fx) => /(?:target player|each player|target opponent) draws? [^.]* and loses? (?:\d+|x) life/.test(t) && ![...kindsIn(fx)].some(k => lifeKinds.has(k)) },
   { why: '"protection from colorless or from the color of your choice" is played as hexproof', test: (t, fx) => / or from the color of your choice/.test(t) && [...kindsIn(fx)].includes('protect') },
+  // (item 213, the 1.31.0 audit) Families where a line counts as read but a condition in it is not in the reading.
+  // Word matching against the reading's JSON: a family's cards leave the list when the reader keeps the condition
+  // (or marks the line unread). j is the reading as JSON, without its unread list.
+  { why: 'an "if" the reader can\'t read (rules 17: that part does nothing and is reported; before: treated as true)', test: (t, fx, j) => /"c":"\?","text":"[^"]*"\}/.test(j) },
+  { why: '"X, where X is …" is left as the X paid on casting (plays as 0)', test: (t, fx, j, card) => /where x is/.test(t) && /:"X"/.test(j) && (!/"xw"/.test(j) || /"xw":\{"dyn":"\?"/.test(j)) &&!/\{x\}/i.test(card.manaCost || '') && !/\{x\}/.test(t) },
+  { why: 'a counterspell\'s "unless … pays" is not read (a hard counter)', test: (t, fx, j) => /counter target [^.]*unless/.test(t) && !/unless|tax|pay/i.test(j) },
+  { why: 'a counterspell\'s mana value limit is not read', test: (t, fx, j) => /counter target [^.]*with mana value/.test(t) && !/"mv"|manaValue|cmc/i.test(j) },
+  { why: '"target non<color>" is not read', test: (t, fx, j) => /target non(black|white|blue|red|green)/.test(t) && !/non(black|white|blue|red|green)|notColor/i.test(j) },
+  { why: '"target nonartifact" is not read', test: (t, fx, j) => /target nonartifact/.test(t) && !/nonartifact/i.test(j) },
+  { why: '"target … with mana value N or less/greater" is not read', test: (t, fx, j) => /target [a-z ,]*with mana value (\d+|x) or (less|greater)/.test(t) && !/"mv"|manaValue|cmc/i.test(j) },
+  { why: '"target creature with power/toughness N or …" is not read', test: (t, fx, j) => /target creature with (power|toughness) (\d+) or (greater|less)/.test(t) && !/power|tough|minP|maxP/i.test(j) },
+  { why: '"target attacking/blocking creature" is not read', test: (t, fx, j) => /target (attacking|blocking|attacking or blocking) creature/.test(t) && !/attacking|blocking/i.test(j) },
+  { why: '"target (non)legendary" is not read', test: (t, fx, j) => /target (non)?legendary/.test(t) && !/legend/i.test(j) },
+  { why: '"up to N target" is not read', test: (t, fx, j) => /up to (one|two|three|x) (other )?target/.test(t) && !/upTo|"n":/i.test(j) },
+  { why: '"target … you control" is not read (a person could aim it at an opponent\'s permanent)', test: (t, fx, j) => /target (creature|permanent|artifact|nonland permanent|land) you control/.test(t) && !/you|own|mine|yours/i.test(j) },
+  { why: '"until ~ leaves the battlefield" is not read (exiled for good)', test: (t, fx, j) => /until (this [a-z]+|~) leaves the battlefield/.test(t) && !/until|leaves|linked|holds/i.test(j) },
+  { why: 'a coin flip is not read', test: (t, fx, j) => /flip a coin/.test(t) && !/coin|flip/i.test(j) },
+  { why: '"you may play/cast … this turn" is not read', test: (t, fx, j) => /you may (cast|play) [^.]* (this turn|until end of turn|until the end of your next turn)/.test(t) && !/mayPlay|impulse|until|play/i.test(j) },
 ];
 // (Phase 2I) Cards named in a test file: their reading is checked by at least one game test. A full reading of a card
 // that no test names is "read, not individually verified".
@@ -88,7 +106,9 @@ for (const [i, raw] of snap.entries()) {
   const unreadFields = fieldsSet(fx).filter(f => !readFields.has(f));
   const restr = [...unread, ...dropped].filter(l => RESTRICTION.test(l));
   const clean = cleanText(card.text || '', card.frontName || card.name);
-  const misread = MISREAD.filter(m => m.test(clean, fx)).map(m => m.why);
+  const { unread: _u, type: _t, ...fxRest } = fx;
+  const fxJson = JSON.stringify(fxRest);
+  const misread = MISREAD.filter(m => m.test(clean, fx, fxJson, card)).map(m => m.why);
   // (the abilities on each printed line)
   const abilities = [];
   for (const rawLine of (card.text || '').replace(/\([^)]*\)/g, '').split('\n').map(s => s.trim()).filter(Boolean)) {

@@ -41,7 +41,12 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // first-strike damage plus double strikers; deathtouch counts damage dealt as -1/-1 counters; "activate only if you
 // control …" on mana abilities; Cavern of Souls tapped by hand keeps its restricted mana; replays at 4–15 keep the old
 // handling)
-export const RULES = 16;
+// (rules 17: the 1.31.0 audit, AUDIT-ROADMAP.md items 205 to 211: "X, where X is …" counted on resolution; a coin
+// flip is a seeded flip and an "if" the reader can't read no longer counts as true; counterspells keep their "unless
+// … pays", mana value and color conditions; targets keep their restrictions (nonblack, mana value, power …) and are
+// checked by the engine; creatures that die together see each other die; "until this leaves the battlefield" exile
+// comes back; Chrome Mox needs its imprinted card; replays at 4–16 keep the old handling)
+export const RULES = 17;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -143,6 +148,8 @@ export class Game {
     /** (Phase 2G) who has priority for which stack object, and how many have passed in succession (stack.js) @type {any} */
     this.prio = null;
     this.stackSeq = 0;
+    /** (item 206) card text reported as not simulated, once a game each @type {Set<string> | null} */
+    this.unreadNoted = null;
     /** @type {any[] | undefined} */
     this.stackGaps = undefined;
     this.queue = [];
@@ -231,7 +238,7 @@ export class Game {
     }
     if (ev === 'life' && d.d) {
       const q = this.players[d.p];
-      if (d.d > 0) q.gainedTurn = this.turn; else {
+      if (d.d > 0) { q.gainedAmt = (q.gainedTurn === this.turn ? q.gainedAmt || 0 : 0) + d.d; q.gainedTurn = this.turn; } else {
         // (how much this turn: Wound Reflection, Archfiend of Despair)
         q.lostAmt = (q.lostLifeTurn === this.turn ? q.lostAmt || 0 : 0) - d.d;
         q.lostLifeTurn = this.turn; if (this.effectP != null && this.effectP !== d.p) q.lastHitBy = this.effectP;
@@ -753,6 +760,13 @@ export class Game {
   watchMatches(w, s, q, info) { return triggers.watchMatches(this, w, s, q, info); }
   // Conditions of "if" effects, intervening-if triggers and "as long as" bonuses (effects.js parseCond)
   evalCond(p, src, c, ctx = {}) { return triggers.evalCond(this, p, src, c, ctx); }
+  // (item 206) Card text the game couldn't apply, said once a game for each card and reason
+  noteUnread(src, why) {
+    const key = `${src?.card?.name}|${why}`;
+    if ((this.unreadNoted ||= new Set()).has(key)) return;
+    this.unreadNoted.add(key);
+    this.log(`Not simulated · ${this.cn(src)}: ${esc(why)}`, { kind: 'minor' });
+  }
 
   // Triggered and activated abilities use the stack too: targets are chosen as the ability is put
   // on the stack, every player gets priority, and an ability whose targets are all gone does nothing
@@ -852,6 +866,8 @@ export class Game {
     if (!mode) return false;
     this.payingFor = { o, ability: false };
     o.castFrom = o.zone;
+    // (item 206: "if you cast it"; cleared when the card goes anywhere but the stack and the battlefield, zones.js)
+    o.wasCast = true;
     // (a foretold or plotted card is cast now)
     if (o.foretold != null && o.zone === 'exile' && mode.alt !== 'foretell' && mode.alt !== 'plot') { o.foretold = null; o.mayPlay = null; }
     // (Kess and friends: their once-a-turn permission is used up)

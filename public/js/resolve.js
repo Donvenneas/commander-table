@@ -68,7 +68,8 @@ export async function runEffects0(g, p, src, effects, ctx = {}) {
 /** @param {import('./engine.js').Game} g */
 export async function doEffect(g, p, src, e, ctx, i) {
   // X from the mana paid, or a counted amount (devotion, creatures you control) checked on resolution
-  const X = v => (v === 'X' ? ctx.x || 0 : v && typeof v === 'object' ? g.dynValue(p, v, { ...ctx, src }) : v);
+  // (item 207, rules 17) "X, where X is …": the amount the clause names (e.xw), when no X was paid
+  const X = v => (v === 'X' ? ctx.x || (e.xw && g.rules >= 17 ? g.dynValue(p, e.xw, { ...ctx, src }) : 0) : v && typeof v === 'object' ? g.dynValue(p, v, { ...ctx, src }) : v);
   const S = g.cn(src);
   // (rules 6: a second reading of the same words does nothing; see readRiders in effects.js)
   if (e.dup && g.rules >= 6) return;
@@ -741,11 +742,15 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
   const S = g.cn(src);
   switch (e.k) {
     case 'if': {
-      let ok = g.evalCond(p, src, e.cond, ctx);
+      // (item 206, rules 17) resolving: coin flips are flipped now, and a condition that can't be read is not met
+      let ok = g.evalCond(p, src, e.cond, g.rules >= 17 ? { ...ctx, resolving: true } : ctx);
+      // (unread: no reading at all, or a game from before the reading existed)
+      const unread = e.cond.c === '?' && !(g.rules >= 17 && e.cond.r);
       // An unreadable condition on an "instead" upgrade keeps the plain version, and never wins the game
-      if (e.cond.c === '?' && (e.else || e.effects.some(x => x.k === 'win'))) ok = false;
+      if (unread && (e.else || e.effects.some(x => x.k === 'win'))) ok = false;
+      if (unread && g.rules >= 17 && !e.else) g.noteUnread(src, `"if ${e.cond.text}" can't be checked, so that part does nothing`);
       const branch = ok ? e.effects : e.else || [];
-      if (e.cond.c !== '?' && branch.length) g.log(`${S}: ${ok ? '' : 'not '}${esc(condText(e.cond))}`, { kind: 'minor' });
+      if (!unread && branch.length) g.log(`${S}: ${ok ? '' : 'not '}${esc(condText(e.cond))}`, { kind: 'minor' });
       await g.runEffects(p, src, branch, { ...ctx, targets: undefined, strict: false });
       break;
     }
