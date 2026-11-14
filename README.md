@@ -393,6 +393,18 @@ Cards whose replacement text isn't read yet are named in the log once a game whe
 
 Replays saved before 1.30.0 keep the old priority rules.
 
+**Card abilities** (from version 1.31.0):
+- **Protection** works fully: a creature with protection from red can't be targeted, blocked, damaged, enchanted or equipped by anything red. "Protection from the color of your choice" (Mother of Runes, Gods Willing) gives real protection, not hexproof: the AI picks the color of the spell aimed at the creature. More kinds of protection are read: from everything, each color, creatures, artifacts, multicolored.
+- **Prowess** goes on the stack like other triggers, and prowess given by another card (Bria, Riptide Rogue) works.
+- **First strike and double strike:** a creature that gains first strike after first-strike damage still deals its damage; one that loses it doesn't deal damage twice.
+- **Deathtouch** also kills when its damage comes as -1/-1 counters (infect, wither).
+- **Equip, cycling, landcycling and unearth** use the stack, so players can respond. Unearth, embalm and eternalize can only be used at sorcery speed.
+- **Life loss is read in full:** Phyrexian Arena, Night's Whisper, Plumb the Forbidden and similar cards now make you lose the life as well as draw.
+- **Mana conditions:** Tainted lands, the Verges, Spire of Industry and Mox Opal only make their extra colors when you control what they ask for.
+- **Cavern of Souls** keeps its "any color for the chosen creature type" mana when you tap it by hand.
+
+Replays saved before 1.31.0 keep the old behaviour.
+
 **Long and endless loops:** when the same few triggers keep repeating, the game watches what each repetition changes (life, poison, cards in each zone, permanents, tokens, counters, damage, mana, waiting triggers):
 - **It ends by itself** (someone's life, library or permanents run down, or poison builds up): it keeps going, at full speed, until it does. Exquisite Blood with Sanguine Bond drains each opponent in turn.
 - **It never ends and every trigger is mandatory** (a token every time, life gained every time, the same board again and again): the game is a draw (rule 104.4b). Each opponent still gets priority on every trigger first.

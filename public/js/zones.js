@@ -9,6 +9,17 @@ import * as K from './kingdomsPlay.js';
 import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 import * as R from './replacements.js';
 
+// (Phase 2I) A token's card reading depends only on its text, type line, keywords, power/toughness and the mana it
+// makes: tokens made the same way share one reading instead of reading the same text again for every token (a combo
+// making hundreds of Treasures). Card readings are shared the same way by every copy of a card in a deck.
+const TOKEN_FX = new Map();
+function tokenFx(card) {
+  const key = JSON.stringify([card.name, card.typeLine, card.text, card.keywords, card.power, card.toughness, card.produced, card.colors]);
+  let fx = TOKEN_FX.get(key);
+  if (!fx) { fx = analyzeCard(card); if (TOKEN_FX.size > 500) TOKEN_FX.clear(); TOKEN_FX.set(key, fx); }
+  return fx;
+}
+
 /** @param {import('./engine.js').Game} g */
 export function move(g, o, to, opts = {}) {
   const p = g.players[o.owner];
@@ -223,7 +234,7 @@ export function leaveBattlefield(g, o) {
   // A clone stops being a copy when it leaves (and a crewed vehicle stops being a creature)
   if (o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; }
   if (o.crewed) { o.fx = o.card.fx; o.crewed = false; }
-  Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
+  Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, tempProt: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
   // Whatever this permanent was holding on to goes back to the player it was taken from (or its owner)
   for (const q of g.players) for (const s of [...q.battlefield]) {
     if (s.stolenBy !== o.iid) continue;
@@ -428,7 +439,7 @@ export function createToken(g, p, e, src) {
     power: String(e.p), toughness: String(e.t), keywords: kw.map(k => k[0].toUpperCase() + k.slice(1)), produced: [],
     art: src.card.art, colorIdentity: [], colors: [], isToken: true, fullText: kw.join(', '),
   };
-  card.fx = analyzeCard(card);
+  card.fx = tokenFx(card);
   const o = g.mk(card, p, { token: true });
   o.zone = 'battlefield'; o.sick = true;
   p.battlefield.push(o);
@@ -453,7 +464,7 @@ export function createArtifactToken(g, p, kind, src) {
     name, frontName: name, typeLine: `Token Artifact — ${name}`, manaCost: '', cmc: 0, text: TEXT[kind], fullText: TEXT[kind],
     keywords: [], produced: kind === 'treasure' ? [...COLORS] : kind === 'powerstone' ? ['C'] : [], art: src.card.art, isToken: true, colorIdentity: [], colors: [],
   };
-  card.fx = analyzeCard(card);
+  card.fx = tokenFx(card);
   const o = g.mk(card, p, { token: true });
   o.zone = 'battlefield';
   p.battlefield.push(o);

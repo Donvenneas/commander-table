@@ -225,7 +225,12 @@ export async function combatDamage(g, p, first, hadFirst) {
   // Fog effects
   if (g.fogTurn === g.turn && !g.noPrevent()) { if (!first) g.log('All combat damage is prevented this turn', { kind: 'combat', rule: '615.1' }); return; }
   const fs = o => g.has(o, 'first strike'), ds = o => g.has(o, 'double strike');
-  const deals = o => (first ? fs(o) || ds(o) : !hadFirst || !fs(o) || ds(o));
+  // (rules 16) 510.4: the second step is dealt by the attackers and blockers that had neither first strike nor double
+  // strike as the first step began, plus those that have double strike now (one that gains first strike after the first
+  // step still deals damage; one that loses it doesn't deal again); before, it was read from the keywords they have now
+  if (first && g.rules >= 16) g.firstStruck = new Set([...p.battlefield.filter(o => o.attacking != null), ...g.players.flatMap(q => q.battlefield.filter(o => o.blocking != null))].filter(o => fs(o) || ds(o)));
+  const deals16 = o => (first ? fs(o) || ds(o) : !hadFirst || !g.firstStruck?.has(o) || ds(o));
+  const deals = o => (g.rules >= 16 ? deals16(o) : first ? fs(o) || ds(o) : !hadFirst || !fs(o) || ds(o));
   /** @type {any[]} */
   const evs = [];
   for (const a of p.battlefield.filter(o => o.attacking != null)) {

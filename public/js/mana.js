@@ -7,17 +7,27 @@ import { parseCost, COLORS } from './engine.js';
 export function sources(g, p, exclude) {
   return p.battlefield.filter(o => o !== exclude && !o.tapped && o.fx.mana && g.canTapNow(p, o)
     && (!o.fx.mana.gate || g.gateOk(o, o.fx.mana.gate)) && (o.fx.type.land || !g.abilityLocked(p, o))
-    && g.spendOk(o.fx.mana.only) && landsOk(g, p, o));
+    && g.spendOk(o.fx.mana.only) && landsOk(g, p, o) && (g.rules < 16 || !o.fx.mana.cond16 || manaColors16(g, p, o, o.fx.mana.colors).length > 0));
 }
 // (rules 13) Temple of the False God: "Activate only if you control five or more lands" (the Temple counts: it is a
 // land you control)
+// (rules 16) "Activate only if you control a Swamp / an artifact / three or more artifacts" (effects.js cond16): the
+// colors the source may make now; colors no condition covers are always allowed (the source itself counts)
+export function manaColors16(g, p, o, colors) {
+  const cs = g.rules >= 16 && o.fx.mana?.cond16;
+  if (!cs) return colors;
+  const has = (/** @type {string} */ w, /** @type {number} */ n) => p.battlefield.filter(x => (w === 'legendary' ? x.fx.type.legendary : x.fx.type[w] || x.fx.subtypes.includes(w))).length >= n;
+  const bad = new Set(cs.filter((/** @type {any} */ c) => !c.need.any.some((/** @type {string} */ w) => has(w, c.need.n))).flatMap((/** @type {any} */ c) => c.colors));
+  return bad.size ? colors.filter((/** @type {string} */ c) => !bad.has(c)) : colors;
+}
 const landsOk = (g, p, o) => !(g.rules >= 13 && o.fx.mana.landsAtLeast) || p.battlefield.filter(x => x.fx.type.land).length >= o.fx.mana.landsAtLeast;
 // (rules 13) Cavern of Souls: its "one mana of any color" can only pay for a creature spell of the chosen type, and
 // that spell then can't be countered (Game.cast: unit.cavern). For anything else it taps for {C}.
-const cavernSpell = (g, s) => {
+const cavernSpell = (g, s) => cavernFor(g, s.chosenType);
+const cavernFor = (g, type) => {
   const f = g.payingFor;
   const o = f && !f.ability && !f.all ? f.o : null;
-  return !!o && o.fx.type.creature && !!s.chosenType && (o.fx.subtypes.includes(s.chosenType) || o.fx.kw.has('changeling'));
+  return !!o && o.fx.type.creature && !!type && (o.fx.subtypes.includes(type) || o.fx.kw.has('changeling'));
 };
 // A creature can use {T} abilities (mana included) once it's been under your control since your turn began,
 // or with haste, or with Shang-Chi / Thousand-Year Elixir-style "as though it had haste"
@@ -53,7 +63,12 @@ export function manaAmount(g, p, s) {
 }
 /** @param {import('./engine.js').Game} g */
 export function units(g, p, exclude) {
-  const u = p.pool.filter(x => g.spendOk(x.only)).map(x => ({ ref: x, colors: x.colors, pool: true }));
+  const u = p.pool.filter(x => g.spendOk(x.only)).map(x => {
+    // (rules 16) Cavern of Souls mana in the pool (tapped by hand): any color for a creature spell of its chosen type,
+    // which then can't be countered; {C} for anything else
+    if (x.cavernType && g.rules >= 16) { const ok = cavernFor(g, x.cavernType); return { ref: x, colors: ok ? x.colors : ['C'], pool: true, ...(ok ? { cavern: true } : {}) }; }
+    return { ref: x, colors: x.colors, pool: true };
+  });
   // Kinnan: nonland mana sources make one extra
   const boost = p.battlefield.some(o => o.fx.manaBoost);
   // Chromatic Lantern: lands tap for any color; Crypt Ghast, Mirari's Wake: extra mana from some sources
@@ -70,11 +85,15 @@ export function units(g, p, exclude) {
     const n = g.manaAmount(p, s) + (boost && !s.fx.type.land ? 1 : 0);
     // Blood Moon: nonbasic lands only make {R}
     const moon = s.fx.type.land && !s.fx.type.basic && g.alive().some(q => q.battlefield.some(o => o.fx.bloodMoon));
-    const colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : s.fx.mana.colors;
+    let colors = moon ? ['R'] : anyColor && s.fx.type.land ? COLORS : s.fx.type.land && addCols.length ? [...new Set([...s.fx.mana.colors, ...addCols])] : s.fx.mana.colors;
     // (rules 13) Cavern of Souls: any color (and can't-be-countered) for a creature spell of the chosen type, else {C}
     // (under Blood Moon it is a Mountain, which makes {R})
     const cav = g.rules >= 13 && s.fx.mana.cavern && !moon, cavOk = cav && cavernSpell(g, s);
-    for (let i = 0; i < n; i++) u.push({ src: s, colors: cav ? (cavOk ? [...COLORS, 'C'] : ['C']) : colors, land: s.fx.type.land, only: s.fx.mana.only, ...(cavOk ? { cavern: true } : {}) });
+    // (rules 16) colors behind an unmet "activate only if you control" condition aren't offered
+    if (g.rules >= 16 && s.fx.mana.cond16 && !moon) colors = manaColors16(g, p, s, colors);
+    // (rules 16: tapped by hand, it keeps both choices in the pool until the mana is spent: units() above)
+    const cavHand = cav && !cavOk && g.rules >= 16 && g.payingFor?.all && !!s.chosenType;
+    for (let i = 0; i < n; i++) u.push({ src: s, colors: cav ? (cavOk || cavHand ? [...COLORS, 'C'] : ['C']) : colors, land: s.fx.type.land, only: s.fx.mana.only, ...(cavOk ? { cavern: true } : {}), ...(cavHand ? { cavernType: s.chosenType } : {}) });
     // Utopia Sprawl, Wild Growth on this land
     if (s.fx.type.land) for (const a of g.attachments(s)) if (a.fx.auraMana) u.push({ src: s, colors: a.fx.auraMana === '*' ? COLORS : [a.fx.auraMana], land: true });
     // Abundant Growth: the enchanted land taps for any color
@@ -260,7 +279,7 @@ export function commitPayment(g, p, plan) {
   for (const s of plan.srcs) {
     s.tapped = true;
     if (s.fx.watch?.length || p.battlefield.some(x => x.fx.watch?.some(w => w.ev === 'tapped'))) g.fire('tapped', { o: s, p: p.idx });
-    plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only }); });
+    plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only, ...(u.cavernType ? { cavernType: u.cavernType } : {}) }); });
     // (rules 6) Painlands, Talismans: colored mana deals damage to you; Ancient Tomb, Mana Confluence: any mana
     const pain = s.fx.mana?.pain;
     if (pain && g.rules >= 6 && plan.units.some((u, i) => u.src === s && !u.convoke && (!pain.colored || !plan.used.has(i) || (plan.colored?.has(i) && u.colors.some(c => c !== 'C'))))) {

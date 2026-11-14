@@ -14,7 +14,7 @@
 //   node tests/coverage.mjs --report FILE    also write a Markdown report (top cards in each group, with reasons)
 import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { normalize } from '../public/js/scryfall.js';
-import { ignoredText, droppedSentences, cleanText } from '../public/js/effects.js';
+import { ignoredText, droppedSentences, cleanText, KEYWORDS, MORE_KEYWORDS } from '../public/js/effects.js';
 import { replacementGaps } from '../public/js/replacements.js';
 
 const args = process.argv.slice(2);
@@ -43,6 +43,40 @@ const kindsIn = (x, out = new Set(), seen = new Set()) => {
 const fieldsSet = fx => Object.entries(fx).filter(([k, v]) => !BASE.has(k) && v !== null && v !== false && v !== 0 && !(Array.isArray(v) && !v.length) && !(typeof v === 'object' && !Array.isArray(v) && !(v instanceof Set) && !Object.keys(v).length)).map(([k]) => k);
 const RESTRICTION = /\b(activate only|spend this mana only|only if|only during|only as a sorcery|can't|cannot|don't|doesn't|unless|no more than|at most)\b/i;
 
+// (Phase 2I) Misreadings found by hand: text the reader turns into something different from what is printed. A
+// card here is counted as "incorrect" even when every line is read. Each entry is a check on the card's text and
+// reading, so it stays true only while the misreading is there (a fixed card drops out by itself).
+const lifeKinds = new Set(['loseSelf', 'loseLife', 'drain', 'loseEach']);
+const MISREAD = [
+  { why: '"target player / each player draws … and loses N life": the life loss (and the target) is not read', test: (t, fx) => /(?:target player|each player|target opponent) draws? [^.]* and loses? (?:\d+|x) life/.test(t) && ![...kindsIn(fx)].some(k => lifeKinds.has(k)) },
+  { why: '"protection from colorless or from the color of your choice" is played as hexproof', test: (t, fx) => / or from the color of your choice/.test(t) && [...kindsIn(fx)].includes('protect') },
+];
+// (Phase 2I) Cards named in a test file: their reading is checked by at least one game test. A full reading of a card
+// that no test names is "read, not individually verified".
+const TESTS = new URL('./', import.meta.url);
+const testSrc = readdirSync(TESTS).filter(f => f.endsWith('.mjs') && f !== 'coverage.mjs').map(f => readFileSync(new URL(f, TESTS), 'utf8')).join('\n');
+const tested = new Set([...testSrc.matchAll(/(['"`])((?:(?!\1)[^\n\\])+?)\1/g)].map(m => m[2].toLowerCase()));
+
+// (Phase 2I) Ability types: each printed line of a card is sorted into one, and counted as read, partly read (a
+// sentence skipped) or not read. A keyword line counts as read when every keyword on it is one the reader knows.
+const KNOWN_KW = new Set([...KEYWORDS, ...MORE_KEYWORDS]);
+const kwWord = w => KNOWN_KW.has(w) || [...KNOWN_KW].some(k => w.startsWith(k + ' ') || w.startsWith(k + '—') || w.startsWith(k + ' {')) || /^(enchant|equip|protection from|ward|basic landcycling|\w+cycling|kicker|multikicker|flashback|escape|suspend|unearth|mutate|delve|convoke|affinity for|landwalk|\w+walk|partner|companion|crew \d|ninjutsu|evoke|madness|dash|blitz|embalm|eternalize|cascade|storm|toxic \d|annihilator \d|bushido \d|afflict \d|modular \d|fabricate \d|backup \d|outlast|bestow|disguise|morph|foretell|plot|offspring|prototype|reconfigure|living weapon|split second|changeling|devoid|for mirrodin!)\b/.test(w);
+const abilityType = (line, card) => {
+  const l = line.replace(/^(?!choose )[a-z0-9',! ]{3,30} — (?=[{a-z~+])/, '');
+  if (l.split(/,\s*|;\s*/).every(w => kwWord(w.trim()))) return 'keyword';
+  if (card.fx.type.planeswalker && /^[+−-]?(\d+|x): /.test(l)) return 'loyalty';
+  if (/^[^:"]*\{t\}[^:"]*: add /.test(l) || /^[^:"]*: add (\{|one mana|two mana|three mana|mana)/.test(l)) return 'mana';
+  if (/^(when|whenever|at the beginning|at end of)\b/.test(l)) return 'triggered';
+  if (/^[^"]*?(\{[^}]+\}|sacrifice|discard|pay \d+ life|exile [^:]*from your graveyard|remove [^:]*counter|tap an untapped|return [^:]* to its owner's hand)[^:"]*: /.test(l)) return 'activated';
+  if (/\bprevent\b/.test(l)) return 'prevention';
+  if (/\binstead\b|enters (?:the battlefield )?tapped|enters with|as ~ enters/.test(l)) return 'replacement';
+  if (card.fx.type.instant || card.fx.type.sorcery) return 'spell';
+  return 'static';
+};
+const TYPES = ['keyword', 'triggered', 'activated', 'mana', 'loyalty', 'static', 'spell', 'replacement', 'prevention'];
+const byType = Object.fromEntries(TYPES.map(t => [t, { lines: 0, read: 0, partial: 0, unread: 0 }]));
+const byKeyword = new Map();
+
 const rows = [];
 for (const [i, raw] of snap.entries()) {
   const card = normalize({ ...raw, legalities: raw.legalities || {}, image_uris: {} });
@@ -53,23 +87,69 @@ for (const [i, raw] of snap.entries()) {
   const missingKinds = [...kindsIn(fx)].filter(k => !handled.has(k));
   const unreadFields = fieldsSet(fx).filter(f => !readFields.has(f));
   const restr = [...unread, ...dropped].filter(l => RESTRICTION.test(l));
+  const clean = cleanText(card.text || '', card.frontName || card.name);
+  const misread = MISREAD.filter(m => m.test(clean, fx)).map(m => m.why);
+  // (the abilities on each printed line)
+  const abilities = [];
+  for (const rawLine of (card.text || '').replace(/\([^)]*\)/g, '').split('\n').map(s => s.trim()).filter(Boolean)) {
+    const line = cleanText(rawLine, card.frontName || card.name).trim();
+    if (!line) continue;
+    const t = abilityType(line, card);
+    const st = unread.includes(line) ? 'unread' : dropped.some(d => rawLine.includes(d)) ? 'partial' : 'read';
+    abilities.push({ t, st, line: rawLine });
+    byType[t].lines++; byType[t][st]++;
+  }
   let status;
   if (missingKinds.length || unreadFields.length) status = 'unhandled';
+  else if (misread.length) status = 'incorrect';
   else if (ign === 'its abilities' || ign === 'land ability' || (unread.length && !kindsIn(fx).size && !fieldsSet(fx).length)) status = 'unsupported';
   else if (restr.length) status = 'restriction';
   else if (ign) status = 'partial';
   else status = 'full';
   // (replacement effects among the unread text: replacements.js reports these in games too)
   const repl = replacementGaps(card, [...unread, ...dropped]);
-  rows.push({ rank: i + 1, name: card.name, type: card.typeLine, status, unread, dropped, restr, missingKinds, unreadFields, repl, text: cleanText(card.text || '', card.name) });
+  const isTested = tested.has(card.name.toLowerCase()) || (!!card.frontName && tested.has(card.frontName.toLowerCase()));
+  rows.push({ rank: i + 1, name: card.name, type: card.typeLine, status, unread, dropped, restr, missingKinds, unreadFields, repl, misread, abilities, tested: isTested, text: clean });
+  for (const k of raw.keywords || []) {
+    const e = byKeyword.get(k) || { cards: 0, full: 0, tested: 0, statuses: {} };
+    e.cards++; if (status === 'full') e.full++; if (isTested) e.tested++;
+    e.statuses[status] = (e.statuses[status] || 0) + 1;
+    byKeyword.set(k, e);
+  }
 }
 
 const count = s => rows.filter(r => r.status === s).length;
-const ORDER = ['full', 'partial', 'restriction', 'unhandled', 'unsupported'];
+const ORDER = ['full', 'partial', 'restriction', 'incorrect', 'unhandled', 'unsupported'];
+const pct = (n, d) => `${(100 * n / d).toFixed(1)}% (${n}/${d})`;
 console.log(`Card coverage: ${rows.length} cards (Scryfall, Commander-legal paper cards in EDHREC order)`);
 for (const s of ORDER) console.log(`  ${s.padEnd(12)} ${String(count(s)).padStart(5)}  ${(100 * count(s) / rows.length).toFixed(1)}%`);
 const kindsMissing = new Map();
 for (const r of rows) for (const k of [...r.missingKinds, ...r.unreadFields.map(f => `fx.${f}`)]) kindsMissing.set(k, [...(kindsMissing.get(k) || []), r.name]);
+// (Phase 2I) abilities by type, cards named in a test, and the next batch
+const nAb = TYPES.reduce((s, t) => s + byType[t].lines, 0);
+const fullRows = rows.filter(r => r.status === 'full');
+// Part 2 ranking: every card that isn't full, in the order of the brief's categories (Commander staples = the 300
+// most played, then creatures, removal, counterspells, ramp spells, mana permanents, enchantments, artifacts,
+// planeswalkers, the rest), most played first within each category; misread cards first (they play wrong today)
+const kindsOf = r => r.abilities.map(a => a.t);
+const CATS = [
+  ['Commander staple (top 300)', r => r.rank <= 300],
+  ['creature', r => /Creature/.test(r.type)],
+  ['removal', r => /\b(destroy|exile) target|deals? \d+ damage to (?:any|target)|destroy all|exile all/.test(r.text)],
+  ['counterspell', r => /counter target/.test(r.text)],
+  ['ramp spell', r => /(Instant|Sorcery)/.test(r.type) && /search your library for [^.]*land/.test(r.text)],
+  ['mana permanent', r => kindsOf(r).includes('mana')],
+  ['enchantment', r => /Enchantment/.test(r.type)],
+  ['artifact', r => /Artifact/.test(r.type)],
+  ['planeswalker', r => /Planeswalker/.test(r.type)],
+  ['other', () => true],
+];
+const catOf = r => CATS.findIndex(([, f]) => f(r));
+const nextBatch = rows.filter(r => r.status !== 'full').sort((a, b) => (a.status === 'incorrect' ? 0 : 1) - (b.status === 'incorrect' ? 0 : 1) || catOf(a) - catOf(b) || a.rank - b.rank);
+const missingOf = r => [...r.misread, ...r.unread, ...r.dropped, ...r.missingKinds.map(x => `effect ${x}`), ...r.unreadFields.map(f => `fx.${f}`)];
+console.log(`  abilities (printed lines): ${nAb}; read ${pct(TYPES.reduce((s, t) => s + byType[t].read, 0), nAb)}`);
+for (const t of TYPES) if (byType[t].lines) console.log(`    ${t.padEnd(12)} ${String(byType[t].lines).padStart(5)} lines, read ${pct(byType[t].read, byType[t].lines)}, partly ${byType[t].partial}, not read ${byType[t].unread}`);
+console.log(`  cards named in a test: ${rows.filter(r => r.tested).length}; full and named in a test ${fullRows.filter(r => r.tested).length}, full but not individually verified ${fullRows.filter(r => !r.tested).length}`);
 const replRows = rows.filter(r => r.repl.length);
 console.log(`  replacement text not read: ${replRows.length} cards (${[...new Set(replRows.flatMap(r => r.repl.map(x => x.why)))].join('; ')})`);
 if (kindsMissing.size) console.log(`  read but never handled: ${[...kindsMissing].map(([k, v]) => `${k} (${v.length}: ${v.slice(0, 3).join(', ')}${v.length > 3 ? '…' : ''})`).join('; ')}`);
@@ -82,12 +162,27 @@ if (reportAt) {
     '# Card coverage audit', '',
     `Generated by \`node tests/coverage.mjs --report\` from tests/cards-snapshot.json: the ${rows.length} most-played Commander cards as Scryfall listed them by EDHREC popularity when the snapshot was taken (the # column is that order). Each card is read with the game's own card reader, and every effect it produces is checked against the engine's handlers.`, '',
     '| Status | Cards | Meaning |', '|---|---|---|',
-    `| full | ${count('full')} | every line read, every effect handled |`,
+    `| full | ${count('full')} | every line read, every effect handled (${fullRows.filter(r => r.tested).length} of them named in a test; the other ${fullRows.filter(r => !r.tested).length} are read but not individually verified) |`,
+    `| incorrect | ${count('incorrect')} | read, but read as something else (a misreading found by the MISREAD checks in coverage.mjs) |`,
     `| partial | ${count('partial')} | some lines or sentences do nothing |`,
     `| restriction | ${count('restriction')} | an unread restriction: the card plays stronger than printed |`,
     `| unhandled | ${count('unhandled')} | the reader produces something no engine module handles |`,
     `| unsupported | ${count('unsupported')} | none of its abilities is read |`, '',
-    '"Full" means the text is read and every effect has a handler; it does not prove each handler is correct. Cards are checked one by one in tests/interactions.mjs.', '',
+    '"Full" means the text is read and every effect has a handler; it does not prove each handler is correct. Cards are checked one by one in tests/interactions.mjs and tests/abilities.mjs. "Incorrect" only holds the misreadings the MISREAD checks know about; others may exist among the full cards.', '',
+    `## Abilities by type (${nAb} printed lines)`, '', 'Each printed line of every card (reminder text removed) is sorted into one ability type and counted as read, partly read (a sentence skipped) or not read. Read means the reader produced something for it; whether that is handled correctly is the card status above.', '',
+    '| Type | Lines | Read | Partly read | Not read |', '|---|---|---|---|---|',
+    ...TYPES.filter(t => byType[t].lines).map(t => `| ${t} | ${byType[t].lines} | ${pct(byType[t].read, byType[t].lines)} | ${byType[t].partial} | ${byType[t].unread} |`), '',
+    `## Keywords (Scryfall keyword list: ${byKeyword.size} keywords; those on 3 or more cards)`, '', 'For each keyword: the cards that have it, and how many of those cards are full. A keyword can be modelled while cards that have it are partial for another reason, so this is coverage of the cards, not a verdict on the keyword alone; the keyword tests are in tests/abilities.mjs.', '',
+    '| Keyword | Cards | Full | Named in a test | Other statuses |', '|---|---|---|---|---|',
+    ...[...byKeyword].filter(([, e]) => e.cards >= 3).sort((a, b) => b[1].cards - a[1].cards).map(([k, e]) => `| ${k} | ${e.cards} | ${pct(e.full, e.cards)} | ${e.tested} | ${Object.entries(e.statuses).filter(([s]) => s !== 'full').map(([s, n]) => `${s} ${n}`).join(', ')} |`), '',
+    `## Misread cards (${count('incorrect')})`, '', '| # | Card | Misreading |', '|---|---|---|',
+    ...rows.filter(r => r.status === 'incorrect').map(r => `| ${r.rank} | ${esc(r.name)} | ${esc(r.misread.join(' / '))} |`), '',
+    '## The 100 most-played cards, ability by ability', '', 'One entry per printed line: K keyword, T triggered, A activated, M mana, L loyalty, S static, P spell, R replacement, V prevention, followed by ✓ read, ½ partly read, ✗ not read.', '',
+    '| # | Card | Status | Abilities | Missing | Named in a test |', '|---|---|---|---|---|---|',
+    ...rows.slice(0, 100).map(r => `| ${r.rank} | ${esc(r.name)} | ${r.status} | ${r.abilities.map(a => ({ keyword: 'K', triggered: 'T', activated: 'A', mana: 'M', loyalty: 'L', static: 'S', spell: 'P', replacement: 'R', prevention: 'V' }[a.t] + ({ read: '✓', partial: '½', unread: '✗' }[a.st]))).join(' ')} | ${esc(missingOf(r).join(' / ')) || '—'} | ${r.tested ? 'yes' : ''} |`), '',
+    '## Next implementation batch (ranked)', '', 'Every card that is not full: misread cards first (they play wrong today), then by the categories of the Phase 2I brief (Commander staples = the 300 most played; creatures; removal; counterspells; ramp spells; mana permanents; enchantments; artifacts; planeswalkers; the rest), most played first within each. Popularity is the EDHREC order of the snapshot.', '',
+    '| Order | # | Card | Category | Status | What is missing |', '|---|---|---|---|---|---|',
+    ...nextBatch.slice(0, 40).map((r, k) => `| ${k + 1} | ${r.rank} | ${esc(r.name)} | ${CATS[catOf(r)][0]} | ${r.status} | ${esc(missingOf(r).join(' / '))} |`), '',
     `## Replacement effects not read (${replRows.length})`, '', 'The game reports these once a game when the card enters the battlefield, and never applies them approximately.', '', '| # | Card | Text | Why |', '|---|---|---|---|',
     ...replRows.slice(0, 60).flatMap(r => r.repl.map(x => `| ${r.rank} | ${esc(r.name)} | ${esc(x.line)} | ${esc(x.why)} |`)), '',
     ...section('unhandled', 'Read but never handled', 50, r => [...r.missingKinds.map(k => `effect "${k}"`), ...r.unreadFields.map(f => `fx.${f}`)].join(', ')),

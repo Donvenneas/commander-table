@@ -726,6 +726,26 @@ on top of the ones above:
     rules, stack up to 12 objects, 343 trigger batches. Still open: empty-stack priority is the existing windows
     (main phases, combat, end of turn, stops for people), not a pass round in every step; Walking Ballista pings and
     sacrifice-outlet responses still resolve at once instead of using the stack; split second only stops responses.
+- [x] 196. Card abilities (asked 2026-11-13, Phase 2I of the engine audit): an ability-by-ability coverage audit of the
+  3,500 most-played cards, keyword checks, and the abilities found wrong fixed through the engine's own systems.
+  - Done (rules 16, version 1.31.0; rules 4–15 golden games unchanged): protection is one check
+    (Game.protectedFrom, DEBT 702.16b–f: targeting, blocking, damage, Auras and Equipment falling off) with colors,
+    everything, each color, card types, multicolored; granted protection (Mother of Runes, Gods Willing) was hexproof
+    and is now protection from the chosen color (the color of the opposing spell targeting it, else the commonest
+    opposing color). Prowess is a trigger on the stack and counts granted prowess (Bria). The regular combat damage
+    step is dealt by creatures without first or double strike as the first step began, plus double strikers (510.4).
+    Deathtouch destroys through -1/-1 counter damage (infect, wither). Equip, cycling, landcycling and unearth use the
+    stack; unearth, embalm and eternalize only as a sorcery. "You draw a card and lose 1 life" lost its life loss
+    (Phyrexian Arena, Night's Whisper, Plumb the Forbidden, Vraska's 0, Cryptbreaker: effects carry since: 16).
+    "Activate only if you control …" on mana abilities (Tainted lands, Verges, Spire of Industry, Mox Opal:
+    fx.mana.cond16). Cavern of Souls tapped by hand keeps its restricted mana in the pool. Token readings are shared
+    (zones.js tokenFx). tests/coverage.mjs: ability types per printed line, a keyword table, a misreading check
+    (MISREAD) and cards named in a test; report in tests/card-coverage.md, phase report in tests/phase-2i-report.md.
+    Coverage 2,796 full / 444 partial / 92 restriction / 8 incorrect / 10 unhandled / 150 unsupported (was 2,787 /
+    446 / 106 / not measured / 10 / 151). Tests: new tests/abilities.mjs (47), interactions 171, golden 78, all other
+    suites. Still open: spell timing is checked by the callers, not Game.cast; a person isn't asked which protection
+    color; "target player draws … and loses N life" (Sign in Blood) reads as you drawing; Giver of Runes is still
+    hexproof; mutate has no card in the test data.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

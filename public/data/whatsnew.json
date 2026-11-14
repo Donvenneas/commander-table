@@ -1,5 +1,5 @@
 {
- "version": "1.30.0",
+ "version": "1.31.0",
  "round": "Round 5",
  "items": [
   {
@@ -145,6 +145,12 @@
    "section": "Rules engine and card coverage",
    "title": "The stack and priority (asked 2026-11-13, Phase 2G of the engine audit): stack objects with their own identity, priority until every player passes in succession, simultaneous triggers on the stack together, targets checked while casting, and the \"responses stop after eight\" limit removed.",
    "done": "the limit was the loop in Game.priority (`actions < 8`): after eight responses to one object it resolved even if players still wanted to respond, and after each response priority restarted with the player after the caster."
+  },
+  {
+   "n": 196,
+   "section": "Rules engine and card coverage",
+   "title": "Card abilities (asked 2026-11-13, Phase 2I of the engine audit): an ability-by-ability coverage audit of the 3,500 most-played cards, keyword checks, and the abilities found wrong fixed through the engine's own systems.",
+   "done": "protection is one check (Game.protectedFrom, DEBT 702.16b–f: targeting, blocking, damage, Auras and Equipment falling off) with colors, everything, each color, card types, multicolored; granted protection (Mother of Runes, Gods Willing) was"
   },
   {
    "n": 101,

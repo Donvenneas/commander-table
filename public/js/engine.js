@@ -35,7 +35,13 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // with no 8-response cap; the active player gets priority after each resolution; simultaneous triggers all go on the
 // stack in APNAP order with their targets chosen then; targets are checked while casting and activating; replays at
 // 4–14 keep the old loop)
-export const RULES = 15;
+// (rules 16: card abilities, Phase 2I: protection is one check for damage, enchanting/equipping, blocking and targeting
+// with more qualities than colors, and granted protection is protection (not hexproof); prowess is a trigger that uses
+// the stack and counts granted prowess; the regular combat damage step is dealt by the creatures that didn't deal
+// first-strike damage plus double strikers; deathtouch counts damage dealt as -1/-1 counters; "activate only if you
+// control …" on mana abilities; Cavern of Souls tapped by hand keeps its restricted mana; replays at 4–15 keep the old
+// handling)
+export const RULES = 16;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -83,6 +89,8 @@ export class Game {
     /** (a recognised loop is played without the clock's waits; the steps stay the same) */ this.loopFast = false;
     /** (how many flushTriggers calls are running, nested: the chain of triggers is over when the outermost ends) */ this._flushDepth = 0;
     /** @type {number | undefined} (rules 12: Phyrexian symbols the payer chose to pay with life, while a plan is made: mana.js) */ this.payLife = undefined;
+    /** @type {any} (rules 16: the spell or ability whose targets are being chosen, for protection: Game.canTarget) */ this.targetSrc = undefined;
+    /** @type {Set<any> | undefined} (rules 16: attackers and blockers with first or double strike as the first combat damage step began: combat.js) */ this.firstStruck = undefined;
     /** @type {any[]} (what the loop watcher found and decided, one entry per loop: triggers.loopWatch) */ this.loopLog = [];
     /** @type {any[] | undefined} */ this.endSac = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
@@ -241,7 +249,7 @@ export class Game {
     /** @type {any} (an object in play: its fields are filled in as it moves between zones) */
     const o = {
       iid: this.nextId++, card, fx: card.fx, owner: p.idx, controller: p.idx, zone: null, tapped: false, sick: false,
-      damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, attachedTo: null,
+      damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, tempProt: null, attachedTo: null,
       attacking: null, blockedBy: [], blocked: false, blocking: null, loyalty: 0,
       isCommander: !!x.commander, token: !!x.token, usedPW: false, usedAbility: -1,
     };
@@ -479,10 +487,32 @@ export class Game {
     for (const q of this.alive()) for (const s of q.battlefield) if (s.fx.paintAll && s.chosenColor) more.push(s.chosenColor);
     return more.length ? [...new Set([...base, ...more])] : base;
   }
-  canTarget(p, o) {
+  // src: the spell or ability doing the targeting (protection, rules 16); the AI and the human prompts set
+  // this.targetSrc while they choose targets for one
+  canTarget(p, o, src = this.targetSrc) {
     if (!o || o.zone !== 'battlefield') return false;
     if (this.has(o, 'shroud')) return false;
+    if (src && this.protectedFrom(o, src)) return false;
     return !(o.controller !== p.idx && this.has(o, 'hexproof'));
+  }
+  // (rules 16) Protection (702.16): the qualities a permanent has protection from: printed (fx.prot colors, fx.protQ)
+  // and granted until end of turn (o.tempProt). A quality is a color letter, 'everything', 'multicolored',
+  // 'monocolored', 'colorless' or a card type ('creature', 'instant'…).
+  protQualities(o) {
+    if (this.rules < 16 || !o?.fx) return [];
+    const q = [...(o.fx.prot || []), ...(o.fx.protQ || [])];
+    if (o.tempProt?.turn === this.turn) q.push(...o.tempProt.q);
+    return q;
+  }
+  // (rules 16) Does o have protection from this source? DEBT (702.16b–f): it can't be Damaged, Enchanted or Equipped,
+  // Blocked or Targeted by a source with that quality. Before rules 16 only printed colors stop damage and blocking.
+  protectedFrom(o, src) {
+    if (this.rules < 16 || !o || !src?.fx || o === src) return false;
+    const qs = this.protQualities(o);
+    if (!qs.length) return false;
+    const cols = this.colorsOf(src);
+    return qs.some(q => q === 'everything' || (q.length === 1 && cols.includes(q)) || (q === 'multicolored' && cols.length > 1)
+      || (q === 'monocolored' && cols.length === 1) || (q === 'colorless' && !cols.length) || (q.length > 1 && !!src.fx.type?.[q]));
   }
   // Theros gods: not a creature until their controller's devotion is high enough
   dormant(o) {
@@ -531,7 +561,8 @@ export class Game {
     if (a.fx.landwalk && this.players[b.controller].battlefield.some(l => l.fx.type.land && l.fx.subtypes.includes(a.fx.landwalk))) return false;
     // (landwalk granted by a lord: Goblin King, Zombie Master)
     for (const t of ['island', 'swamp', 'forest', 'mountain', 'plains']) if (this.has(a, t + 'walk') && this.players[b.controller].battlefield.some(l => l.fx.type.land && l.fx.subtypes.includes(t))) return false;
-    // Protection from a color: can't be blocked by creatures of that color
+    // Protection from a color: can't be blocked by creatures of that color (rules 16: any quality, granted ones too)
+    if (this.rules >= 16) return !this.protectedFrom(a, b);
     return !a.fx.prot?.some(c => bc.includes(c));
   }
 
@@ -725,6 +756,7 @@ export class Game {
 
   // Triggered and activated abilities use the stack too: targets are chosen as the ability is put
   // on the stack, every player gets priority, and an ability whose targets are all gone does nothing
+  /** @param {any} [pre] targets already chosen */
   async stackAbility(p, src, effects, label, kind = 'ability', trig = null, x = 0, pre = null) { return triggers.stackAbility(this, p, src, effects, label, kind, trig, x, pre); }
   // (Phase 2G) the two halves of stackAbility: put the ability on the stack (targets chosen, ward paid), and later give
   // priority and resolve it; simultaneous triggers are all put on the stack before the first resolves (rules 15)
@@ -741,7 +773,7 @@ export class Game {
   finish(winner, why, team = null) { return triggers.finish(this, winner, why, team); }
 
   // ---------- effects
-  validTarget(t, p) { return resolve.validTarget(this, t, p); }
+  validTarget(t, p, src) { return resolve.validTarget(this, t, p, src); }
   // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
   async runEffects(p, src, effects, ctx = {}) { return resolve.runEffects(this, p, src, effects, ctx); }
   async runEffects0(p, src, effects, ctx = {}) { return resolve.runEffects0(this, p, src, effects, ctx); }
@@ -1054,7 +1086,7 @@ export class Game {
     if (item.countered) { this.move(o, item.toExile ? 'exile' : item.toHand ? 'hand' : gone === 'hand' ? 'graveyard' : gone); await this.beat(0.4); return true; }
     // A spell whose every target has become illegal doesn't resolve
     const chosen = targets.filter(Boolean);
-    if (!o.fx.type.permanent && chosen.length && chosen.every(t => !this.validTarget(t, p))) {
+    if (!o.fx.type.permanent && chosen.length && chosen.every(t => !this.validTarget(t, p, o))) {
       this.log(`${this.cn(o)} fizzles: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
       item.status = 'fizzled';
       if (o.spellCopy) cease(); else this.move(o, gone === 'hand' ? 'graveyard' : gone);
@@ -1149,7 +1181,10 @@ export class Game {
     for (let k = 0; k < casc; k++) this.queue.push({ o, effects: [{ k: 'cascade', n: o.card.cmc || 0 }], label: 'cascade', p });
     let extort = 0;
     for (const s of p.battlefield) {
-      if (s.fx.kw.has('prowess') && !t.creature) { s.tempP++; s.tempT++; this.log(`${this.cn(s)} gets +1/+1 (prowess)`, { kind: 'minor', rule: '702.108a' }); }
+      // (rules 16) Prowess is a triggered ability (702.108a): it goes on the stack above the spell and can be responded
+      // to; prowess granted by another permanent counts too
+      if (this.rules >= 16) { if (!t.creature && s.fx.type.creature && this.has(s, 'prowess')) this.queue.push({ o: s, effects: [{ k: 'pumpSelf', p: 1, t: 1, kw: [] }], label: 'prowess', p, trig: { o, p: p.idx } }); }
+      else if (s.fx.kw.has('prowess') && !t.creature) { s.tempP++; s.tempT++; this.log(`${this.cn(s)} gets +1/+1 (prowess)`, { kind: 'minor', rule: '702.108a' }); }
       if (s.fx.onCast && (!s.fx.onCast.notHand || o.castFrom !== 'hand') && (!s.fx.onCast.fromHand || o.castFrom === 'hand') && (!s.fx.onCast.minPower || this.basePower(o.card) >= s.fx.onCast.minPower) && (s.fx.onCast.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[s.fx.onCast.what] ?? this.spellIs(o, s.fx.onCast.what)) && s !== o && (!s.fx.onCast.turnOnce9 || this.onceOk(s, 'cast'))) this.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
       if (s.fx.kw.has('extort')) extort++;
     }
@@ -1587,7 +1622,22 @@ export class Game {
     const plan = this.planPayment(p, this.equipCost(p, eq), 0);
     if (!plan) return false;
     if (target === eq || (eq.fx.reconfigure && this.rules < 5)) return false;
+    // (rules 16) Equip is an activated ability that targets a creature you control (702.6a): the target must be legal
+    // (protection from the equipment, shroud), the cost is paid, and the ability uses the stack; it attaches on
+    // resolution if the creature is still a legal target (resolve.js 'equipAttach')
+    if (this.rules >= 16) {
+      if (!target || target.zone !== 'battlefield' || target.controller !== p.idx || !target.fx.type.creature || !this.canTarget(p, target, eq)) return false;
+      this.commitPayment(p, plan);
+      await this.stackAbility(p, eq, [{ k: 'equipAttach' }], eq.fx.reconfigure ? 'reconfigure' : 'equip', 'ability', null, 0, [{ obj: target }]);
+      return eq.attachedTo === target;
+    }
     this.commitPayment(p, plan);
+    this.attachEquipment(p, eq, target);
+    await this.beat(0.7);
+    return true;
+  }
+  // Attaching an Equipment (equip on resolution; reconfigure makes an equipment creature stop being a creature)
+  attachEquipment(p, eq, target) {
     eq.attachedTo = target;
     // Reconfigure (702.151): an equipment creature stops being a creature while it's attached
     if (eq.fx.reconfigure && eq.fx.type.creature && this.rules >= 5) {
@@ -1598,8 +1648,6 @@ export class Game {
       for (const x of this.players[eq.controller].battlefield) if (x.attachedTo === eq && x.fx.type.equipment) x.attachedTo = null;
     }
     this.log(`${this.pn(p)} ${eq.reconfigured ? 'reconfigures' : 'equips'} ${this.cn(eq)} ${eq.reconfigured ? 'onto' : 'to'} ${this.cn(target)}`, { kind: 'minor' });
-    await this.beat(0.7);
-    return true;
   }
 
   async activatePW(p, pw, ab) {
@@ -2241,6 +2289,17 @@ export class Game {
     if (!plan || o.zone !== 'hand') return false;
     this.commitPayment(p, plan);
     this.discard(p, [o], null);
+    // (rules 16) Cycling and landcycling are activated abilities (702.29a): paying and discarding is the cost, the draw
+    // or search uses the stack; "when you cycle" triggers go on the stack above it and resolve first
+    if (this.rules >= 16 && !ch && !c.tribe) {
+      const eff = c.land ? [{ k: 'rampLand', n: 1, bf: false, basic: c.land === 'basic', sub: ['plains', 'island', 'swamp', 'mountain', 'forest'].includes(c.land) ? c.land : null }] : [{ k: 'draw', n: 1 }];
+      this.log(`${this.pn(p)} ${c.land ? (c.land === 'land' || c.land === 'basic' ? 'landcycles' : c.land + 'cycles') : 'cycles'} ${this.cn(o)}`, { kind: 'minor', rule: c.land ? '702.29e' : '702.29a' });
+      const item = await this.putAbility(p, o, eff, c.land ? 'landcycling' : 'cycling');
+      for (const w of o.fx.watch || []) if (w.ev === 'cycled') await this.stackAbility(p, o, w.effects, 'cycled', 'trigger');
+      if (item) await this.resolveAbility(item);
+      await this.sba();
+      return true;
+    }
     if (ch) {
       this.log(`${this.pn(p)} channels ${this.cn(o)}`, { kind: 'cast', p: p.idx });
       await this.stackAbility(p, o, ch.effects, 'channel');
@@ -2264,7 +2323,9 @@ export class Game {
   // Unearth (702.84), embalm (702.128), eternalize (702.129): abilities of a card in the graveyard
   graveAbility(p, o) {
     if (o.zone !== 'graveyard' || o.owner !== p.idx) return null;
-    for (const k of ['unearth', 'embalm', 'eternalize']) if (o.fx[k] && this.planPayment(p, parseCost(o.fx[k]), 0)) return k;
+    // (rules 16: unearth, embalm and eternalize are activated only as a sorcery: 702.84a, 702.128a, 702.129a)
+    const sorcery = this.rules < 16 || (this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length);
+    for (const k of ['unearth', 'embalm', 'eternalize']) if (o.fx[k] && sorcery && this.planPayment(p, parseCost(o.fx[k]), 0)) return k;
     // Encore (702.141): only as a sorcery
     if (o.fx.encore && this.active === p.idx && (this.phase === 'main1' || this.phase === 'main2') && !this.stack.length && this.planPayment(p, parseCost(o.fx.encore), 0)) return 'encore';
     if (o.fx.graveReturn && this.planPayment(p, parseCost(o.fx.graveReturn.cost), 0)) return 'graveReturn';
@@ -2273,7 +2334,13 @@ export class Game {
   async useGraveAbility(p, o, k) {
     const plan = this.planPayment(p, parseCost(k === 'graveReturn' ? o.fx.graveReturn.cost : o.fx[k]), 0);
     if (!plan) return false;
+    if (this.rules >= 16 && ['unearth', 'embalm', 'eternalize'].includes(k) && this.graveAbility(p, o) !== k) return false;
     this.commitPayment(p, plan);
+    // (rules 16) Unearth uses the stack: the card returns when the ability resolves, if it is still in the graveyard
+    if (this.rules >= 16 && k === 'unearth') {
+      await this.stackAbility(p, o, [{ k: 'unearthReturn' }], 'unearth');
+      return o.zone === 'battlefield';
+    }
     if (k === 'graveReturn') {
       const r = o.fx.graveReturn;
       this.move(o, r.to, { tapped: r.tapped });
@@ -2289,20 +2356,28 @@ export class Game {
       }
       this.log(`${this.pn(p)} encores ${this.cn(o)}: a token copy with haste for each opponent, sacrificed at the end step`, { kind: 'cast', p: p.idx, rule: '702.141a' });
     } else if (k === 'unearth') {
-      this.move(o, 'battlefield');
-      o.unearthed = true;
-      o.tempKw = new Set([...(o.tempKw || []), 'haste']);
-      this.log(`${this.pn(p)} unearths ${this.cn(o)}: it has haste and is exiled at the end of the turn`, { kind: 'cast', p: p.idx, rule: '702.84a' });
-      this.trigger(o, 'etb');
+      this.unearthReturn(p, o);
     } else {
-      this.move(o, 'exile');
-      const card = k === 'eternalize' ? { ...o.card, power: '4', toughness: '4' } : o.card;
-      const t = this.createCopy(p, { card }, false);
-      this.log(`${this.pn(p)} ${k === 'embalm' ? 'embalms' : 'eternalizes'} ${this.cn(o)}: a token copy${k === 'eternalize' ? ' (4/4)' : ''}`, { kind: 'cast', p: p.idx, rule: k === 'embalm' ? '702.128a' : '702.129a' });
-      this.trigger(t, 'etb');
+      this.graveTokenCopy(p, o, k);
     }
     await this.sba();
     return true;
+  }
+  // Unearth resolving: the card returns with haste and is exiled at the end of the turn (or if it would leave)
+  unearthReturn(p, o) {
+    this.move(o, 'battlefield');
+    o.unearthed = true;
+    o.tempKw = new Set([...(o.tempKw || []), 'haste']);
+    this.log(`${this.pn(p)} unearths ${this.cn(o)}: it has haste and is exiled at the end of the turn`, { kind: 'cast', p: p.idx, rule: '702.84a' });
+    this.trigger(o, 'etb');
+  }
+  // Embalm and eternalize: the card is exiled and a token copy enters (eternalize: a 4/4)
+  graveTokenCopy(p, o, k) {
+    this.move(o, 'exile');
+    const card = k === 'eternalize' ? { ...o.card, power: '4', toughness: '4' } : o.card;
+    const t = this.createCopy(p, { card }, false);
+    this.log(`${this.pn(p)} ${k === 'embalm' ? 'embalms' : 'eternalizes'} ${this.cn(o)}: a token copy${k === 'eternalize' ? ' (4/4)' : ''}`, { kind: 'cast', p: p.idx, rule: k === 'embalm' ? '702.128a' : '702.129a' });
+    this.trigger(t, 'etb');
   }
   // Crew N (702.122): tap creatures with total power N or more and the vehicle becomes a creature this turn
   async crew(p, v, crew) {

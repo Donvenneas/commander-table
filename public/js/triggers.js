@@ -486,7 +486,7 @@ export async function resolveAbility(g, item) {
   if (at >= 0 || g.rules < 15) g.stack.splice(at, 1);
   if (item.countered) { item.status = 'countered'; return; }
   const chosen = targets.filter(Boolean);
-  if (chosen.length && chosen.every(t => !g.validTarget(t, p))) {
+  if (chosen.length && chosen.every(t => !g.validTarget(t, p, src))) {
     item.status = 'fizzled';
     g.log(`${g.cn(src)}'s ability does nothing: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
     return;
@@ -547,7 +547,7 @@ function sbaPass0(g) {
         if (o.fx.type.creature) {
           const t = g.toughness(o);
           if (t <= 0) { g.move(o, 'graveyard'); g.log(`${g.cn(o)} dies (0 toughness)`, { rule: '704.5f', kind: 'death' }); again = true; }
-          else if ((o.damage >= t || (o.deathtouched && o.damage > 0)) && !g.has(o, 'indestructible')) {
+          else if ((o.damage >= t || (o.deathtouched && (o.damage > 0 || o.deathtouched === 'counters'))) && !g.has(o, 'indestructible')) {
             const dt = o.deathtouched && o.damage < t;
             if (g.regenerate(o)) continue;
             g.move(o, 'graveyard');
@@ -564,6 +564,14 @@ function sbaPass0(g) {
           g.log(`${g.cn(o)} has no defense counters left`, { rule: '704.5v', kind: 'combat' });
           g.move(o, 'graveyard'); again = true;
           if (siege) g.queue.push({ o, effects: [{ k: 'siegeCast' }], label: 'defeated', p: g.players[o.owner] });
+        }
+        // (rules 16) Protection (702.16c–d): an Aura on a permanent with protection from it is put into its owner's
+        // graveyard (704.5m), an Equipment becomes unattached and stays on the battlefield (704.5n)
+        if (g.rules >= 16 && o.zone === 'battlefield' && o.attachedTo?.zone === 'battlefield' && (o.fx.type.aura || o.fx.type.equipment) && g.protectedFrom(o.attachedTo, o)) {
+          g.log(`${g.cn(o)} ${o.fx.type.aura ? 'is put into the graveyard' : 'becomes unattached'}: ${g.cn(o.attachedTo)} has protection from it`, { rule: o.fx.type.aura ? '704.5m' : '704.5n', kind: 'minor' });
+          if (o.fx.type.aura && !o.bestowed) g.move(o, 'graveyard'); else if (o.bestowed) { g.unbestow(o); g._sbaFacts = sbaFacts(g); } else o.attachedTo = null;
+          again = true;
+          continue;
         }
         if (o.fx.type.aura && o.zone === 'battlefield' && (!o.attachedTo || o.attachedTo.zone !== 'battlefield')) {
           if (o.bestowed) { g.unbestow(o); g._sbaFacts = sbaFacts(g); } else g.move(o, 'graveyard');

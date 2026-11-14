@@ -119,7 +119,7 @@ export function targetsBad(g, p, src, effects, targets, given) {
     const t = targets[i];
     if (!t) continue;
     if (t.spell && (t.spell.o === src)) return 'a spell can\'t target itself';
-    if (given && !g.validTarget(t, p)) return `${g.tname(t) || 'that target'} is not a legal target`;
+    if (given && !g.validTarget(t, p, src)) return `${g.tname(t) || 'that target'} is not a legal target`;
   }
   if (need.every(i => !targets[i]) && !/\bup to (one|two|three|four|five|x|\w+) (other )?target/i.test(src?.card?.text || '')) return 'it has no legal target';
   return null;

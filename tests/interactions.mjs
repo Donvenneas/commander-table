@@ -789,12 +789,13 @@ await test('Terminate under rules 8 (old replays): the shield saves it, as befor
   await spell(g, 0, 'Terminate', [tgtObj(v)]);
   eq(v.zone, 'battlefield', 'Grizzly Bears zone');
 });
-await test('Skipped sentences are reported (Tainted Wood, Mob Rule) and read ones are not', async () => {
+await test('Skipped sentences are reported (Plaza of Heroes, Mob Rule) and read ones are not (Tainted Wood from rules 16)', async () => {
   const { droppedSentences, ignoredText } = await import('../public/js/effects.js');
-  const g = await scenario([{ battlefield: ['Tainted Wood', 'Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection', 'Mob Rule'] }, {}]);
+  const g = await scenario([{ battlefield: ['Plaza of Heroes', 'Tainted Wood', 'Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection', 'Mob Rule'] }, {}]);
   const d = n => droppedSentences(find(g, 0, n).card);
-  eq(d('Tainted Wood'), ['Activate only if you control a Swamp.'], 'Tainted Wood');
-  ok(/^partly read: /.test(ignoredText(find(g, 0, 'Tainted Wood').card) || ''), 'Tainted Wood counts as partly read');
+  eq(d('Plaza of Heroes'), ['Spend this mana only to cast a legendary spell.'], 'Plaza of Heroes');
+  ok(/^partly read: /.test(ignoredText(find(g, 0, 'Plaza of Heroes').card) || ''), 'Plaza of Heroes counts as partly read');
+  eq(d('Tainted Wood'), [], 'Tainted Wood (its condition is read: fx.mana.cond16)');
   ok(d('Mob Rule').includes('They gain haste until end of turn.'), 'Mob Rule haste');
   for (const n of ['Watery Grave', 'Morbid Opportunist', 'Terminate', 'Insurrection']) eq(d(n), [], n);
 });
@@ -991,8 +992,8 @@ await test('Chaos Warp under rules 12 (old replays): it exiles, as before', asyn
 });
 
 // Cavern of Souls
-const cavern = async (hand, type = 'bear', extra = []) => {
-  const g = await scenario([{ battlefield: ['Cavern of Souls', ...extra], hand }, {}]);
+const cavern = async (hand, type = 'bear', extra = [], rules) => {
+  const g = await scenario([{ battlefield: ['Cavern of Souls', ...extra], hand }, {}], { rules });
   find(g, 0, 'Cavern of Souls').chosenType = type;
   g.active = 0; g.phase = 'main1';
   return g;
@@ -1017,10 +1018,10 @@ await test('Cavern of Souls: only {C} for anything else (another creature type, 
   let item = null; const rp = g2.priority.bind(g2); g2.priority = async it => { item = it; return rp(it); };
   await g2.cast(P(g2, 0), find(g2, 0, 'Grizzly Bears', 'hand')); await settle(g2);
   eq([item?.uncounterable || false, find(g2, 0, 'Cavern of Souls').tapped], [false, false], 'paid with Forests: Cavern untouched, the Bears can be countered');
-  // (tapping it by hand: {C})
-  const g3 = await cavern([]);
+  // (tapping it by hand under rules 15: {C})
+  const g3 = await cavern([], 'bear', [], 15);
   g3.tapForMana(P(g3, 0), find(g3, 0, 'Cavern of Souls'));
-  eq(P(g3, 0).pool.map(u => u.colors.join('')), ['C'], 'tapped by hand: {C}');
+  eq(P(g3, 0).pool.map(u => u.colors.join('')), ['C'], 'tapped by hand under rules 15: {C}');
 });
 await test('Cavern of Souls under rules 12 (old replays): any color for anything, as before', async () => {
   const g = await scenario([{ battlefield: ['Cavern of Souls'], hand: ['Lightning Bolt'] }, {}], { rules: 12 });

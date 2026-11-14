@@ -8,10 +8,10 @@ import * as K from './kingdomsPlay.js';
 import * as R from './replacements.js';
 
 /** @param {import('./engine.js').Game} g */
-export function validTarget(g, t, p) {
+export function validTarget(g, t, p, src) {
   if (!t) return false;
   if (t.spell) return g.stack.includes(t.spell) && !t.spell.countered;
-  if (t.obj) return g.canTarget(p, t.obj);
+  if (t.obj) return g.canTarget(p, t.obj, src);
   // (rules 13) A player with protection from everything (Teferi's Protection) can't be targeted by others (702.16j)
   if (t.player != null && g.rules >= 13 && t.player !== p?.idx && g.players[t.player]?.shield >= g.turn) return false;
   return t.player != null && !g.players[t.player].lost;
@@ -32,6 +32,23 @@ async function chaosWarp(g, p, src, o, S) {
   g.move(top, 'battlefield', { under: q.idx });
   g.log(`${S} puts ${g.cn(top)} onto the battlefield under ${g.pn(q)}'s control`, { kind: 'minor' });
   g.trigger(top, 'etb');
+}
+// (rules 16) "Protection from the color of your choice", chosen as the effect resolves: a person is asked (the agent's
+// chooseColor, when it has one); otherwise the color of the opposing spell or ability on the stack that targets the
+// creature, else the most common color among opponents' creatures (what could block or fight it), else the color of
+// the most opposing permanents
+const COLOR_WORD = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' };
+export const protName = q => COLOR_WORD[q] || q;
+/** @param {import('./engine.js').Game} g */
+export function protColorChoice(g, p, o) {
+  const asked = p.agent.chooseProtColor?.(g, p, o);
+  if (asked && COLOR_WORD[asked]) return asked;
+  /** @type {Map<string, number>} */
+  const count = new Map(Object.keys(COLOR_WORD).map(c => [c, 0]));
+  const add = (/** @type {string} */ c, /** @type {number} */ n) => count.set(c, (count.get(c) || 0) + n);
+  for (const it of g.stack) if (it.p !== p && it.targets?.some((/** @type {any} */ t) => t?.obj === o)) for (const c of g.colorsOf(it.o)) add(c, 100);
+  for (const q of g.opponents(p)) for (const x of q.battlefield) for (const c of g.colorsOf(x)) add(c, x.fx.type.creature ? 3 : 1);
+  return [...count].sort((a, b) => b[1] - a[1])[0][0];
 }
 // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
 /** @param {import('./engine.js').Game} g */
@@ -55,8 +72,10 @@ export async function doEffect(g, p, src, e, ctx, i) {
   const S = g.cn(src);
   // (rules 6: a second reading of the same words does nothing; see readRiders in effects.js)
   if (e.dup && g.rules >= 6) return;
+  // (an effect read from rules 16 on: older games and their replays play without it)
+  if (e.since && g.rules < e.since) return;
   let tgt = ctx.targets?.[i];
-  if (needsTargetIn(e, g.rules) && !g.validTarget(tgt, p)) {
+  if (needsTargetIn(e, g.rules) && !g.validTarget(tgt, p, src)) {
     // A spell's chosen target that became illegal is skipped, never swapped for a new one (608.2b)
     if (ctx.strict && tgt) { g.log(`${S}: ${g.tname(tgt)} is no longer a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
     tgt = p.agent.chooseTarget(g, p, e, src);
@@ -281,6 +300,13 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'protect': {
       const objs = e.scope === 'one' ? (tgt?.obj ? [tgt.obj] : []) : e.scope === 'self' ? [src] : e.scope === 'tokens' ? p.battlefield.filter(o => o.token && o.fx.type.creature) : p.battlefield.filter(o => !o.fx.type.land);
+      // (rules 16) protection is protection (Game.protectedFrom), not hexproof; "the color of your choice" is chosen now
+      if (g.rules >= 16 && e.prot) {
+        const q = e.prot.includes('choice') ? [...e.prot.filter(x => x !== 'choice'), protColorChoice(g, p, objs[0])] : e.prot;
+        for (const o of objs) { o.tempProt = { turn: g.turn, q: [...(o.tempProt?.turn === g.turn ? o.tempProt.q : []), ...q] }; if (e.kw16.length) o.tempKw = new Set([...(o.tempKw || []), ...e.kw16]); }
+        if (objs.length) g.log(`${objs.length === 1 ? g.cn(objs[0]) : `${g.pn(p)}'s permanents`} gain${objs.length === 1 ? 's' : ''} ${[...e.kw16, `protection from ${q.map(protName).join(' and from ')}`].join(' and ')} until end of turn`, { kind: 'minor', rule: '702.16' });
+        break;
+      }
       for (const o of objs) o.tempKw = new Set([...(o.tempKw || []), ...e.kw]);
       if (objs.length) g.log(`${objs.length === 1 ? g.cn(objs[0]) : `${g.pn(p)}'s permanents`} gain${objs.length === 1 ? 's' : ''} ${e.kw.join(' and ')} until end of turn`, { kind: 'minor' });
       break;
@@ -697,6 +723,21 @@ export function bestOwnCreature(g, p, filter = (/** @type {any} */ _o) => true) 
 // The newer effects: library manipulation, keyword actions, conditions, graveyard work
 /** @param {import('./engine.js').Game} g */
 export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
+  // (rules 16) Equip resolving: the equipment, still on the battlefield under its activator's control, attaches to the
+  // target creature if that is still a creature they control (701.3b: an equipment can't be attached illegally)
+  // (rules 16) Unearth resolving: the card returns if it is still in its owner's graveyard
+  if (e.k === 'unearthReturn') {
+    if (src.zone === 'graveyard' && src.owner === p.idx) g.unearthReturn(p, src);
+    else g.log(`${g.cn(src)}: unearth does nothing (it left the graveyard)`, { kind: 'minor' });
+    return;
+  }
+  if (e.k === 'equipAttach') {
+    const o = tgt?.obj;
+    if (src.zone !== 'battlefield' || src.controller !== p.idx || !o || o.zone !== 'battlefield' || o.controller !== p.idx || !o.fx.type.creature || o === src) { g.log(`${g.cn(src)}: equip does nothing`, { kind: 'minor', rule: '701.3b' }); return; }
+    if (src.attachedTo === o) return;
+    g.attachEquipment(p, src, o);
+    return;
+  }
   const S = g.cn(src);
   switch (e.k) {
     case 'if': {
@@ -1766,11 +1807,15 @@ export function damageObj(g, o, n, src) {
   }
   if (n <= 0 || o.zone !== 'battlefield') return;
   // Protection from a color prevents damage from sources of that color (702.16e)
-  if (src && o.fx.prot?.some(c => g.colorsOf(src).includes(c))) { g.log(`${g.cn(o)}'s protection prevents the damage`, { kind: 'minor', rule: '702.16e' }); return; }
+  if (src && (g.rules >= 16 ? g.protectedFrom(o, src) : o.fx.prot?.some(c => g.colorsOf(src).includes(c)))) { g.log(`${g.cn(o)}'s protection prevents the damage`, { kind: 'minor', rule: '702.16e' }); return; }
   if (o.fx.type.planeswalker && !o.fx.type.creature) o.loyalty -= n;
   else if (o.fx.type.battle && !o.fx.type.creature) o.defense = Math.max(0, (o.defense || 0) - n);
   // Wither and infect deal damage to creatures as -1/-1 counters
-  else if (src && (g.has(src, 'wither') || g.has(src, 'infect'))) { o.counters -= n; o.hadMinus = true; }
+  else if (src && (g.has(src, 'wither') || g.has(src, 'infect'))) {
+    o.counters -= n; o.hadMinus = true;
+    // (rules 16) damage dealt as -1/-1 counters is still damage: deathtouch destroys the creature (702.2b, 704.5h)
+    if (g.rules >= 16 && g.has(src, 'deathtouch') && !o.deathtouched) o.deathtouched = 'counters';
+  }
   else { o.damage += n; if (src && g.has(src, 'deathtouch')) o.deathtouched = true; }
   g.emit('hit', { iid: o.iid, n });
   g.fire('damaged', { o, n });

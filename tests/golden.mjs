@@ -53,7 +53,7 @@ const decks = lists.map(l => {
 
 const styles = ['cedh', 'combo', 'balanced', 'aggressive', 'defensive'];
 const results = {};
-for (const rules of [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, RULES]) {
+for (const rules of [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, RULES]) {
   for (let i = 0; i < 6; i++) {
     const seed = 50000 + i;
     const g = new Game([0, 1, 2, 3].map(k => {

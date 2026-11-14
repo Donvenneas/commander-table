@@ -407,6 +407,11 @@ export class HumanAgent extends Agent {
   manaSources(g, p) { return p.battlefield.filter(o => !o.tapped && g.manaUnitsOf(p, o).length); }
   poolNote(g, p) { const t = g.poolText(p); return t ? ` <b>Mana pool: ${esc(t)}</b> (spent first; it empties at the end of this step${this.takeBacks(g, p).length ? '; click a source you tapped to take its mana back' : ''}).` : ''; }
   candidates(g, p, e, src) {
+    const prev = g.targetSrc;
+    g.targetSrc = src;
+    try { return this.candidates0(g, p, e, src); } finally { g.targetSrc = prev; }
+  }
+  candidates0(g, p, e, src) {
     const all = g.players.flatMap(q => q.battlefield);
     switch (e.k) {
       case 'remove': return { objs: all.filter(o => this.matches(o, e.what, g) && !(e.nonbasic && g.rules >= 6 && o.fx.type.basic) && g.canTarget(p, o)) };
@@ -468,7 +473,7 @@ export class HumanAgent extends Agent {
       // (what it can enchant: "Enchant artifact" for Power Artifact, lands, any permanent, else creatures)
       const what = (o.card.text.match(/^enchant (\w+)/im) || [])[1]?.toLowerCase() || 'creature';
       const ok = x => (what === 'permanent' ? true : what === 'artifact' ? x.fx.type.artifact : what === 'land' ? x.fx.type.land : what === 'planeswalker' ? x.fx.type.planeswalker : x.fx.type.creature);
-      const objs = g.players.flatMap(q => q.battlefield).filter(x => ok(x) && g.canTarget(p, x));
+      const objs = g.players.flatMap(q => q.battlefield).filter(x => ok(x) && g.canTarget(p, x, o));
       const r = await this.ui.ask(`<b>${esc(o.card.name)}</b>: choose ${/^[aeiou]/.test(what) ? 'an' : 'a'} ${esc(what)} to enchant`, { objs, buttons: [{ label: 'Cancel', value: 'cancel' }] });
       if (!r.obj) return false;
       auraTarget = r.obj;

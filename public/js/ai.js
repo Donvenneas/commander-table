@@ -500,7 +500,11 @@ export class Agent {
   // the one with the least life, or no target at all
   /** @returns {any} */
   chooseTarget(g, p, e, src) {
-    const t = this.chooseTarget0(g, p, e, src);
+    // (rules 16: Game.canTarget knows the source while targets are chosen, for protection)
+    const prev = g.targetSrc;
+    g.targetSrc = src;
+    let t;
+    try { t = this.chooseTarget0(g, p, e, src); } finally { g.targetSrc = prev; }
     if (g.rules >= 13 && t?.player != null && t.player !== p.idx && g.players[t.player]?.shield >= g.turn) {
       const other = g.opponents(p).filter(q => !(q.shield >= g.turn)).sort((a, b) => a.life - b.life || a.idx - b.idx)[0];
       return other ? { ...t, player: other.idx } : null;
@@ -614,6 +618,11 @@ export class Agent {
     return after >= 0 && !wanted.length;
   }
   chooseAuraTarget(g, p, aura) {
+    const prev = g.targetSrc;
+    g.targetSrc = aura;
+    try { return this.chooseAuraTarget0(g, p, aura); } finally { g.targetSrc = prev; }
+  }
+  chooseAuraTarget0(g, p, aura) {
     const buff = aura.fx.attachBuff;
     // "Enchant artifact" (Power Artifact): the artifact of ours whose activated abilities it helps most
     const what = (aura.card.text.match(/^enchant (\w+)/im) || [])[1]?.toLowerCase();
