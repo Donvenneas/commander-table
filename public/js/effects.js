@@ -1074,7 +1074,7 @@ function targetWords(t, i, k) {
   if ((m = first.match(/\b(un)?tapped\b/))) tr.tapped = !m[1];
   if (/(?<!non-?)\blegendary\b/.test(first)) tr.legendary = true;
   if (/\btoken\b/.test(head) && !/\bnon-?token\b/.test(head)) tr.token = true;
-  if (/^(?:an)?other\b/.test(head)) tr.other = true;
+  if (/^(?:an)?other\b/.test(head) || /\b(?:an)?other $/.test(sentence.slice(0, at))) tr.other = true;
   // ("creature or enchantment", "artifact, creature, or planeswalker": each kind the target may be, when every word is
   // a card type; the effect's own "what" keeps its older, narrower reading for games before rules 17)
   if (/ or /.test(head.replace('attacking or blocking', ''))) {
@@ -1134,6 +1134,14 @@ function readRiders(t, found, effects) {
     if (x.e.dup || x.e.tr || !TARGETED.has(x.e.k)) continue;
     const tr = targetWords(t, x.i, x.e.k);
     if (tr) x.e.tr = tr;
+  }
+  // (item 210, used from rules 17) "exile target … until ~ leaves the battlefield" (Banishing Light, Grasp of Fate;
+  // Hostage Taker: 'cast' when its controller may cast the exiled card)
+  for (const x of found) {
+    if (x.e.k !== 'remove' || x.e.mode !== 'exile' || x.e.dup) continue;
+    const from = Math.max(t.lastIndexOf('.', x.i), t.lastIndexOf('\n', x.i)) + 1;
+    const rest = t.slice(from), sentence = rest.split(/[.\n]/)[0];
+    if (/ until (?:~|this (?:creature|enchantment|artifact|permanent|land)) leaves the battlefield/.test(sentence)) x.e.untilLeaves = /^[^.\n]*\. you may cast that card for as long as it remains exiled/.test(rest) ? 'cast' : true;
   }
   const ctl = "(?:its|that (?:creature|permanent|spell|land)'s) controller";
   const hit =[...effects].reverse().find(e => (e.k === 'remove' || e.k === 'counter') && !e.dup);
@@ -1819,6 +1827,13 @@ export function analyzeCard(card) {
     if (/^(?:choose a background|partner(?: with [^.]*)?|friends forever|doctor's companion|a deck can have any number of cards named ~|a deck can have up to \w+ cards named ~|companion — .*)\.?$/.test(line)) { pending = null; continue; }
     // Leylines: "If ~ is in your opening hand, you may begin the game with it on the battlefield"
     if (/^if ~ is in your opening hand(?: and you're not the starting player)?, you may begin the game with (?:it|~) on the battlefield/.test(line)) { fx.leyline = true; continue; }
+    // (item 210, used from rules 17) Oblivion Ring: a second trigger returns what the first one exiled ('ring': the
+    // card stays exiled for good if the Ring left before its first trigger resolved)
+    if (/^when ~ leaves the battlefield, return the exiled cards? to the battlefield under (?:its|their) owners?'s? control\.?$/.test(line) && fx.etb.some(e => e.k === 'remove' && e.mode === 'exile')) {
+      for (const e of fx.etb) if (e.k === 'remove' && e.mode === 'exile') e.untilLeaves = 'ring';
+      pending = null;
+      continue;
+    }
     if (/^rebound$/.test(line)) { fx.rebound = true; continue; }
     if ((m = line.match(/^(other )?creature tokens you control get \+(\d+)\/\+(\d+)(?: and have ([\w ,]+))?\.?$/))) { fx.anthem = { other: !!m[1], tribe: 'token', p: +m[2], t: +m[3], kw: kwList(m[4]) }; continue; }
     if (/^creatures you control are every creature type/.test(line)) { fx.allTypesTeam = true; fx.allTypes = true; continue; }

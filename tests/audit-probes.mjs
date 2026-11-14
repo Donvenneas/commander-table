@@ -31,14 +31,6 @@ if (arg !== '--scan') {
     g.active = 1; eq(!!g.canCast(P(g, 0), find(g, 0, 'Divination', 'hand')), false, 'castable');
   });
 
-  // ---------- 210: "until this leaves the battlefield"
-  await test(210, 'Banishing Light: the exiled permanent comes back when Banishing Light leaves', ['Banishing Light', 'Sol Ring'], async () => {
-    const g = await scenario([{ hand: ['Banishing Light'] }, { battlefield: ['Sol Ring'] }]);
-    mana(g, 0); const s = find(g, 1, 'Sol Ring'); await cast(g, 0, 'Banishing Light', { targets: [tgtObj(s)] });
-    const during = s.zone; g.destroy(find(g, 0, 'Banishing Light')); await settle(g);
-    eq([during, s.zone], ['exile', 'battlefield'], 'Sol Ring while exiled / after');
-  });
-
   // ---------- 211: imprint
   await test(211, 'Chrome Mox with nothing imprinted makes no mana', ['Chrome Mox'], async () => {
     const g = await scenario([{ battlefield: ['Chrome Mox'] }, {}]); eq(g.availableMana(P(g, 0)), 0, 'available mana');

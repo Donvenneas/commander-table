@@ -148,7 +148,8 @@ one repairs.
   - Fix: a batch around simultaneous zone changes: `g.together(() => { ... })` records the set of watchers present before the batch, moves everything, then calls `noteDeath` for each object with that recorded set (and the same for "leaves the battlefield" and "enters" watchers, so creatures entering together see each other: Living Death). One state-based-action pass is one batch (704.3). Replacement effects still apply per object. Rules 17; expect golden differences only under rules 17.
   - Done when: the three probes pass, a combat test where two creatures with death triggers kill each other passes, and item 215's order check finds nothing.
 
-- [ ] **210. "Until this leaves the battlefield" is forgotten.** (M)
+- [x] **210. "Until this leaves the battlefield" is forgotten.** (M)
+  - Done (rules 17): the exile effect carries `untilLeaves`; the source remembers what it exiled (`o.holds`) and `zones.js` `move` returns those cards under their owners' control when it leaves (enter triggers happen, a token is gone, a card no longer in exile stays where it is). If the source left before its trigger resolved nothing is exiled (610.3c). Oblivion Ring's second trigger is read (the return is immediate, not a trigger on the stack). Hostage Taker's controller may cast the card ("mana of any type" is not modelled). Skyclave Apparition's leave trigger is still unread.
   - Problem: Banishing Light, Grasp of Fate, Hostage Taker, Touch the Spirit Realm and similar exile for good. (Oblivion Ring isn't in the test snapshots; check it too, it uses two triggers.)
   - Evidence: probe `[210]`.
   - Where: `public/js/effects.js` (the exile patterns), `public/js/zones.js` (leaving the battlefield).

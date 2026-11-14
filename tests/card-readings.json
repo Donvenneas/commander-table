@@ -1934,7 +1934,7 @@
 "Aven Interrupter":"type: creature permanent\nETB: counter target spell\nspells opponents cast cost {2} more\nnot read: It becomes plotted.",
 "Insidious Fungus":"type: creature permanent\nability {2}, sacrifice it: choose 1: destroy target artifact / destroy target enchantment / draw 1, put a land from your hand onto the battlefield",
 "Thirst for Knowledge":"type: instant\ndraw 3, discard 2",
-"Hostage Taker":"type: creature permanent\nETB: exile target creature\nnot read: You may cast that card for as long as it remains exiled, and mana of any type can be spent to cast that spell.",
+"Hostage Taker":"type: creature permanent\nETB: exile target creature",
 "Inti, Seneschal of the Sun":"type: creature legendary permanent\nwhenever you attack: that creature gets +0/+0 and trample\nwhenever you discard a card: exile the top 1 and play it this turn\nnot read: When you do, put a +1/+1 counter on target attacking creature.",
 "Dazzling Theater // Prop Room":"type: enchantment permanent\ncreature spells have convoke",
 "Tormenting Voice":"type: sorcery\ndraw 2\nadditional cost: discard 1 card",

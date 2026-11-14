@@ -94,6 +94,21 @@ export function move(g, o, to, opts = {}) {
     if (o.unearthed) { o.unearthed = false; if (to !== 'exile') { to = 'exile'; g.log(`${g.cn(o)} is exiled (unearth)`, { kind: 'minor', rule: '702.84a' }); } }
     o.escaped = false;
     if (o.impending) { o.impending = 0; o.fx = o.card.fx; }
+    // (item 210, rules 17) What it exiled "until this leaves the battlefield" returns under its owner's control
+    // (610.3: a new object, its enter triggers happen; a token is gone; a commander moved to the command zone, or a
+    // card cast or moved out of exile since, stays where it is)
+    if (o.holds) {
+      const held = o.holds;
+      o.holds = null;
+      for (const iid of held) {
+        const c = g.objects.get(iid);
+        if (!c || c.zone !== 'exile') continue;
+        g.log(`${g.cn(c)} returns to the battlefield now that ${g.cn(o)} is gone`, { kind: 'minor', rule: '610.3' });
+        c.mayPlay = null;
+        g.move(c, 'battlefield', { under: c.owner });
+        g.trigger(c, 'etb');
+      }
+    }
   }
   if (died) { g.diedTurn = g.turn; g.noteDeath(o, snap); }
   if (dieExiler) {

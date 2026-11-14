@@ -217,4 +217,6 @@
 "carnage tyrant":{"id":"3bd78731-949c-464a-826a-92f86d784911","oracle_id":"8c411f4e-a091-447c-9450-d895b10b4985","name":"Carnage Tyrant","layout":"normal","mana_cost":"{4}{G}{G}","cmc":6,"type_line":"Creature — Dinosaur","oracle_text":"This spell can't be countered.\nTrample, hexproof","power":"7","toughness":"6","colors":["G"],"color_identity":["G"],"keywords":["Hexproof","Trample"],"game_changer":false,"legalities":{"commander":"legal"},
 "rarity":"mythic"},
 "stifle":{"id":"616d1b20-61c1-4d39-a9b5-ad9fd61699e4","oracle_id":"b3b00911-ece7-4484-bc36-f211ce72b6cc","name":"Stifle","layout":"normal","mana_cost":"{U}","cmc":1,"type_line":"Instant","oracle_text":"Counter target activated or triggered ability. (Mana abilities can't be targeted.)","colors":["U"],"color_identity":["U"],"keywords":[],"game_changer":false,"legalities":{"commander":"legal"},
-"rarity":"rare"}}
+"rarity":"rare"},
+"oblivion ring":{"id":"bff31eba-8ab3-403e-8d82-37a18b279bec","oracle_id":"bd9b9772-f5f9-4c6b-913e-7193bea5d0a7","name":"Oblivion Ring","layout":"normal","mana_cost":"{2}{W}","cmc":3,"type_line":"Enchantment","oracle_text":"When this enchantment enters, exile another target nonland permanent.\nWhen this enchantment leaves the battlefield, return the exiled card to the battlefield under its owner's control.","colors":["W"],"color_identity":["W"],"keywords":[],"game_changer":false,"legalities":{"commander":"legal"},
+"rarity":"uncommon"}}

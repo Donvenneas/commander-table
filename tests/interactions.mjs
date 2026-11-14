@@ -1268,6 +1268,49 @@ await test('A lord dying in a state-based-action pass does not take others with 
   const b = find(g, 0, 'Grizzly Bears'); b.damage = 2; await settle(g); eq(b.zone, 'battlefield', 'Bears with an anthem and 2 damage');
 });
 
+// ---------- Rules 17 (audit item 210): "until this leaves the battlefield"
+// The exiler's enter trigger aimed at one permanent of the second player, with a step to run before it resolves
+const exileUntil = async (name, target, { rules, before = () => {}, token = false } = {}) => {
+  const g = await scenario([{ battlefield: [name] }, { battlefield: token ? [] : [target] }], { rules });
+  if (token) { await g.runEffects(P(g, 1), find(g, 0, name), [{ k: 'token', n: 1, p: 1, t: 1, desc: 'white soldier', kw: [] }], { targets: [], strict: true }); await settle(g); }
+  const src = find(g, 0, name), v = token ? P(g, 1).battlefield.find(o => o.token) : find(g, 1, target);
+  await before(g, src);
+  await resolveEffects(g, 0, src, src.fx.etb, [tgtObj(v)]);
+  return { g, src, v, during: v.zone };
+};
+await test('Banishing Light: the exiled permanent comes back when Banishing Light leaves', async () => {
+  const r = await exileUntil('Banishing Light', 'Sol Ring');
+  r.g.destroy(r.src); await settle(r.g);
+  eq([r.during, r.v.zone, r.v.controller], ['exile', 'battlefield', 1], 'Sol Ring while exiled / after / controller'); noErrors(r.g);
+});
+await test('Banishing Light under rules 16 (old replays): exiled for good, as before', async () => {
+  const r = await exileUntil('Banishing Light', 'Sol Ring', { rules: 16 });
+  r.g.destroy(r.src); await settle(r.g); eq([r.during, r.v.zone], ['exile', 'exile'], 'Sol Ring while exiled / after');
+});
+await test('Banishing Light: if it left before its trigger resolved, nothing is exiled (610.3c)', async () => {
+  const r = await exileUntil('Banishing Light', 'Sol Ring', { before: (g, src) => { g.destroy(src); } });
+  eq(r.during, 'battlefield', 'Sol Ring zone'); ok(/Sol Ring is not exiled/.test(logText(r.g)), 'the log says why');
+});
+await test('Banishing Light on a token: the token is gone and nothing returns; an enter trigger happens again on return', async () => {
+  const r = await exileUntil('Banishing Light', '', { token: true });
+  r.g.destroy(r.src); await settle(r.g);
+  eq([r.v.zone, P(r.g, 1).battlefield.length], ['gone', 0], 'token zone / battlefield'); noErrors(r.g);
+  const w = await exileUntil('Banishing Light', 'Wall of Omens'); const hand = P(w.g, 1).hand.length;
+  w.g.destroy(w.src); await settle(w.g); eq(P(w.g, 1).hand.length, hand + 1, 'Wall of Omens drew a card on its return');
+});
+await test('Oblivion Ring: returns the card when it leaves; exiled for good if the Ring left first', async () => {
+  const r = await exileUntil('Oblivion Ring', 'Sol Ring');
+  r.g.destroy(r.src); await settle(r.g); eq([r.during, r.v.zone], ['exile', 'battlefield'], 'Sol Ring while exiled / after');
+  const gone = await exileUntil('Oblivion Ring', 'Sol Ring', { before: (g, src) => { g.destroy(src); } });
+  eq(gone.v.zone, 'exile', 'the Ring left before its first trigger resolved: exiled for good');
+});
+await test('Hostage Taker: its controller may cast the exiled card; it returns if the Taker leaves first', async () => {
+  const r = await exileUntil('Hostage Taker', 'Sol Ring');
+  eq([r.v.zone, r.v.mayPlay?.p], ['exile', 0], 'Sol Ring zone / who may cast it');
+  mana(r.g, 0); ok(r.g.canCast(P(r.g, 0), r.v), 'castable from exile by the Taker\'s controller');
+  r.g.destroy(r.src); await settle(r.g); eq([r.v.zone, r.v.controller, r.v.mayPlay], ['battlefield', 1, null], 'after the Taker died: back with its owner');
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

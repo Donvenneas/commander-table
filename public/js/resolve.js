@@ -512,7 +512,18 @@ export async function doEffect(g, p, src, e, ctx, i) {
       if (e.warp && g.rules >= 13) { await chaosWarp(g, p, src, tgt.obj, S); break; }
       // (what the target was as it last existed on the battlefield: its power and controller, 608.2h)
       const v = tgt.obj, q = g.players[v.controller], pow = g.power(v), mv = v.card.cmc || 0;
-      if (e.mode === 'exile') { g.log(`${S} exiles ${tName(tgt)}`, { kind: 'removal' }); g.move(v, 'exile'); }
+      // (item 210, rules 17) "until this leaves the battlefield": if the source already left, nothing is exiled (610.3c);
+      // else the source remembers the card, which returns when the source leaves (zones.js move)
+      const hold = g.rules >= 17 && e.untilLeaves;
+      if (hold && hold !== 'ring' && src.zone !== 'battlefield') { g.log(`${S} has left the battlefield: ${tName(tgt)} is not exiled`, { kind: 'minor', rule: '610.3c' }); break; }
+      if (e.mode === 'exile') {
+        g.log(`${S} exiles ${tName(tgt)}${hold ? ` until ${S} leaves the battlefield` : ''}`, { kind: 'removal' }); g.move(v, 'exile');
+        if (hold && v.zone === 'exile' && src.zone === 'battlefield') {
+          src.holds = [...(src.holds || []), v.iid];
+          // (Hostage Taker: its controller may cast the card for as long as it stays exiled)
+          if (e.untilLeaves === 'cast') v.mayPlay = { p: p.idx, until: Infinity };
+        }
+      }
       else if (g.destroy(v, g.rules >= 9 && !!e.noRegen9)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
       else g.log(`${tName(tgt)} is indestructible`, { rule: '702.12' });
       if (g.rules >= 6) {
