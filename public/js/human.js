@@ -9,6 +9,17 @@ import { esc, makeRng } from './util.js';
 import { targetFits, legalTargets } from './resolve.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
+// The page says it is waiting for the person: a class on the body (the stylesheet lights their board) and the tab's title
+const PAGE_TITLE = typeof document !== 'undefined' ? document.title : '';
+// (read from the action bar itself, so it can't get out of step however a prompt ends)
+function yourMove() {
+  if (typeof document === 'undefined') return;
+  const bar = document.getElementById('actionBar');
+  const on = !!bar && !bar.hidden;
+  document.body.classList.toggle('your-move', on);
+  document.title = on ? `● Your move · ${PAGE_TITLE}` : PAGE_TITLE;
+}
+
 const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx.kw.has('flash')
   || (!o.fx.type.land && (!!o.ownerP?.flashNow || !!o.ownerP?.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature)))));
 
@@ -153,6 +164,7 @@ export class HumanUI {
       }
       this.bar.hidden = false;
       this.highlight(true);
+      yourMove();
     });
   }
   highlight(on) {
@@ -175,6 +187,7 @@ export class HumanUI {
     this.pending = null;
     this.waiting = false;
     this.bar.hidden = true;
+    yourMove();
     p.resolve?.(value);
   }
   // A cancelled question (the game was rebuilt) isn't recorded
@@ -185,6 +198,7 @@ export class HumanUI {
     this.pending = null;
     this.waiting = false;
     this.bar.hidden = true;
+    yourMove();
     p.resolve = null;
   }
   // Keyboard: Space/Enter = main button, Esc = cancel, 1–9 = nth button, A = let the AI decide

@@ -61,6 +61,8 @@ Hidden information: `node tests/hidden.mjs` (CI runs it too) asks every AI decis
 
 Online seats: `node tests/net.mjs` (CI runs it too) drives `RemoteUI.askLive` in `net.js` with a fake room: an answer naming an object, player or button that was not offered is treated as "cancel". Servers: `node tests/servers.mjs http://localhost:8777` (not in CI: it needs a running server) asks one server for its limits and refusals (body limit and 413, path checks, security policy header); run it against each of the three servers after an endpoint change.
 
+Interface guards: `node tests/ids.mjs` (CI runs it too) fails when a script asks for an element id that no page has and no script creates, or a page uses an id twice. `node tests/csslint.mjs` (CI runs it too) counts `!important`, bare z-index numbers, literal colors outside `:root` and classes nothing mentions in `public/css/style.css`, and fails when a count is above `tests/csslint-baseline.json`; after removing some, lower the baseline with `--update`.
+
 Type check: `node tests/typecheck.mjs` (needs Node.js; CI runs it on every push). The baseline is empty now, and engine.js, effects.js and the engine's section modules must also pass `--strictNullChecks`. It fails on any type error not in
 `tests/typecheck-baseline.txt`. Fix new errors rather than adding them to the baseline; after fixing old ones, shrink
 the baseline with `node tests/typecheck.mjs --update`.

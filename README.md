@@ -27,7 +27,7 @@ To rebuild the .exe after changing the launcher code in `launcher/`, run:
 
 It uses the C# compiler that comes with Windows, so nothing needs installing.
 
-**Start menu:** the game opens on a start menu laid out as a dashboard: **Play** (and **Resume** when a game is unfinished), **Your record** (games played, wins, win rate, games watched and your challenge streak, counted from your game history), your four most recently saved **library decks** (click one to open the library on it), and every mode in four groups: **Play** (the setup screen), Learn to play, Story, Expedition (showing a run in progress), Draft / Sealed, Puzzles, Tabletop, Deck builder, Deck library, Progress (open challenges and your streak), Help (this manual inside the game, with a search box), Settings (Display) and Updates, plus Tour, Self-test and Exit. It also shows new and upcoming card sets. **Menu** in the top bar and on the setup screen brings it back (a game in progress pauses). A challenge link skips the menu and opens the setup screen.
+**Start menu:** the game opens on a start menu laid out as a dashboard: **Play** (and **Resume** when a game is unfinished), **Your record** (games played, wins, win rate, games watched and your challenge streak, counted from your game history), a **Continue** row once something is in progress (an Expedition, the next lesson, the next story chapter), your ranks, your four most recently saved **library decks** (each with **Play**, **Edit** and **View**; click its name to open the library on it), and every mode in four groups: **Play** (the setup screen), Learn to play, Story, Expedition (showing a run in progress), Draft / Sealed, Puzzles, Tabletop, Deck builder, Deck library, Progress (open challenges and your streak), Help (this manual inside the game, with a search box), Settings (Display) and Updates, plus Tour, Self-test and Exit. It also shows new and upcoming card sets. **Menu** in the top bar and on the setup screen brings it back (a game in progress pauses). A challenge link skips the menu and opens the setup screen.
 
 **New here?** The first time you open the setup screen, a short **Tour** points out the main controls; the Tour button shows it again. **Self-test** on the setup screen checks the local server, the online services the game uses, and plays 50 fast games, with a pass/fail list. It also runs a **rules check**: 20 more games watched step by step for broken card interactions (a card in two zones, a creature or player that should have died, an aura attached to nothing, a commander stuck in a graveyard, two copies of a legend), a **speed** row (games a second on fixed seeds), and a **determinism check**: three games played twice, in the opposite order and with or without look-ahead, must come out exactly the same, which keeps replays exact.
 
@@ -231,6 +231,15 @@ In a one-on-one format, set **Match** to **Best of three**. The first player to 
   - **Inspector:** point at a card in the results or in the deck (or move to it with Tab) to read it at full size, with its type, power and toughness, rules text and whether the simulator plays all of it; **Add to deck** and **Take one out** work from there. On a narrow window the inspector opens over the page from the magnifier on a card.
   - **Deck:** the commander's art and color identity across the top, the card count against the format, lands, spells and average cost, a live mana curve, color pips and card types, and **Checks** against the format (deck size, commander, copies, cards outside the commander's colors, sideboard size). The list is grouped by card type; click a heading to fold it.
   - On a phone, **Search** and **Deck** are two tabs.
+  - **Your work is kept:** the deck is saved after every change. If you close the builder or the game before saving it, open the builder again (in the same format) and choose **Restore it**. Putting the deck in a seat or saving it to the library clears that copy.
+  - **Undo and Redo** above the list (or Ctrl+Z and Ctrl+Y) step through every change to the deck. The **filter** box beside them shows only cards whose name or type matches, and the list can be ordered by mana value or by name.
+  - **Add a list of cards:** paste names, one a line, with or without a number; they are looked up together, and any name that isn't found is reported and left in the box.
+  - **Draw a test hand:** seven random cards from the deck, with **Mulligan** and **Draw a card**.
+  - **Export** (beside Copy as text): an MTGO .dek file, Arena text, a checklist, or the decklist as a file.
+  - **Marks on cards:** banned or not legal in the table's format, restricted, and Game Changer show as small marks on a card's corner. The inspector has **Flip** for double-faced cards and **Rulings** for Scryfall's rulings.
+  - **Fill in basic lands:** Suggest shows how many basics of each kind would bring the deck to the usual land count, split by the colors of its spells; Add them puts them in (Undo takes them out).
+  - **Searches:** the search field offers your last ten searches; the ☆ beside it keeps one in the list.
+  - **Keys in the results:** arrow keys move between cards, Enter adds one (Shift+Enter to the sideboard), **C** makes it the commander, **I** opens the inspector. More results load as you scroll.
   - Search every card on Scryfall with its own syntax (`t:goblin pow>=3`, `o:"draw a card"`), filtered by colors, type, mana value and the table format's legality. Commander formats list the most-played cards first.
   - Click a card or drag it into the deck; drag a deck card back to the results (or use −) to take it out.
   - The card count, mana curve and type counts update as you go, and over-the-limit copies are marked. Commander formats get a ★ to choose the commander, one-on-one formats a sideboard (**SB**).
@@ -291,6 +300,10 @@ To swap two seats, drag one seat's ⠿ grip onto another seat.
 
 **View deck** on a loaded seat shows:
 - a row of figures (cards, lands, average mana value, combos, how much the simulator understands, bracket), then the mana curve, color pips and card types as charts; every bar and segment also shows its number
+- on the mana curve, a dashed marker at the average mana value, with the average and the median written under it
+- under each color's bar, a thinner bar for **how many cards in the deck can make that color** (lands, mana rocks and mana creatures); if the costs ask for a color nothing makes, it says so. It doesn't judge whether you have enough: that depends on the deck
+- the **bracket** on a five-step scale, with Commander Spellbook's estimate marked when it is known
+- **Print** (beside the exports) prints the page black on white, charts included; choose "Save as PDF" in the print window for a file
 - the deck's combos
 - **what the simulator understands**: the share of non-basic cards it reads at least part of, and a list of cards whose abilities it ignores. Ignored cards are still cast, but their real strength isn't reflected in results.
 - after a batch run with the deck seated: its key cards, and cards that may be worth cutting
@@ -687,9 +700,32 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
 
   During combat, arrows run from attackers to the players they attack, with dashed lines from blockers. Summoning-sick creatures show a ☾, tapped cards dim slightly, and a banner announces each turn. Online seats use the same look.
 - **Viewing**:
-  - dark or light theme (☀ / ☾): dark is obsidian and antique gold, light is a parchment page
+  - dark or light theme (☀ / ☾): dark is obsidian and antique gold, light is a parchment page. Until you choose, the game follows your system's setting; **Display → Theme → Match the system** goes back to that
   - animations are cut back when your system asks for reduced motion (or with **Fewer animations** in Display)
-  - **Display**: board background (faint or bold commander art, felt, wood, stone or plain), colors for color blindness (Okabe–Ito seat colors plus seat-number badges), larger text and cards, and fewer animations
+  - **windows and the keyboard:** opening a window moves the keyboard into it, Tab stays inside it, **Esc** (or a click on the dark area beside it) closes it, and focus returns to where you were. Windows where closing would lose a choice (pass the device, results, sideboarding) stay open. Tab rows (the sidebar, Progress, the cEDH meta, the deck builder on a phone) move with the arrow keys. While a window is open, the table's shortcuts (Space, N, U and the rest) wait.
+  - **hints without a mouse:** the short explanations that appear when the mouse rests on a button also appear when you reach it with Tab, and on a touch screen when you press and hold
+  - **screen readers:** a "Skip to the table" link comes first on the page; cards on the table are announced with their name and state ("Birds of Paradise, 0/1, tapped"), face-down cards only as "Face-down card"; mana symbols are read as words ("white mana", "tap")
+  - **touch screens:** buttons, tabs, switches, sliders and the library, graveyard and exile piles are larger when the screen is used by finger
+  - **keyboard shortcuts:** press **?** at the table (or **Keyboard shortcuts** at the foot of the start menu) for the full list
+  - **menus:** the setup screen keeps its everyday buttons in view and the rest under **More decks** (Collection, Commander precons, the cEDH meta, Challenge link, Load replay), **Other modes** (Draft / Sealed, Learn to play, Story, Expedition, Tabletop, Load table) and **Tour and updates**. In the top bar, **More** holds Tournament, Friend tournament and History. Arrow keys move through a menu and Esc closes it.
+  - **Display → Less background motion** stops drifting lights, breathing glows and floating cards while moves still animate; **Easier reading** widens letter and line spacing and uses plain headings
+  - **questions and notices:** the game asks in its own window before anything that can't be undone (deleting a deck, clearing history, ending a run), with Cancel as the default, and confirms things like "Saved to the deck library" with a short notice at the bottom left
+  - when you play a seat, **your board is at the bottom of the table** (first on a phone); while the game waits for you its edge lights up and the browser tab reads "Your move"
+  - a **full screen** button beside Display
+  - on a phone or a narrow window, the game log opens from a round **Log** button at the bottom right (a dot shows when there are new lines), and windows fill the screen with their buttons kept at the bottom
+  - in the **game log**, click a turn's heading to fold that turn; **Fold turns** folds every finished turn to one line with a summary (lands, spells, combat, deaths) and keeps the current turn open
+  - **Display → Screen reader: read out** chooses how much is announced: main events, everything, your turns only, or combat and wins
+  - the **stack** shows each spell and ability with its card art; the one that resolves next is larger, and pointing at one rings what it targets
+  - **Display → Card art in the game log** puts a small picture beside the lines where a card is cast, dies or is removed
+  - every window has a **×** in its top right corner (Esc does the same)
+  - the **phase track** shows the current step larger; click Upkeep, Draw, Combat or End to set a stop there (your turns, opponents' turns, or every turn; from the next game), shown as dots under the step
+  - **click a life total** for its changes turn by turn and the commander damage that player has taken
+  - attacking, blocking and chosen cards carry a small mark (swords, shield, tick) as well as their glow
+  - **one-on-one games** put the two boards across the whole table, yours below, with larger cards
+  - the **action bar** (where the game asks you things) can be dragged by the grip at its left edge, off your cards; it stays where you leave it. Double-click the grip to put it back
+  - the **timeline** has a thin mark where each turn starts, and says which turn you are jumping to as you drag
+  - the **graveyard, exile and hand windows** have a filter box and an order (newest first, by name, by type, by mana value)
+  - **Display**: card size on the table (70% to 150%), where the card preview appears (beside the pointer, docked in the bottom right corner, or off), board background (faint or bold commander art, felt, wood, stone or plain), colors for color blindness (Okabe–Ito seat colors plus seat-number badges), larger text and cards, and fewer animations
   - a **battle preview** after blockers are declared: every attacker against its blockers (or the player it's hitting), with the expected result (who falls, how much damage gets through). It stays until combat damage is dealt; click it to close it sooner
   - **effects**: spells flare from the caster's portrait, clashes spark when combat starts, hits throw sparks, dying creatures leave embers, life gained glows green, combos light up the whole table, and slow motes drift over an arcane, slowly moving backdrop. Boards have glowing edges in each player's color (the active player's breathes), life totals are lit gems that pulse when low, and cards lift and glow on hover. "Fewer animations" in Display turns all of this down.
   - **music**: the Sound switch also plays background music, composed live in the browser (no audio files): a slow, magical theme that swells into war drums and driving strings during combat, then settles back

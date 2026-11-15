@@ -28,10 +28,20 @@ export class TableView {
     this.revealHands = false;
     /** @type {number} the seat played on this PC (set by main.js), -1 for none */
     this.humanIdx = -1;
+    this.zoneShown = '';
     this.pending = false;
     this.lastTurnLogged = null;
     els.table.innerHTML = '';
     els.log.innerHTML = '';
+    /** @type {{ el: HTMLElement, n: Record<string, number> } | null} the turn the log is in (item 288) */
+    this.logTurn = null;
+    if (!els.log.dataset.folds) {
+      // (once per page: a click, Enter or Space on a turn's heading folds or opens that turn)
+      els.log.dataset.folds = '1';
+      const head = ev => { const t = ev.target instanceof Element && !ev.target.closest('a, .cn, .glossary') ? /** @type {HTMLElement | null} */ (ev.target.closest('.le.turn')) : null; return t; };
+      els.log.addEventListener('click', ev => { const t = head(ev); if (t) foldTurn(t, !t.classList.contains('folded')); });
+      els.log.addEventListener('keydown', ev => { const t = head(ev); if (t && ev.target === t && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); ev.stopPropagation(); foldTurn(t, !t.classList.contains('folded')); } });
+    }
     // (5 to 9 boards: a wider grid; see .table[data-n] in the stylesheet)
     els.table.dataset.n = game.players.length;
     for (const p of game.players) this.boards.push(this.buildBoard(p));
@@ -68,6 +78,17 @@ export class TableView {
     this.stackPanel.className = 'stack-panel';
     this.stackPanel.hidden = true;
     els.table.after(this.stackPanel);
+    const aimAt = (/** @type {Event} */ ev, on) => {
+      const row = ev.target instanceof Element ? /** @type {HTMLElement | null} */ (ev.target.closest('.sp-item')) : null;
+      document.querySelectorAll('.aimed').forEach(x => x.classList.remove('aimed'));
+      if (!row || !on) return;
+      for (const t of (row.dataset.aim || '').split(' ').filter(Boolean)) {
+        const el = t[0] === 'o' ? this.cards.get(+t.slice(1)) : this.boards[+t.slice(1)]?.el.querySelector('.avatar');
+        el?.classList.add('aimed');
+      }
+    };
+    this.stackPanel.addEventListener('mouseover', ev => aimAt(ev, true));
+    this.stackPanel.addEventListener('mouseleave', ev => aimAt(ev, false));
     this.render();
   }
 
@@ -79,7 +100,7 @@ export class TableView {
     const g = this.g;
     const rows = battlePreview(g, attackers);
     const img = (o, cls = '') => `<div class="bp-card ${cls}" style="--pc:${g.players[o.controller].color}" data-iid="${o.iid}">
-        ${o.card.imgNormal ? `<img src="${esc(o.card.imgNormal)}" alt="${esc(o.card.name)}">` : `<div class="tkn" style="background-image:url('${esc(o.card.art || '')}')"><b>${esc(o.card.name)}</b></div>`}
+        ${o.card.imgNormal ? `<img decoding="async" src="${esc(o.card.imgNormal)}" alt="${esc(o.card.name)}">` : `<div class="tkn" style="background-image:url('${esc(o.card.art || '')}')"><b>${esc(o.card.name)}</b></div>`}
         <span class="bp-pt">${g.power(o)}/${g.toughness(o) - o.damage}</span></div>`;
     const panel = document.createElement('div');
     panel.className = 'battle-panel';
@@ -148,7 +169,7 @@ export class TableView {
     if (!el?.isConnected || !['graveyard', 'exile'].includes(to)) return;
     if (died) Fx.burst(el, '#ff8a5c', 'death');
     const img = el.querySelector('img');
-    const html = img ? `<img src="${img.getAttribute('src')}" alt="">` : el.innerHTML;
+    const html = img ? `<img decoding="async" src="${img.getAttribute('src')}" alt="">` : el.innerHTML;
     ghost(el.getBoundingClientRect(), counter(to === 'exile' ? 'exile' : 'graveyard'), died ? 'dies' : to === 'exile' ? 'exiled' : 'discard', html);
   }
 
@@ -282,6 +303,26 @@ export class TableView {
     }
     const bEl = el.lastChild;
     if (bEl.dataset.v !== badges) { bEl.innerHTML = badges; bEl.dataset.v = badges; }
+    // For screen readers: the card's name and what can be seen of its state. A face-down card keeps its secret
+    // unless this screen may look at it. (A card the person can choose is a button with its own label: human.js)
+    if (el.getAttribute('role') !== 'button') {
+      const peek = this.humanIdx === o.controller || this.revealHands;
+      const bits = [o.faceDown ? (peek ? `${o.faceCard.name}, face down` : 'Face-down card') : o.card.name];
+      if (onBf) {
+        if (o.isCommander) bits.push('commander');
+        if (o.fx.type.creature && !g.dormant?.(o)) bits.push(`${g.power(o)}/${g.toughness(o)}`);
+        if (o.fx.type.planeswalker) bits.push(`loyalty ${o.loyalty}`);
+        if (o.tapped) bits.push('tapped');
+        if (o.attacking != null) bits.push('attacking');
+        if (o.blocking != null) bits.push('blocking');
+        if (o.sick && o.fx.type.creature) bits.push('summoning sick');
+        if (o.damage) bits.push(`${o.damage} damage`);
+        if (o.counters) bits.push(`${o.counters > 0 ? '+' : ''}${o.counters} counters`);
+        if (o.attachedTo) bits.push(`attached to ${o.attachedTo.card.name}`);
+      }
+      const say = bits.join(', ');
+      if (el.getAttribute('aria-label') !== say) { el.setAttribute('role', 'img'); el.setAttribute('aria-label', say); }
+    }
     return el;
   }
 
@@ -317,14 +358,45 @@ export class TableView {
     const g = this.g;
     const ap = g.players[g.active];
     this.els.turnLabel.textContent = g.turn ? `Turn ${g.turn} · Round ${g.round} · ${ap.name}` : g.phase === 'setup' ? 'Shuffling up…' : 'Ready';
-    this.els.phaseTrack.style.setProperty('--pc', ap?.color);
-    this.els.phaseTrack.innerHTML = PHASES.map(([k, l]) => `<span class="${g.turn && g.phase === k ? 'on' : ''}">${l}</span>`).join('');
+    // (item 287) built once, then updated in place so a step keeps the keyboard focus; steps you can set a stop at
+    // are buttons, and the stops chosen for the next game show as dots (main.js keeps them in data-stops)
+    const track = this.els.phaseTrack;
+    track.style.setProperty('--pc', ap?.color);
+    if (track.children.length !== PHASES.length + 1) {
+      track.innerHTML = PHASES.map(([k, l]) => STOP_AT[k]
+        ? `<button type="button" class="ph" data-phase="${k}" data-stop-key="${STOP_AT[k]}">${l}<i class="ph-dots" aria-hidden="true"><i></i><i></i></i></button>`
+        : `<span class="ph" data-phase="${k}">${l}</span>`).join('') + '<span class="ph-who"></span>';
+    }
+    const stopSet = new Set((track.dataset.stops || '').split(' '));
+    PHASES.forEach(([k, l], i) => {
+      const el = /** @type {HTMLElement} */ (track.children[i]), on = !!g.turn && g.phase === k, key = STOP_AT[k];
+      el.classList.toggle('on', on);
+      if (on) el.setAttribute('aria-current', 'step'); else el.removeAttribute('aria-current');
+      if (!key) return;
+      const my = stopSet.has('my' + key), opp = stopSet.has('opp' + key);
+      el.classList.toggle('stop-my', my); el.classList.toggle('stop-opp', opp);
+      const say = my && opp ? 'stops on every turn' : my ? 'stops on your turns' : opp ? "stops on opponents' turns" : 'no stop';
+      if (el.dataset.say !== say) { el.dataset.say = say; el.dataset.tip = `${l}: ${say}. Click to change (from the next game).`; el.setAttribute('aria-label', `${l}: ${say}`); }
+    });
+    const who = /** @type {HTMLElement} */ (track.lastElementChild);
+    const decider = g.over || !g.turn ? null : g.players.find(p => !p.lost && (p.agent?.waiting ?? p.agent?.ui?.waiting) && !p.agent?.ui?.offline);
+    const whoSay = decider ? `${decider.name} to decide` : '';
+    if (who.textContent !== whoSay) { who.textContent = whoSay; who.style.setProperty('--dc', decider?.color || ''); }
 
     for (const b of this.boards) {
       const p = b.p;
       b.el.classList.toggle('active', g.active === p.idx && !g.over && g.turn > 0);
       b.lv.textContent = p.life;
       b.life.classList.toggle('low', p.life <= 10);
+      b.lifeLog ||= [{ turn: 0, life: g.startLife ?? p.life }];
+      if (b.lifeLog[b.lifeLog.length - 1].life !== p.life) {
+        const lastLog = b.lifeLog[b.lifeLog.length - 1];
+        // (several changes in one turn are one line: where the turn began and where it stands)
+        if (lastLog.turn === g.turn && b.lifeLog.length > 1) lastLog.life = p.life; else b.lifeLog.push({ turn: g.turn, life: p.life });
+        if (b.lifeLog.length > 1 && b.lifeLog[b.lifeLog.length - 1].life === b.lifeLog[b.lifeLog.length - 2].life) b.lifeLog.pop();
+      }
+      if (!b.life.hasAttribute('tabindex')) { b.life.tabIndex = 0; b.life.setAttribute('role', 'button'); b.life.dataset.tip = 'Click for the changes to this life total, turn by turn'; }
+      b.life.setAttribute('aria-label', `${p.name}: ${p.life} life. Show the changes.`);
       for (const z of ['hand', 'library', 'graveyard', 'exile']) b.n[z].textContent = p[z].length;
       // The graveyard and exile piles show their top card
       for (const z of ['graveyard', 'exile']) {
@@ -386,7 +458,7 @@ export class TableView {
       const n = creatures.length + others.length;
       // (larger in the Display window's "Larger text and cards" mode)
       const cw = n > 50 ? 34 : n > 34 ? 38 : n > 22 ? 44 : n > 16 ? 50 : n > 10 ? 58 : 66;
-      b.el.style.setProperty('--cw', `${document.body.classList.contains('big') ? Math.round(cw * 1.2) : cw}px`);
+      b.el.style.setProperty('--cw', `${Math.round(cw * (document.body.classList.contains('big') ? 1.2 : 1) * (g.players.length === 2 ? 1.25 : 1) * (+document.body.dataset.cardScale || 1))}px`);
       this.sync(b.creatures, creatures, { stackBy: tokenKey });
       this.sync(b.others, others);
       this.sync(b.lands, lands, { stack: true });
@@ -405,6 +477,9 @@ export class TableView {
         const s = Math.max(0, Math.round(ui.bankLeft?.() ?? ui.bank ?? 0));
         c.innerHTML = `⏱ ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}${ui.waiting && !ui.offline ? ' <button class="btn small nudge" title="Remind them it\'s their decision">Nudge</button>' : ''}`;
         c.classList.toggle('low', s < 30);
+        const mark = s <= 10 ? '10' : s <= 30 ? '30' : '';
+        if (mark && c.dataset.said !== mark && ui.waiting) { const sr = document.getElementById('srLog'); if (sr) sr.textContent = `${p.name} has ${mark} seconds left on the clock.`; }
+        c.dataset.said = mark;
         const nb = c.querySelector('.nudge');
         if (nb) nb.onclick = e => { e.stopPropagation(); ui.nudge?.(); nb.disabled = true; nb.textContent = 'Nudged'; };
       }
@@ -513,7 +588,7 @@ export class TableView {
   renderSpotlight() {
     const items = this.g.stack;
     const html = items.map(it => `<div class="spot ${it.countered ? 'countered' : ''}" style="--pc:${it.p.color}">
-      <img src="${it.o.card.imgNormal || ''}" alt="${esc(it.o.card.name)}">
+      <img decoding="async" src="${it.o.card.imgNormal || ''}" alt="${esc(it.o.card.name)}">
       <div class="cap">${it.ability ? `${esc(it.o.card.name)}: ${esc(String(it.label).slice(0, 48))}` : `${esc(it.p.name)} casts ${esc(it.o.card.name)}`}</div></div>`).join('');
     if (this.els.spotlight.dataset.v !== html) { this.els.spotlight.innerHTML = html; this.els.spotlight.dataset.v = html; }
     this.renderStackPanel();
@@ -533,8 +608,10 @@ export class TableView {
       ${items.map((it, i) => {
         const tg = (it.targets || []).filter(Boolean).map(t => g.tname(t)).filter(Boolean);
         const kind = KIND[it.kind] || (it.ability ? 'Ability' : 'Spell');
-        return `<div class="sp-item ${it.countered ? 'countered' : ''}" style="--pc:${it.p.color}" data-iid="${it.o.iid}">
-          <span class="sp-n">${i + 1}</span><span class="sp-text"><b>${esc(it.o.card.name)}</b>${it.ability ? ` <i>${esc(String(it.label || 'ability').slice(0, 40))}</i>` : ''}
+        const aim = (it.targets || []).filter(Boolean);
+        const art = it.o.card.art || it.o.card.imgSmall;
+        return `<div class="sp-item ${it.countered ? 'countered' : ''} ${i === 0 && !it.countered ? 'next' : ''}" style="--pc:${it.p.color}" data-iid="${it.o.iid}" data-aim="${aim.map(t => t.obj ? `o${t.obj.iid}` : t.player != null ? `p${t.player}` : '').join(' ')}">
+          <span class="sp-n">${i + 1}</span><span class="sp-art">${art ? `<img decoding="async" src="${esc(art)}" alt="">` : ''}${i === 0 && !it.countered ? '<em>Next</em>' : ''}</span><span class="sp-text"><b>${esc(it.o.card.name)}</b>${it.ability ? ` <i>${esc(String(it.label || 'ability').slice(0, 40))}</i>` : ''}
           <small><span class="sp-kind">${kind}</span> · ${esc(it.p.name)}${tg.length ? ` → ${tg.map(t => { const d = document.createElement('div'); d.innerHTML = t; return esc(d.textContent); }).join(', ')}` : ''}${it.countered ? ' · countered' : i === 0 ? ' · resolves next' : ''}</small></span></div>`;
       }).join('')}${prioLine}${waiting ? `<div class="sp-wait">${waiting} trigger${waiting === 1 ? '' : 's'} waiting to go on the stack</div>` : ''}`;
     if (this.stackPanel.dataset.v === html) return;
@@ -545,10 +622,15 @@ export class TableView {
 
   addLog(e) {
     const log = this.els.log;
-    // (screen readers hear what other players do: casts, combat, removal, eliminations)
-    if (['cast', 'combat', 'damage', 'removal', 'loss', 'combo'].includes(e.kind)) {
+    // (screen readers hear what other players do: casts, combat, removal, eliminations, the win; Display chooses
+    // how much: item 248. One sentence an event, with mana symbols said by name rather than skipped.)
+    const how = document.body.dataset.reader || '';
+    const read = how === 'all' ? e.kind !== 'why' && e.kind !== 'minor'
+      : how === 'combat' ? ['combat', 'damage', 'loss', 'win'].includes(e.kind)
+      : ['cast', 'combat', 'damage', 'removal', 'loss', 'combo', 'win'].includes(e.kind) && (how !== 'mine' || e.kind === 'win' || e.kind === 'loss' || this.g.active === this.humanIdx);
+    if (read) {
       const sr = document.getElementById('srLog');
-      if (sr && !this.g.clock.ff) { const d = document.createElement('div'); d.innerHTML = e.html; sr.textContent = d.textContent; }
+      if (sr && !this.g.clock.ff) sr.textContent = plainText(e.html);
     }
     const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 60;
     const div = document.createElement('div');
@@ -558,10 +640,41 @@ export class TableView {
     const who = new Set([...e.html.matchAll(/data-p="(\d)"/g)].map(m => m[1]));
     if (e.p != null) who.add(String(e.p));
     div.dataset.seats = [...who].join(' ');
-    div.innerHTML = Rules.glossify(e.html) + (e.rule ? `<a class="rule" data-rule="${e.rule}" title="Comprehensive Rules ${e.rule}">${e.rule}</a>` : '');
+    let thumb = '';
+    if (e.kind === 'cast' || e.kind === 'death' || e.kind === 'removal') {
+      const m = /data-iid="(\d+)"/.exec(e.html), o = m ? this.g.objects.get(+m[1]) : null;
+      const art = o?.card.art || o?.card.imgSmall;
+      if (art) thumb = `<img decoding="async" class="le-thumb" src="${esc(art)}" alt="" loading="lazy" data-iid="${o.iid}">`;
+    }
+    if (thumb) div.classList.add('has-thumb');
+    div.innerHTML = thumb + Rules.glossify(e.html) + (e.rule ? `<a class="rule" data-rule="${e.rule}" title="Comprehensive Rules ${e.rule}">${e.rule}</a>` : '');
+    // (item 288) a turn's heading folds its lines away; when the next turn starts, the one before gets a one-line
+    // summary, and is folded if "Fold turns" is on. The lines stay in the log, so the filters and search still work.
+    if (e.kind === 'turn') {
+      this.endLogTurn();
+      div.tabIndex = 0;
+      div.setAttribute('role', 'button');
+      div.setAttribute('aria-expanded', 'true');
+      div.insertAdjacentHTML('beforeend', '<span class="le-sum"></span>');
+      this.logTurn = { el: div, n: {} };
+    } else if (this.logTurn) this.logTurn.n[e.kind] = (this.logTurn.n[e.kind] || 0) + 1;
     log.append(div);
     while (log.children.length > 2500) log.firstChild.remove();
     if (atBottom) log.scrollTop = log.scrollHeight;
+  }
+
+  // The turn that just ended gets its summary (casts, combat, deaths, eliminations)
+  endLogTurn() {
+    const t = this.logTurn;
+    this.logTurn = null;
+    if (!t || !t.el.isConnected) return;
+    const n = t.n, parts = [], add = (k, one, many) => { if (n[k]) parts.push(`${n[k]} ${n[k] === 1 ? one : many}`); };
+    add('land', 'land', 'lands'); add('cast', 'spell', 'spells');
+    if (n.combat) parts.push('combat');
+    add('death', 'died', 'died'); add('removal', 'removed', 'removed'); add('combo', 'combo', 'combos'); add('loss', 'player out', 'players out');
+    const sum = t.el.querySelector('.le-sum');
+    if (sum) sum.textContent = parts.join(' · ');
+    if (document.body.classList.contains('log-fold')) foldTurn(t.el, true);
   }
 
   floatLife({ p, d }) {
@@ -587,14 +700,42 @@ export class TableView {
       grid.innerHTML = `<p class="muted">${p.library.length} card${p.library.length === 1 ? '' : 's'} left, face down.${mayLook ? ' The top card:' : ''}</p>`;
       if (!mayLook) { this.els.zoneModal.hidden = false; return; }
     }
-    for (const o of list) {
-      const el = document.createElement('div');
-      el.className = 'card';
-      el.dataset.iid = o.iid;
-      el.innerHTML = o.card.imgNormal ? `<img src="${o.card.imgNormal}" alt="${esc(o.card.name)}">` : `<div class="tkn"><b>${esc(o.card.name)}</b></div>`;
-      grid.append(el);
-    }
-    if (!list.length) grid.innerHTML = '<p class="muted">Empty.</p>';
+    // (item 291) Filter by name or type, and order: as the zone lies (newest on top), by name, by type or by mana value
+    const filter = /** @type {HTMLInputElement | null} */ (document.getElementById('zoneFilter')), sort = /** @type {HTMLSelectElement | null} */ (document.getElementById('zoneSort'));
+    const tools = document.getElementById('zoneTools');
+    if (tools) tools.hidden = zone === 'library' || list.length < 2;
+    const draw = () => {
+      const q = (filter?.value || '').trim().toLowerCase();
+      const by = sort?.value || '';
+      let shown = list.filter(o => !q || o.card.name.toLowerCase().includes(q) || (o.card.typeLine || '').toLowerCase().includes(q));
+      if (by === 'name') shown = [...shown].sort((x, y) => x.card.name.localeCompare(y.card.name));
+      else if (by === 'type') shown = [...shown].sort((x, y) => (x.card.typeLine || '').localeCompare(y.card.typeLine || '') || x.card.name.localeCompare(y.card.name));
+      else if (by === 'mv') shown = [...shown].sort((x, y) => (x.card.cmc || 0) - (y.card.cmc || 0) || x.card.name.localeCompare(y.card.name));
+      grid.innerHTML = '';
+      for (const o of shown) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.dataset.iid = o.iid;
+        el.setAttribute('role', 'img');
+        el.setAttribute('aria-label', o.card.name);
+        el.innerHTML = o.card.imgNormal ? `<img src="${o.card.imgNormal}" alt="" loading="lazy" decoding="async">` : `<div class="tkn"><b>${esc(o.card.name)}</b></div>`;
+        grid.append(el);
+      }
+      if (!list.length) grid.innerHTML = '<div class="empty-state"><b>Empty</b><span>No cards in this zone.</span></div>';
+      else if (!shown.length) grid.innerHTML = '<div class="empty-state"><b>No card matches</b><span>Clear the filter to see all of them.</span></div>';
+    };
+    if (filter) { if (zone !== this.zoneShown) filter.value = ''; filter.oninput = draw; filter.onkeydown = e => e.stopPropagation(); }
+    if (sort) sort.onchange = draw;
+    this.zoneShown = zone;
+    if (zone === 'library') {
+      for (const o of list) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.dataset.iid = o.iid;
+        el.innerHTML = o.card.imgNormal ? `<img decoding="async" src="${o.card.imgNormal}" alt="${esc(o.card.name)}">` : `<div class="tkn"><b>${esc(o.card.name)}</b></div>`;
+        grid.append(el);
+      }
+    } else draw();
     this.els.zoneModal.hidden = false;
   }
 }
@@ -648,7 +789,7 @@ function ordinal(n) { return n ? `${n}${['th', 'st', 'nd', 'rd'][n % 10 > 3 || M
 // the log) for its Oracle text, how the simulator reads each line, and Scryfall's rulings (fetched once, kept for
 // offline). Clicking a card name in the log points the card out on the table.
 const RULINGS_KEY = 'ct.rulings';
-async function rulingsFor(card) {
+export async function rulingsFor(card) {
   if (!card.id) return [];
   let all = {};
   try { all = JSON.parse(localStorage.getItem(RULINGS_KEY) || '{}'); } catch { all = {}; }
@@ -679,8 +820,8 @@ export function installDetails(getObject, getView) {
     const unread = new Set([...(o.fx.unread || []), ...droppedSentences(c)]);
     const lines = String(c.fullText || c.text || '').split('\n').filter(Boolean);
     const reads = describeFx(o.fx);
-    box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close">✕</button>
-      <div class="cd-cols">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}
+    box.innerHTML = `<div class="cd-panel"><button class="btn small cd-close" aria-label="Close">✕</button>
+      <div class="cd-cols">${c.imgNormal ? `<img decoding="async" src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}
       <div class="cd-text"><h3>${esc(c.name)}</h3><div class="muted">${esc(c.typeLine || '')} ${c.manaCost ? symbolize(c.manaCost) : ''}</div>
       <h4>Oracle text</h4>${lines.map(l => `<p>${Rules.glossify(symbolize(esc(l)))}</p>`).join('') || '<p class="muted">(no text)</p>'}
       <h4>How the simulator reads it</h4>${reads.length ? `<ul>${reads.map(r => `<li>${esc(r)}</li>`).join('')}</ul>` : '<p class="muted">Nothing beyond its type, power and toughness.</p>'}
@@ -713,14 +854,78 @@ export function installDetails(getObject, getView) {
   return open;
 }
 
+// Life history (item 290): click a life total for its changes turn by turn, and commander damage taken
+export function installLifeHistory(getView) {
+  const pop = document.createElement('div');
+  pop.className = 'kw-tooltip life-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Life total history');
+  pop.hidden = true;
+  document.body.append(pop);
+  const show = el => {
+    const view = getView(), board = el.closest('.board');
+    const b = view?.boards.find(x => x.el === board), p = view?.g.players[+board?.dataset.player];
+    if (!b || !p) return;
+    const log = b.lifeLog || [];
+    const rows = log.slice(1).map((x, i) => { const d = x.life - log[i].life; return `<tr><td>Turn ${x.turn}</td><td class="num">${log[i].life} → ${x.life}</td><td class="num ${d < 0 ? 'bad' : 'good'}">${d > 0 ? '+' : ''}${d}</td></tr>`; }).reverse();
+    const cmd = Object.entries(p.cmdDamage || {}).map(([iid, n]) => { const src = view.g.objects.get(+iid); return src ? `<li>${esc(src.card.name)}: ${n} of 21</li>` : ''; }).join('');
+    pop.innerHTML = `<b>${esc(p.name)}: ${p.life} life</b> <span class="muted">started at ${log[0]?.life ?? ''}</span>
+      ${rows.length ? `<table><tbody>${rows.slice(0, 14).join('')}</tbody></table>${rows.length > 14 ? `<div class="muted">and ${rows.length - 14} earlier changes</div>` : ''}` : '<div class="muted">No change yet.</div>'}
+      ${cmd ? `<div><b>Commander damage taken</b><ul>${cmd}</ul></div>` : ''}`;
+    pop.hidden = false;
+    const r = el.getBoundingClientRect();
+    pop.style.left = `${Math.max(8, Math.min(innerWidth - pop.offsetWidth - 8, r.right - pop.offsetWidth))}px`;
+    pop.style.top = `${r.bottom + 6 + pop.offsetHeight > innerHeight ? Math.max(8, r.top - pop.offsetHeight - 6) : r.bottom + 6}px`;
+  };
+  document.addEventListener('click', ev => {
+    const el = ev.target instanceof Element ? ev.target.closest('.life') : null;
+    // (a board being chosen as a target takes the click)
+    if (!el || el.closest('.board.pickable')) { pop.hidden = true; return; }
+    if (!pop.hidden && pop.dataset.for === el.closest('.board')?.dataset.player) { pop.hidden = true; return; }
+    pop.dataset.for = el.closest('.board')?.dataset.player || '';
+    show(el);
+  });
+  document.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && !pop.hidden) { pop.hidden = true; return; }
+    const el = ev.target instanceof Element && ev.target.classList.contains('life') ? ev.target : null;
+    if (el && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); ev.stopPropagation(); if (pop.hidden) show(el); else pop.hidden = true; }
+  }, true);
+}
+
+// A log line as one plain sentence: tags dropped, pictures (mana symbols) replaced by their names
+function plainText(html) {
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  d.querySelectorAll('img').forEach(i => i.replaceWith(i.alt ? ` ${i.alt} ` : ''));
+  return (d.textContent || '').replace(/\s+/g, ' ').trim();
+}
+// Fold or open one turn of the log (item 288): its lines up to the next turn heading
+export function foldTurn(head, on) {
+  head.classList.toggle('folded', on);
+  head.setAttribute('aria-expanded', String(!on));
+  for (let el = head.nextElementSibling; el && !el.classList.contains('turn'); el = el.nextElementSibling) el.classList.toggle('fold-hide', on);
+}
+
+// Steps a seat can ask to stop at (human.js opts.stops: my… on your own turns, opp… on the others')
+const STOP_AT = { upkeep: 'Upkeep', draw: 'Draw', combat: 'Combat', end: 'End' };
+
 export function installPreview(getObject) {
   const pv = document.getElementById('preview');
-  let current = null;
+  let current = null, wait = 0, last = null;
+  const mode = () => document.body.dataset.preview || 'pointer';
+  document.addEventListener('mousemove', ev => { last = ev; }, { passive: true });
   document.addEventListener('mouseover', ev => {
     const t = ev.target.closest('[data-iid]');
-    if (!t) { if (current) { pv.hidden = true; current = null; } return; }
+    if (!t) { clearTimeout(wait); if (current) { pv.hidden = true; current = null; } return; }
     const o = getObject(+t.dataset.iid);
-    if (!o || o === current) return;
+    if (!o || o === current || mode() === 'off') return;
+    // (a short rest first, so sweeping the pointer across the table doesn't flash card after card; none when
+    // one preview is already up and the pointer moves to the next card)
+    clearTimeout(wait);
+    if (pv.hidden) { wait = window.setTimeout(() => { if (t.isConnected && t.matches(':hover')) open(o, last || ev); }, 140); return; }
+    open(o, ev);
+  });
+  function open(o, ev) {
     current = o;
     pv.innerHTML = previewHtml(o);
     pv.hidden = false;
@@ -736,9 +941,11 @@ export function installPreview(getObject) {
         if (x.img && img) img.src = x.img;
       });
     }
-  });
+  }
   document.addEventListener('mousemove', ev => { if (!pv.hidden) place(ev); });
   function place(ev) {
+    // (docked: the stylesheet keeps it in the bottom right corner)
+    if (mode() === 'dock') { pv.style.left = ''; pv.style.top = ''; return; }
     const r = pv.getBoundingClientRect();
     let x = ev.clientX + 18, y = ev.clientY - r.height / 2;
     if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - 18;
@@ -757,8 +964,8 @@ function previewHtml(o) {
   const pt = c.power != null ? `${c.power}/${c.toughness}` : c.loyalty ? `Loyalty ${c.loyalty}` : '';
   return `
     <div class="imgs">
-      ${c.imgNormal ? `<img class="big" src="${c.imgNormal}" alt="">` : `<div class="tkn big" style="width:250px;height:349px;background-image:url('${c.art || ''}')"><b>${esc(c.name)}</b></div>`}
-      ${c.backNormal ? `<img class="big" src="${c.backNormal}" alt="" style="width:120px">` : ''}
+      ${c.imgNormal ? `<img decoding="async" class="big" src="${c.imgNormal}" alt="">` : `<div class="tkn big" style="width:250px;height:349px;background-image:url('${c.art || ''}')"><b>${esc(c.name)}</b></div>`}
+      ${c.backNormal ? `<img decoding="async" class="big" src="${c.backNormal}" alt="" style="width:120px">` : ''}
     </div>
     <div class="ptext">
       <h3><span>${esc(c.name)}</span><span>${symbolize(c.manaCost || '')}</span></h3>

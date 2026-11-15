@@ -46,10 +46,23 @@ export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// What a symbol is called when read aloud: {W} "white mana", {2} "2 generic mana", {T} "tap", {W/U} "white or blue mana",
+// {2/W} "2 generic or white mana", {B/P} "black mana or 2 life".
+const SYMBOL_WORDS = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless', S: 'snow' };
+const SYMBOL_NAMES = { T: 'tap', Q: 'untap', E: 'energy', X: 'X generic mana', Y: 'Y generic mana', Z: 'Z generic mana', P: 'Phyrexian mana', CHAOS: 'chaos', TK: 'ticket', A: 'acorn', '∞': 'infinite mana', '½': 'half a generic mana' };
+export function symbolName(sym) {
+  const s = String(sym).toUpperCase();
+  if (SYMBOL_NAMES[s]) return SYMBOL_NAMES[s];
+  const part = x => SYMBOL_WORDS[x] || (/^\d+$/.test(x) ? `${x} generic` : x === 'P' ? null : x.toLowerCase());
+  const bits = s.split('/');
+  const life = bits.includes('P') && bits.length > 1;
+  const words = bits.map(part).filter(Boolean);
+  return `${words.join(' or ')} mana${life ? ' or 2 life' : ''}`;
+}
 // Replace {W}, {2/U}, {T} etc. with Scryfall's mana symbol SVGs.
 export function symbolize(text) {
   return esc(text).replace(/\{([^}]+)\}/g, (_, s) =>
-    `<img class="sym" alt="{${s}}" src="${esc(imgUrl(`https://svgs.scryfall.io/card-symbols/${encodeURIComponent(s.replace('/', '').toUpperCase())}.svg`))}">`);
+    `<img class="sym" alt="${esc(symbolName(s))}" src="${esc(imgUrl(`https://svgs.scryfall.io/card-symbols/${encodeURIComponent(s.replace('/', '').toUpperCase())}.svg`))}">`);
 }
 
 // On the host's own page, Scryfall images go through the local server, which keeps them in data\images
@@ -120,3 +133,13 @@ export function store(key, value) {
     localStorage.setItem(key, JSON.stringify(value));
   } catch { return null; }
 }
+
+// Dates and numbers in the language chosen in Display (i18n.js sets it on <html lang>), not the browser's own
+// (design roadmap item 374). The game log stays in English and does not use these.
+const lang = () => (typeof document !== 'undefined' && document.documentElement.lang) || undefined;
+/** A date and time, e.g. for "saved at". */
+export function whenText(at, opts) { try { return new Date(at).toLocaleString(lang(), opts); } catch { return new Date(at).toLocaleString(); } }
+/** A date without the time. */
+export function dayText(at, opts) { try { return new Date(at).toLocaleDateString(lang(), opts); } catch { return new Date(at).toLocaleDateString(); } }
+/** A number with the language's thousands separators. */
+export function numText(n) { try { return Number(n).toLocaleString(lang()); } catch { return String(n); } }

@@ -1,12 +1,444 @@
 {
- "version": "1.32.0",
- "round": "Round 7",
+ "version": "1.52.0",
+ "round": "Round 8",
  "items": [
   {
-   "n": 219,
-   "section": "Look and feel",
-   "title": "One design system for the whole game (\"Grimoire\"): obsidian and antique gold with parchment text, a parchment light theme, bundled fonts, and shared buttons, fields, windows, tabs, tables, section headers and charts; the start menu becomes a dashboard, and the deck builder and deck viewer are rebuilt on it.",
-   "done": "1.32.0."
+   "n": 234,
+   "section": "Windows and keyboard",
+   "title": "Every window is a proper dialog: focus moves into it and back out, Tab stays inside, Escape and a click beside it close it.",
+   "done": "1.33.0."
+  },
+  {
+   "n": 233,
+   "section": "Windows and keyboard",
+   "title": "The game's own question window replaces the browser's confirm and prompt boxes.",
+   "done": "1.33.0."
+  },
+  {
+   "n": 232,
+   "section": "Windows and keyboard",
+   "title": "Notices: short messages at the bottom left that go away by themselves.",
+   "done": "1.33.0."
+  },
+  {
+   "n": 236,
+   "section": "Windows and keyboard",
+   "title": "Tab rows work as tabs for the keyboard and screen readers.",
+   "done": "1.33.0."
+  },
+  {
+   "n": 245,
+   "section": "Windows and keyboard",
+   "title": "Buttons that show only a symbol, and search boxes without a label, have names a screen reader can say.",
+   "done": "1.33.0."
+  },
+  {
+   "n": 238,
+   "section": "Reaching things without a mouse",
+   "title": "Hints show for the keyboard and on touch screens, not only under a resting mouse.",
+   "done": "1.34.0."
+  },
+  {
+   "n": 250,
+   "section": "Reaching things without a mouse",
+   "title": "Cards on the table say what they are and what state they are in.",
+   "done": "1.34.0."
+  },
+  {
+   "n": 249,
+   "section": "Reaching things without a mouse",
+   "title": "Mana symbols are read as words.",
+   "done": "1.34.0."
+  },
+  {
+   "n": 257,
+   "section": "Reaching things without a mouse",
+   "title": "A \"Skip to the table\" link, and names for the page's regions.",
+   "done": "1.34.0."
+  },
+  {
+   "n": 256,
+   "section": "Reaching things without a mouse",
+   "title": "The focus ring shows everywhere, including on card art.",
+   "done": "1.34.0."
+  },
+  {
+   "n": 264,
+   "section": "Start menu",
+   "title": "Play, Edit and View on each recent deck.",
+   "done": "1.41.0."
+  },
+  {
+   "n": 265,
+   "section": "Start menu",
+   "title": "A Continue row for what you have begun.",
+   "done": "1.41.0."
+  },
+  {
+   "n": 270,
+   "section": "Start menu",
+   "title": "Your ranks on the start menu.",
+   "done": "1.41.0."
+  },
+  {
+   "n": 268,
+   "section": "Start menu",
+   "title": "The start menu fits a laptop screen without scrolling.",
+   "done": "1.41.0."
+  },
+  {
+   "n": 334,
+   "section": "Deck analysis",
+   "title": "Draw odds as a chart.",
+   "done": "1.52.0."
+  },
+  {
+   "n": 335,
+   "section": "Deck analysis",
+   "title": "Solo-play results as a chart.",
+   "done": "1.52.0."
+  },
+  {
+   "n": 338,
+   "section": "Deck analysis",
+   "title": "A legend for the matchup grid.",
+   "done": "1.52.0."
+  },
+  {
+   "n": 331,
+   "section": "Deck analysis",
+   "title": "Color sources beside color needs.",
+   "done": "1.39.0."
+  },
+  {
+   "n": 333,
+   "section": "Deck analysis",
+   "title": "The mana curve marks its average and gives the median.",
+   "done": "1.39.0."
+  },
+  {
+   "n": 337,
+   "section": "Deck analysis",
+   "title": "The bracket estimate on a five-step scale.",
+   "done": "1.39.0."
+  },
+  {
+   "n": 339,
+   "section": "Deck analysis",
+   "title": "Print the deck viewer.",
+   "done": "1.39.0."
+  },
+  {
+   "n": 364,
+   "section": "Phones and small screens",
+   "title": "The log slides over the table on small screens.",
+   "done": "1.49.0."
+  },
+  {
+   "n": 365,
+   "section": "Phones and small screens",
+   "title": "Windows fill the screen on phones.",
+   "done": "1.49.0."
+  },
+  {
+   "n": 366,
+   "section": "Phones and small screens",
+   "title": "Notches, home bars and the on-screen keyboard.",
+   "done": "1.49.0."
+  },
+  {
+   "n": 374,
+   "section": "Comfort",
+   "title": "Dates and numbers follow the chosen language.",
+   "done": "1.48.0."
+  },
+  {
+   "n": 370,
+   "section": "Comfort",
+   "title": "Card pictures decode without holding up the page.",
+   "done": "1.48.0."
+  },
+  {
+   "n": 248,
+   "section": "Comfort",
+   "title": "Choose how much a screen reader reads out.",
+   "done": "1.46.0."
+  },
+  {
+   "n": 258,
+   "section": "Comfort",
+   "title": "Less background motion.",
+   "done": "1.42.0."
+  },
+  {
+   "n": 260,
+   "section": "Comfort",
+   "title": "Easier reading.",
+   "done": "1.42.0."
+  },
+  {
+   "n": 261,
+   "section": "Comfort",
+   "title": "A friend's turn clock is announced at 30 and 10 seconds.",
+   "done": "1.42.0."
+  },
+  {
+   "n": 288,
+   "section": "The table",
+   "title": "Turns of the game log fold.",
+   "done": "1.46.0."
+  },
+  {
+   "n": 286,
+   "section": "The table",
+   "title": "The stack as cards.",
+   "done": "1.45.0."
+  },
+  {
+   "n": 289,
+   "section": "The table",
+   "title": "Card art in the game log.",
+   "done": "1.45.0."
+  },
+  {
+   "n": 287,
+   "section": "The table",
+   "title": "A phase track you can read at a glance.",
+   "done": "1.44.0."
+  },
+  {
+   "n": 290,
+   "section": "The table",
+   "title": "Click a life total for its history.",
+   "done": "1.42.0."
+  },
+  {
+   "n": 281,
+   "section": "The table",
+   "title": "One-on-one games use the whole table.",
+   "done": "1.40.0."
+  },
+  {
+   "n": 294,
+   "section": "The table",
+   "title": "The action bar can be moved off your cards.",
+   "done": "1.40.0."
+  },
+  {
+   "n": 299,
+   "section": "The table",
+   "title": "The timeline marks where each turn starts.",
+   "done": "1.40.0."
+  },
+  {
+   "n": 291,
+   "section": "The table",
+   "title": "Graveyard, exile and hand windows can be filtered and put in order.",
+   "done": "1.40.0."
+  },
+  {
+   "n": 282,
+   "section": "The table",
+   "title": "Your own board is at the bottom of the table.",
+   "done": "1.38.0."
+  },
+  {
+   "n": 295,
+   "section": "The table",
+   "title": "A clear signal when the game is waiting for you.",
+   "done": "1.38.0."
+  },
+  {
+   "n": 283,
+   "section": "The table",
+   "title": "Card size on the table.",
+   "done": "1.38.0."
+  },
+  {
+   "n": 292,
+   "section": "The table",
+   "title": "The card preview waits a moment, and can be docked or turned off.",
+   "done": "1.38.0."
+  },
+  {
+   "n": 300,
+   "section": "The table",
+   "title": "A full screen button.",
+   "done": "1.38.0."
+  },
+  {
+   "n": 315,
+   "section": "Deck builder",
+   "title": "Fill in basic lands.",
+   "done": "1.51.0."
+  },
+  {
+   "n": 323,
+   "section": "Deck builder",
+   "title": "Search history and kept searches in the deck builder.",
+   "done": "1.51.0."
+  },
+  {
+   "n": 307,
+   "section": "Deck builder",
+   "title": "Cards without a picture still look like cards.",
+   "done": "1.50.0."
+  },
+  {
+   "n": 308,
+   "section": "Deck builder",
+   "title": "Legality marks on cards in the deck builder.",
+   "done": "1.50.0."
+  },
+  {
+   "n": 309,
+   "section": "Deck builder",
+   "title": "Rulings and keyword help in the deck builder's inspector.",
+   "done": "1.50.0."
+  },
+  {
+   "n": 314,
+   "section": "Deck builder",
+   "title": "Add a whole list of cards at once.",
+   "done": "1.43.0."
+  },
+  {
+   "n": 321,
+   "section": "Deck builder",
+   "title": "Draw a test hand in the deck builder.",
+   "done": "1.43.0."
+  },
+  {
+   "n": 328,
+   "section": "Deck builder",
+   "title": "Export from the deck builder.",
+   "done": "1.43.0."
+  },
+  {
+   "n": 310,
+   "section": "Deck builder",
+   "title": "The deck you are building is kept if you close the builder or the game.",
+   "done": "1.37.0."
+  },
+  {
+   "n": 311,
+   "section": "Deck builder",
+   "title": "Undo and redo in the deck builder.",
+   "done": "1.37.0."
+  },
+  {
+   "n": 313,
+   "section": "Deck builder",
+   "title": "Filter and order the deck list.",
+   "done": "1.37.0."
+  },
+  {
+   "n": 324,
+   "section": "Deck builder",
+   "title": "Keys in the card gallery.",
+   "done": "1.37.0."
+  },
+  {
+   "n": 326,
+   "section": "Deck builder",
+   "title": "More results load as you scroll.",
+   "done": "1.37.0."
+  },
+  {
+   "n": 273,
+   "section": "Menus",
+   "title": "The setup screen shows its everyday actions and keeps the rest in three menus.",
+   "done": "1.36.0."
+  },
+  {
+   "n": 301,
+   "section": "Menus",
+   "title": "The top bar is shorter: tournaments and history are under More.",
+   "done": "1.36.0."
+  },
+  {
+   "n": 247,
+   "section": "Menus",
+   "title": "A list of every keyboard shortcut.",
+   "done": "1.36.0."
+  },
+  {
+   "n": 237,
+   "section": "Menus",
+   "title": "Menus that work with the keyboard.",
+   "done": "1.36.0."
+  },
+  {
+   "n": 235,
+   "section": "Controls",
+   "title": "A close button in the same place in every window.",
+   "done": "1.44.0."
+  },
+  {
+   "n": 243,
+   "section": "Controls",
+   "title": "Segmented controls.",
+   "done": "1.44.0."
+  },
+  {
+   "n": 231,
+   "section": "Controls",
+   "title": "The theme follows your system until you choose one.",
+   "done": "1.35.0."
+  },
+  {
+   "n": 242,
+   "section": "Controls",
+   "title": "On/off settings in the top bar are switches.",
+   "done": "1.35.0."
+  },
+  {
+   "n": 244,
+   "section": "Controls",
+   "title": "Sliders share one look and say their value.",
+   "done": "1.35.0."
+  },
+  {
+   "n": 255,
+   "section": "Controls",
+   "title": "Bigger touch targets on touch screens.",
+   "done": "1.35.0."
+  },
+  {
+   "n": 262,
+   "section": "Controls",
+   "title": "English-only parts are marked as English for screen readers.",
+   "done": "1.35.0."
+  },
+  {
+   "n": 378,
+   "section": "Stylesheet",
+   "title": "A check that every element the scripts ask for exists.",
+   "done": "1.47.0."
+  },
+  {
+   "n": 379,
+   "section": "Stylesheet",
+   "title": "A stylesheet lint.",
+   "done": "1.47.0."
+  },
+  {
+   "n": 369,
+   "section": "Stylesheet",
+   "title": "The fonts load sooner.",
+   "done": "1.47.0."
+  },
+  {
+   "n": 375,
+   "section": "Stylesheet",
+   "title": "Japanese headings use a matching serif face.",
+   "done": "1.47.0."
+  },
+  {
+   "n": 221,
+   "section": "Stylesheet",
+   "title": "A named scale for what sits on top of what.",
+   "done": "1.33.0."
   }
  ]
 }

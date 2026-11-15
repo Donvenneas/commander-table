@@ -61,6 +61,10 @@ jobs:
         run: node tests/abilities.mjs
       - name: Online seats (a friend's answer is checked against what was asked; fake room)
         run: node tests/net.mjs
+      - name: Element ids
+        run: node tests/ids.mjs
+      - name: Stylesheet lint
+        run: node tests/csslint.mjs
 
   selftest:
     # (item 177) server.py and the self-test on Linux and macOS (the game's Mac and Linux path)

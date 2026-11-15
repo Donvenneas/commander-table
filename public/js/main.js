@@ -19,7 +19,7 @@ import { combosIn, fetchSpellbook, fetchSpellbookBracket, almostCombos, comboPla
 import { pinCards, pinReport } from './scryfall.js';
 import { REPLAY_FORMAT, snapshotDecks, tableSpellbook, checkReplay, readingChanges } from './replaydata.js';
 import { coverage } from './effects.js';
-import { TableView, installPreview, installDetails, Sound } from './ui.js';
+import { TableView, installPreview, installDetails, installLifeHistory, foldTurn, Sound } from './ui.js';
 import { Music } from './music.js';
 import { HumanAgent, HumanUI, SeatUI } from './human.js';
 import { Room, RemoteUI, snapshot, TURN_CLOCKS, askDraftPick } from './net.js';
@@ -42,7 +42,7 @@ const STRENGTH = {
 };
 import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta, trendHistory } from './cedhdata.js';
 import { Rules } from './rules.js';
-import { esc, sleep, store, symbolize, makeRng } from './util.js';
+import { esc, sleep, store, symbolize, makeRng, whenText, dayText, numText } from './util.js';
 import { prefs } from './prefs.js';
 import { SEAT_COLORS, deckText, runOnCores, gameFromSummary } from './cores.js';
 import { showImages, showStorage, openHelp } from './windows.js';
@@ -54,7 +54,8 @@ import { CHAPTERS, storyDone, markChapter, chapterOpen, chapterPuzzle } from './
 import { DIFFICULTY, NODE, runState, stats, startRun, abandonRun, yourDeck, rivalDeck, fightLife, currentChoices, rewardChoices, fightOver, takeReward, eventFor, resolveEvent, actName, MODIFIERS, runCode, parseRunCode } from './campaign.js';
 import { encodeChallenge, decodeChallenge, challengeLink } from './challenge.js';
 import { openBuilder } from './builder.js';
-import { statTiles, curveChart, pipChart, typeChart } from './deckcharts.js';
+import { startModals, modalOpen, askUser, notice, loadingRows, emptyState, errorBox } from './dialogs.js';
+import { lineChart, statTiles, curveChart, pipChart, typeChart, countSources, bracketScale } from './deckcharts.js';
 import { Tabletop, renderTabletop } from './manual.js';
 import { tableText, dealRoles } from './kingdoms.js';
 import { setsState, checkSets, dailySetCheck, draftableSets } from './sets.js';
@@ -182,7 +183,7 @@ function renderSeats() {
   $('seats').innerHTML = seats.map((s, i) => `
     <div class="seat" style="--pc:${s.color}" data-i="${i}">
       <div class="seat-top">
-        <span class="grip" draggable="true" title="Drag onto another seat to swap them">⠿</span>
+        <span class="grip" draggable="true" title="Drag onto another seat to swap them" aria-hidden="true">⠿</span>
         <span class="dot"></span>
         <input class="input sname" value="${esc(s.name)}" maxlength="24" aria-label="Player name">
         <select class="sstyle" aria-label="AI play style" title="${tableManual() ? 'Who plays this seat (no AI at a manual table)' : 'Who plays this seat: an AI style, you, or a friend online'}">
@@ -666,14 +667,14 @@ $('inviteBody').addEventListener('click', async e => {
   const rk = e.target.closest('[data-rekey]');
   if (rk) {
     const s = +rk.dataset.rekey;
-    if (!confirm('Give this seat a new link? The old link and code stop working, and whoever opens the new one plays this seat.')) return;
+    if (!await askUser('Give this seat a new link? The old link and code stop working, and whoever opens the new one plays this seat.', { title: 'A new link for this seat', confirm: 'New link' })) return;
     try {
       await room.rekey(s);
       const name = (tabletopInvite ? seats : setup?.seats)?.[s]?.name || `Seat ${s + 1}`;
       game?.log(`${name}'s seat has a new link; the AI plays it until someone joins`, { kind: 'minor' });
       autosave();
       showInvite();
-    } catch (err) { alert(`Couldn't change the link: ${err.message}`); }
+    } catch (err) { notice(`Couldn't change the link: ${err.message}`, { tone: 'bad' }); }
     return;
   }
   const b = e.target.closest('[data-copy]');
@@ -869,13 +870,27 @@ $('tlEnd').addEventListener('click', () => {
   syncPlay();
 });
 let dragging = false;
-$('tlRange').addEventListener('input', () => { dragging = true; $('tlLabel').textContent = `Jump to step ${$('tlRange').value}`; });
+const turnOfStep = step => Math.max(1, (setup?.turnStarts || []).filter(x => x <= step).length);
+$('tlRange').addEventListener('input', () => { dragging = true; $('tlLabel').textContent = `Jump to turn ${turnOfStep(+$('tlRange').value)} · step ${$('tlRange').value}`; $('tlRange').setAttribute('aria-valuetext', `Step ${$('tlRange').value} of ${$('tlRange').max}`); });
 $('tlRange').addEventListener('change', () => { dragging = false; jumpTo(+$('tlRange').value); });
 setInterval(() => {
   if (!game || dragging) return;
   const r = $('tlRange');
   r.max = setup.total || Math.max(game.steps, +r.max || 0);
   r.value = game.steps;
+  // (a thin mark where each turn starts, drawn as the slider's own background; redrawn only when a turn is added)
+  const marks = `${(setup.turnStarts || []).length}/${r.max}`;
+  if (r.dataset.marks !== marks) {
+    r.dataset.marks = marks;
+    const max = +r.max || 1, starts = (setup.turnStarts || []).filter(x => x > 0 && x < max);
+    // (too many to tell apart: every second, fifth or tenth turn)
+    const every = starts.length > 120 ? 10 : starts.length > 60 ? 5 : starts.length > 30 ? 2 : 1;
+    r.style.backgroundImage = starts.filter((_, i) => i % every === 0).map(x => `linear-gradient(var(--line-2), var(--line-2))`).join(', ');
+    r.style.backgroundSize = '1px 100%';
+    r.style.backgroundRepeat = 'no-repeat';
+    // (the thumb's center runs from 7px to width − 7px, so the marks do too)
+    r.style.backgroundPosition = starts.filter((_, i) => i % every === 0).map(x => `calc(7px + (100% - 14px) * ${(x / max).toFixed(4)}) 0`).join(', ');
+  }
   $('tlLabel').textContent = `Turn ${game.turn} · step ${game.steps}${setup.total ? ` of ${setup.total}` : ''}${clock.ff ? ' · fast-forwarding…' : ''}`;
 }, 250);
 
@@ -928,7 +943,7 @@ function autosave() {
 function showResume() {
   const a = store(AUTOSAVE);
   $('smResume').hidden = !a;
-  if (a) $('smResumeWhat').textContent = `${(a.names || []).join(', ')} · turn ${a.turn} · ${new Date(a.at).toLocaleString()}`;
+  if (a) $('smResumeWhat').textContent = `${(a.names || []).join(', ')} · turn ${a.turn} · ${whenText(a.at)}`;
 }
 showResume();
 $('btnExportLog').addEventListener('click', () => {
@@ -1180,7 +1195,10 @@ $('btnStep').addEventListener('click', () => {
   if (!clock.paused) togglePlay();
   clock.step();
 });
-$('speed').addEventListener('input', e => { if (clock) clock.speed = +e.target.value; });
+const SPEED_NAMES = ['Slowest', 'Slow', 'Normal', 'Fast', 'Fastest'];
+const sayRange = (el, text) => { el.setAttribute('aria-valuetext', text); el.dataset.tip = text; };
+$('speed').addEventListener('input', e => { if (clock) clock.speed = +e.target.value; sayRange(e.target, `Speed: ${SPEED_NAMES[+e.target.value]}`); });
+sayRange($('speed'), `Speed: ${SPEED_NAMES[+$('speed').value]}`);
 
 // ---------- Display: board background, color-blind-friendly seat colors, larger text, fewer animations
 // (Okabe–Ito colors: they stay distinct with the common kinds of color blindness)
@@ -1192,6 +1210,13 @@ function applyDisplay(initial = false) {
   document.body.classList.toggle('cb', !!prefs.cb);
   document.body.classList.toggle('big', !!prefs.big);
   document.body.classList.toggle('calm', !!prefs.calm);
+  document.body.classList.toggle('less-motion', !!prefs.lessMotion);
+  document.body.classList.toggle('log-art', !!prefs.logArt);
+  document.body.dataset.reader = prefs.reader || '';
+  document.body.classList.toggle('readable', !!prefs.readable);
+  // Card size on the table (item 283) and where the hover preview goes (item 292)
+  document.body.dataset.cardScale = String((+prefs.cardScale || 100) / 100);
+  document.body.dataset.preview = prefs.preview || 'pointer';
   // High contrast and text size (item 128)
   document.body.classList.toggle('contrast', !!prefs.contrast);
   document.documentElement.style.setProperty('--text-scale', prefs.textScale || '1');
@@ -1238,24 +1263,35 @@ $('displayModal').addEventListener('click', e => {
 });
 $('btnDisplay').addEventListener('click', () => {
   $('dispBg').value = prefs.bg || 'art';
+  $('dispTheme').value = prefs.theme || '';
+  $('dispCard').value = String(+prefs.cardScale || 100);
+  $('dispCard').setAttribute('aria-valuetext', `${+prefs.cardScale || 100}%`);
+  $('dispCardSay').textContent = `${+prefs.cardScale || 100}%`;
+  $('dispPreview').value = prefs.preview || 'pointer';
   $('dispCb').checked = !!prefs.cb;
   $('dispBig').checked = !!prefs.big;
   $('dispCalm').checked = !!prefs.calm;
+  $('dispLessMotion').checked = !!prefs.lessMotion;
+  $('dispLogArt').checked = !!prefs.logArt;
+  $('dispReader').value = prefs.reader || '';
+  $('dispReadable').checked = !!prefs.readable;
   $('dispContrast').checked = !!prefs.contrast;
   $('dispText').value = prefs.textScale || '';
   renderCosmetics();
   $('displayModal').hidden = false;
 });
 $('displayModal').addEventListener('change', () => {
-  Object.assign(prefs, { bg: $('dispBg').value, cb: $('dispCb').checked, big: $('dispBig').checked, calm: $('dispCalm').checked, contrast: $('dispContrast').checked, textScale: $('dispText').value });
+  $('dispCardSay').textContent = `${$('dispCard').value}%`;
+  $('dispCard').setAttribute('aria-valuetext', `${$('dispCard').value}%`);
+  Object.assign(prefs, { cardScale: +$('dispCard').value, preview: $('dispPreview').value, bg: $('dispBg').value, cb: $('dispCb').checked, big: $('dispBig').checked, calm: $('dispCalm').checked, lessMotion: $('dispLessMotion').checked, logArt: $('dispLogArt').checked, reader: $('dispReader').value, readable: $('dispReadable').checked, contrast: $('dispContrast').checked, textScale: $('dispText').value });
   store('ct.prefs', prefs);
   applyDisplay();
 });
 $('btnDisplayClose').addEventListener('click', () => { $('displayModal').hidden = true; });
 // Language (i18n.js): the page reloads in the new language (a game in progress is lost, so it asks)
 $('dispLang').innerHTML = Object.entries(LANGS).map(([k, n]) => `<option value="${k}" ${(prefs.lang || 'en') === k ? 'selected' : ''}>${n}</option>`).join('');
-$('dispLang').addEventListener('change', e => {
-  if (game && !game.over && !confirm('Changing the language reloads the page and ends the game in progress. Continue?')) { e.target.value = prefs.lang || 'en'; return; }
+$('dispLang').addEventListener('change', async e => {
+  if (game && !game.over && !await askUser('Changing the language reloads the page and ends the game in progress. Continue?', { title: 'Change the language', confirm: 'Change and reload' })) { e.target.value = prefs.lang || 'en'; return; }
   prefs.lang = e.target.value;
   store('ct.prefs', prefs);
   location.reload();
@@ -1303,7 +1339,7 @@ $('btnUpdCheck').addEventListener('click', async () => {
   $('btnUpdCheck').disabled = false;
 });
 $('btnUpdApply').addEventListener('click', async () => {
-  if (!confirm('Replace the game files with the downloaded version? Your data folder stays as it is.')) return;
+  if (!await askUser('Replace the game files with the downloaded version? Your data folder stays as it is.', { title: 'Install the update', confirm: 'Install' })) return;
   $('btnUpdApply').hidden = true;
   $('updStatus').textContent = 'Installing…';
   try {
@@ -1319,6 +1355,23 @@ $('btnUpdApply').addEventListener('click', async () => {
 
 // ---------- Stops (human.js): steps to stop at, Full control, trigger order, for seats played on this PC
 function stopOpts() { return { stops: { ...(prefs.stops || {}) }, full: !!prefs.stopFull, orderTriggers: prefs.stopOrder !== false }; }
+// (item 287) the phase track shows the chosen stops as dots, and a click on a step changes its stop
+const markStops = () => { $('phaseTrack').dataset.stops = Object.entries(prefs.stops || {}).filter(([, v]) => v).map(([k]) => k).join(' '); };
+markStops();
+$('phaseTrack').addEventListener('click', e => {
+  const b = e.target instanceof Element ? /** @type {HTMLElement | null} */ (e.target.closest('button[data-stop-key]')) : null;
+  if (!b) return;
+  const key = b.dataset.stopKey, stops = { ...(prefs.stops || {}) };
+  // none → your turns → opponents' turns → every turn → none
+  const next = ((stops['my' + key] ? 1 : 0) + (stops['opp' + key] ? 2 : 0) + 1) % 4;
+  stops['my' + key] = !!(next & 1); stops['opp' + key] = !!(next & 2);
+  prefs.stops = stops;
+  store('ct.prefs', prefs);
+  markStops();
+  if (view) view.render();
+  const step = { Upkeep: 'Upkeep', Draw: 'Draw step', Combat: 'Beginning of combat', End: 'End step' }[key];
+  notice(`${step}: ${['no stop', 'stop on your turns', "stop on opponents' turns", 'stop on every turn'][next]}${game && !game.over ? ', from the next game' : ''}.`, { ms: 2600 });
+});
 $('btnStops').addEventListener('click', () => {
   $('stopFull').checked = !!prefs.stopFull;
   $('stopOrder').checked = prefs.stopOrder !== false;
@@ -1330,6 +1383,8 @@ $('stopsModal').addEventListener('change', () => {
   prefs.stopOrder = $('stopOrder').checked;
   prefs.stops = Object.fromEntries([...document.querySelectorAll('[data-stop]')].map(c => [c.dataset.stop, c.checked]));
   store('ct.prefs', prefs);
+  markStops();
+  if (view) view.render();
   // (from the next game: a game keeps the stops it started with, so undo, rewinds and replays stay exact)
 });
 $('btnStopsClose').addEventListener('click', () => { $('stopsModal').hidden = true; });
@@ -1386,7 +1441,7 @@ function addHistory(g) {
 }
 function renderHistory() {
   const list = store(HISTORY) || [];
-  if (!list.length) { $('historyBody').innerHTML = '<p class="muted">No finished games yet.</p>'; return; }
+  if (!list.length) { $('historyBody').innerHTML = emptyState('No finished games yet', 'Play or watch a game to its end and it is listed here, with wins by deck.'); return; }
   const mine = list.filter(h => h.seats.some(s => s.you));
   const myWins = mine.filter(h => h.seats[h.winner]?.you).length;
   // Wins by deck across every game
@@ -1406,14 +1461,14 @@ function renderHistory() {
     ${top.length ? `<h3>Decks that win most</h3><table><thead><tr><th>Deck</th><th class="num">Games</th><th class="num">Wins</th></tr></thead><tbody>
       ${top.map(([n, d]) => `<tr><td>${esc(n)}</td><td class="num">${d.games}</td><td class="num">${d.wins} (${Math.round((d.wins / d.games) * 100)}%)</td></tr>`).join('')}</tbody></table>` : ''}
     <h3>Games</h3><table><thead><tr><th>When</th><th>Winner</th><th>Table</th><th class="num">Rounds</th></tr></thead><tbody>
-      ${list.slice(0, 200).map(h => `<tr><td>${esc(new Date(h.at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }))}</td>
+      ${list.slice(0, 200).map(h => `<tr><td>${esc(whenText(h.at, { dateStyle: 'short', timeStyle: 'short' }))}</td>
         <td>${h.winner != null ? `<b>${esc(h.seats[h.winner].name)}</b> <span class="muted">${esc(h.seats[h.winner].deck)}</span>${h.reason ? `<br><small class="muted">${esc(h.reason)}</small>` : ''}` : 'Draw'}</td>
         <td>${h.seats.map((s, i) => `<span class="${i === h.winner ? 'hist-win' : ''}">${esc(s.name)}${s.you ? ' (you)' : s.friend ? ' (friend)' : ''}</span>`).join(', ')}</td>
         <td class="num">${h.rounds}</td></tr>`).join('')}</tbody></table>`;
 }
 $('btnHistory').addEventListener('click', () => { renderHistory(); $('historyModal').hidden = false; });
 $('btnHistoryClose').addEventListener('click', () => { $('historyModal').hidden = true; });
-$('btnHistoryClear').addEventListener('click', () => { if (confirm('Clear the history of every game?')) { store(HISTORY, []); renderHistory(); } });
+$('btnHistoryClear').addEventListener('click', async () => { if (await askUser('Clear the history of every game? This can\'t be undone.', { title: 'Clear history', confirm: 'Clear', danger: true })) { store(HISTORY, []); renderHistory(); } });
 
 // ---------- Progress window: ladder, challenges, rivals, badges
 let progressTab = 'ladder';
@@ -1458,15 +1513,15 @@ function limLadderHtml() {
   if (!l.games && !l.current) return '<h3>Limited</h3><p class="muted">Draft or seal a pool and play it one on one (Draft / Sealed → Put in seats, then play seat 1 yourself): each match against the other drafters\' decks counts for a Limited rating and the draft\'s league, played until 7 match wins or 3 losses.</p>';
   const c = l.current;
   return `<h3>Limited</h3><p>Rating <b>${l.rating}</b> (peak ${l.peak}) after ${l.games} match${l.games === 1 ? '' : 'es'}.${c ? ` Current league: <b>${esc(c.label)}</b> ${c.wins}–${c.losses} ${c.record.join('')}` : ''}</p>
-    ${l.leagues.length ? `<ul>${l.leagues.slice(0, 10).map(x => `<li>${esc(x.label)}: ${x.wins}–${x.losses}${x.wins >= 7 ? ' 🏆' : ''} <span class="muted">${esc(new Date(x.at).toLocaleDateString())}</span></li>`).join('')}</ul>` : ''}`;
+    ${l.leagues.length ? `<ul>${l.leagues.slice(0, 10).map(x => `<li>${esc(x.label)}: ${x.wins}–${x.losses}${x.wins >= 7 ? ' 🏆' : ''} <span class="muted">${esc(dayText(x.at))}</span></li>`).join('')}</ul>` : ''}`;
 }
 function ladderHtml(withButton = true) {
   const l = ladder();
   const rows = Object.entries(l.formats).sort((a, b) => b[1].games - a[1].games);
-  return `<h3>Season ${l.season} <span class="muted">since ${esc(new Date(l.startedAt).toLocaleDateString())}</span></h3>
+  return `<h3>Season ${l.season} <span class="muted">since ${esc(dayText(l.startedAt))}</span></h3>
     ${rows.length ? `<table><thead><tr><th>Format</th><th>Rank</th><th class="num">Rating</th><th class="num">Games</th><th class="num">Wins</th><th class="num">Peak</th><th>Last games</th></tr></thead><tbody>
       ${rows.map(([k, f]) => { const r = rankOf(f.rating, f.games); return `<tr><td>${esc(formatOf(k).name)}</td><td><span class="rank-chip rank-${r.tier.toLowerCase()}">${esc(r.label)}</span></td><td class="num">${f.games >= PLACEMENT ? f.rating : '–'}</td><td class="num">${f.games}</td><td class="num">${f.wins}</td><td class="num">${f.games >= PLACEMENT ? f.peak : '–'}</td>
-        <td>${f.history.slice(0, 10).map(x => `<span class="${x.won ? 'good' : 'bad'}" title="${esc(new Date(x.at).toLocaleString())}">${x.delta >= 0 ? '+' : ''}${x.delta}</span>`).join(' ')}</td></tr>`; }).join('')}</tbody></table>`
+        <td>${f.history.slice(0, 10).map(x => `<span class="${x.won ? 'good' : 'bad'}" title="${esc(whenText(x.at))}">${x.delta >= 0 ? '+' : ''}${x.delta}</span>`).join(' ')}</td></tr>`; }).join('')}</tbody></table>`
       : '<p class="muted">No ranked games yet. Tick <b>Ranked</b> on the setup screen, choose "You play this seat" for one seat, and play.</p>'}
     <p class="muted">Ranked games are scored against the AI pilots (Elo, a rating per format, starting at 1500). In Commander, a pilot's rating follows its seat's bracket (bracket 1 = 1200 up to 5 = 1800); in other formats it's 1500. The first ${PLACEMENT} games place you; then Bronze, Silver, Gold, Platinum and Diamond have divisions III, II and I, and Mythic is 1900 and up. In ranked games undo, rewinding, Reveal hands and Explain are off.</p>
     ${limLadderHtml()}
@@ -1478,7 +1533,7 @@ function renderProgress() {
   const body = $('progressBody');
   if (progressTab === 'ladder') {
     body.innerHTML = ladderHtml();
-    $('btnNewSeason')?.addEventListener('click', () => { if (confirm('Start a new season? Ratings move halfway back to 1500 and placement starts over.')) { newSeason(); renderProgress(); } });
+    $('btnNewSeason')?.addEventListener('click', async () => { if (await askUser('Start a new season? Ratings move halfway back to 1500 and placement starts over.', { title: 'New season', confirm: 'Start' })) { newSeason(); renderProgress(); } });
   } else if (progressTab === 'challenges') {
     const c = challenges();
     const row = x => `<li class="${x.done ? 'ch-done' : ''}">${x.done ? '✔' : '○'} ${esc(x.text)} <span class="muted">${x.done ? 'done' : `${x.n}/${x.need}`}</span></li>`;
@@ -1488,7 +1543,7 @@ function renderProgress() {
       <p class="muted">Challenges count games where you play one seat yourself (not puzzles, loaded replays or games with friends online). New daily challenges come each day and weekly ones each Monday. Doing at least one daily challenge a day keeps your streak going. They're just for fun: the only rewards are badges.</p>`;
   } else if (progressTab === 'badges') {
     const got = badges();
-    body.innerHTML = `<div class="badge-grid">${BADGE_LIST.map(b => `<div class="badge ${got[b.id] ? 'got' : ''}"><div class="badge-medal">${got[b.id] ? '🏅' : '🔒'}</div><b>${esc(b.name)}</b><span class="muted">${esc(b.text)}</span>${got[b.id] ? `<small class="muted">${esc(new Date(got[b.id]).toLocaleDateString())}</small>` : ''}</div>`).join('')}</div>
+    body.innerHTML = `<div class="badge-grid">${BADGE_LIST.map(b => `<div class="badge ${got[b.id] ? 'got' : ''}"><div class="badge-medal">${got[b.id] ? '🏅' : '🔒'}</div><b>${esc(b.name)}</b><span class="muted">${esc(b.text)}</span>${got[b.id] ? `<small class="muted">${esc(dayText(got[b.id]))}</small>` : ''}</div>`).join('')}</div>
       <p class="muted">${Object.keys(got).length} of ${BADGE_LIST.length} earned. Badges are only for show.</p>`;
   } else if (progressTab === 'gauntlet') renderGauntlet();
   else if (progressTab === 'unlocks') renderUnlocks();
@@ -1509,7 +1564,7 @@ function renderUnlocks() {
     return pr ? Math.min(1, pr[0] / pr[1]) : 0;
   };
   const row = (it, preview) => { const p = toward(it), done = unlocked(it, ctx); return `<div class="unlock-row ${done ? 'got' : ''}">${preview}<div><b>${esc(it.name)}</b> ${done ? '✔' : '🔒'}<br><span class="muted">${esc(unlockText(it, BADGE_LIST))}</span>${done ? '' : `<div class="mastery-bar"><span style="width:${Math.round(p * 100)}%"></span></div>`}</div></div>`; };
-  $('progressBody').innerHTML = `<h3>Avatars</h3><div class="unlock-grid">${AVATARS.filter(a => a.url).map(a => row(a, `<img class="unlock-av" src="${a.url}" alt="">`)).join('')}</div>
+  $('progressBody').innerHTML = `<h3>Avatars</h3><div class="unlock-grid">${AVATARS.filter(a => a.url).map(a => row(a, `<img decoding="async" class="unlock-av" src="${a.url}" alt="">`)).join('')}</div>
     <h3>Card backs</h3><div class="unlock-grid">${BACKS.map(b => row(b, `<span class="unlock-back" style="background:${b.css}"></span>`)).join('')}</div>
     <p class="muted">Everything is earned by playing; nothing is sold. Choose them in Settings.</p>`;
 }
@@ -1519,7 +1574,7 @@ const GAUNTLET = 'ct.gauntlet';
 function renderGauntlet(msg = '') {
   const g = store(GAUNTLET) || { best: {}, run: null };
   const body = $('progressBody');
-  const best = Object.entries(g.best || {}).map(([k, v]) => `<li>${esc(GAUNTLET_FROM[k] || k)}: ${v.wins} win${v.wins === 1 ? '' : 's'} in a row${v.cleared ? ' (cleared)' : ''} <span class="muted">${esc(new Date(v.at).toLocaleDateString())}</span></li>`).join('');
+  const best = Object.entries(g.best || {}).map(([k, v]) => `<li>${esc(GAUNTLET_FROM[k] || k)}: ${v.wins} win${v.wins === 1 ? '' : 's'} in a row${v.cleared ? ' (cleared)' : ''} <span class="muted">${esc(dayText(v.at))}</span></li>`).join('');
   const run = g.run;
   body.innerHTML = run ? `<h3>${esc(GAUNTLET_FROM[run.from])}: rival ${run.beaten + 1} of ${run.rivals.length}</h3>
       <p>Your deck: <b>${esc(run.mine.name)}</b> · ${esc(formatOf(run.format).name)} · ${run.beaten} beaten so far.</p>
@@ -1530,7 +1585,7 @@ function renderGauntlet(msg = '') {
         <button class="btn primary" data-gl="start">Start a run</button></p>`;
   body.innerHTML += `${best ? `<h3>Best runs</h3><ul>${best}</ul>` : ''}${msg ? `<p class="muted">${esc(msg)}</p>` : ''}`;
   body.querySelector('[data-gl="start"]')?.addEventListener('click', () => startGauntlet(/** @type {HTMLSelectElement} */ ($('glFrom')).value));
-  body.querySelector('[data-gl="quit"]')?.addEventListener('click', () => { if (confirm('Give up this run? It counts as it stands.')) { endGauntlet(false); renderGauntlet(); } });
+  body.querySelector('[data-gl="quit"]')?.addEventListener('click', async () => { if (await askUser('Give up this run? It counts as it stands.', { title: 'Give up the run', confirm: 'Give up', danger: true })) { endGauntlet(false); renderGauntlet(); } });
   body.querySelector('[data-gl="fight"]')?.addEventListener('click', fightGauntlet);
 }
 const GAUNTLET_FROM = { meta: 'EDHTop16 top 8 (1v1 Commander)', library: 'Your deck library', random: 'Random decks of the table\'s format' };
@@ -1677,6 +1732,19 @@ $('logSeat').addEventListener('change', e => { $('log').dataset.seat = e.target.
 $('logSearch').addEventListener('input', e => {
   const q = e.target.value.trim().toLowerCase();
   for (const el of $('log').children) if (!el.classList.contains('turn')) el.classList.toggle('search-hide', !!q && !el.textContent.toLowerCase().includes(q));
+  // (a search looks inside folded turns too)
+  $('log').classList.toggle('searching', !!q);
+});
+// Fold turns (item 288): finished turns are folded to their heading and summary; the current one stays open
+const syncLogFold = () => { document.body.classList.toggle('log-fold', !!prefs.logFold); $('logFold').setAttribute('aria-pressed', String(!!prefs.logFold)); };
+syncLogFold();
+$('logFold').addEventListener('click', () => {
+  prefs.logFold = !prefs.logFold;
+  store('ct.prefs', prefs);
+  syncLogFold();
+  const heads = /** @type {HTMLElement[]} */ ([...$('log').querySelectorAll('.le.turn')]);
+  heads.forEach((h, i) => foldTurn(h, !!prefs.logFold && i < heads.length - 1));
+  $('log').scrollTop = $('log').scrollHeight;
 });
 $('logSearch').addEventListener('keydown', e => e.stopPropagation());
 function fillLogSeats() {
@@ -1689,8 +1757,41 @@ function applyTheme(t) {
   $('btnTheme').textContent = t === 'dark' ? '☀' : '☾';
   $('btnTheme').title = t === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme';
 }
-applyTheme(prefs.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
+const systemTheme = () => (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+applyTheme(prefs.theme || systemTheme());
+matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => { if (!prefs.theme) applyTheme(systemTheme()); });
+$('dispTheme').addEventListener('change', e => { if (e.target.value) prefs.theme = e.target.value; else delete prefs.theme; store('ct.prefs', prefs); applyTheme(prefs.theme || systemTheme()); });
 $('btnTheme').addEventListener('click', () => { prefs.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; store('ct.prefs', prefs); applyTheme(prefs.theme); });
+$('btnFull').addEventListener('click', () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => notice("This window can't go full screen.", { tone: 'warn' })); });
+document.addEventListener('fullscreenchange', () => { const on = !!document.fullscreenElement; $('btnFull').setAttribute('aria-pressed', String(on)); $('btnFull').dataset.tip = on ? 'Leave full screen' : 'Full screen'; });
+{
+  const bar = $('actionBar'), grip = $('abGrip');
+  const put = pos => {
+    // (on a phone the bar is pinned to the bottom edge)
+    if (!pos || innerWidth <= 600) { bar.classList.remove('moved'); bar.style.left = ''; bar.style.top = ''; return; }
+    const w = bar.offsetWidth || 760, h = bar.offsetHeight || 80;
+    const x = Math.max(4, Math.min(innerWidth - w - 4, pos.x)), y = Math.max(4, Math.min(innerHeight - h - 4, pos.y));
+    bar.classList.add('moved');
+    bar.style.left = `${x}px`; bar.style.top = `${y}px`;
+  };
+  const save = pos => { if (pos) prefs.barPos = pos; else delete prefs.barPos; store('ct.prefs', prefs); put(pos); };
+  let start = null;
+  grip.addEventListener('pointerdown', e => { const r = bar.getBoundingClientRect(); start = { dx: e.clientX - r.left, dy: e.clientY - r.top }; grip.setPointerCapture(e.pointerId); e.preventDefault(); });
+  grip.addEventListener('pointermove', e => { if (start) put({ x: e.clientX - start.dx, y: e.clientY - start.dy }); });
+  grip.addEventListener('pointerup', e => { if (!start) return; const r = bar.getBoundingClientRect(); start = null; grip.releasePointerCapture(e.pointerId); if (bar.classList.contains('moved')) save({ x: Math.round(r.left), y: Math.round(r.top) }); });
+  grip.addEventListener('dblclick', () => save(null));
+  grip.addEventListener('keydown', e => {
+    const d = { ArrowLeft: [-24, 0], ArrowRight: [24, 0], ArrowUp: [0, -24], ArrowDown: [0, 24] }[e.key];
+    if (e.key === 'Home') { e.preventDefault(); e.stopPropagation(); save(null); return; }
+    if (!d) return;
+    e.preventDefault(); e.stopPropagation();
+    const r = bar.getBoundingClientRect();
+    save({ x: Math.round(r.left + d[0]), y: Math.round(r.top + d[1]) });
+  });
+  // (put back where it was left each time it appears, and kept on screen when the window changes size)
+  new MutationObserver(() => { if (!bar.hidden && prefs.barPos) put(prefs.barPos); }).observe(bar, { attributes: true, attributeFilter: ['hidden'] });
+  window.addEventListener('resize', () => { if (!bar.hidden && prefs.barPos) put(prefs.barPos); });
+}
 $('followMode').checked = !!prefs.follow;
 $('soundOn').checked = !!prefs.sound;
 Sound.enabled = !!prefs.sound;
@@ -1747,6 +1848,7 @@ async function renderMeta() {
   $('btnMetaTop4').hidden = metaTab !== 'top';
   $('metaPeriod').disabled = metaTab === 'trend';
   $('metaStatus').textContent = 'Loading…';
+  if (!body.querySelector('table, .ddb-row')) body.innerHTML = loadingRows(8);
   try {
     if (metaTab === 'top') {
       const f = metaFilter();
@@ -1768,7 +1870,7 @@ async function renderMeta() {
               <p>${d.lists.map(l => `<a href="${esc(l.url)}" target="_blank" rel="noopener">${esc(l.name)}</a>`).join(' · ')}${d.discord ? ` · <a href="${esc(d.discord)}" target="_blank" rel="noopener">Discord</a>` : ''}</p>
               <p class="muted">The Moxfield lists can be imported with the Moxfield bookmarklet on the setup screen. The seat buttons load the newest EDHTop16 tournament list for these commanders.</p></details></div>
           <div class="seatpicks">${seatButtons(`edhtop16:${edhtop16Name(d.commanders)}`)}</div>
-        </div>`).join('')).join('') || '<p class="muted">No decks match.</p>';
+        </div>`).join('')).join('') || emptyState('No decks match', 'Try fewer words, or clear the filters.');
       $('metaStatus').textContent = `${decks.length} archetypes from the cEDH Decklist Database${offlineNote('ddb')}`;
     } else {
       // Trends (item 155): each commander's share and win rate in the last year, 6 months, 3 months and month (the
@@ -1803,6 +1905,8 @@ async function renderMeta() {
     }
   } catch (e) {
     $('metaStatus').textContent = `Couldn't load: ${e.message}`;
+    body.innerHTML = errorBox("Couldn't load the meta", `${e.message}. The rest of the game works without it.`);
+    body.querySelector('[data-retry]')?.addEventListener('click', () => renderMeta());
   }
 }
 // The meta browser's EDHTop16 filters (time period, event size, exact color identity)
@@ -1810,7 +1914,7 @@ function metaFilter() {
   const colors = [...document.querySelectorAll('#metaFilters .color-pick input:checked')].map(x => x.value).join('');
   return { timePeriod: $('metaPeriod').value, minSize: +$('metaSize').value, colorId: colors };
 }
-const offlineNote = key => (offlineSince.has(key) ? ` · offline: saved copy from ${new Date(offlineSince.get(key)).toLocaleDateString()}` : '');
+const offlineNote = key => (offlineSince.has(key) ? ` · offline: saved copy from ${dayText(offlineSince.get(key))}` : '');
 $('metaFilters').addEventListener('change', () => renderMeta());
 function seatMeta(i, src) {
   Object.assign(seats[i], { source: src, deck: null, bracket: 5, style: ['human', 'remote'].includes(seats[i].style) ? seats[i].style : 'auto' });
@@ -1822,7 +1926,7 @@ $('btnMeta').addEventListener('click', () => { $('metaModal').hidden = false; re
 // ---------- Collection (collection.js, item 147)
 function showCollection(msg = '') {
   const s = collectionSummary();
-  $('collectionSummary').innerHTML = (s ? `<b>${s.total}</b> cards (${s.unique} different), imported ${new Date(s.at).toLocaleDateString()}.` : 'No collection yet.') + (msg ? ` <span class="muted">${esc(msg)}</span>` : '');
+  $('collectionSummary').innerHTML = (s ? `<b>${s.total}</b> cards (${s.unique} different), imported ${dayText(s.at)}.` : 'No collection yet.') + (msg ? ` <span class="muted">${esc(msg)}</span>` : '');
   $('btnCollectionClear').hidden = !s;
 }
 $('btnCollection').addEventListener('click', () => { showCollection(); $('collectionModal').hidden = false; });
@@ -1835,12 +1939,13 @@ $('btnCollectionImport').addEventListener('click', () => {
     showCollection(`Imported: ${s.total} cards.`);
   } catch (err) { showCollection(err.message); }
 });
-$('btnCollectionClear').addEventListener('click', () => { if (confirm('Forget your collection?')) { clearCollection(); showCollection(); } });
+$('btnCollectionClear').addEventListener('click', async () => { if (await askUser('Forget your collection? The decks you saved stay.', { title: 'Forget the collection', confirm: 'Forget', danger: true })) { clearCollection(); showCollection(); } });
 
 // ---------- Commander precons (precons.js, item 146): by set, newest first
 async function renderPrecons() {
   const q = $('preconSearch').value.trim().toLowerCase();
   $('preconStatus').textContent = 'Loading…';
+  if (!$('preconBody').children.length || $('preconBody').querySelector('.empty-state')) $('preconBody').innerHTML = loadingRows(8);
   try {
     const list = await preconList();
     const rows = list.filter(d => !q || `${d.name} ${d.code} ${d.released}`.toLowerCase().includes(q));
@@ -1848,9 +1953,13 @@ async function renderPrecons() {
     $('preconBody').innerHTML = sets.map(code => {
       const ds = rows.filter(d => d.code === code);
       return `<h3>${esc(code)} <span class="muted">${esc(ds[0].released.slice(0, 7))}</span></h3>${ds.map(d => `<div class="ddb-row"><div class="ddb-main"><b>${esc(d.name)}</b></div><div class="seatpicks">${seats.map((s, i) => `<button class="btn small preconseat" style="--pc:${s.color}" data-src="precon:${esc(d.file)}" data-name="${esc(d.name)}" data-seat="${i}" title="Put it in ${esc(s.name)}'s seat">${i + 1}</button>`).join('')}</div></div>`).join('')}`;
-    }).join('') || '<p class="muted">No decks match.</p>';
+    }).join('') || emptyState('No decks match', 'Try fewer words, or clear the filters.');
     $('preconStatus').textContent = `${list.length} Commander precons${q ? `, ${rows.length} shown` : ''}`;
-  } catch (e) { $('preconStatus').textContent = `Couldn't load the list from MTGJSON: ${e.message}`; }
+  } catch (e) {
+    $('preconStatus').textContent = `Couldn't load the list from MTGJSON: ${e.message}`;
+    $('preconBody').innerHTML = errorBox("Couldn't load the precon list", `${e.message}. Decks you seated before still load offline.`);
+    $('preconBody').querySelector('[data-retry]')?.addEventListener('click', () => renderPrecons());
+  }
 }
 $('btnPrecons').addEventListener('click', () => {
   // (precons are Commander decks: the table switches to Commander, as the cEDH meta browser does)
@@ -2387,9 +2496,9 @@ $('btnShareReplay').addEventListener('click', async () => {
   }
   b.disabled = false;
 });
-$('btnSavePuzzle').addEventListener('click', () => {
+$('btnSavePuzzle').addEventListener('click', async () => {
   if (!game) return;
-  const name = prompt('Name this puzzle', `Board from turn ${game.turn}`);
+  const name = await askUser('Name this puzzle', { title: 'Save board as puzzle', input: `Board from turn ${game.turn}`, confirm: 'Save' });
   if (name == null) return;
   download(`commander-puzzle-${stamp()}.json`, JSON.stringify(boardToPuzzle(game, name), null, 1));
 });
@@ -2401,7 +2510,7 @@ const LIM = { pool: [], pools: [], chosen: new Set(), commander: null, colors: n
 $('limSet').innerHTML = SUGGESTED_SETS.map(([c, n]) => `<option value="${c}">${esc(n)} (${c.toUpperCase()})</option>`).join('');
 $('btnLimited').addEventListener('click', () => { renderCubes(); $('limitedModal').hidden = false; });
 $('btnLimitedClose').addEventListener('click', () => { $('limitedModal').hidden = true; });
-const limCard = (c, cls = '') => `<div class="lim-card ${cls}" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal || c.imgSmall ? `<img src="${esc(c.imgNormal || c.imgSmall)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`;
+const limCard = (c, cls = '') => `<div class="lim-card ${cls}" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal || c.imgSmall ? `<img decoding="async" src="${esc(c.imgNormal || c.imgSmall)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`;
 
 // Saved cubes (kept in the game folder's browser profile): { name, cards: [names], source }
 const cubes = () => store('ct.cubes') || [];
@@ -2492,7 +2601,7 @@ $('btnLimitedGo').addEventListener('click', async () => {
       packFn = sheets ? await boosterPacker(sheets, pool, { legend: !LIM.duel }) : makePack;
       const ratings = await loadRatings(code);
       note = (sheets ? ` (packs as in real ${sheets.name.replace(/\s*boosters?\b.*$/i, '').replace(/ (Play|Draft|Set)$/, m => m.toLowerCase())} boosters, from MTGJSON)` : ' (MTGJSON has no booster contents for this set, so packs are 1 rare, 1 legend, 3 uncommons and 9 commons)')
-        + (ratings ? ` · AI picks use card win rates from 17Lands public data (${ratings.games.toLocaleString()} games, CC BY 4.0)` : '');
+        + (ratings ? ` · AI picks use card win rates from 17Lands public data (${numText(ratings.games)} games, CC BY 4.0)` : '');
       LIM.set = code; LIM.label = code.toUpperCase();
     }
     const seed = Math.floor(Math.random() * 2 ** 32);
@@ -2626,7 +2735,13 @@ $('btnLimSeat').addEventListener('click', () => {
 let libraryDecks = [];
 async function renderLibrary() {
   const body = $('libraryBody');
-  try { libraryDecks = await listDecks(); } catch (err) { $('libraryStatus').textContent = err.message; return; }
+  if (!body.children.length) body.innerHTML = loadingRows(5);
+  try { libraryDecks = await listDecks(); } catch (err) {
+    $('libraryStatus').textContent = err.message;
+    body.innerHTML = errorBox("Couldn't read the deck library", `${err.message}. Decks are files in the game folder's data\\decks; the game has to be started from Commander Table for it to read them.`);
+    body.querySelector('[data-retry]')?.addEventListener('click', () => renderLibrary());
+    return;
+  }
   // Folders, tags, notes, colors and bracket (item 148) come from each list's About section
   for (const d of libraryDecks) { d.meta = deckMeta(d.text); d.cmdrs = commandersOf(d.text); }
   const folders = [...new Set(libraryDecks.map(d => d.meta.folder).filter(Boolean))].sort();
@@ -2640,10 +2755,10 @@ async function renderLibrary() {
   body.innerHTML = rows.length ? `<table class="libtable"><thead><tr><th>Deck</th><th>Folder</th><th>Commander</th><th>Colors</th><th class="num">Bracket</th><th class="num">Cards</th><th>Saved</th><th>Load into seat</th><th></th></tr></thead><tbody>
     ${rows.map(d => `<tr data-name="${esc(d.name)}"><td><b>${esc(d.name)}</b>${d.meta.tags.map(t => ` <span class="libtag">${esc(t)}</span>`).join('')}${d.meta.notes ? `<div class="muted small">${esc(d.meta.notes)}</div>` : ''}</td>
       <td>${esc(d.meta.folder)}</td><td>${esc(d.cmdrs.join(' + '))}</td><td>${d.meta.colors ? symbolize([...d.meta.colors].map(x => `{${x}}`).join('')) : ''}</td><td class="num">${d.meta.bracket || ''}</td>
-      <td class="num">${parseText(d.text).entries.filter(e => !e.side).reduce((a, e) => a + e.qty, 0)}</td><td>${esc(new Date(d.modified).toLocaleDateString())}</td>
+      <td class="num">${parseText(d.text).entries.filter(e => !e.side).reduce((a, e) => a + e.qty, 0)}</td><td>${esc(dayText(d.modified))}</td>
       <td class="seatpicks">${seats.map((s, i) => `<button class="btn small libseat" data-name="${esc(d.name)}" data-seat="${i}" style="--pc:${s.color}">${i + 1}</button>`).join('')}</td>
       <td class="libacts"><button class="btn small libinfo" data-name="${esc(d.name)}">Info</button><button class="btn small libhist" data-name="${esc(d.name)}" title="Earlier versions saved on this PC">History (${versions(d.name).length})</button><button class="btn small ghost libdel" data-name="${esc(d.name)}">Delete</button></td></tr>`).join('')}</tbody></table>`
-    : `<p class="muted">${libraryDecks.length ? 'No decks match.' : 'No saved decks yet. Use "Edit" on a loaded seat, then "Save to library".'}</p>`;
+    : libraryDecks.length ? emptyState('No decks match', 'Try fewer words, or choose All folders.') : emptyState('No saved decks yet', 'Build one in the deck builder, or use Edit on a loaded seat, then Save to library.');
 }
 // (colors in any order: "gw" finds a WG deck)
 const sameColors = (w, colors) => /^[wubrgc]{1,5}$/.test(w) && !!colors && [...w].sort().join('') === [...colors.toLowerCase()].sort().join('');
@@ -2683,7 +2798,7 @@ function libInfo(tr, d) {
 function libHistory(tr, d) {
   const vs = versions(d.name);
   const summary = text => { const ch = diffLists(text, d.text); const add = ch.reduce((a, x) => a + Math.max(0, x.to - x.from), 0), cut = ch.reduce((a, x) => a + Math.max(0, x.from - x.to), 0); return `+${add} −${cut}`; };
-  const p = libPanel(tr, vs.length ? `<p class="muted">Earlier versions of this deck saved on this PC (newest first), compared with the current list.</p>${vs.map((v, i) => `<div class="libver"><span>${esc(new Date(v.at).toLocaleString())}</span> <span class="muted">${summary(v.text)} since then</span>
+  const p = libPanel(tr, vs.length ? `<p class="muted">Earlier versions of this deck saved on this PC (newest first), compared with the current list.</p>${vs.map((v, i) => `<div class="libver"><span>${esc(whenText(v.at))}</span> <span class="muted">${summary(v.text)} since then</span>
       <button class="btn small" data-v="${i}" data-vact="diff">Show changes</button><button class="btn small ghost" data-v="${i}" data-vact="restore">Restore</button><div class="libdiff" hidden></div></div>`).join('')}`
     : '<p class="muted">No earlier versions yet: each save from now on keeps the list it replaces (the last 10, on this PC).</p>');
   p.addEventListener('click', async e => {
@@ -2695,7 +2810,7 @@ function libHistory(tr, d) {
       const ch = diffLists(v.text, d.text);
       box.innerHTML = ch.length ? ch.map(x => `<div class="${x.to > x.from ? 'add' : 'cut'}">${x.to > x.from ? '+' : '−'}${Math.abs(x.to - x.from)} ${esc(x.name)}</div>`).join('') : '<span class="muted">Same cards (only the name or info changed).</span>';
       box.hidden = !box.hidden;
-    } else if (confirm(`Restore the version from ${new Date(v.at).toLocaleString()}? The current list is kept as a version.`)) {
+    } else if (await askUser(`Restore the version from ${whenText(v.at)}? The current list is kept as a version.`, { title: 'Restore a version', confirm: 'Restore' })) {
       try { await saveDeck(d.name, v.text, { previous: d.text }); renderLibrary(); } catch (err) { $('libraryStatus').textContent = err.message; }
     }
   });
@@ -2723,9 +2838,10 @@ $('btnGrid').addEventListener('click', async () => {
         ${chosen.map((d, i) => {
           const w = wins[i].reduce((a, b) => a + b, 0), g = games[i].reduce((a, b) => a + b, 0);
           return `<tr><td>${i + 1}. ${esc(d.name)}</td>${chosen.map((_, j) => (i === j ? '<td class="num muted">–</td>' : games[i][j]
-            ? `<td class="num" style="background:color-mix(in srgb, ${wins[i][j] / games[i][j] >= 0.5 ? 'var(--good)' : 'var(--bad)'} ${Math.round(Math.abs(wins[i][j] / games[i][j] - 0.5) * 80)}%, transparent)">${Math.round((wins[i][j] / games[i][j]) * 100)}%</td>` : '<td></td>')).join('')}
+            ? `<td class="num" title="${esc(d.name)} won ${wins[i][j]} of ${games[i][j]} against ${esc(chosen[j].name)}" style="background:color-mix(in srgb, ${wins[i][j] / games[i][j] >= 0.5 ? 'var(--good)' : 'var(--bad)'} ${Math.round(Math.abs(wins[i][j] / games[i][j] - 0.5) * 80)}%, transparent)">${Math.round((wins[i][j] / games[i][j]) * 100)}%</td>` : '<td></td>')).join('')}
             <td class="num"><b>${g ? Math.round((w / g) * 100) : 0}%</b></td></tr>`;
         }).join('')}</tbody></table>
+        <p class="grid-legend muted" aria-hidden="true"><span>0%</span><i></i><span>50%</span><i class="hi"></i><span>100%</span> <span>of games won by the row deck (point at a cell for the count)</span></p>
         <p class="muted">${done} of ${total} games. Head-to-head ${esc(fmt().name)} games (two players, ${fmt().life} life each), AI pilots in their Auto style. Small samples are noisy.</p>`;
     };
     // (on every CPU core when the browser allows it, item 170; one game per pairing and seed, the same results either way)
@@ -2775,7 +2891,7 @@ $('libFolder').addEventListener('change', renderLibrary);
 // Import an Archidekt folder (item 156): pick decks from a public folder; each is saved to the library in a folder
 // of the same name
 $('btnArchFolder').addEventListener('click', async () => {
-  const link = prompt('Paste a public Archidekt folder link (like https://archidekt.com/folders/12345):');
+  const link = await askUser('Paste a public Archidekt folder link.', { title: 'Import an Archidekt folder', input: true, placeholder: 'https://archidekt.com/folders/12345', confirm: 'Open' });
   const id = link?.match(/archidekt\.com\/folders\/(\d+)/i)?.[1] || link?.match(/^\s*(\d+)\s*$/)?.[1];
   if (!link) return;
   if (!id) { $('libraryStatus').textContent = 'That isn\'t an Archidekt folder link.'; return; }
@@ -2821,7 +2937,7 @@ $('libraryBody').addEventListener('click', async e => {
     persist();
     renderSeats();
     $('libraryStatus').textContent = `${d.name} goes into seat ${+seat.dataset.seat + 1}. Close this and click "Load decks".`;
-  } else if (del && confirm(`Delete "${del.dataset.name}" from your library?`)) {
+  } else if (del && await askUser(`Delete "${del.dataset.name}" from your library?`, { title: 'Delete a deck', confirm: 'Delete', danger: true })) {
     await deleteDeck(del.dataset.name).catch(err => { $('libraryStatus').textContent = err.message; });
     renderLibrary();
   }
@@ -2871,21 +2987,20 @@ function showDeck(s) {
       ...(d.commanders.length ? [{ label: 'Bracket', value: estimateBracket(d).bracket, title: BRACKETS[estimateBracket(d).bracket].name }] : []),
     ])}
     <div class="deck-stats">
-      <div><h3>Mana curve</h3>${curveChart(curve)}
-        <p class="chart-note">Nonland cards by mana value. Average ${avg.toFixed(2)}.</p></div>
-      <div><h3>Color pips</h3>${pipChart(pips)}
-        <p class="chart-note">Colored mana symbols in the costs.</p></div>
+      <div><h3>Mana curve</h3>${curveChart(curve, { avg })}
+        <p class="chart-note">Nonland cards by mana value.</p></div>
+      <div><h3>Color pips</h3>${pipChart(pips, countSources(all))}</div>
       <div><h3>Card types</h3>${typeChart(Object.fromEntries(Object.entries(types).map(([k, n]) => [TYPE_KEY[k], n])))}</div>
     </div>
     ${d.commanders.length ? '<h3>Deck health</h3><div id="deckHealth"><p><button class="btn small" id="btnDeckHealth">Check lands, ramp, card draw, removal and wipes</button> <span class="muted">Uses Scryfall card tags; each card is asked about once.</span></p></div>' : ''}
-    <p class="deck-exports"><span class="muted">Export:</span> <button class="btn small" data-exp="dek" title="An MTGO deck file (cards matched by name)">MTGO .dek</button><button class="btn small" data-exp="arena" title="Copy the list in MTG Arena's import format">Arena text</button><button class="btn small" data-exp="check" title="A checklist by card type with set and number, to print or tick off">Checklist</button></p>
+    <p class="deck-exports"><span class="muted">Export:</span> <button class="btn small" data-exp="dek" title="An MTGO deck file (cards matched by name)">MTGO .dek</button><button class="btn small" data-exp="arena" title="Copy the list in MTG Arena's import format">Arena text</button><button class="btn small" data-exp="check" title="A checklist by card type with set and number, to print or tick off">Checklist</button><button class="btn small" data-exp="print" title="Print this page, or save it as a PDF from the print window">Print</button></p>
     <h3>Draw odds</h3><div id="drawOdds"><p><select id="oddsWhat" class="input"></select> <label class="muted">at least <select id="oddsK" class="sbracket"><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label></p><div id="oddsOut"></div></div>
     <h3>Goldfish</h3><div id="goldfish"><p><button class="btn small" id="btnSampleHand">Sample hand</button>
       <label class="muted">Solo runs <select id="gfRuns" class="sbracket"><option>100</option><option>250</option><option>1000</option></select></label> <button class="btn small" id="btnGoldfish">Run the AI pilot alone</button></p>
       <div id="gfHand"></div><div id="gfRunsOut"></div></div>
     <h3>What the simulator understands: ${cov.pct}%</h3>
     ${cov.ignored.length ? `<p class="muted">These cards are cast and put on the battlefield, but their special abilities do nothing in the simulator, so their real strength isn't reflected in results:</p><p class="ignored">${cov.ignored.map(esc).join(' · ')}</p>` : '<p class="muted">Every non-basic card is at least partly understood.</p>'}
-    ${d.commanders.length ? (() => { const est = estimateBracket(d), diff = bracketDifferences(est, d.sbBracket); return `<h3>Bracket ${est.bracket}: ${BRACKETS[est.bracket].name}</h3><ul>${est.reasons.map(r => `<li>${esc(r)}</li>`).join('') || '<li>No Game Changers, two-card combos, extra turns or mass land destruction.</li>'}</ul>${d.sbBracket ? `<p>Commander Spellbook: <b>${esc(d.sbBracket.name)}</b>${d.sbBracket.about ? ` (about bracket ${d.sbBracket.about})` : ''}.${diff.length ? '' : ' The two agree.'}</p>${diff.length ? `<ul class="muted">${diff.slice(1).map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}` : ''}`; })() : ''}
+    ${d.commanders.length ? (() => { const est = estimateBracket(d), diff = bracketDifferences(est, d.sbBracket); return `<h3>Bracket ${est.bracket}: ${BRACKETS[est.bracket].name}</h3>${bracketScale(BRACKETS, est.bracket, d.sbBracket?.about || null)}<p class="chart-note">${esc(BRACKETS[est.bracket].blurb)}</p><ul>${est.reasons.map(r => `<li>${esc(r)}</li>`).join('') || '<li>No Game Changers, two-card combos, extra turns or mass land destruction.</li>'}</ul>${d.sbBracket ? `<p>Commander Spellbook: <b>${esc(d.sbBracket.name)}</b>${d.sbBracket.about ? ` (about bracket ${d.sbBracket.about})` : ''}.${diff.length ? '' : ' The two agree.'}</p>${diff.length ? `<ul class="muted">${diff.slice(1).map(s => `<li>${esc(s)}</li>`).join('')}</ul>` : ''}` : ''}`; })() : ''}
     ${d.commanders.length ? '<h3>Combos one card away</h3><div id="almostCombos"><p><button class="btn small" id="btnAlmost">Ask Commander Spellbook</button> <span class="muted">Combos in your colors that need just one more card.</span></p></div>' : ''}
     ${combos.length ? `<h3>Combos (${combos.length})</h3><ul>${combos.map(c => { const s = comboPlay(c); return `<li>${esc(c.label)}: ${esc(c.note)} <span class="${s.status === 'supported' ? 'muted' : 'warn'}">· ${s.status === 'supported' ? 'played out with the real cards' : `${esc(s.status)}: ${esc(s.reason)}`}</span></li>`; }).join('')}</ul>` : ''}
     ${(d.spellbookCatalog || []).length ? `<h3>Commander Spellbook's combos (${d.spellbookCatalog.length})</h3><p class="muted">What Commander Spellbook lists for this deck, and whether the game can play each one out with the real cards. The AI only goes for those; the others' cards still work as usual when they're played.</p><ul>${['supported', 'partial', 'unsupported', 'invalid'].flatMap(st => d.spellbookCatalog.filter((/** @type {any} */ e) => e.status === st)).map((/** @type {any} */ e) => `<li><b>${esc(e.status)}</b> · ${esc((e.pieces.length ? e.pieces : ['?']).join(' + '))}${e.result ? ` (${esc(e.result)})` : ''}: ${esc(e.reason)}</li>`).join('')}</ul>` : ''}
@@ -2911,6 +3026,7 @@ function showDeck(s) {
     const b = e.target.closest('[data-exp]');
     if (!b) return;
     const file = (d.deckName || 'deck').replace(/[^\w\- ]+/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'deck';
+    if (b.dataset.exp === 'print') { window.print(); return; }
     if (b.dataset.exp === 'dek') download(`${file}.dek`, dekXml(d), 'application/xml');
     else if (b.dataset.exp === 'check') download(`${file}-checklist.txt`, checklistText(d), 'text/plain');
     else { try { await navigator.clipboard.writeText(arenaText(d)); b.textContent = 'Copied'; } catch { download(`${file}-arena.txt`, arenaText(d), 'text/plain'); } }
@@ -2945,7 +3061,8 @@ function showDeck(s) {
       const K = v.startsWith('s') ? sets[+v.slice(1)].n : d.cards.find(x => x.card.name === v.slice(1))?.qty || 0;
       const turns = [1, 2, 3, 4, 5, 6, 8, 10];
       const pc = p => `${Math.round(p * 100)}%`;
-      $('oddsOut').innerHTML = `<table class="odds"><thead><tr><th>By turn</th>${turns.map(t => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>
+      const every = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+      $('oddsOut').innerHTML = `${lineChart([{ name: 'On the draw', points: every.map(t => atLeast(lib, K, 7 + t, k)) }, { name: 'On the play (duel)', points: every.map(t => atLeast(lib, K, 6 + t, k)) }], { xs: every, label: `Chance of at least ${k} by each turn` })}<table class="odds"><thead><tr><th>By turn</th>${turns.map(t => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>
         <tr><td>On the draw</td>${turns.map(t => `<td class="num">${pc(atLeast(lib, K, 7 + t, k))}</td>`).join('')}</tr>
         <tr><td class="muted">On the play (duel)</td>${turns.map(t => `<td class="num muted">${pc(atLeast(lib, K, 6 + t, k))}</td>`).join('')}</tr>
         <tr><td class="muted">Opening hand</td><td class="num muted" colspan="${turns.length}" style="text-align:left">${pc(atLeast(lib, K, 7, k))} in the first 7 cards</td></tr></tbody></table>
@@ -2958,7 +3075,7 @@ function showDeck(s) {
   // Goldfish (item 149): sample hands, and the AI pilot playing the deck alone
   let sampler = null;
   const drawHand = () => {
-    const card = c => `<img class="gf-card" src="${esc(c.imgSmall || c.imgNormal || '')}" alt="${esc(c.name)}" title="${esc(c.name)}" loading="lazy">`;
+    const card = c => `<img decoding="async" class="gf-card" src="${esc(c.imgSmall || c.imgNormal || '')}" alt="${esc(c.name)}" title="${esc(c.name)}" loading="lazy">`;
     const lands = sampler.hand.filter(c => c.fx?.type.land).length;
     $('gfHand').innerHTML = `<div class="gf-row">${sampler.hand.map(card).join('')}</div>
       <p class="muted">${sampler.mulligans ? `Mulligan ${sampler.mulligans}: put ${sampler.mulligans} card${sampler.mulligans === 1 ? '' : 's'} on the bottom. ` : ''}${lands} land${lands === 1 ? '' : 's'} in the hand.</p>
@@ -2972,6 +3089,15 @@ function showDeck(s) {
     if (b.dataset.gf === 'mull') sampler.mulligan(); else if (b.dataset.gf === 'draw') sampler.draw(); else sampler.newHand();
     drawHand();
   });
+  // (item 335) the share of the games in which each thing had happened by each turn, from the turns the runs report
+  const gfChart = r => {
+    const turns = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10], by = list => turns.map(t => list.filter(v => v <= t).length / Math.max(1, r.runs));
+    const series = [];
+    if (d.commanders.length && r.cmd.length) series.push({ name: 'Commander cast', points: by(r.cmd) });
+    if (r.combo.length) series.push({ name: 'A combo started', points: by(r.combo) });
+    if (r.win.length) series.push({ name: 'Won alone', points: by(r.win) });
+    return series.length ? lineChart(series, { xs: turns, label: `Share of ${r.runs} games by turn` }) : '';
+  };
   let gfStop = false;
   $('btnGoldfish')?.addEventListener('click', async () => {
     const btn = $('btnGoldfish');
@@ -2989,6 +3115,7 @@ function showDeck(s) {
         <li>A combo started: <b>${r.combo.length ? t(r.avgCombo) : 'never'}</b>${r.combo.length ? ` (${pct(r.combo.length, r.runs)} of games)` : ''}</li>
         <li>Won alone (a 40-life opponent who only plays lands): <b>${r.win.length ? t(r.avgWin) : 'not by turn 10'}</b>${r.win.length ? ` (${pct(r.win.length, r.runs)} of games)` : ''}</li>
         <li>Lands on the battlefield after three turns: ${r.avgLandsT3 == null ? '–' : r.avgLandsT3.toFixed(2)} · mulligans per game: ${r.avgMulls.toFixed(2)}</li></ul>
+        ${gfChart(r)}
         <p class="muted">${r.runs} games, one seed each (the same seeds every time, so changes to the deck compare fairly), the AI pilot going first, up to its tenth turn.</p>`;
     } catch (err) { out.innerHTML = `<p class="muted">Couldn't run: ${esc(err.message)}</p>`; }
     delete btn.dataset.running;
@@ -3202,7 +3329,7 @@ $('cupBody').addEventListener('click', async e => {
   }
   const cup = store(CUP);
   if (!cup) return;
-  if (act === 'end') { if (cup.done || confirm('End this tournament? Its results are dropped.')) { store(CUP, null); renderCup(); } return; }
+  if (act === 'end') { if (cup.done || await askUser('End this tournament? Its results are dropped.', { title: 'End the tournament', confirm: 'End it', danger: true })) { store(CUP, null); renderCup(); } return; }
   if (act === 'copy') { navigator.clipboard?.writeText(standingsText(cup)).then(() => { b.textContent = 'Copied'; }).catch(() => {}); return; }
   if (act === 'next') { store(CUP, pairRound(cup)); renderCup(); return; }
   if (act === 'sim' || act === 'play') {
@@ -3330,6 +3457,9 @@ $('tlUndo').addEventListener('click', undo);
 
 document.addEventListener('keydown', e => {
   if (e.target.matches?.('input, textarea, select')) return;
+  // (a window is open: its own keys come first; only the zone viewer keeps its shortcuts)
+  if (modalOpen() && $('zoneModal').hidden) return;
+  if (e.key === '?') { e.preventDefault(); showShortcuts(); return; }
   // When it's your decision, the keys answer the action bar first
   if (humanUI.key(e)) return;
   if (e.key === 'u' || ((e.ctrlKey || e.metaKey) && e.key === 'z')) { e.preventDefault(); undo(); return; }
@@ -3371,7 +3501,7 @@ function searchRules() {
   const { rules, glossary } = Rules.search(q);
   out.innerHTML = glossary.map(g => `<div class="gl"><b>${esc(g.term)}</b>${highlight(g.def, q)}</div>`).join('')
     + rules.map(r => `<div class="ri ${/^\d{3}(\.\d+)?$/.test(r.id) ? 'head' : ''}"><span class="rid" data-rule="${r.id}">${r.id}</span>${highlight(r.text, q)}</div>`).join('')
-    + (q && !rules.length && !glossary.length ? '<p class="muted">No matches.</p>' : '');
+    + (q && !rules.length && !glossary.length ? emptyState('No matches', 'Try a rule number like 702.19, or a single word.') : '');
 }
 
 // Rules glossary (item 181): hover a keyword in the log or a card's text for its Comprehensive Rules entry
@@ -3394,7 +3524,7 @@ function searchRules() {
 }
 Rules.load().then(() => {
   if (Rules.loaded) {
-    $('rulesMeta').innerHTML = `${Rules.entries.length.toLocaleString()} rules and ${Rules.glossary.length} glossary terms${Rules.effective ? `, effective ${esc(Rules.effective)}` : ''}. ${Rules.source ? `<a href="${esc(Rules.source)}" target="_blank" rel="noopener">Source</a>` : ''}`;
+    $('rulesMeta').innerHTML = `${numText(Rules.entries.length)} rules and ${Rules.glossary.length} glossary terms${Rules.effective ? `, effective ${esc(Rules.effective)}` : ''}. ${Rules.source ? `<a href="${esc(Rules.source)}" target="_blank" rel="noopener">Source</a>` : ''}`;
     if (!$('rulesSearch').value) { $('rulesSearch').value = '903'; }
     searchRules();
   } else {
@@ -3504,7 +3634,7 @@ async function renderExpedition() {
   if (r.pending?.reward) {
     body.innerHTML = `${head}<h3>Choose a card for your deck</h3><div class="lim-grid" id="exReward"><p class="muted">Loading…</p></div><button class="btn small ghost" id="btnExSkip">Skip the reward</button>`;
     const choices = await rewardChoices(r, r.pending.reward);
-    $('exReward').innerHTML = choices.map(c => `<div class="lim-card" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('');
+    $('exReward').innerHTML = choices.map(c => `<div class="lim-card" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal ? `<img decoding="async" src="${esc(c.imgNormal)}" alt="${esc(c.name)}">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('');
     $('exReward').onclick = e => { const el = e.target.closest('.lim-card'); if (el) { takeReward(r, el.dataset.name); renderExpedition(); } };
     $('btnExSkip').onclick = () => { takeReward(r, null); renderExpedition(); };
     return;
@@ -3514,7 +3644,7 @@ async function renderExpedition() {
     <details><summary>Your deck (${r.deck.length} cards, lands are added for each fight)</summary><p class="muted">${r.deck.map(esc).join(', ')}</p></details>
     <details><summary>The road so far</summary><p class="muted">${r.log.slice(-12).map(esc).join('<br>')}</p></details>
     <p><button class="btn small ghost" id="btnExAbandon">Abandon the expedition</button></p>`;
-  $('btnExAbandon').onclick = () => { if (confirm('Abandon this expedition?')) { abandonRun(); renderExpedition(); } };
+  $('btnExAbandon').onclick = async () => { if (await askUser('Abandon this expedition?', { title: 'Abandon the expedition', confirm: 'Abandon', danger: true })) { abandonRun(); renderExpedition(); } };
   body.querySelectorAll('[data-node]').forEach(b => b.addEventListener('click', () => goNode(r, choices[+b.dataset.node])));
 }
 async function goNode(r, kind) {
@@ -3563,7 +3693,7 @@ async function nodeChoice(r, kind) {
     if (ev.choice === 'rare' || ev.choice === 'swap') {
       const choices = await rewardChoices(r, ev.choice === 'rare' ? 'elite' : 'duel');
       box.innerHTML = `${ev.choice === 'swap' ? `<p class="muted">First choose the card you give him:</p><select id="exGive" class="input">${r.deck.map((c, i) => `<option value="${i}">${esc(c)}</option>`).join('')}</select>` : ''}
-        <div class="lim-grid" id="exGain">${choices.map(c => `<div class="lim-card" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal ? `<img src="${esc(c.imgNormal)}" alt="">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
+        <div class="lim-grid" id="exGain">${choices.map(c => `<div class="lim-card" data-name="${esc(c.name)}" title="${esc(c.name)}">${c.imgNormal ? `<img decoding="async" src="${esc(c.imgNormal)}" alt="">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
         <button class="btn small ghost" id="btnExPass">Walk on</button>`;
       $('exGain').onclick = e => {
         const el = e.target.closest('.lim-card');
@@ -3594,7 +3724,7 @@ $('btnChallengeMake').addEventListener('click', async () => {
   const code = await encodeChallenge(table);
   $('challengeCode').value = code;
   $('challengeLink').value = challengeLink(code);
-  $('challengeStatus').textContent = `${code.length.toLocaleString()} characters. The link opens on any PC running Commander Table.`;
+  $('challengeStatus').textContent = `${numText(code.length)} characters. The link opens on any PC running Commander Table.`;
 });
 $('btnChallengeCopy').addEventListener('click', async () => {
   try { await navigator.clipboard.writeText($('challengeLink').value || ''); $('challengeStatus').textContent = 'Link copied.'; } catch { $('challengeStatus').textContent = 'Couldn\'t reach the clipboard; select the link and copy it.'; }
@@ -3626,11 +3756,11 @@ if (openedChallenge) {
 }
 
 // ---------- Deck builder (builder.js)
-function builder(i = 0) {
+function builder(i = 0, deck = null) {
   openBuilder({
-    format: formatKey, deck: seats[i]?.deck || null, seats: seats.map(s => s.name), seatIndex: i,
-    onUse: (text, name, seat) => { Object.assign(seats[seat], { source: text, deck: null }); persist(); renderSeats(); $('setupStatus').textContent = `${name || 'The deck'} is in ${seats[seat].name}'s seat.`; },
-    onSave: async (text, name) => { try { const n = await saveDeck(name, text); $('setupStatus').textContent = `Saved "${n}" to the deck library.`; } catch (err) { $('setupStatus').textContent = `Couldn't save: ${err.message}`; } },
+    format: formatKey, deck: deck || seats[i]?.deck || null, seats: seats.map(s => s.name), seatIndex: i,
+    onUse: (text, name, seat) => { Object.assign(seats[seat], { source: text, deck: null }); persist(); renderSeats(); $('setupStatus').textContent = `${name || 'The deck'} is in ${seats[seat].name}'s seat.`; notice($('setupStatus').textContent, { tone: 'good' }); },
+    onSave: async (text, name) => { try { const n = await saveDeck(name, text); $('setupStatus').textContent = `Saved "${n}" to the deck library.`; notice($('setupStatus').textContent, { tone: 'good' }); if (!$('startMenu').hidden) renderRecentDecks(); } catch (err) { $('setupStatus').textContent = `Couldn't save: ${err.message}`; notice($('setupStatus').textContent, { tone: 'bad' }); } },
   });
 }
 $('btnBuilder').addEventListener('click', () => builder(0));
@@ -3725,8 +3855,8 @@ $('tabletopFile').addEventListener('change', async e => {
   } catch (err) { $('setupStatus').textContent = `Couldn't load the table: ${err.message}`; }
 });
 $('btnTabletopInvite').addEventListener('click', () => showInvite());
-$('btnTabletopClose').addEventListener('click', () => {
-  if (!confirm('Leave the tabletop? Use Save table first to carry on later.')) return;
+$('btnTabletopClose').addEventListener('click', async () => {
+  if (!await askUser('Leave the tabletop? Use Save table first to carry on later.', { title: 'Leave the table', confirm: 'Leave' })) return;
   clearInterval(ttTimer); ttTimer = null; tabletop = null; tabletopInvite = false;
   if (room.code) room.close();
   $('tabletop').hidden = true;
@@ -3738,7 +3868,7 @@ $('btnTour').addEventListener('click', () => startTour(toured));
 // ---------- New card sets (sets.js): checked once a day at startup, and from Updates
 function setsHtml(r) {
   const st = setsState();
-  const when = st.checkedAt ? new Date(st.checkedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
+  const when = st.checkedAt ? whenText(st.checkedAt, { dateStyle: 'medium', timeStyle: 'short' }) : 'never';
   const line = s => `<b>${esc(s.name)}</b> (${esc(s.code.toUpperCase())}, ${esc(s.released)}, ${s.count} cards)`;
   if (!r) return `Last checked: ${when}.${st.list.length ? ` Newest: ${line(st.list.find(s => s.released <= new Date().toISOString().slice(0, 10)) || st.list[0])}.` : ''}`;
   return `${r.first ? 'First check: from now on, new sets are reported here.' : r.added.length ? `<b>New since the last check:</b> ${r.added.map(line).join(', ')}. Saved card data will be refreshed as decks need it.` : 'No new sets since the last check.'}
@@ -3770,7 +3900,8 @@ const scrub = s => String(s)
   .replace(/[\w.+-]+@[\w-]+\.[\w.-]+/g, '<email>')
   .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, '<ip>');
 async function saveReport() {
-  const note = prompt('What went wrong? (optional: a sentence helps, and it goes in the report)') ?? null;
+  const note = await askUser('What went wrong? (optional: a sentence helps, and it goes in the report)', { title: 'Report a problem', input: true, confirm: 'Save the report' });
+  if (note === null) return;
   if (note === null) return;
   let version = '';
   try { version = (await (await fetch('/api/update')).json()).version; } catch { /* no server */ }
@@ -3789,7 +3920,7 @@ async function saveReport() {
     replay: replay ? JSON.parse(scrub(JSON.stringify(replay))) : null,
   };
   download(`commander-table-report-${stamp()}.json`, JSON.stringify(report, null, 1));
-  alert('The report is in your Downloads folder. Nothing was sent anywhere: share it by hand if you want to.');
+  notice('The report is in your Downloads folder. Nothing was sent anywhere: share it by hand if you want to.', { tone: 'good' });
 }
 $('btnReport').addEventListener('click', saveReport);
 
@@ -3797,7 +3928,7 @@ $('btnReport').addEventListener('click', saveReport);
 function showBulk(msg) {
   const m = bulkInfo();
   const on = !!(m?.on && m.count);
-  $('bulkBody').textContent = msg || (on ? `Saved: ${m.count.toLocaleString()} cards, from ${new Date(m.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not downloaded: searches go to Scryfall.');
+  $('bulkBody').textContent = msg || (on ? `Saved: ${numText(m.count)} cards, from ${whenText(m.at, { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not downloaded: searches go to Scryfall.');
   $('btnBulk').textContent = on ? 'Download again now' : 'Download the card file';
   $('btnBulkOff').hidden = !on;
 }
@@ -3812,7 +3943,7 @@ $('btnBulkOff').addEventListener('click', async () => { await removeBulk(); show
 function showPrints(msg) {
   const m = printsInfo();
   const on = !!(m?.on && m.count);
-  $('printsBody').textContent = msg || (on ? `Saved: ${m.count.toLocaleString()} printings, from ${new Date(m.at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not downloaded: set searches go to Scryfall.');
+  $('printsBody').textContent = msg || (on ? `Saved: ${numText(m.count)} printings, from ${whenText(m.at, { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not downloaded: set searches go to Scryfall.');
   $('btnPrints').textContent = on ? 'Download again now' : 'Download the printings file';
   $('btnPrintsOff').hidden = !on;
 }
@@ -3832,6 +3963,54 @@ function refreshSetLists() {
   for (const s of extra) if (!SUGGESTED_SETS.some(x => x[0] === s[0])) SUGGESTED_SETS.push(s);
 }
 refreshSetLists();
+
+// ---------- Keyboard shortcuts (design roadmap item 247): one list of every key, opened with ? or from the start menu
+/** @type {[string, string[][]][]} */
+const SHORTCUTS = [
+  ['At the table', [
+    ['Space', 'Pause or resume the game'],
+    ['N or →', 'One step forward while paused'],
+    ['U or Ctrl+Z', 'Undo your last decision'],
+    ['G, X, L', 'Open your graveyard, exile or library'],
+    ['?', 'This list'],
+    ['Drag ⠿ on the action bar', 'Move the bar off your cards (double-click ⠿ to put it back)'],
+  ]],
+  ['When the game asks you something', [
+    ['Space or Enter', 'The main button (highlighted in gold)'],
+    ['1 to 9', 'The first to ninth button'],
+    ['A', 'Let the AI decide'],
+    ['Esc', 'Cancel the choice, when it can be cancelled'],
+    ['Tab, then Enter', 'Move between the cards you can choose, and choose one'],
+  ]],
+  ['Windows, menus and tabs', [
+    ['Esc', 'Close the window or menu'],
+    ['Tab and Shift+Tab', 'Move through a window (it stays inside)'],
+    ['← → Home End', 'Move between tabs'],
+    ['↓ ↑', 'Open a menu and move through it'],
+  ]],
+  ['Cards', [
+    ['Right-click, or press and hold', "A card's rules text, how the game reads it, and rulings"],
+    ['Enter on a card in the deck builder', 'Add a copy to the deck (Shift+Enter: to the sideboard)'],
+    ['Arrow keys in the deck builder', 'Move between cards in the results'],
+    ['C, I in the deck builder', 'Make the card the commander; open the card inspector'],
+    ['Ctrl+Z, Ctrl+Y in the deck builder', 'Undo and redo changes to the deck'],
+  ]],
+];
+function showShortcuts() {
+  let m = $('keysModal');
+  if (!m) {
+    m = document.createElement('div');
+    m.id = 'keysModal';
+    m.className = 'modal';
+    m.hidden = true;
+    m.innerHTML = `<div class="modal-card results-card keys-card"><div class="modal-head"><h2>Keyboard shortcuts</h2><button class="btn ghost" id="btnKeysClose">Close</button></div>
+      ${SHORTCUTS.map(([title, rows]) => `<h3>${esc(title)}</h3><table class="keys-table"><tbody>${rows.map(([k, what]) => `<tr><th scope="row"><kbd>${esc(k)}</kbd></th><td>${esc(what)}</td></tr>`).join('')}</tbody></table>`).join('')}
+      <div class="modal-foot"><span class="muted">Shortcuts wait while a window is open, and while you type in a field.</span></div></div>`;
+    document.body.append(m);
+    m.querySelector('#btnKeysClose').addEventListener('click', () => { m.hidden = true; });
+  }
+  m.hidden = false;
+}
 
 // ---------- Start menu: what you see when the game opens
 function showMenu() {
@@ -3865,11 +4044,43 @@ function renderMenu(news = menuNews) {
     { label: 'Watched', value: hist.length - mine.length, title: 'Finished games between AI pilots' },
     { label: 'Streak', value: ch.streak.count || 0, title: 'Days in a row with a challenge done' },
   ]);
+  // Ranks (item 270): one chip for each format you have ranked games in
+  const lad = Object.entries(ladder().formats).filter(([, f]) => f.games > 0).sort((a, b) => b[1].games - a[1].games).slice(0, 4);
+  $('smRanks').innerHTML = lad.map(([k, f]) => { const r = rankOf(f.rating, f.games); return `<button class="rank-chip rank-${r.tier.toLowerCase()}" data-go="progress" title="${esc(formatOf(k).name)}: rating ${Math.round(f.rating)} after ${f.games} ranked game${f.games === 1 ? '' : 's'}">${esc(formatOf(k).name)} · ${esc(r.label)}</button>`; }).join('');
+  // Continue (item 265): only things already begun and not finished
+  const cont = [];
+  if (r && !r.over) cont.push(['expedition', `Expedition: act ${r.act + 1}, ${r.wins} win${r.wins === 1 ? '' : 's'}`]);
+  const lessonN = LESSONS.filter(l => done[l.id]).length, nextLesson = LESSONS.find(l => !done[l.id]);
+  if (lessonN && nextLesson) cont.push(['learn', `Lesson ${lessonN + 1} of ${LESSONS.length}: ${nextLesson.name}`]);
+  const sd = storyDone(), chN = CHAPTERS.filter(c => sd[c.id]).length, nextCh = CHAPTERS.find(c => !sd[c.id]);
+  if (chN && nextCh) cont.push(['story', `Story: ${nextCh.name}`]);
+  $('smContinue').hidden = !cont.length;
+  $('smContinue').innerHTML = cont.length ? `<span class="muted">Continue</span>${cont.map(([go, text]) => `<button class="btn small" data-go="${go}">${esc(text)}</button>`).join('')}` : '';
   renderRecentDecks();
   $('smUpdates').textContent = news?.added?.length ? `${news.added.length} new set${news.added.length > 1 ? 's' : ''}!` : 'New card sets, game updates';
 }
 // The newest decks in the library, with their commander and colors; a click opens the library on that deck
 const SPINE = { W: 'var(--mana-w)', U: 'var(--mana-u)', B: 'var(--mana-b)', R: 'var(--mana-r)', G: 'var(--mana-g)' };
+// Play, Edit and View on a recent deck. Play only seats the list; Edit and View need the cards, so they load the deck first.
+async function recentDeckAct(what, name, btn) {
+  let d;
+  try { d = (await listDecks()).find(x => x.name === name); } catch (err) { notice(`Couldn't open the library: ${err.message}`, { tone: 'bad' }); return; }
+  if (!d) { notice(`"${name}" is no longer in the library.`, { tone: 'warn' }); renderRecentDecks(); return; }
+  if (what === 'play') {
+    Object.assign(seats[0], { source: d.text, deck: null });
+    persist(); renderSeats();
+    $('startMenu').hidden = true; $('setup').hidden = false;
+    $('setupStatus').textContent = `${d.name} is in seat 1. Fill the other seats, then click "Load decks & shuffle up".`;
+    return;
+  }
+  const label = btn.textContent;
+  btn.disabled = true; btn.innerHTML = '<span class="rune" aria-hidden="true"></span>';
+  try {
+    const deck = await loadDeck(d.text, () => {}, { format: formatKey });
+    if (what === 'edit') builder(0, deck); else showDeck({ deck });
+  } catch (err) { notice(`Couldn't load "${d.name}" as a ${formatOf(formatKey).name} deck: ${err.message}`, { tone: 'bad' }); }
+  btn.disabled = false; btn.textContent = label;
+}
 async function renderRecentDecks() {
   const box = $('smDecks');
   let list;
@@ -3878,10 +4089,12 @@ async function renderRecentDecks() {
   box.innerHTML = list.sort((x, y) => new Date(y.modified).getTime() - new Date(x.modified).getTime()).slice(0, 4).map(d => {
     const meta = deckMeta(d.text), cmd = commandersOf(d.text), cols = [...(meta.colors || '').toUpperCase()].filter(c => SPINE[c]);
     const spine = cols.length > 1 ? `linear-gradient(180deg, ${cols.map(c => SPINE[c]).join(', ')})` : cols.length ? SPINE[cols[0]] : 'var(--mana-c)';
-    return `<button class="sm-deck" data-deck="${esc(d.name)}" title="Open the deck library on this deck"><span class="spine" style="--spine:${spine}"></span><span><b>${esc(d.name)}</b><small>${esc(cmd.join(' + ') || 'No commander')}</small></span><span class="sm-deck-meta">${cols.length ? symbolize(cols.map(c => `{${c}}`).join('')) : ''}<br>${esc(new Date(d.modified).toLocaleDateString())}</span></button>`;
+    return `<div class="sm-deck"><span class="spine" style="--spine:${spine}"></span><button class="sm-deck-main" data-deck="${esc(d.name)}" title="Open the deck library on this deck"><b>${esc(d.name)}</b><small>${esc(cmd.join(' + ') || 'No commander')} · ${esc(dayText(d.modified))}</small></button><span class="sm-deck-meta">${cols.length ? symbolize(cols.map(c => `{${c}}`).join('')) : ''}</span><span class="sm-deck-acts"><button class="btn small primary" data-deck-act="play" data-name="${esc(d.name)}" title="Put this deck in seat 1 and open the setup screen">Play</button><button class="btn small" data-deck-act="edit" data-name="${esc(d.name)}" title="Open this deck in the deck builder">Edit</button><button class="btn small" data-deck-act="view" data-name="${esc(d.name)}" title="Charts, combos and checks for this deck">View</button></span></div>`;
   }).join('');
 }
 $('startMenu').addEventListener('click', e => {
+  const act = e.target.closest('[data-deck-act]');
+  if (act) { recentDeckAct(act.dataset.deckAct, act.dataset.name, act); return; }
   const deckBtn = e.target.closest('[data-deck]');
   if (deckBtn) { $('librarySearch').value = deckBtn.dataset.deck; $('btnLibrary').click(); return; }
   const b = e.target.closest('[data-go]');
@@ -3912,6 +4125,7 @@ $('startMenu').addEventListener('click', e => {
     case 'report': saveReport(); break;
     case 'display': $('btnDisplay').click(); break;
     case 'updates': $('btnUpdates').click(); break;
+    case 'keys': showShortcuts(); break;
     case 'tour': toSetup(); startTour(toured); break;
     case 'selftest': window.open('selftest.html', '_blank'); break;
     case 'exit': $('btnExit').click(); break;
@@ -3925,3 +4139,32 @@ if (!$('setup').hidden || openedChallenge) $('startMenu').hidden = true;
 renderMenu();
 if (prefs.autoSets !== false) dailySetCheck().then(r => { if (r) { renderMenu(r); refreshSetLists(); } });
 dailyBulk();
+
+startModals();
+
+installLifeHistory(() => view);
+
+// ---------- the log as a drawer on small screens (design roadmap item 364)
+// Under 1150px the boards are one column and the log used to sit below all of them. There it slides over the table
+// from a button instead; the button shows a dot when lines have arrived while it was shut.
+{
+  const small = matchMedia('(max-width: 1150px)');
+  const btn = $('btnLogDrawer');
+  const shut = (focus = true) => { document.body.classList.remove('log-open'); btn.setAttribute('aria-expanded', 'false'); if (focus) btn.focus({ preventScroll: true }); };
+  document.body.classList.add('has-drawer');
+  btn.addEventListener('click', () => {
+    if (document.body.classList.contains('log-open')) { shut(); return; }
+    document.body.classList.add('log-open');
+    btn.classList.remove('unread');
+    btn.setAttribute('aria-expanded', 'true');
+    $('log').scrollTop = $('log').scrollHeight;
+    $('btnLogShut').focus({ preventScroll: true });
+  });
+  $('btnLogShut').addEventListener('click', () => shut());
+  $('logScrim').addEventListener('click', () => shut());
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && document.body.classList.contains('log-open') && !modalOpen()) { e.preventDefault(); shut(); } });
+  small.addEventListener('change', () => { if (!small.matches) shut(false); });
+  new MutationObserver(list => {
+    if (small.matches && !document.body.classList.contains('log-open') && list.some(m => m.addedNodes.length)) btn.classList.add('unread');
+  }).observe($('log'), { childList: true });
+}

@@ -3,6 +3,7 @@
 // draws the table with the same look as the host, and sends answers back.
 import { esc, symbolize, store } from './util.js';
 import { startI18n } from './i18n.js';
+import { startModals } from './dialogs.js';
 import { renderTabletop } from './manual.js';
 
 /** @type {(id: string) => any} */
@@ -26,7 +27,7 @@ const cardData = new Map();
 // ---------- theme
 const prefs = store('ct.prefs') || {};
 function applyTheme(t) { document.documentElement.dataset.theme = t; $('btnTheme').textContent = t === 'dark' ? '☀' : '☾'; }
-applyTheme(prefs.theme || 'dark');
+applyTheme(prefs.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
 // The friend page follows a language chosen on this device, else the browser's own language
 startI18n(prefs.lang || (navigator.language || 'en').slice(0, 2));
 $('btnTheme').addEventListener('click', () => { prefs.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; store('ct.prefs', prefs); applyTheme(prefs.theme); });
@@ -80,7 +81,7 @@ function cardHtml(c, extra = '') {
   if (c.pt) badges += `<span class="bdg pt">${c.pt}</span>`;
   if (c.counters) badges += `<span class="bdg ctr">+${c.counters}</span>`;
   if (c.loyalty != null) badges += `<span class="bdg loy">${c.loyalty}</span>`;
-  const face = c.faceDown ? `<div class="tkn fd"><b>Face down${c.peek ? `<br><small>${esc(c.peek)}</small>` : ''}</b></div>` : c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
+  const face = c.faceDown ? `<div class="tkn fd"><b>Face down${c.peek ? `<br><small>${esc(c.peek)}</small>` : ''}</b></div>` : c.img ? `<img decoding="async" src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
   return `<div class="${cls}${c.img ? '' : ' noimg'}" data-iid="${c.iid}">${face}<div class="badges">${badges}</div></div>`;
 }
 function rowHtml(cards, stack) {
@@ -189,7 +190,7 @@ function render() {
     if (boardHtml.get(p.idx) !== html) { table.querySelector(`[data-slot="${p.idx}"]`).innerHTML = html; boardHtml.set(p.idx, html); }
   }
   // The stack, shown in the middle of the table
-  const spot = snap.stack.map(s => `<div class="spot" style="--pc:${s.color}"><img src="${esc(s.img)}" alt="${esc(s.name)}"><div class="cap">${s.ability ? `${esc(s.name)}: ${esc(s.label.slice(0, 48))}` : `${esc(s.who)} casts ${esc(s.name)}`}</div></div>`).join('');
+  const spot = snap.stack.map(s => `<div class="spot" style="--pc:${s.color}"><img decoding="async" src="${esc(s.img)}" alt="${esc(s.name)}"><div class="cap">${s.ability ? `${esc(s.name)}: ${esc(s.label.slice(0, 48))}` : `${esc(s.who)} casts ${esc(s.name)}`}</div></div>`).join('');
   if ($('spotlight').dataset.v !== spot) { $('spotlight').innerHTML = spot; $('spotlight').dataset.v = spot; }
   // Log
   const logKey = snap.log.map(e => e.text).join('\n');
@@ -306,7 +307,7 @@ function renderDraftPick() {
   const d = question.draft;
   draftShown = question.id;
   $('abText').innerHTML = `${question.text.replace(/<(?!\/?b>)[^>]*>/g, '')} <span class="muted">(${d.picks.length} picked so far)</span>
-    <div class="lim-grid draft-pack">${d.pack.map(c => `<div class="lim-card" data-pick="${esc(c.name)}" title="${esc(c.name)}">${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
+    <div class="lim-grid draft-pack">${d.pack.map(c => `<div class="lim-card" data-pick="${esc(c.name)}" title="${esc(c.name)}">${c.img ? `<img decoding="async" src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
     ${d.picks.length ? `<p class="muted">Your picks: ${d.picks.map(esc).join(', ')}</p>` : ''}`;
   $('abButtons').innerHTML = ''; $('abButtons').dataset.v = '';
   $('actionBar').hidden = false;
@@ -364,7 +365,7 @@ document.addEventListener('mouseover', e => {
   const t = e.target.closest('[data-iid]');
   const c = t && cardData.get(+t.dataset.iid);
   if (!c) { pv.hidden = true; return; }
-  pv.innerHTML = `<div class="imgs">${c.img ? `<img class="big" src="${esc(c.img)}" alt="">` : ''}</div>
+  pv.innerHTML = `<div class="imgs">${c.img ? `<img decoding="async" class="big" src="${esc(c.img)}" alt="">` : ''}</div>
     <div class="ptext"><h3><span>${esc(c.name)}</span><span>${symbolize(c.cost || '')}</span></h3><div class="ptype">${esc(c.type || '')}${c.pt ? ` · ${esc(c.pt)}` : ''}</div><div class="oracle">${symbolize(c.text || '')}</div></div>`;
   pv.hidden = false;
   const r = pv.getBoundingClientRect();
@@ -395,3 +396,5 @@ async function poll() {
 }
 poll();
 setInterval(() => { if (question && question.id !== answered) renderQuestion(); }, 1000);
+
+startModals();

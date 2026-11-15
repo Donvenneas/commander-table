@@ -99,7 +99,7 @@ export const Fx = {
   },
   // Slow motes drifting over the table (the "magic in the air" layer)
   ambient(el, on = true) {
-    if (!on || calm()) { ambient = null; return; }
+    if (!on || calm() || document.body.classList.contains('less-motion')) { ambient = null; return; }
     if (!ensure()) return;
     ambient = { el, motes: Array.from({ length: 34 }, () => ({ x: Math.random(), y: Math.random(), s: 0.3 + Math.random() * 0.9, ph: Math.random() * TAU, c: Math.random() < 0.5 ? '150,180,255' : '255,210,140' })) };
     start();

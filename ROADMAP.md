@@ -1321,6 +1321,176 @@ chat or model can take any item). Reproductions: `node tests/audit-probes.mjs` (
 - [x] 219. One design system for the whole game ("Grimoire"): obsidian and antique gold with parchment text, a parchment light theme, bundled fonts, and shared buttons, fields, windows, tabs, tables, section headers and charts; the start menu becomes a dashboard, and the deck builder and deck viewer are rebuilt on it.
   - Done: 1.32.0. Design tokens at the top of `public/css/style.css` (colors, the five mana colors, card-type colors, type, spacing, radius, shadow, motion); the old one-off start menu, builder, deck-chart and button styles were removed rather than overridden. Fonts are bundled in `public/fonts` (Cinzel, Inter, JetBrains Mono, SIL Open Font License, licenses beside them): nothing is loaded from a font service and the security policy is unchanged. Start menu: a dashboard with Play/Resume, your record (counted from the game history), the four newest library decks, and the modes in four groups, with icons drawn for the game. Top bar: the same controls in groups (windows, game, view, settings). Deck builder: card gallery with name and cost under each card, sharper pictures on dense screens, a words-only card face while a picture loads or when it fails, copies-in-deck badges, a docked card inspector (opens over the page from the magnifier on narrow screens), sort order, filters that search as they change, a commander banner with its color identity, live mana curve, color pips and card types (`public/js/deckcharts.js`, shared with the deck viewer), format checks (size, commander, copies, color identity, sideboard), foldable type sections, and Search / Deck tabs on phones. Deck viewer: stat tiles and the same charts. Reduced motion is respected from the system setting as well as Display. No game rule, endpoint, saved data or replay format changed; every element id the code and the tour use is kept. New English strings on the dashboard and in the builder are not yet in the other six languages.
 
+## Round 8 (from `DESIGN-ROADMAP.md`: design, interface and accessibility)
+
+### Windows and keyboard
+- [x] 234. Every window is a proper dialog: focus moves into it and back out, Tab stays inside, Escape and a click beside it close it.
+  - Done: 1.33.0. One controller in `public/js/dialogs.js` watches every window, so each still closes its own way. The table's shortcuts wait while a window is open.
+- [x] 233. The game's own question window replaces the browser's confirm and prompt boxes.
+  - Done: 1.33.0. Thirteen confirmations and three text prompts; deleting and clearing get a red button, and Cancel is the default.
+- [x] 232. Notices: short messages at the bottom left that go away by themselves.
+  - Done: 1.33.0. Used for saving a deck from the builder, putting it in a seat, the problem report and link errors.
+- [x] 236. Tab rows work as tabs for the keyboard and screen readers.
+  - Done: 1.33.0. Arrow keys, Home and End move between tabs in the sidebar, Progress, the cEDH meta and the deck builder.
+- [x] 245. Buttons that show only a symbol, and search boxes without a label, have names a screen reader can say.
+  - Done: 1.33.0. Timeline buttons, theme, emotes, close buttons and 19 fields.
+
+### Reaching things without a mouse
+- [x] 238. Hints show for the keyboard and on touch screens, not only under a resting mouse.
+  - Done: 1.34.0. The game's own tooltip appears on keyboard focus and on a long press.
+- [x] 250. Cards on the table say what they are and what state they are in.
+  - Done: 1.34.0. Name, power and toughness, tapped, attacking, blocking, counters and more for screen readers; face-down cards keep their secret.
+- [x] 249. Mana symbols are read as words.
+  - Done: 1.34.0. "White mana", "2 generic mana", "tap", "white or blue mana" in place of "{W}".
+- [x] 257. A "Skip to the table" link, and names for the page's regions.
+  - Done: 1.34.0. The table, the sidebar, the timeline and the controls are labelled for screen readers.
+- [x] 256. The focus ring shows everywhere, including on card art.
+  - Done: 1.34.0. A ring with a dark edge on cards, piles and gallery tiles.
+
+### Start menu
+- [x] 264. Play, Edit and View on each recent deck.
+  - Done: 1.41.0. Play seats it and opens the setup screen; Edit opens it in the deck builder; View opens its charts and checks.
+- [x] 265. A Continue row for what you have begun.
+  - Done: 1.41.0. An Expedition in progress, the next lesson, the next story chapter.
+- [x] 270. Your ranks on the start menu.
+  - Done: 1.41.0. A chip for each format you have ranked games in.
+- [x] 268. The start menu fits a laptop screen without scrolling.
+  - Done: 1.41.0. At 1366×768 and 1440×900.
+
+### Deck analysis
+- [x] 334. Draw odds as a chart.
+  - Done: 1.52.0. A line by turn, on the draw and on the play, with the table beneath.
+- [x] 335. Solo-play results as a chart.
+  - Done: 1.52.0. How often the commander was cast, a combo started and the deck won, by each turn.
+- [x] 338. A legend for the matchup grid.
+  - Done: 1.52.0. And each cell says how many games it stands on.
+- [x] 331. Color sources beside color needs.
+  - Done: 1.39.0. Under each color's bar, a thinner one counts the cards that can make that color; a color nothing makes is pointed out.
+- [x] 333. The mana curve marks its average and gives the median.
+  - Done: 1.39.0. In the deck builder and the deck viewer.
+- [x] 337. The bracket estimate on a five-step scale.
+  - Done: 1.39.0. With Commander Spellbook's estimate marked on the same scale.
+- [x] 339. Print the deck viewer.
+  - Done: 1.39.0. A Print button; the page prints black on white with its charts.
+
+### Phones and small screens
+- [x] 364. The log slides over the table on small screens.
+  - Done: 1.49.0. A Log button with a dot for new lines, instead of the log sitting under every board.
+- [x] 365. Windows fill the screen on phones.
+  - Done: 1.49.0. Their buttons stay in reach at the bottom.
+- [x] 366. Notches, home bars and the on-screen keyboard.
+  - Done: 1.49.0. Bars keep clear of them, and the field you type in scrolls into view.
+
+### Comfort
+- [x] 374. Dates and numbers follow the chosen language.
+  - Done: 1.48.0. Not the browser's own language.
+- [x] 370. Card pictures decode without holding up the page.
+  - Done: 1.48.0.
+- [x] 248. Choose how much a screen reader reads out.
+  - Done: 1.46.0. Main events, everything, your turns only, or combat and wins; mana symbols are said by name.
+- [x] 258. Less background motion.
+  - Done: 1.42.0. A Display switch that stops drifting lights, breathing glows and floating cards, while moves still animate.
+- [x] 260. Easier reading.
+  - Done: 1.42.0. A Display switch for wider spacing and plain headings.
+- [x] 261. A friend's turn clock is announced at 30 and 10 seconds.
+  - Done: 1.42.0. For screen readers, on the host's page.
+
+### The table
+- [x] 288. Turns of the game log fold.
+  - Done: 1.46.0. Click a turn's heading to fold it; Fold turns keeps only the current turn open; each finished turn has a one-line summary.
+- [x] 286. The stack as cards.
+  - Done: 1.45.0. Each item shows its art, the next to resolve stands out, and pointing at one rings its targets.
+- [x] 289. Card art in the game log.
+  - Done: 1.45.0. A Display switch for a small picture beside cast, death and removal lines.
+- [x] 287. A phase track you can read at a glance.
+  - Done: 1.44.0. The current step is larger; click Upkeep, Draw, Combat or End to set a stop there; dots show the stops.
+- [x] 290. Click a life total for its history.
+  - Done: 1.42.0. The changes turn by turn, and commander damage taken.
+- [x] 281. One-on-one games use the whole table.
+  - Done: 1.40.0. The two boards face each other, yours below, with larger cards.
+- [x] 294. The action bar can be moved off your cards.
+  - Done: 1.40.0. Drag the grip at its left; double-click the grip to put it back.
+- [x] 299. The timeline marks where each turn starts.
+  - Done: 1.40.0. Dragging it says which turn you are jumping to.
+- [x] 291. Graveyard, exile and hand windows can be filtered and put in order.
+  - Done: 1.40.0. By name or type; newest first, by name, by type or by mana value.
+- [x] 282. Your own board is at the bottom of the table.
+  - Done: 1.38.0. Whatever seat you take; on a phone it comes first.
+- [x] 295. A clear signal when the game is waiting for you.
+  - Done: 1.38.0. Your board's edge lights, the action bar rises into view, and the tab's title says "Your move".
+- [x] 283. Card size on the table.
+  - Done: 1.38.0. A slider in Display, 70% to 150%.
+- [x] 292. The card preview waits a moment, and can be docked or turned off.
+  - Done: 1.38.0. Display → Card preview: beside the pointer, in the bottom right corner, or off.
+- [x] 300. A full screen button.
+  - Done: 1.38.0. Beside Display in the top bar.
+
+### Deck builder
+- [x] 315. Fill in basic lands.
+  - Done: 1.51.0. A suggested split by the deck's colors, shown before it is added.
+- [x] 323. Search history and kept searches in the deck builder.
+  - Done: 1.51.0. The last ten searches under the field, and a star to keep one.
+- [x] 307. Cards without a picture still look like cards.
+  - Done: 1.50.0. A bar in the card's colors and a mark for its type.
+- [x] 308. Legality marks on cards in the deck builder.
+  - Done: 1.50.0. Banned, not legal, restricted and Game Changer.
+- [x] 309. Rulings and keyword help in the deck builder's inspector.
+  - Done: 1.50.0. A Rulings button, a Flip button for double-faced cards, and keyword help in the rules text.
+- [x] 314. Add a whole list of cards at once.
+  - Done: 1.43.0. Paste names, one a line; names that aren't found are reported.
+- [x] 321. Draw a test hand in the deck builder.
+  - Done: 1.43.0. Draw seven, mulligan and draw, with the land count.
+- [x] 328. Export from the deck builder.
+  - Done: 1.43.0. MTGO file, Arena text, checklist and decklist file.
+- [x] 310. The deck you are building is kept if you close the builder or the game.
+  - Done: 1.37.0. Open the builder again and choose Restore it; it comes back without the internet.
+- [x] 311. Undo and redo in the deck builder.
+  - Done: 1.37.0. Buttons above the list, or Ctrl+Z and Ctrl+Y.
+- [x] 313. Filter and order the deck list.
+  - Done: 1.37.0. Type part of a name or a type; order by mana value or by name.
+- [x] 324. Keys in the card gallery.
+  - Done: 1.37.0. Arrow keys move, Enter adds, C makes the commander, I opens the inspector.
+- [x] 326. More results load as you scroll.
+  - Done: 1.37.0. The gallery reads on by itself near its end.
+
+### Menus
+- [x] 273. The setup screen shows its everyday actions and keeps the rest in three menus.
+  - Done: 1.36.0. More decks, Other modes, and Tour and updates hold fourteen of the twenty-five buttons.
+- [x] 301. The top bar is shorter: tournaments and history are under More.
+  - Done: 1.36.0. Menu, Decks, Batch and Progress stay in the bar.
+- [x] 247. A list of every keyboard shortcut.
+  - Done: 1.36.0. Press ? at the table, or choose Keyboard shortcuts at the foot of the start menu.
+- [x] 237. Menus that work with the keyboard.
+  - Done: 1.36.0. Arrow keys move through a menu and Escape closes it.
+
+### Controls
+- [x] 235. A close button in the same place in every window.
+  - Done: 1.44.0. An × in the top right corner.
+- [x] 243. Segmented controls.
+  - Done: 1.44.0. For Draft / Sealed's choices and Display's Theme and Text size.
+- [x] 231. The theme follows your system until you choose one.
+  - Done: 1.35.0. Display has Theme: Match the system, Dark or Light; the friend's page follows the system too.
+- [x] 242. On/off settings in the top bar are switches.
+  - Done: 1.35.0. Reveal hands, Explain, Follow and Sound.
+- [x] 244. Sliders share one look and say their value.
+  - Done: 1.35.0. Speed reads "Slowest" to "Fastest", the timeline "Step N of M".
+- [x] 255. Bigger touch targets on touch screens.
+  - Done: 1.35.0. Buttons, tabs, fields, piles, switches and sliders grow when the main pointer is a finger.
+- [x] 262. English-only parts are marked as English for screen readers.
+  - Done: 1.35.0. The game log, rules results and Help.
+
+### Stylesheet
+- [x] 378. A check that every element the scripts ask for exists.
+  - Done: 1.47.0. tests/ids.mjs, in CI.
+- [x] 379. A stylesheet lint.
+  - Done: 1.47.0. tests/csslint.mjs keeps literal colors, !important and unused classes from growing; in CI.
+- [x] 369. The fonts load sooner.
+  - Done: 1.47.0. The two faces on the first screen are preloaded.
+- [x] 375. Japanese headings use a matching serif face.
+  - Done: 1.47.0.
+- [x] 221. A named scale for what sits on top of what.
+  - Done: 1.33.0. Layer tokens in the stylesheet replace 24 separate numbers.
+
 ## Next: the design work list (asked for 2026-11-14: "the next 100+ improvements to the design, UI, functionality and accessibility")
 
 The work list is in `DESIGN-ROADMAP.md` (items 220 to 380, self-contained so another chat or model can take any

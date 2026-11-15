@@ -51,6 +51,10 @@
   --glow: 0 0 28px -8px var(--accent);
   --ease: cubic-bezier(.2, .8, .2, 1);
   --fast: .14s; --slow: .32s;
+  /* layers, lowest first: things on the table, bars and effects over it, previews, the start menu, windows, what must sit over a window */
+  --z-arrows: 15; --z-spot: 20; --z-turn: 22; --z-combo: 25; --z-panel: 30; --z-coach: 40;
+  --z-bar: 60; --z-fx: 64; --z-ghost: 65; --z-float: 70; --z-preview: 100;
+  --z-menu: 150; --z-modal: 200; --z-over-modal: 260; --z-popup: 270; --z-ask: 280; --z-goodbye: 300; --z-tour: 400; --z-notice: 450; --z-tip: 500;
   --cw: 66px;
   --ch: calc(var(--cw) * 1.396);
   --topbar: linear-gradient(#1a1820, #121116);
@@ -79,11 +83,10 @@
 :root[data-theme="light"] .le.trigger { color: #6a46c9; }
 :root[data-theme="light"] .le.combo { color: #8a5a00; }
 :root[data-theme="light"] .le.politics { color: #1f6f9e; }
-:root[data-theme="light"] .phase-track span.on { color: #fff; }
+:root[data-theme="light"] .phase-track .ph.on { color: #fff; }
 :root[data-theme="light"] .seat-status .combos { color: #8a5a00; }
 :root[data-theme="light"] .life { background: #ffffff; }
 :root[data-theme="light"] .bhead { background: rgba(0, 0, 0, .03); }
-:root[data-theme="light"] .handrow { background: rgba(0, 0, 0, .05); }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { height: 100%; }
@@ -124,8 +127,8 @@ button { font: inherit; color: inherit; }
 .phase-track { flex: none; }
 .turn-label { font-weight: 700; white-space: nowrap; }
 .phase-track { display: flex; gap: 2px; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 3px; }
-.phase-track span { padding: 3px 9px; border-radius: 99px; font-size: 11px; color: var(--muted); white-space: nowrap; transition: background .2s, color .2s; }
-.phase-track span.on { background: var(--pc, var(--accent)); color: #0d0f13; font-weight: 700; }
+.phase-track .ph { padding: 3px 9px; border-radius: 99px; font-size: 11px; color: var(--muted); white-space: nowrap; transition: background .2s, color .2s; }
+.phase-track .ph.on { background: var(--pc, var(--accent)); color: #0d0f13; font-weight: 700; }
 .controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .btn {
   background: var(--panel-2); border: 1px solid var(--line-2); border-radius: 8px;
@@ -194,7 +197,7 @@ button { font: inherit; color: inherit; }
 .meta-tools .input { flex: 1; min-width: 200px; }
 .meta-body { max-height: calc(100vh - 290px); overflow-y: auto; }
 .seatpicks { display: flex; gap: 4px; white-space: nowrap; }
-.seatpick { border-color: var(--pc) !important; color: var(--pc); min-width: 26px; }
+.seatpick, .btn.seatpick, .btn.seatpick:hover:not(:disabled) { border-color: var(--pc); color: var(--pc); min-width: 26px; }
 .ddb-row { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--line); }
 .ddb-main { min-width: 0; flex: 1; font-size: 12.5px; }
 .ddb-main details p { margin: 4px 0; font-size: 12px; }
@@ -217,7 +220,7 @@ button { font: inherit; color: inherit; }
   .credit { display: none; }
 }
 
-.goodbye { position: fixed; inset: 0; z-index: 300; background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 16px; }
+.goodbye { position: fixed; inset: 0; z-index: var(--z-goodbye); background: var(--bg); display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 16px; }
 .goodbye h1 { margin: 0 0 8px; font-size: 22px; }
 .btn.big { padding: 9px 18px; font-size: 14px; }
 .btn.small { padding: 3px 8px; font-size: 12px; }
@@ -287,12 +290,7 @@ body.calm *, body.calm *::before, body.calm *::after { animation-duration: .01ms
 :root[data-theme="light"] .board::after { opacity: .12; }
 
 /* Zones: each has its own surface and a quiet label, so the board reads at a glance */
-.cmdzone {
-  background: linear-gradient(180deg, rgba(245,183,74,.14), rgba(245,183,74,.03) 70%) !important;
-  border-right: 1px solid rgba(245,183,74,.28) !important;
-}
 .cmdzone .zlabel { color: #e9b866; }
-.field { gap: 5px !important; }
 .row { position: relative; border-radius: 8px; padding: 14px 6px 5px; }
 .row:empty { padding: 0; }
 .row:not(:empty)::before {
@@ -313,18 +311,16 @@ body.calm *, body.calm *::before, body.calm *::after { animation-duration: .01ms
   box-shadow: inset 0 0 0 1px rgba(120,150,255,.12);
 }
 /* Lands: warm earth band along the bottom */
-.row.lands { border-top: 0 !important; }
 .row.lands:not(:empty) {
   background: linear-gradient(180deg, rgba(150,110,60,.16), rgba(90,60,30,.22)), repeating-linear-gradient(90deg, rgba(255,255,255,.02) 0 2px, transparent 2px 9px);
   box-shadow: inset 0 0 0 1px rgba(200,150,90,.14);
 }
 /* Hand: dark leather */
-.handrow { background: linear-gradient(180deg, rgba(60,38,22,.35), rgba(30,18,10,.45)) !important; border-top: 1px solid rgba(200,150,90,.18) !important; }
 :root[data-theme="light"] .row.creatures:not(:empty) { background: rgba(62,207,142,.10); }
 :root[data-theme="light"] .row.others:not(:empty) { background: rgba(201,162,75,.09); }
 :root[data-theme="light"] .row.lands:not(:empty) { background: rgba(180,130,70,.12); }
-:root[data-theme="light"] .handrow { background: rgba(140,95,50,.10) !important; }
-:root[data-theme="light"] .cmdzone { background: rgba(245,183,74,.12) !important; }
+:root[data-theme="light"] .handrow { background: rgba(140,95,50,.10); }
+:root[data-theme="light"] .cmdzone { background: rgba(245,183,74,.12); }
 .board-slot { display: contents; }
 
 /* Readability: tapped cards dim a little, summoning-sick creatures show a small moon */
@@ -340,13 +336,13 @@ body.calm *, body.calm *::before, body.calm *::after { animation-duration: .01ms
 
 /* Turn banner and combat arrows */
 .turn-banner {
-  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: 22; pointer-events: none;
+  position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%); z-index: var(--z-turn); pointer-events: none;
   font-size: 28px; font-weight: 800; letter-spacing: .02em; color: var(--pc); text-shadow: 0 2px 18px rgba(0,0,0,.8);
   animation: turnIn 1.6s ease-out forwards; white-space: nowrap;
 }
 .turn-banner small { display: block; text-align: center; font-size: 12px; color: var(--muted); letter-spacing: .14em; text-transform: uppercase; }
 @keyframes turnIn { 0% { opacity: 0; transform: translate(-50%, -40%) scale(.9); } 15% { opacity: 1; transform: translate(-50%, -50%) scale(1); } 75% { opacity: 1; } 100% { opacity: 0; } }
-.combat-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 15; overflow: visible; }
+.combat-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: var(--z-arrows); overflow: visible; }
 .combat-svg path { fill: none; stroke-width: 3; stroke-linecap: round; filter: drop-shadow(0 0 4px rgba(0,0,0,.7)); }
 .combat-svg path.block { stroke: #9fc1ff; stroke-dasharray: 6 5; stroke-width: 2.5; }
 .board.active { border-color: var(--pc); box-shadow: 0 0 0 1px var(--pc), 0 0 28px -6px var(--pc); }
@@ -388,15 +384,15 @@ body.calm *, body.calm *::before, body.calm *::after { animation-duration: .01ms
 .polchip.arch { background: rgba(255,93,108,.18); border: 1px solid var(--bad); color: #ffb0b8; font-weight: 700; }
 
 .bbody { display: grid; grid-template-columns: calc(var(--cw) + 18px) 1fr; min-height: 0; }
-.cmdzone { border-right: 1px dashed var(--line-2); padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; align-items: center; background: rgba(0,0,0,.12); }
+.cmdzone { border-right: 1px solid rgba(245,183,74,.28); padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; align-items: center; background: linear-gradient(180deg, rgba(245,183,74,.14), rgba(245,183,74,.03) 70%); }
 .zlabel { font-size: 9.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); font-weight: 700; }
 .zone-command { display: flex; flex-direction: column; gap: 6px; }
 .tax { font-size: 10px; color: var(--warn); font-weight: 600; text-align: center; }
-.field { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; overflow: auto; min-height: 0; scrollbar-width: thin; }
+.field { display: flex; flex-direction: column; gap: 5px; padding: 6px 8px; overflow: auto; min-height: 0; scrollbar-width: thin; }
 .row { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; min-height: calc(var(--ch) * .5); }
-.row.lands { margin-top: auto; padding-top: 4px; border-top: 1px dashed var(--line); }
+.row.lands { margin-top: auto; padding-top: 4px; }
 .row:empty { min-height: 0; }
-.handrow { display: flex; gap: 3px; padding: 5px 8px; border-top: 1px solid var(--line); background: rgba(0,0,0,.2); min-height: 30px; align-items: center; overflow-x: auto; scrollbar-width: thin; }
+.handrow { display: flex; gap: 3px; padding: 5px 8px; border-top: 1px solid rgba(200,150,90,.18); background: linear-gradient(180deg, rgba(60,38,22,.35), rgba(30,18,10,.45)); min-height: 30px; align-items: center; overflow-x: auto; scrollbar-width: thin; }
 .handrow .zlabel { margin-right: 6px; }
 .back {
   width: 20px; height: 28px; border-radius: 3px; flex: none;
@@ -438,13 +434,14 @@ body.calm *, body.calm *::before, body.calm *::after { animation-duration: .01ms
 /* ---------- follow mode: the active player's board gets the space */
 body.follow .table { grid-template-columns: repeat(3, 1fr); grid-template-rows: 1.7fr 1fr; }
 body.follow .board.active { grid-column: 1 / -1; order: -1; }
+/* (!important here and on the 5-to-9-player boards: ui.js sizes cards by setting --cw in each board's style attribute) */
 body.follow .board:not(.active) { --cw: 40px !important; }
 /* Small boards: drop the zone counters so the life total always fits */
 body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { display: none; }
 
 /* ---------- action bar (your decisions) */
 .action-bar {
-  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: 60; width: min(760px, calc(100vw - 32px));
+  position: fixed; left: 50%; bottom: 34px; transform: translateX(-50%); z-index: var(--z-bar); width: min(760px, calc(100vw - 32px));
   background: var(--overlay); border: 2px solid var(--good); border-radius: 14px; padding: 10px 14px;
   box-shadow: 0 12px 40px rgba(0,0,0,.6); display: flex; flex-direction: column; gap: 8px;
 }
@@ -458,17 +455,17 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .tl-label { font-size: 11.5px; min-width: 150px; }
 .card.hit { animation: hit .5s; }
 /* damage numbers and zone-change animations */
-.card-float { position: fixed; z-index: 70; transform: translateX(-50%); font: 900 18px/1 var(--font-body); pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,.8), 0 0 2px #000; animation: cardFloat 1.1s ease-out forwards; }
+.card-float { position: fixed; z-index: var(--z-float); transform: translateX(-50%); font: 900 18px/1 var(--font-body); pointer-events: none; text-shadow: 0 2px 4px rgba(0,0,0,.8), 0 0 2px #000; animation: cardFloat 1.1s ease-out forwards; }
 .card-float.dmg { color: #ff5d6c; }
 @keyframes cardFloat { 0% { opacity: 0; transform: translate(-50%, 6px) scale(.7); } 15% { opacity: 1; transform: translate(-50%, 0) scale(1.25); } 100% { opacity: 0; transform: translate(-50%, -34px) scale(1); } }
-.move-ghost { position: fixed; z-index: 65; pointer-events: none; border-radius: 6px; overflow: hidden; }
+.move-ghost { position: fixed; z-index: var(--z-ghost); pointer-events: none; border-radius: 6px; overflow: hidden; }
 .move-ghost img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .move-ghost.dies { filter: grayscale(.6) sepia(.6) hue-rotate(-40deg) saturate(3); box-shadow: 0 0 14px #ff5d6c; }
 .move-ghost.exiled { filter: brightness(1.8) saturate(.2); box-shadow: 0 0 16px #fff; }
 .move-ghost.discard { filter: grayscale(.4); }
 .move-ghost.draw .back { display: block; width: 100%; height: 100%; }
 /* stack panel */
-.stack-panel { position: absolute; right: 12px; top: 12px; z-index: 30; width: min(280px, calc(100% - 24px)); max-height: 46%; overflow-y: auto; background: var(--overlay); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 12px; scrollbar-width: thin; }
+.stack-panel { position: absolute; right: 12px; top: 12px; z-index: var(--z-panel); width: min(280px, calc(100% - 24px)); max-height: 46%; overflow-y: auto; background: var(--overlay); border: 1px solid var(--line-2); border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,.45); font-size: 12px; scrollbar-width: thin; }
 .stack-panel[hidden] { display: none; }
 .sp-head { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 10px; font-weight: 800; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--overlay); }
 .sp-head span { font-weight: 400; font-size: 10.5px; color: var(--muted); }
@@ -503,7 +500,7 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .tkn.fd small { font-weight: normal; opacity: .9; }
 
 /* ---------- spotlight (the stack) */
-.spotlight { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 10px; pointer-events: none; z-index: 20; }
+.spotlight { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); display: flex; gap: 10px; pointer-events: none; z-index: var(--z-spot); }
 .spot { text-align: center; animation: spotIn .3s ease-out; }
 .spot img { width: 200px; border-radius: 11px; box-shadow: 0 18px 50px rgba(0,0,0,.75), 0 0 0 3px var(--pc); display: block; }
 .spot .cap { margin-top: 6px; font-weight: 700; font-size: 12px; background: var(--overlay); border: 1px solid var(--pc); border-radius: 99px; padding: 3px 10px; display: inline-block; }
@@ -523,14 +520,14 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .lim-card.off { opacity: .45; }
 .lim-card.cmdr { border-color: var(--warn); }
 .lim-card .lim-name { position: absolute; left: 4px; right: 4px; bottom: 4px; background: rgba(0,0,0,.7); color: #fff; font-size: 10.5px; padding: 2px 4px; border-radius: 4px; }
-.pass-modal { background: var(--bg); backdrop-filter: none; z-index: 260; }
+.pass-modal { background: var(--bg); backdrop-filter: none; z-index: var(--z-over-modal); }
 .pass-modal h2 { font-size: 26px; }
 .lobby { grid-column: 1 / -1; max-width: 640px; margin: 20px auto; display: flex; flex-direction: column; gap: 10px; }
 .lobby textarea { min-height: 200px; font-family: var(--font-mono); font-size: 12px; }
 /* first-run tour */
-.tour-shade { position: fixed; inset: 0; z-index: 400; }
-.tour-ring { position: fixed; z-index: 401; border: 2px solid var(--accent); border-radius: 10px; box-shadow: 0 0 0 9999px rgba(5,6,8,.62); pointer-events: none; transition: all .2s; }
-.tour-box { position: fixed; z-index: 402; width: min(340px, calc(100vw - 24px)); background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+.tour-shade { position: fixed; inset: 0; z-index: var(--z-tour); }
+.tour-ring { position: fixed; z-index: calc(var(--z-tour) + 1); border: 2px solid var(--accent); border-radius: 10px; box-shadow: 0 0 0 9999px rgba(5,6,8,.62); pointer-events: none; transition: all .2s; }
+.tour-box { position: fixed; z-index: calc(var(--z-tour) + 2); width: min(340px, calc(100vw - 24px)); background: var(--panel); border: 1px solid var(--line-2); border-radius: 12px; padding: 12px 14px; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
 .tour-box small { display: block; color: var(--muted); font-size: 11px; }
 .tour-box b { font-size: 16px; }
 .tour-box p { margin: 6px 0 10px; font-size: 13px; line-height: 1.45; }
@@ -558,7 +555,7 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 .deal-form[hidden] { display: none; }
 .deal-form select { width: auto; max-width: 100%; font-size: 12px; padding: 4px 6px; }
 .le.chat { font-weight: 600; border-left: 3px solid var(--pc, var(--accent)); padding-left: 6px; }
-.say-bubble { position: fixed; transform: translateX(-50%); z-index: 20; background: #fff; color: #111; border-radius: 12px; padding: 4px 10px; font-size: 14px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.35); max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: bubble 3.6s ease forwards; pointer-events: none; }
+.say-bubble { position: fixed; transform: translateX(-50%); z-index: var(--z-spot); background: #fff; color: #111; border-radius: 12px; padding: 4px 10px; font-size: 14px; font-weight: 700; box-shadow: 0 4px 14px rgba(0,0,0,.35); max-width: 80%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: bubble 3.6s ease forwards; pointer-events: none; }
 @keyframes bubble { 0% { opacity: 0; transform: translate(-50%, 6px); } 8%, 80% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; } }
 .log-empty { color: var(--muted); padding: 20px 4px; }
 .le { padding: 3px 4px 3px 8px; border-left: 2px solid transparent; border-radius: 3px; }
@@ -578,7 +575,7 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 
 /* ---------- combo banner */
 .combo-banner {
-  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 25; pointer-events: none;
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: var(--z-combo); pointer-events: none;
   display: flex; flex-direction: column; align-items: center; gap: 2px; max-width: calc(100% - 32px);
   background: var(--overlay); border: 2px solid var(--pc, var(--warn)); border-radius: 12px; padding: 8px 18px;
   box-shadow: 0 0 30px color-mix(in srgb, var(--pc, var(--warn)) 45%, transparent); animation: spotIn .3s ease-out; text-align: center;
@@ -595,7 +592,6 @@ body.follow .board:not(.active) .stats, body.follow .board:not(.active) .mana { 
 
 /* ---------- rules */
 .input { background: var(--bg); border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; color: var(--text); font: inherit; width: 100%; }
-.input:focus { outline: none; border-color: var(--accent); }
 #tab-rules { padding: 10px; gap: 8px; }
 .rules-meta { font-size: 11.5px; color: var(--muted); }
 .rules-meta a { color: var(--accent); }
@@ -609,7 +605,7 @@ mark { background: rgba(201,162,75,.35); color: inherit; border-radius: 2px; }
 
 /* ---------- preview */
 .preview {
-  position: fixed; z-index: 100; display: flex; gap: 10px; pointer-events: none;
+  position: fixed; z-index: var(--z-preview); display: flex; gap: 10px; pointer-events: none;
   background: var(--overlay); border: 1px solid var(--line-2); border-radius: 14px; padding: 10px;
   box-shadow: 0 20px 60px rgba(0,0,0,.7); max-width: 600px;
 }
@@ -628,7 +624,7 @@ mark { background: rgba(201,162,75,.35); color: inherit; border-radius: 2px; }
 .sym { width: 14px; height: 14px; vertical-align: -2px; margin: 0 1px; }
 
 /* ---------- modals */
-.modal { position: fixed; inset: 0; background: rgba(5,6,8,.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: 200; padding: 16px; }
+.modal { position: fixed; inset: 0; background: rgba(5,6,8,.72); backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; z-index: var(--z-modal); padding: 16px; }
 .modal[hidden] { display: none; }
 .modal-card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 16px; width: min(1100px, 100%); max-height: 100%; overflow: auto; box-shadow: 0 30px 80px rgba(0,0,0,.6); }
 .modal-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 18px 20px 10px; }
@@ -725,7 +721,7 @@ mark { background: rgba(201,162,75,.35); color: inherit; border-radius: 2px; }
    Arena-style polish: an arcane table, glassy boards with glowing edges, gem life totals,
    lifted and glowing cards, a battle preview, and the particle layer (fx.js)
    ========================================================================================= */
-.fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 64; }
+.fx-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: var(--z-fx); }
 
 /* The table: a slow-moving arcane nebula under the boards, with a vignette */
 .table-wrap { isolation: isolate; }
@@ -777,7 +773,7 @@ mark { background: rgba(201,162,75,.35); color: inherit; border-radius: 2px; }
 :root[data-theme="light"] .life { color: #fff; }
 /* Phase tracker: glowing steps */
 .phase-track { background: linear-gradient(180deg, #1c2029, #13161c); box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 2px 10px rgba(0,0,0,.35); }
-.phase-track span.on { box-shadow: 0 0 14px -2px var(--pc, var(--accent)); }
+.phase-track .ph.on { box-shadow: 0 0 14px -2px var(--pc, var(--accent)); }
 :root[data-theme="light"] .phase-track { background: linear-gradient(180deg, #fff, #eef0f4); }
 
 /* Cards: deeper shadows, a lift and glow on hover, glowing attack and block states */
@@ -811,7 +807,7 @@ mark { background: rgba(201,162,75,.35); color: inherit; border-radius: 2px; }
 
 /* ---------- battle preview */
 .battle-panel {
-  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 70;
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: var(--z-float);
   width: min(640px, calc(100vw - 24px)); max-height: calc(100vh - 40px); overflow: auto;
   background: linear-gradient(180deg, rgba(20,12,16,.94), rgba(10,11,16,.95));
   border: 1px solid color-mix(in srgb, var(--pc) 60%, #000); border-radius: 16px;
@@ -848,7 +844,6 @@ mark { background: rgba(201,162,75,.35); color: inherit; border-radius: 2px; }
 .bp-held { color: #9fe0c0; }
 .bp-more, .bp-foot { text-align: center; font-size: 11px; color: #9aa3b5; margin-top: 6px; }
 @media (max-width: 600px) { .bp-row { grid-template-columns: auto 30px 1fr; } .bp-out { grid-column: 1 / -1; flex-direction: row; justify-content: flex-end; } .bp-card { width: 48px; height: 67px; } }
-body.calm .battle-panel, body.calm .bp-card, body.calm .card.attacking, body.calm .card.blocking, body.calm .board.active { animation: none !important; }
 
 /* ---------- 1.4.0: long choice lists (library search), monarch and poison chips */
 .ab-buttons.many { max-height: 38vh; overflow-y: auto; align-content: flex-start; }
@@ -860,7 +855,7 @@ body.calm .battle-panel, body.calm .bp-card, body.calm .card.attacking, body.cal
 
 /* ---------- 1.4.1: library, graveyard and exile as labelled piles beside the hand */
 .handbar { display: flex; align-items: stretch; min-width: 0; border-top: 1px solid var(--line); }
-.handbar .handrow { flex: 1; min-width: 0; border-top: 0 !important; }
+.handbar .handrow { flex: 1; min-width: 0; border-top: 0; }
 .piles { display: flex; gap: 5px; padding: 4px 8px 4px 6px; align-items: center; background: rgba(0,0,0,.22); border-left: 1px solid var(--line); }
 .pile { position: relative; width: 38px; height: 52px; padding: 0; border-radius: 4px; border: 1px solid var(--line-2); background: #15161d; color: var(--text); cursor: pointer; overflow: hidden; flex: none; font: inherit; }
 .pile .pimg { position: absolute; inset: 0; background: center 18% / cover no-repeat; }
@@ -881,7 +876,6 @@ body.follow .board:not(.active) .pile small { display: none; }
 .pile.flash { animation: pileFlash .7s ease-out; }
 @keyframes pileFlash { 0% { box-shadow: 0 0 0 0 var(--pc, #8fd3ff); transform: scale(1.12); } 100% { box-shadow: 0 0 0 10px transparent; transform: scale(1); } }
 .polchip.pact { --cc: #c49bff; }
-body.calm .pile.flash { animation: none; }
 
 /* Formats and best-of-three matches (formats.js, match.js) */
 .format-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-top: 8px; }
@@ -932,7 +926,7 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 .stops-table td:first-child { text-align: left; }
 
 /* Lessons, story, expedition, tabletop, deck builder (round 3, items 73–78) */
-.coach { position: fixed; left: 12px; bottom: 90px; width: min(360px, calc(100vw - 24px)); max-height: 50vh; overflow: auto; z-index: 40; padding: 12px 14px; border-radius: 12px; background: var(--panel, #161a22); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 8px 30px #0008; font-size: 13px; line-height: 1.45; }
+.coach { position: fixed; left: 12px; bottom: 90px; width: min(360px, calc(100vw - 24px)); max-height: 50vh; overflow: auto; z-index: var(--z-coach); padding: 12px 14px; border-radius: 12px; background: var(--panel, #161a22); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); box-shadow: 0 8px 30px #0008; font-size: 13px; line-height: 1.45; }
 .coach-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .coach ol { padding-left: 18px; margin: 6px 0 0; } .coach li { margin-bottom: 5px; }
 .after-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -946,7 +940,7 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 .ex-node { display: flex; flex-direction: column; gap: 4px; width: 200px; padding: 12px; border-radius: 12px; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); background: color-mix(in srgb, currentColor 5%, transparent); color: inherit; font: inherit; cursor: pointer; text-align: left; }
 .ex-node:hover { border-color: var(--accent); } .ex-icon { font-size: 26px; } .ex-node small { opacity: .75; }
 .ex-pick { display: flex; flex-wrap: wrap; gap: 4px 14px; max-height: 220px; overflow: auto; margin: 6px 0; font-size: 13px; }
-.tabletop { position: fixed; inset: 0; z-index: 30; overflow: auto; padding: 10px; background: var(--bg, #0b0d11); }
+.tabletop { position: fixed; inset: 0; z-index: var(--z-panel); overflow: auto; padding: 10px; background: var(--bg, #0b0d11); }
 .mt-bar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 8px; }
 .mt-top { display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
 .mt-boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 10px; }
@@ -1018,7 +1012,7 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 .card[data-count]::after { content: attr(data-count); position: absolute; top: 2px; left: 2px; background: rgba(0,0,0,.8); color: #fff; font: 700 11px/1.3 var(--font-body); padding: 0 4px; border-radius: 4px; z-index: 3; pointer-events: none; }
 
 /* Card details (ui.js installDetails): right-click a card */
-.card-details { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.card-details { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: var(--z-bar); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .card-details[hidden] { display: none; }
 .cd-panel { position: relative; background: var(--panel, #1b1f2a); color: var(--text, #e8eaf0); border-radius: 12px; max-width: 760px; width: 100%; max-height: 90vh; overflow: auto; padding: 18px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
 .cd-close { position: absolute; top: 10px; right: 10px; }
@@ -1062,7 +1056,7 @@ body.nudged { animation: nudge-flash .4s ease-in-out 3; }
 /* High contrast and text size (item 128) */
 body.text-scaled { font-size: calc(14px * var(--text-scale, 1)); }
 body.text-scaled .ab-text, body.text-scaled .log, body.text-scaled .btn { font-size: calc(1em * var(--text-scale, 1)); }
-body.contrast { --line: #ffffff; --muted: #e8e8e8; background: #000 !important; color: #fff; }
+body.contrast { --line: #ffffff; --muted: #e8e8e8; background: #000; color: #fff; }
 body.contrast .board, body.contrast .action-bar, body.contrast .modal > div, body.contrast .cd-panel { background: #000 !important; border: 2px solid #fff !important; }
 body.contrast .btn { background: #000; color: #fff; border: 2px solid #fff; }
 body.contrast .btn.primary { background: #ffd400; color: #000; border-color: #ffd400; }
@@ -1089,7 +1083,7 @@ body.contrast .le { color: #fff; }
 .sb-cols .sb-card { display: block; width: 100%; text-align: left; margin: 2px 0; }
 
 /* Streamer view on the friend page (item 142): just the table, for screen capture */
-body.streamer .chatbox, body.streamer #btnAskUndo, body.streamer #btnTheme, body.streamer #actionBar, body.streamer #joinModal { display: none !important; }
+body.streamer .chatbox, body.streamer #btnAskUndo, body.streamer #btnTheme, body.streamer #actionBar, body.streamer #joinModal { display: none; }
 
 /* Connection check in Invite (item 144) */
 .conn-check { margin: 8px 0; }
@@ -1151,7 +1145,7 @@ ul.whatsnew details p { margin: 2px 0 6px; }
 
 /* Rules glossary tooltips (item 181) */
 .kw-tip { text-decoration: underline dotted; text-underline-offset: 2px; cursor: help; }
-.kw-tooltip { position: fixed; z-index: 9999; max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--panel, #1d2230); color: var(--text, #eee); border: 1px solid var(--line, rgba(127,127,127,.4)); box-shadow: 0 6px 20px rgba(0,0,0,.35); font-size: 12.5px; line-height: 1.4; pointer-events: none; }
+.kw-tooltip { position: fixed; z-index: var(--z-tip); max-width: 380px; padding: 8px 10px; border-radius: 8px; background: var(--panel, #1d2230); color: var(--text, #eee); border: 1px solid var(--line, rgba(127,127,127,.4)); box-shadow: 0 6px 20px rgba(0,0,0,.35); font-size: 12.5px; line-height: 1.4; pointer-events: none; }
 .kw-tooltip div { margin-top: 4px; }
 
 /* Help window (item 184) */
@@ -1315,7 +1309,7 @@ details > summary { cursor: pointer; }
 .controls .btn.ghost:hover:not(:disabled) { border-color: var(--line-2); }
 .controls .btn.ghost.danger { border-color: transparent; color: var(--bad); }
 .phase-track { background: var(--deep); border-color: var(--line); }
-.phase-track span.on { color: #0b0a0e; }
+.phase-track .ph.on { color: #0b0a0e; }
 :root[data-theme="light"] .phase-track { background: var(--panel); }
 .timeline { background: var(--subbar); }
 .sidebar { background: linear-gradient(180deg, var(--panel), color-mix(in srgb, var(--panel) 85%, #000)); border-left-color: color-mix(in srgb, var(--accent) 22%, var(--line)); }
@@ -1351,7 +1345,7 @@ details > summary { cursor: pointer; }
    ========================================================================================= */
 .sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
 .ico { width: 22px; height: 22px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
-.start-menu { position: fixed; inset: 0; z-index: 150; overflow: auto; display: flex; justify-content: center; padding: 28px 16px 20px;
+.start-menu { position: fixed; inset: 0; z-index: var(--z-menu); overflow: auto; display: flex; justify-content: center; padding: 28px 16px 20px;
   background:
     radial-gradient(900px 520px at 50% -8%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 65%),
     radial-gradient(800px 600px at 8% 100%, color-mix(in srgb, var(--mana-u) 13%, transparent), transparent 62%),
@@ -1393,14 +1387,15 @@ details > summary { cursor: pointer; }
 .sm-main b { font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: .1em; color: var(--gold-hi); }
 .sm-main small { font-size: 13px; }
 .sm-decks { display: grid; gap: 6px; }
-.sm-deck { display: grid; grid-template-columns: 6px 1fr auto; gap: 12px; align-items: center; padding: 8px 12px 8px 0; text-align: left; overflow: hidden;
-  border-radius: var(--r-md); border: 1px solid var(--line); background: color-mix(in srgb, var(--panel-2) 80%, transparent); color: inherit; font: inherit; cursor: pointer; transition: border-color var(--fast), transform var(--fast); }
-.sm-deck:hover, .sm-deck:focus-visible { border-color: var(--accent); transform: translateX(2px); }
-.sm-deck .spine { align-self: stretch; margin: -8px 0; background: var(--spine, var(--mana-c)); }
-.sm-deck > span { min-width: 0; }
-.sm-deck b { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sm-deck small { color: var(--muted); display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.sm-deck .sm-deck-meta { text-align: right; white-space: nowrap; font-size: 11.5px; color: var(--muted); }
+.sm-deck { display: grid; grid-template-columns: 6px minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 0 8px 0 0; overflow: hidden; border-radius: var(--r-md); border: 1px solid var(--line); background: color-mix(in srgb, var(--panel-2) 80%, transparent); transition: border-color var(--fast); }
+.sm-deck:hover, .sm-deck:focus-within { border-color: var(--accent); }
+.sm-deck .spine { align-self: stretch; background: var(--spine, var(--mana-c)); }
+.sm-deck-main { min-width: 0; padding: 8px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sm-deck-main b, .sm-deck-main small { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sm-deck-main small { color: var(--muted); }
+.sm-deck-meta { white-space: nowrap; }
+.sm-deck-acts { display: inline-flex; gap: 4px; }
+.sm-deck-acts .rune { margin: 0; }
 .sm-news { display: flex; flex-direction: column; gap: 4px; text-align: center; min-height: 1em; color: var(--muted); }
 .sm-news b { color: var(--text); }
 .sm-foot { display: flex; gap: 8px; justify-content: center; align-items: center; flex-wrap: wrap; }
@@ -1418,7 +1413,7 @@ details > summary { cursor: pointer; }
 .ctile { position: relative; display: flex; flex-direction: column; gap: 4px; min-width: 0; cursor: pointer; border-radius: 4.75% / 3.5%; outline-offset: 3px; }
 .ctile-img { position: relative; aspect-ratio: 488 / 680; border-radius: 4.75% / 3.5%; overflow: hidden; background: linear-gradient(110deg, var(--panel-2) 30%, color-mix(in srgb, var(--panel-2) 80%, #fff) 50%, var(--panel-2) 70%) 0 0 / 250% 100%;
   box-shadow: 0 2px 6px rgba(0,0,0,.5), 0 0 0 1px rgba(0,0,0,.6); transition: transform .2s var(--ease), box-shadow .2s; }
-.ctile-img img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ctile-img > img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .ctile:hover .ctile-img, .ctile:focus-visible .ctile-img { transform: translateY(-4px) scale(1.035); box-shadow: 0 14px 26px rgba(0,0,0,.6), 0 0 0 1px color-mix(in srgb, var(--accent) 70%, transparent), 0 0 22px -6px var(--accent); z-index: 2; }
 .ctile.sel .ctile-img { box-shadow: 0 0 0 2px var(--accent), 0 0 22px -4px var(--accent); }
 .ctile-cap { display: flex; justify-content: space-between; gap: 4px; align-items: center; font-size: 11px; line-height: 1.3; padding: 0 2px; min-height: 16px; }
@@ -1444,7 +1439,7 @@ details > summary { cursor: pointer; }
 
 .bld-inspect { display: flex; flex-direction: column; gap: 10px; min-height: 0; overflow: auto; padding: 12px; border-radius: var(--r-lg); border: 1px solid var(--line); background: color-mix(in srgb, var(--deep) 55%, transparent); }
 .bld-inspect .insp-img { aspect-ratio: 488 / 680; border-radius: 4.75% / 3.5%; overflow: hidden; background: var(--panel-2); box-shadow: var(--shadow-2); flex: none; position: relative; }
-.bld-inspect .insp-img img { width: 100%; height: 100%; object-fit: cover; display: block; animation: veilIn .22s ease-out; }
+.bld-inspect .insp-img > img { width: 100%; height: 100%; object-fit: cover; display: block; animation: veilIn .22s ease-out; }
 .insp-name { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--gold-hi); letter-spacing: .03em; }
 .insp-name .cost { flex: none; }
 .insp-type { color: var(--muted); font-size: 12px; display: flex; justify-content: space-between; gap: 8px; }
@@ -1551,7 +1546,7 @@ details > summary { cursor: pointer; }
 .ct-bar { display: flex; height: 12px; border-radius: 99px; overflow: hidden; gap: 2px; background: var(--line); }
 .ct-bar span { width: var(--w); background: var(--c); min-width: 3px; transition: width var(--slow) var(--ease), filter var(--fast); }
 .ct-bar span:hover { filter: brightness(1.25); }
-.ct-legend { list-style: none; margin: 8px 0 0; padding: 0 !important; display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 3px 12px; font-size: 12px; }
+ul.ct-legend { list-style: none; margin: 8px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr)); gap: 3px 12px; font-size: 12px; }
 .ct-legend li { display: flex; align-items: center; gap: 7px; padding: 2px 0; }
 .ct-legend i { width: 9px; height: 9px; border-radius: 2px; background: var(--c); flex: none; }
 .ct-legend b { margin-left: auto; font-family: var(--font-mono); }
@@ -1569,11 +1564,10 @@ details > summary { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }
-body.calm .sm-title::before, body.calm .rune, body.calm .rune::after { animation: none !important; }
 @media (max-width: 1280px) {
   .bld-body { grid-template-columns: minmax(0, 1fr) 380px; }
   .bld-inspect { display: none; }
-  .bld-inspect.open { display: flex; position: fixed; z-index: 260; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 24px); background: var(--panel); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2)); box-shadow: 0 0 0 100vmax rgba(4,3,6,.72), var(--shadow-3); }
+  .bld-inspect.open { display: flex; position: fixed; z-index: var(--z-over-modal); left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(340px, calc(100vw - 24px)); max-height: calc(100vh - 24px); background: var(--panel); border-color: color-mix(in srgb, var(--accent) 45%, var(--line-2)); box-shadow: 0 0 0 100vmax rgba(4,3,6,.72), var(--shadow-3); }
   .bld-inspect.open .insp-close { display: inline-block; }
   .ctile-look { display: inline-flex; }
 }
@@ -1623,3 +1617,421 @@ body.calm .sm-title::before, body.calm .rune, body.calm .rune::after { animation
   .turninfo { order: 2; flex: 1 1 100%; }
   .topbar .controls { order: 3; }
 }
+
+/* =========================================================================================
+   Grimoire layer 8: questions and notices (dialogs.js).
+   ========================================================================================= */
+.ask-modal { z-index: var(--z-ask); }
+.ask-card { width: min(460px, 100%); }
+.ask-card p { margin: 0 0 14px; line-height: 1.55; font-size: 13.5px; }
+.ask-card .input { margin-bottom: 4px; }
+.modal-card:focus { outline: 1px solid color-mix(in srgb, var(--accent) 16%, transparent); outline-offset: -6px; }
+.notices { position: fixed; left: 16px; bottom: 16px; z-index: var(--z-notice); display: flex; flex-direction: column; gap: 8px; width: min(420px, calc(100vw - 32px)); pointer-events: none; }
+.notice { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; border-radius: var(--r-md); background: var(--panel); color: var(--text);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line-2)); border-left: 3px solid var(--accent); box-shadow: var(--shadow-2); font-size: 13px; line-height: 1.45; animation: noticeIn var(--slow) var(--ease); }
+.notice > span { flex: 1; min-width: 0; }
+.notice.good { border-left-color: var(--good); } .notice.bad { border-left-color: var(--bad); } .notice.warn { border-left-color: var(--warn); }
+.notice.out { opacity: 0; transform: translateY(6px); transition: opacity .25s, transform .25s; }
+.notice-x { flex: none; width: 28px; height: 28px; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.notice-x:hover { color: var(--text); background: var(--hover); }
+@keyframes noticeIn { from { opacity: 0; transform: translateY(10px); } }
+@media (max-width: 600px) { .notices { left: 8px; right: 8px; bottom: 8px; width: auto; } }
+
+/* =========================================================================================
+   Grimoire layer 9: reaching things without a mouse (skip link, hints, focus over card art).
+   ========================================================================================= */
+.skip-link { position: fixed; left: 12px; top: -60px; z-index: var(--z-tip); padding: 8px 14px; border-radius: var(--r-md); background: var(--accent); color: var(--on-accent); font-weight: 700; text-decoration: none; transition: top var(--fast); }
+.skip-link:focus { top: 10px; }
+.hint-tip { z-index: var(--z-tip); max-width: min(340px, calc(100vw - 16px)); font-size: 12px; animation: previewIn .12s ease-out; }
+/* a ring that shows on any picture: the focus color with a dark edge outside it */
+.card:focus-visible, .pile:focus-visible, .ctile:focus-visible, .lim-card:focus-visible, .mt-card:focus-visible, .cosm:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; box-shadow: 0 0 0 7px rgba(0,0,0,.75); }
+#table:focus { outline: none; }
+
+/* =========================================================================================
+   Grimoire layer 10: switches, sliders, lists that load or fail, touch sizes.
+   ========================================================================================= */
+/* On/off settings in the top bar: a switch, with the knob's side and the track's color both showing the state */
+.switch input[type=checkbox] { appearance: none; -webkit-appearance: none; flex: none; width: 30px; height: 16px; margin: 0; border-radius: 99px; background: var(--deep); border: 1px solid var(--line-2); position: relative; cursor: pointer; transition: background var(--fast), border-color var(--fast); }
+.switch input[type=checkbox]::before { content: ""; position: absolute; top: 1px; left: 1px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform var(--fast) var(--ease), background var(--fast); }
+.switch input[type=checkbox]:checked { background: color-mix(in srgb, var(--accent) 45%, var(--deep)); border-color: var(--accent); }
+.switch input[type=checkbox]:checked::before { transform: translateX(14px); background: var(--gold-hi); }
+.switch:hover { color: var(--text); }
+.switch:has(input:checked) { color: var(--text); }
+/* Sliders: one track and thumb for speed, volume and the timeline */
+input[type=range] { -webkit-appearance: none; appearance: none; height: 18px; background: none; cursor: pointer; }
+input[type=range]::-webkit-slider-runnable-track { height: 4px; border-radius: 99px; background: linear-gradient(90deg, var(--accent-2), var(--line-2)); }
+input[type=range]::-moz-range-track { height: 4px; border-radius: 99px; background: var(--line-2); }
+input[type=range]::-moz-range-progress { height: 4px; border-radius: 99px; background: var(--accent); }
+input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; margin-top: -5px; border-radius: 50%; background: linear-gradient(180deg, var(--gold-hi), var(--accent)); border: 1px solid var(--accent-2); box-shadow: 0 1px 4px rgba(0,0,0,.5); transition: transform var(--fast); }
+input[type=range]::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 1px solid var(--accent-2); }
+input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.15); }
+input[type=range]:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; border-radius: 99px; }
+/* Loading rows: three grey bars a row, lit by a slow sweep */
+.skel { display: grid; gap: 10px; padding: 10px 0; }
+.skel-row { display: grid; grid-template-columns: 40px 1fr 90px; gap: 14px; align-items: center; }
+.skel-row i { height: 12px; border-radius: 99px; background: linear-gradient(100deg, var(--line) 30%, var(--line-2) 50%, var(--line) 70%) 0 0 / 300% 100%; animation: sweep 1.6s linear infinite; }
+.skel-row:nth-child(odd) i:nth-child(2) { width: 70%; }
+@keyframes sweep { to { background-position: -300% 0; } }
+.empty-state.error b { color: var(--bad); }
+.empty-state .btn { margin-top: 4px; }
+.log-empty { display: flex; align-items: center; justify-content: center; min-height: 120px; text-align: center; font-family: var(--font-display); letter-spacing: .06em; }
+/* Fingers: bigger targets wherever the main pointer is a touch screen */
+@media (pointer: coarse) {
+  .btn, .tabs button, .help-link, .sm-btn, select, .input { min-height: 44px; }
+  .btn.small, .seatpick, .chatbox .emotes button, .bld-btns .btn, .notice-x, .ctile-look { min-height: 40px; min-width: 40px; }
+  .zbtn { min-height: 34px; padding: 4px 10px; }
+  .pile { width: 46px; height: 62px; }
+  .switch { min-height: 40px; }
+  .switch input[type=checkbox] { width: 40px; height: 22px; }
+  .switch input[type=checkbox]::before { width: 18px; height: 18px; }
+  .switch input[type=checkbox]:checked::before { transform: translateX(18px); }
+  input[type=range] { height: 32px; }
+  input[type=range]::-webkit-slider-thumb { width: 22px; height: 22px; margin-top: -9px; }
+  .bld-colors label { width: 40px; height: 40px; }
+  .color-pick label { min-height: 36px; padding: 6px 10px; }
+}
+
+/* =========================================================================================
+   Grimoire layer 11: menus and the shortcut sheet.
+   ========================================================================================= */
+.menu { display: inline-flex; }
+.menu-btn::after { content: ""; display: inline-block; width: 5px; height: 5px; margin-left: 7px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: translateY(-2px) rotate(45deg); transition: transform var(--fast); }
+.menu-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--gold-hi); }
+.menu-btn[aria-expanded="true"]::after { transform: translateY(1px) rotate(225deg); }
+.menu-list { position: fixed; z-index: var(--z-popup); display: flex; flex-direction: column; gap: 1px; min-width: 200px; max-width: min(340px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto; padding: 5px;
+  background: var(--panel); border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line-2)); border-radius: var(--r-lg); box-shadow: var(--shadow-2); animation: previewIn .12s ease-out; }
+.menu-list > .btn, .controls .menu-list > .btn.ghost { display: block; width: 100%; text-align: left; white-space: nowrap; border: 1px solid transparent; background: none; box-shadow: none; padding: 7px 10px; border-radius: var(--r-sm); font-weight: 500; color: var(--text); text-decoration: none; }
+.menu-list > .btn:hover:not(:disabled), .menu-list > .btn:focus-visible { background: color-mix(in srgb, var(--accent) 14%, transparent); border-color: transparent; color: var(--gold-hi); }
+.menu-list > .btn:focus-visible { outline-offset: -2px; }
+.keys-card { width: min(620px, 100%); }
+.keys-table { width: 100%; }
+.keys-table th { width: 44%; text-transform: none; letter-spacing: 0; font-size: 12.5px; color: var(--text); border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent); padding: 6px 8px; }
+kbd { font-family: var(--font-mono); font-size: 11.5px; padding: 2px 7px; border-radius: var(--r-sm); background: var(--deep); border: 1px solid var(--line-2); border-bottom-width: 2px; white-space: nowrap; }
+
+/* Deck builder: undo, redo, filter and order above the list */
+.bld-tools { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.bld-tools .input { width: auto; padding: 4px 8px; font-size: 12px; }
+.bld-tools #bldDeckFilter { flex: 1 1 120px; min-width: 0; }
+.cface .sym { width: 12px; height: 12px; margin: 0 1px 0 0; }
+
+/* =========================================================================================
+   Grimoire layer 12: the table for the person playing.
+   ========================================================================================= */
+/* 282: your own board sits last, so it is at the bottom of the table (first on a narrow, one-column screen) */
+.table .board.you { order: 9; }
+@media (max-width: 1150px) { .table .board.you { order: -1; } }
+/* 295: the game is waiting for you */
+.action-bar { animation: barIn .45s var(--ease); }
+@keyframes barIn { 0% { opacity: 0; transform: translateX(-50%) translateY(16px); } 60% { box-shadow: var(--shadow-2), 0 0 50px -6px var(--good); } }
+body.remote .action-bar { animation-name: veilIn; }
+body.your-move .board.you { border-color: var(--good); box-shadow: 0 0 0 1px var(--good), 0 0 30px -8px var(--good), 0 10px 30px rgba(0,0,0,.35); }
+/* 292: the card preview parked in the corner */
+body[data-preview="dock"] .preview { right: 16px; bottom: 40px; left: auto; top: auto; max-height: calc(100vh - 80px); overflow: hidden; }
+.ctl-sys .btn .ico { width: 16px; height: 16px; vertical-align: -3px; }
+#btnFull[aria-pressed="true"] { color: var(--gold-hi); }
+
+/* =========================================================================================
+   Grimoire layer 13: more for the charts, and paper.
+   ========================================================================================= */
+.chart-curve { position: relative; }
+.cc-avg { position: absolute; left: var(--x); top: 0; bottom: 17px; width: 0; border-left: 2px dashed var(--mana-u); pointer-events: auto; }
+.cc-avg::before { content: ""; position: absolute; left: -5px; top: -2px; border: 4px solid transparent; border-top-color: var(--mana-u); }
+.cc-key { display: inline-block; width: 12px; border-top: 2px dashed var(--mana-u); vertical-align: middle; margin-right: 6px; }
+.cp-row.src { margin-top: -3px; font-size: 11px; color: var(--muted); }
+.cp-row.src .cp-track { height: 4px; }
+.cp-row.src .cp-fill { opacity: .65; }
+.cp-row.src b { font-weight: 500; color: var(--muted); }
+.cp-row.src small { font-family: var(--font-body); font-size: 9.5px; white-space: nowrap; }
+.chart-note .warn { font-size: inherit; }
+.bracket-scale { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin: 4px 0 8px; max-width: 620px; }
+.bs-step { position: relative; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 8px 4px 7px; border: 1px solid var(--line); border-radius: var(--r-md); color: var(--muted); background: color-mix(in srgb, var(--deep) 55%, transparent); min-width: 0; }
+.bs-step b { font-family: var(--font-mono); font-size: 16px; }
+.bs-step small { font-size: 10.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.bs-step.below { border-bottom-color: var(--accent-2); }
+.bs-step.on { border-color: var(--accent); color: var(--gold-hi); background: color-mix(in srgb, var(--accent) 14%, var(--deep)); box-shadow: 0 0 18px -8px var(--accent); }
+.bs-step i { position: absolute; top: -8px; right: 4px; font-style: normal; font-size: 9px; letter-spacing: .06em; text-transform: uppercase; padding: 0 5px; border-radius: 99px; background: var(--panel); border: 1px solid var(--mana-u); color: var(--mana-u); }
+/* Paper: the open window, black on white, nothing to click */
+@media print {
+  :root, :root[data-theme="light"] { --bg: #fff; --panel: #fff; --panel-2: #fff; --deep: #fff; --text: #000; --muted: #333; --gold-hi: #000; --accent: #555; --accent-2: #333; --line: #bbb; --line-2: #888; --link: #000; }
+  html, body { height: auto; overflow: visible; background: #fff; }
+  body > :not(.modal), .modal[hidden], .modal .btn, .modal select, .modal input, .modal-foot, .notices, .hint-tip { display: none; }
+  body > .modal:not([hidden]) { position: static; display: block; padding: 0; background: none; animation: none; }
+  .modal .modal-card { width: 100%; max-height: none; overflow: visible; border: 0; outline: 0; box-shadow: none; background: #fff; animation: none; }
+  .deck-body { max-height: none; overflow: visible; }
+  .modal-card h2, .modal-card h3 { color: #000; break-after: avoid; }
+  .modal-card h3::before { box-shadow: none; }
+  .deck-stats > div, .stat, .bs-step { background: none; break-inside: avoid; }
+  .cc-bar, .cp-fill, .ct-bar span, .ct-legend i { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-shadow: none; animation: none; }
+  .cc-bar { background: #555; }
+}
+
+/* =========================================================================================
+   Grimoire layer 14: one on one, the movable action bar, the zone window's tools.
+   ========================================================================================= */
+/* 281: two players face each other across the whole table (yours below: .board.you is last) */
+.table[data-n="2"] { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; }
+body.follow .table[data-n="2"] { grid-template-columns: 1fr; grid-template-rows: 1.5fr 1fr; }
+/* 294 */
+.action-bar { padding-left: 34px; }
+.ab-grip { position: absolute; left: 6px; top: 8px; width: 22px; height: 26px; padding: 0; border: 0; border-radius: var(--r-sm); background: none; color: var(--muted); font-size: 15px; line-height: 1; cursor: grab; touch-action: none; }
+.ab-grip:hover, .ab-grip:focus-visible { color: var(--text); background: var(--hover); }
+.ab-grip:active { cursor: grabbing; }
+.action-bar.moved { bottom: auto; transform: none; animation-name: veilIn; }
+body.remote .ab-grip { display: none; }
+@media (max-width: 600px) { .ab-grip { display: none; } .action-bar { padding-left: 14px; } }
+/* 291 */
+#zoneTools { padding-top: 0; padding-bottom: 8px; }
+#zoneTools .input { flex: 1; min-width: 160px; }
+.zone-grid { padding-left: 24px; padding-right: 24px; }
+.zone-grid .card { cursor: zoom-in; }
+
+/* Dashboard: what to continue, your ranks, and a tighter fit on a laptop screen (items 265, 268, 270) */
+.sm-continue { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 0 2px; }
+.sm-continue .muted { font-family: var(--font-display); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; margin-right: 4px; }
+.sm-ranks { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.sm-ranks:empty { display: none; }
+.sm-ranks .rank-chip { background: none; font: inherit; font-weight: 700; font-size: 11.5px; cursor: pointer; padding: 2px 10px; }
+.sm-ranks .rank-chip:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+@media (min-width: 901px) {
+  .sm-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .sm-btn { grid-template-columns: 1fr; padding: 9px 10px; min-height: 0; }
+  .sm-btn .ico { grid-row: auto; width: 20px; height: 20px; margin-bottom: 3px; }
+  .sm-main { grid-template-columns: auto 1fr; padding: 14px 18px; min-height: 0; }
+  .sm-main .ico { grid-row: span 2; width: 30px; height: 30px; margin: 0; }
+}
+@media (min-width: 901px) and (max-height: 940px) {
+  .start-menu { padding-top: 14px; padding-bottom: 10px; }
+  .sm-inner { gap: 12px; }
+  .sm-title::before { width: 96px; height: 96px; margin-left: -48px; top: -12px; -webkit-mask: radial-gradient(circle, transparent 42px, #000 43px, #000 47px, transparent 48px); mask: radial-gradient(circle, transparent 42px, #000 43px, #000 47px, transparent 48px); }
+  .sm-logo { width: 60px; height: 60px; }
+  .sm-title h1 { margin: 8px 0 2px; font-size: clamp(26px, 3.4vw, 38px); }
+  .sm-title p { font-size: 13px; }
+  .orn { margin-top: 6px; }
+  .sm-layout { gap: 12px; }
+  .sm-col { gap: 10px; }
+  .sm-panel { padding: 10px 12px 12px; }
+  .sm-panel h2 { margin-bottom: 8px; }
+  .sm-main b { font-size: 20px; }
+}
+@media (min-width: 901px) {
+  /* each group's buttons share one row, however many there are */
+  .sm-grid { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); }
+}
+@media (min-width: 901px) and (max-height: 800px) {
+  .sm-title::before { display: none; }
+  .sm-logo { width: 44px; height: 44px; }
+  .sm-title h1 { margin-top: 4px; font-size: 28px; }
+  .sm-title p, .sm-title .orn { display: none; }
+  nav.sm-col .sm-btn small { display: none; }
+  nav.sm-col .sm-btn { grid-template-columns: auto 1fr; align-items: center; }
+  nav.sm-col .sm-btn .ico { margin: 0; }
+  .sm-foot .btn { min-height: 0; }
+}
+
+/* =========================================================================================
+   Grimoire layer 15: states that don't rest on color alone, motion levels, easier reading, life history.
+   ========================================================================================= */
+/* 253: a mark as well as a glow. Attacking: crossed swords. Blocking: a shield. Chosen: a tick. Can be chosen: a ring. */
+.card.attacking::before, .card.blocking::before, .card.chosen::before, .card.pickable::before {
+  position: absolute; top: -5px; left: -5px; z-index: 4; width: 17px; height: 17px; border-radius: 50%; display: grid; place-items: center;
+  font: 700 10px/1 var(--font-body); background: #0c0b0f; color: #fff; border: 1.5px solid currentColor; pointer-events: none; box-shadow: 0 1px 4px rgba(0,0,0,.7);
+}
+.card.pickable::before { content: ""; width: 9px; height: 9px; top: -3px; left: -3px; background: var(--good); border-color: #0c0b0f; }
+.card.attacking::before { content: "⚔"; color: #ff9aa5; width: 17px; height: 17px; top: -5px; left: -5px; background: #0c0b0f; border-color: currentColor; }
+.card.blocking::before { content: "⛨"; color: #a9cdff; width: 17px; height: 17px; top: -5px; left: -5px; background: #0c0b0f; border-color: currentColor; }
+.card.chosen::before { content: "✓"; color: #fff; width: 17px; height: 17px; top: -5px; left: -5px; background: var(--bad); border-color: #0c0b0f; }
+.card.tapped::before { transform: rotate(-90deg); }
+.handrow .card::before { top: -3px; }
+/* 258: less background motion (Display): ambient loops stop; things that move for a reason still move */
+body.less-motion .table-wrap::before, body.less-motion .sm-title::before, body.less-motion .spot img, body.less-motion .board.active,
+body.less-motion .card.attacking, body.less-motion .card.blocking, body.less-motion .bp-swords, body.less-motion .bp-clash,
+body.less-motion .life.low, body.less-motion .board.thinking .pname::after, body.less-motion .combat-svg path { animation: none; }
+body.less-motion .sm-main::after { display: none; }
+/* 260: easier reading (Display) */
+body.readable { letter-spacing: .03em; word-spacing: .1em; line-height: 1.65; }
+body.readable h1, body.readable h2, body.readable h3, body.readable .brand, body.readable .tabs button, body.readable .bld-cat > summary,
+body.readable .sm-main b, body.readable .le.turn, body.readable .turn-label, body.readable .insp-name, body.readable .bld-cmd b {
+  font-family: var(--font-body); text-transform: none; letter-spacing: .02em; }
+body.readable .sm-title h1 { letter-spacing: .04em; }
+body.readable .muted, body.readable small { letter-spacing: .03em; }
+body.readable p, body.readable li, body.readable .le { max-width: 78ch; }
+/* 290 */
+.life { cursor: pointer; }
+.life-pop { z-index: var(--z-preview); pointer-events: auto; width: 250px; max-width: calc(100vw - 16px); }
+.life-pop table { width: 100%; border-collapse: collapse; margin-top: 6px; font-size: 12px; }
+.life-pop td { padding: 2px 4px; border-bottom: 1px solid var(--line); }
+.life-pop ul { margin: 4px 0 0; padding-left: 16px; }
+
+/* Deck builder: paste a list, a test hand, export (items 314, 321, 328) */
+.bld-paste { border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); padding-top: 6px; }
+.bld-paste > summary { font-size: 12px; color: var(--muted); padding: 2px 0; }
+.bld-paste > summary:hover, .bld-paste[open] > summary { color: var(--text); }
+.bld-paste textarea { margin: 6px 0; font-family: var(--font-mono); font-size: 12px; resize: vertical; }
+.bld-paste .gf-row { margin-top: 8px; gap: 5px; }
+.bld-paste .gf-card { width: 74px; }
+.hand-card.drawn .gf-card { outline: 2px solid var(--mana-u); outline-offset: 1px; }
+.hand-name { display: inline-flex; align-items: center; justify-content: center; aspect-ratio: 488 / 680; padding: 4px; text-align: center; font-size: 10px; border: 1px solid var(--line-2); background: var(--panel-2); }
+
+/* =========================================================================================
+   Grimoire layer 16: the close mark, segmented controls, the phase track (items 235, 243, 287).
+   ========================================================================================= */
+/* 235: a zero-height row that stays at the top of the window while it scrolls, holding the × at the right */
+.modal-x-row { position: sticky; top: 0; height: 0; z-index: 6; display: flex; justify-content: flex-end; overflow: visible; pointer-events: none; }
+.modal-x { pointer-events: auto; margin: 10px 10px 0 0; width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 50%;
+  border: 1px solid var(--line-2); background: color-mix(in srgb, var(--panel-2) 88%, transparent); color: var(--muted); font: 400 22px/1 var(--font-body); cursor: pointer;
+  transition: color var(--fast), border-color var(--fast), background var(--fast); }
+.modal-x:hover { color: var(--text); border-color: var(--accent); background: var(--panel-2); }
+.modal-card.has-x > .modal-head, .modal-card.has-x > h2:first-of-type { padding-right: 56px; }
+.was-close { display: none; }
+.builder-card > .modal-x-row { position: absolute; top: 0; right: 0; }
+@media (max-width: 700px) { .modal-x { width: 44px; height: 44px; margin: 6px 6px 0 0; } }
+@media print { .modal-x-row { display: none; } }
+
+/* 243: segmented control. Either real radio buttons in labels, or buttons made from a <select data-seg> (dialogs.js) */
+.seg { display: inline-flex; flex-wrap: wrap; padding: 3px; gap: 2px; border: 1px solid var(--line-2); border-radius: var(--r-md); background: var(--deep); vertical-align: middle; }
+.seg > label, .seg-b { position: relative; display: inline-flex; align-items: center; min-height: 28px; padding: 3px 12px; border: 0; border-radius: calc(var(--r-md) - 3px);
+  background: none; color: var(--muted); font: inherit; font-size: 12.5px; cursor: pointer; white-space: nowrap; transition: background var(--fast), color var(--fast); }
+.seg > label > input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.seg > label:hover, .seg-b:hover { color: var(--text); }
+.seg > label:has(input:checked), .seg-b[aria-checked="true"] { background: color-mix(in srgb, var(--accent) 22%, var(--panel-2)); color: var(--text); font-weight: 600; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent); }
+.seg > label:has(input:focus-visible), .seg-b:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.seg-src { display: none; }
+@media (max-width: 700px) { .seg > label, .seg-b { min-height: 40px; white-space: normal; } }
+
+/* 287: the phase track. The current step is larger; dots under a step are the stops set for the next game
+   (left: your turns, right: opponents' turns); the name after the track is who the game is waiting for. */
+.phase-track { align-items: center; }
+.phase-track .ph { position: relative; border: 0; background: none; font-family: inherit; line-height: 1.3; }
+.phase-track button.ph { cursor: pointer; }
+.phase-track button.ph:hover { color: var(--text); }
+.phase-track .ph.on { font-size: 13px; padding: 4px 13px; letter-spacing: .02em; }
+.phase-track .ph.on:hover { color: #0b0a0e; }
+.ph-dots { position: absolute; left: 0; right: 0; bottom: -1px; display: flex; justify-content: center; gap: 3px; pointer-events: none; }
+.ph-dots > i { width: 4px; height: 4px; border-radius: 50%; background: var(--accent); opacity: 0; }
+.ph.stop-my .ph-dots > i:first-child { opacity: 1; }
+.ph.stop-opp .ph-dots > i:last-child { opacity: 1; background: none; box-shadow: inset 0 0 0 1px var(--accent); }
+.ph.on .ph-dots > i { background: #0b0a0e; }
+.ph.on.stop-opp .ph-dots > i:last-child { background: none; box-shadow: inset 0 0 0 1px #0b0a0e; }
+.ph-who { font-size: 11px; color: var(--muted); white-space: nowrap; padding: 0 9px 0 7px; }
+.ph-who:empty { display: none; }
+.ph-who::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; background: var(--dc, var(--accent)); }
+@media (max-width: 900px) { .ph-who { display: none; } }
+
+/* =========================================================================================
+   Grimoire layer 17: the stack as cards, card art in the log (items 286, 289).
+   ========================================================================================= */
+.stack-panel { width: min(300px, calc(100% - 24px)); }
+.sp-item { align-items: center; padding: 7px 10px 7px 8px; transition: background var(--fast); }
+.sp-item:hover { background: color-mix(in srgb, var(--pc) 10%, transparent); }
+.sp-art { position: relative; flex: none; width: 54px; aspect-ratio: 4 / 3; border-radius: 5px; overflow: hidden; background: var(--deep); border: 1px solid color-mix(in srgb, var(--pc) 60%, var(--line-2)); }
+.sp-art > img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sp-item.countered .sp-art > img { filter: grayscale(1) brightness(.6); }
+.sp-art > em { position: absolute; left: 0; right: 0; bottom: 0; padding: 1px 0; text-align: center; font: 700 8.5px/1.3 var(--font-body); letter-spacing: .08em; text-transform: uppercase; color: #0b0a0e; background: var(--pc); }
+.sp-item.next { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pc) 45%, transparent); }
+.sp-item.next .sp-art { width: 64px; box-shadow: 0 0 12px -2px var(--pc); }
+/* what the hovered stack item points at */
+.card.aimed, .avatar.aimed { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 16px 2px color-mix(in srgb, var(--accent) 60%, transparent); }
+/* 289 */
+.le-thumb { display: none; }
+body.log-art .le.has-thumb { display: flow-root; }
+body.log-art .le-thumb { display: block; float: left; width: 38px; aspect-ratio: 4 / 3; object-fit: cover; margin: 2px 7px 1px 0; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--pc, var(--line-2)) 55%, var(--line-2)); }
+
+/* =========================================================================================
+   Grimoire layer 18: turns of the log fold (item 288).
+   ========================================================================================= */
+.le.turn { cursor: pointer; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.le.turn::before { content: "▾"; font-family: var(--font-body); font-size: 10px; color: var(--muted); transition: transform var(--fast); }
+.le.turn.folded::before { transform: rotate(-90deg); }
+.le.turn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.le-sum { margin-left: auto; font: 500 10.5px/1.4 var(--font-body); letter-spacing: 0; text-transform: none; color: var(--muted); }
+.le-sum:empty { display: none; }
+#log:not(.searching) .le.fold-hide { display: none; }
+#logFold[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+
+/* 375: Cinzel has no kana or kanji. In Japanese, headings fall to a serif (mincho) face that has them, not to a sans. */
+:root:lang(ja) { --font-display: "Cinzel", "Yu Mincho", "YuMincho", "Hiragino Mincho ProN", "Noto Serif JP", "MS PMincho", serif; }
+
+/* =========================================================================================
+   Grimoire layer 19: phones. Windows as sheets, safe areas, the log as a drawer (items 364, 365, 366).
+   ========================================================================================= */
+/* 366: keep clear of notches and the home bar (the pages ask for viewport-fit=cover) */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+.topbar { padding-top: max(8px, env(safe-area-inset-top)); }
+.action-bar { bottom: calc(14px + env(safe-area-inset-bottom)); }
+.notices { bottom: calc(16px + env(safe-area-inset-bottom)); }
+.start-menu { padding-top: max(28px, env(safe-area-inset-top)); padding-bottom: max(20px, env(safe-area-inset-bottom)); }
+
+/* 365: under 600px a window is a sheet that fills the screen; its head and its buttons stay in reach */
+@media (max-width: 600px) {
+  .action-bar { bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .notices { bottom: calc(8px + env(safe-area-inset-bottom)); }
+  .modal:not(.ask-modal):not(.pass-modal) { padding: 0; align-items: stretch; }
+  .modal:not(.ask-modal):not(.pass-modal) > .modal-card { width: 100%; max-width: none; max-height: none; height: 100%; border-radius: 0; border-left: 0; border-right: 0;
+    padding-top: env(safe-area-inset-top); }
+  .modal:not(.ask-modal):not(.pass-modal) > .modal-card > .modal-head { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line); }
+  .modal:not(.ask-modal):not(.pass-modal) > .modal-card > .modal-foot { position: sticky; bottom: 0; z-index: 5; background: var(--panel); border-top: 1px solid var(--line);
+    padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+  .modal:not(.ask-modal):not(.pass-modal) > .modal-card > .modal-head p { display: none; }
+}
+
+/* 364: the log as a drawer under 1150px */
+.log-fab, .log-scrim, .drawer-x { display: none; }
+@media (max-width: 1150px) {
+  body.has-drawer .log-fab { display: inline-flex; align-items: center; gap: 6px; position: fixed; right: calc(12px + env(safe-area-inset-right)); bottom: calc(12px + env(safe-area-inset-bottom));
+    z-index: var(--z-bar); min-height: 44px; padding: 8px 14px; border-radius: 99px; border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--line-2));
+    background: var(--panel-2); color: var(--text); font: 600 13px/1 var(--font-body); box-shadow: var(--shadow-2); cursor: pointer; }
+  .log-fab .ico { width: 16px; height: 16px; }
+  .log-fab .dot { display: none; width: 9px; height: 9px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .log-fab.unread .dot { display: block; }
+  body.has-drawer .sidebar { position: fixed; top: 0; right: 0; bottom: 0; height: auto; width: min(420px, 92vw); z-index: var(--z-float); border-top: 0;
+    border-left: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line-2)); box-shadow: var(--shadow-3);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) 0;
+    transform: translateX(105%); visibility: hidden; transition: transform var(--slow) var(--ease), visibility 0s linear var(--slow); }
+  body.has-drawer.log-open .sidebar { transform: none; visibility: visible; transition: transform var(--slow) var(--ease), visibility 0s; }
+  body.has-drawer.log-open .log-scrim { display: block; position: fixed; inset: 0; z-index: calc(var(--z-float) - 1); background: color-mix(in srgb, var(--deep) 60%, transparent); }
+  body.has-drawer .drawer-x { display: grid; place-items: center; margin-left: auto; width: 40px; min-height: 40px; border: 0; background: none; color: var(--muted); font: 400 22px/1 var(--font-body); cursor: pointer; }
+  body.has-drawer .drawer-x:hover { color: var(--text); }
+  /* (room for the Log button under the last board) */
+  body.has-drawer .layout { padding-bottom: 64px; }
+}
+
+/* =========================================================================================
+   Grimoire layer 20: cards in the builder. A frame for cards without a picture, legality marks,
+   the other face, rulings (items 304, 307, 308, 309).
+   ========================================================================================= */
+.cface { padding-top: calc(8% + 6px); overflow: hidden; }
+.cface::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 6px; background: var(--cf, var(--mana-c)); }
+.cface-type { position: absolute; right: 6%; bottom: 5%; font-style: normal; font-size: 13px; color: var(--muted); opacity: .8; }
+.cface .pt { margin-right: 18px; }
+.cmarks { position: absolute; left: 5px; top: 5px; z-index: 3; display: flex; gap: 3px; pointer-events: auto; }
+.cmark { display: grid; place-items: center; min-width: 20px; height: 20px; padding: 0 4px; border-radius: 99px; font: 800 9.5px/1 var(--font-body); letter-spacing: .02em;
+  background: var(--deep); color: var(--gold-hi); border: 1px solid currentColor; box-shadow: var(--shadow-1, 0 1px 4px color-mix(in srgb, var(--deep) 70%, transparent)); }
+.cmark.ban { color: var(--bad); font-size: 13px; }
+.insp-mark { font-size: 11.5px; font-weight: 600; color: var(--gold-hi); }
+.insp-mark.ban { color: var(--bad); }
+.insp-img > img { transition: transform .16s ease-in; }
+.insp-img > img.flipping { transform: rotateY(90deg); }
+.insp-rulings { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: 12px; line-height: 1.5; max-height: 220px; overflow: auto; }
+.insp-rulings p { margin: 0 0 6px; }
+
+/* Deck builder: keep a search (item 323) */
+.bld-keep { flex: none; min-width: 32px; padding: 4px 8px; font-size: 15px; line-height: 1; }
+.bld-keep[aria-pressed="true"] { color: var(--gold-hi); border-color: var(--accent); }
+
+/* Line charts (items 334, 335) and the matchup grid's legend (338) */
+.chart-line { max-width: 460px; margin: 6px 0 10px; }
+.chart-line svg { display: block; width: 100%; height: auto; overflow: visible; }
+.lc-grid { stroke: var(--line); stroke-width: 1; }
+.lc-t { fill: var(--muted); font-family: var(--font-mono); font-size: 8.5px; }
+.lc-line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.lc-line.lc-0, .lc-dot.lc-0 { stroke: var(--accent); }
+.lc-line.lc-1, .lc-dot.lc-1 { stroke: var(--mana-u); }
+.lc-line.lc-2, .lc-dot.lc-2 { stroke: var(--good); }
+.lc-line.lc-1 { stroke-dasharray: 5 3; }
+.lc-line.lc-2 { stroke-dasharray: 1.5 4; }
+.lc-dot { fill: var(--panel); stroke-width: 1.5; }
+.lc-key { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; }
+.lc-key svg { width: 22px; height: 6px; display: inline-block; }
+.grid-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
+.grid-legend i { width: 46px; height: 10px; border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--bad) 40%, transparent), transparent); }
+.grid-legend i.hi { background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--good) 40%, transparent)); }
