@@ -2,6 +2,7 @@
 // the important ones (main phase plays, attacks, blocks, responses, mulligans, truces) wait for
 // your clicks, and routine choices (what to discard, trigger targets, tutors) use the AI's pick.
 import { Agent } from './ai.js';
+import { defaultPick } from './net.js';
 import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
 import { needsTarget, needsTargetIn, costText } from './effects.js';
@@ -91,20 +92,40 @@ export class HumanUI {
     return plain;
   }
   get replaying() { return this.pos < this.record.length; }
+  // The seat this bar is asking for: the hotseat seat when several people share it, otherwise the one seat that uses it
+  askerIdx() { return this.seat ?? this.game?.players.findIndex(p => p.agent.ui === this) ?? -1; }
+  // (Phase 2J) Concede (104.3a). With a question open for that seat it is answered by conceding; otherwise it takes
+  // effect at that seat's next decision. Either way it is recorded in place of an answer, so replays concede at the
+  // same moment.
+  concede(seat = this.askerIdx()) {
+    const p = this.game?.players[seat];
+    if (!p || p.lost || p.conceded || this.game.over || this.replaying) return false;
+    if (this.pending && this.askerIdx() === seat) this.finish({ concede: true });
+    else this.wantConcede = seat;
+    return true;
+  }
   // Show a question; resolves with {button}, {obj} or {player}
   ask(text, { buttons = [], objs = [], players = [] } = {}) {
     this.cancel();
     const objMap = new Map(objs.map(o => [o.iid, o]));
+    // (a seat that has conceded is asked nothing more: its remaining choices get the default answer)
+    const meIdx = this.askerIdx(), me = this.game?.players?.[meIdx];
+    if (me?.conceded) return Promise.resolve(defaultPick(buttons));
+    const conceding = () => { this.game.concede(me); return defaultPick(buttons); };
     if (this.replaying) {
       const a = this.record[this.pos++];
+      if (a.c != null) return Promise.resolve(conceding());
       const v = a.o != null ? { obj: objMap.get(a.o) || this.game.objects.get(a.o) } : a.pl != null ? { player: a.pl } : { button: buttons[a.b]?.value ?? 'cancel' };
       return Promise.resolve(v);
     }
     // Live from here on: anything recorded after this point no longer applies
     this.record.length = this.pos;
     if (this.game?.clock.untilLive) { this.game.clock.untilLive = false; this.game.clock.setPaused?.(false); }
+    const recConcede = () => { this.wantConcede = null; this.record.push({ c: meIdx }); this.pos++; this.onRecord?.('h', this.record.length - 1); return conceding(); };
+    if (me && this.wantConcede === meIdx) return Promise.resolve(recConcede());
     return new Promise(resolve => {
       const rec = v => {
+        if (v.concede) { resolve(recConcede()); return; }
         this.record.push(v.obj ? { o: v.obj.iid } : v.player != null ? { pl: v.player } : { b: buttons.findIndex(b => b.value === v.button) });
         this.pos++;
         this.onRecord?.('h', this.record.length - 1);
@@ -232,6 +253,8 @@ export class SeatUI {
   key(e) { return this.ui.key(e); }
   async ask(text, opts) {
     const ui = this.ui;
+    // (a seat that has conceded: no "pass the device" for the choices it has left)
+    if (ui.game?.players[this.seat]?.conceded) return defaultPick(opts?.buttons);
     if (!ui.replaying && ui.seat !== this.seat) {
       if (ui.view) { ui.view.humanIdx = -1; ui.view.render(); }
       await passDevice(this.names[this.seat]);

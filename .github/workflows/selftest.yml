@@ -61,6 +61,8 @@ jobs:
         run: node tests/abilities.mjs
       - name: Online seats (a friend's answer is checked against what was asked; fake room)
         run: node tests/net.mjs
+      - name: Multiplayer and Commander (turn order, losing together, leaving the game, conceding, tax, damage, views)
+        run: node tests/multiplayer.mjs
       - name: Element ids
         run: node tests/ids.mjs
       - name: Stylesheet lint

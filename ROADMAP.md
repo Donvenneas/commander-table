@@ -746,6 +746,25 @@ on top of the ones above:
     suites. Still open: spell timing is checked by the callers, not Game.cast; a person isn't asked which protection
     color; "target player draws … and loses N life" (Sign in Blood) reads as you drawing; Giver of Runes is still
     hexproof; mutate has no card in the test data.
+- [x] 381. Multiplayer and Commander (asked 2026-11-15, Phase 2J of the engine audit): players leaving the game,
+  conceding, losing at the same time, cleanup, what online seats are sent, and the Commander deck checks.
+  - Done (rules 18, version 1.53.0; rules 4–17 golden games unchanged): players who lose in the same state-based check
+    leave together (104.4a: the last two at once is a draw; before, the seat checked second "won"), and share a place.
+    A player who leaves takes everything with them (800.4a): their spells and abilities on the stack and their waiting
+    triggers no longer resolve, their cards in every zone leave the game, and a card that entered under their control
+    (reanimated from another graveyard) is exiled instead of going back. Concede (104.3a): a button for your seat and
+    on a friend's page; it works through "can't lose" effects and is recorded in place of an answer, so replays concede
+    at the same decision. Cleanup (514.3a): a trigger or state-based action during cleanup is dealt with at once and
+    another cleanup step follows (before, a discard trigger waited for the next turn). Online seats: every view has a
+    revision number and a friend's page drops an older one; views are sent one after another per seat; they now hold
+    who has priority, who is disconnected or conceding, poison, and the public graveyard and exile lists (face-down
+    exiled cards hidden). "If a friend disconnects" in the Invite panel: the AI plays (as before), wait for them, or
+    concede after 5 or 15 minutes away; a dropped connection is never a concession by itself. Deck checks: color
+    identity (903.4) is checked for every commander format. Commander damage shows the format's own limit. Tests: new
+    tests/multiplayer.mjs (36), golden 90, all other suites; report in tests/phase-2j-report.md. Still open: no
+    separate end-of-combat step with priority; Kingdoms and team games keep the one-at-a-time order for losses; a
+    concession takes effect at the seat's next decision, not instantly; the host's own window still shows every hand
+    it could before.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

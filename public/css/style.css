@@ -2035,3 +2035,5 @@ body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-ins
 .grid-legend { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; }
 .grid-legend i { width: 46px; height: 10px; border-radius: 2px; background: linear-gradient(90deg, color-mix(in srgb, var(--bad) 40%, transparent), transparent); }
 .grid-legend i.hi { background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--good) 40%, transparent)); }
+/* (Phase 2J) the player who has priority right now */
+.polchip.prio { --cc: var(--warn); font-weight: 700; }

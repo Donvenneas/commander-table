@@ -437,10 +437,14 @@ export class TableView {
         + (p.companion?.zone === 'outside' ? `<span class="polchip" data-iid="${p.companion.iid}" title="Companion: {3} puts it into hand once, at sorcery speed">🐾 ${esc(p.companion.card.name)}</span>` : '')
         + (g.initiative === p.idx ? '<span class="polchip" title="Has the initiative: ventures into Undercity each upkeep; combat damage to this player takes it">⚑ Initiative</span>' : '')
         + (g.dayNight && p.idx === g.active ? `<span class="polchip" title="Day or night (daybound and nightbound cards)">${g.dayNight === 'day' ? '☀ Day' : '☾ Night'}</span>` : '');
-      const chips = politics + Object.entries(p.cmdDamage).map(([iid, n]) => {
+      // (Phase 2J) who has priority right now, a seat that has conceded and is about to leave, a friend who dropped
+      const state = (g.prio && !g.over && g.prio.holder === p.idx && !p.lost ? '<span class="polchip prio" title="This player has priority: they may respond, or pass">◆ Priority</span>' : '')
+        + (p.conceded && !p.lost ? '<span class="polchip" title="This player has conceded and leaves the game now">🏳 Conceding</span>' : '')
+        + (p.agent.ui?.offline && !p.agent.ui?.replayOnly && !p.lost ? '<span class="polchip" title="This friend\'s page has stopped checking in. Reopening their link rejoins the seat.">⚠ Disconnected</span>' : '');
+      const chips = state + politics + Object.entries(p.cmdDamage).map(([iid, n]) => {
         const src = g.objects.get(+iid);
         const owner = g.players[src.owner];
-        return `<span class="cmdchip ${n >= 15 ? 'hot' : ''}" style="--cc:${owner.color}" data-iid="${iid}" title="Commander damage from ${esc(src.card.name)}">⚔ ${esc(src.card.name.split(',')[0])} ${n}/21</span>`;
+        return `<span class="cmdchip ${n >= (g.format?.cmdDamage || 21) - 6 ? 'hot' : ''}" style="--cc:${owner.color}" data-iid="${iid}" title="Commander damage from ${esc(src.card.name)}">⚔ ${esc(src.card.name.split(',')[0])} ${n}/${g.format?.cmdDamage || 21}</span>`;
       }).join('');
       if (b.chips.dataset.v !== chips) { b.chips.innerHTML = chips; b.chips.dataset.v = chips; }
 
@@ -868,7 +872,7 @@ export function installLifeHistory(getView) {
     if (!b || !p) return;
     const log = b.lifeLog || [];
     const rows = log.slice(1).map((x, i) => { const d = x.life - log[i].life; return `<tr><td>Turn ${x.turn}</td><td class="num">${log[i].life} → ${x.life}</td><td class="num ${d < 0 ? 'bad' : 'good'}">${d > 0 ? '+' : ''}${d}</td></tr>`; }).reverse();
-    const cmd = Object.entries(p.cmdDamage || {}).map(([iid, n]) => { const src = view.g.objects.get(+iid); return src ? `<li>${esc(src.card.name)}: ${n} of 21</li>` : ''; }).join('');
+    const cmd = Object.entries(p.cmdDamage || {}).map(([iid, n]) => { const src = view.g.objects.get(+iid); return src ? `<li>${esc(src.card.name)}: ${n} of ${view.g.format?.cmdDamage || 21}</li>` : ''; }).join('');
     pop.innerHTML = `<b>${esc(p.name)}: ${p.life} life</b> <span class="muted">started at ${log[0]?.life ?? ''}</span>
       ${rows.length ? `<table><tbody>${rows.slice(0, 14).join('')}</tbody></table>${rows.length > 14 ? `<div class="muted">and ${rows.length - 14} earlier changes</div>` : ''}` : '<div class="muted">No change yet.</div>'}
       ${cmd ? `<div><b>Commander damage taken</b><ul>${cmd}</ul></div>` : ''}`;

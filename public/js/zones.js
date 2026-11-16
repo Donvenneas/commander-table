@@ -159,6 +159,8 @@ export function move(g, o, to, opts = {}) {
   o.zone = to;
   if (to === 'battlefield') {
     o.controller = opts.under ?? o.owner; g.players[o.controller].battlefield.push(o);
+    // (who it entered under, when that isn't its owner: read when that player leaves the game, 800.4a)
+    o.enteredUnder = o.controller !== o.owner ? o.controller : null;
     o.ts = ++g.tsN;
     // A battle enters with defense counters, and its controller chooses an opponent to protect it (310.4, 310.5)
     if (o.fx.type.battle && g.rules >= 5) g.battleEnters(o);

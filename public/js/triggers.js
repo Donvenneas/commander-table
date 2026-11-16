@@ -572,10 +572,18 @@ function sbaOnce(g) {
   const snap = { m: null };
   const before = () => { if (g.rules >= 17 && !snap.m) snap.m = new Map(g.alive().flatMap(q => q.battlefield.filter(o => o.fx.type.creature).map(o => [o, { t: g.toughness(o), ind: g.has(o, 'indestructible') }]))); };
   {
+    // (Phase 2J, rules 18) Players who lose in the same check lose at the same time (704.3, 104.4a): they are gathered
+    // here and leave together below, so the last two players reaching 0 life at once is a draw, not a win for the
+    // seat that happened to be checked second. Before rules 18 each left as it was found.
+    /** @type {any[][]} */
+    const out = [];
+    const lose = (q, reason, rule) => { if (g.rules >= 18) out.push([q, reason, rule]); else g.lose(q, reason, rule); };
     for (const q of g.alive()) {
+      // A player who conceded leaves the game whatever else is true (104.3a: nothing can stop a concession)
+      if (q.conceded) { lose(q, 'conceded', '104.3a'); again = true; continue; }
       // Platinum Angel, Angel's Grace: this player can't lose right now
       if (g.cantLose(q)) continue;
-      if (q.life <= 0) { g.lose(q, 'life total reached 0', '704.5a'); again = true; continue; }
+      if (q.life <= 0) { lose(q, 'life total reached 0', '704.5a'); again = true; continue; }
       if (q.drewFromEmpty && q.battlefield.some(o => o.fx.labMan)) {
         // Laboratory Maniac, Jace: drawing from an empty library wins instead
         q.drewFromEmpty = false;
@@ -583,13 +591,14 @@ function sbaOnce(g) {
         for (const r of g.opponents(q)) g.lose(r, `${q.name} drew from an empty library and won`, '104.2b');
         continue;
       }
-      if (q.drewFromEmpty) { g.lose(q, 'drew from an empty library', '704.5b'); again = true; continue; }
-      if (q.poison >= (g.format.poison || 10)) { g.lose(q, `${g.format.poison || 'ten'} poison counters`, '704.5c'); again = true; continue; }
+      if (q.drewFromEmpty) { lose(q, 'drew from an empty library', '704.5b'); again = true; continue; }
+      if (q.poison >= (g.format.poison || 10)) { lose(q, `${g.format.poison || 'ten'} poison counters`, '704.5c'); again = true; continue; }
       if (g.format.cmdDamage) for (const [iid, n] of Object.entries(q.cmdDamage)) if (n >= g.format.cmdDamage) {
         const src = g.objects.get(+iid);
-        g.lose(q, `${g.format.cmdDamage} combat damage from ${src.card.name}`, '903.10a'); again = true; break;
+        lose(q, `${g.format.cmdDamage} combat damage from ${src?.card.name || 'a commander'}`, '903.10a'); again = true; break;
       }
     }
+    if (out.length) loseTogether(g, out);
     for (const q of g.alive()) {
       for (const o of [...q.battlefield]) {
         const pre = snap.m;
@@ -678,17 +687,48 @@ export async function commanderChoices(g) {
 /** @param {import('./engine.js').Game} g */
 export function cantLose(g, q) { return q.cantLoseTurn === g.turn || q.battlefield.some(s => s.fx.cantLose); }
 /** @param {import('./engine.js').Game} g */
+// (Phase 2J, rules 18) Several players losing in one state-based check leave at the same time: they share a place, and
+// the game is checked for its end once, after all of them have left. Nobody left is a draw (104.4a). Kingdoms and team
+// games keep their own order (roles and teams decide who wins there).
+/** @param {import('./engine.js').Game} g @param {any[][]} list */
+export function loseTogether(g, list) {
+  list = list.filter(([q]) => !q.lost && !g.over);
+  if (list.length < 2 || g.kingdoms || g.teams) { for (const [q, reason, rule] of list) g.lose(q, reason, rule); return; }
+  g._loseBatch = { place: g.alive().length - list.length + 1 };
+  try { for (const [q, reason, rule] of list) g.lose(q, reason, rule); } finally { g._loseBatch = null; }
+  if (g.over) return;
+  const left = g.alive();
+  if (!left.length) { g.log('Every player still in the game lost at the same time', { rule: '104.4a', kind: 'loss' }); g.finish(null, 'all remaining players lost at the same time'); }
+  else if (left.length === 1) g.finish(left[0], g.winNote || 'last player standing');
+}
+// 104.3a: a player may concede at any time. The request is kept on the player and they leave the game at the next
+// state-based check (the next moment the game can change hands safely), even with a "can't lose" effect.
+/** @param {import('./engine.js').Game} g */
+export function concede(g, q) {
+  if (!q || q.lost || q.conceded || g.over) return false;
+  q.conceded = true;
+  g.log(`${g.pn(q)} concedes`, { rule: '104.3a', kind: 'loss' });
+  g.emit('update');
+  return true;
+}
+/** @param {import('./engine.js').Game} g */
 export function lose(g, q, reason, rule) {
-  if (q.lost || g.cantLose(q)) return;
-  if (g.kingdoms && K.preventLoss(g, q)) return;
+  if (q.lost || (!q.conceded && g.cantLose(q))) return;
+  if (g.kingdoms && !q.conceded && K.preventLoss(g, q)) return;
   q.lost = true;
   q.lossReason = reason;
-  q.place = g.alive().length + 1;
+  q.place = g._loseBatch?.place ?? g.alive().length + 1;
   g.log(`${g.pn(q)} is eliminated — ${esc(reason)}`, { rule, kind: 'loss' });
   g.log(`All of ${g.pn(q)}'s permanents leave the game`, { rule: '800.4a', kind: 'minor' });
   // (all of them leave at once: an aura of theirs on a creature of theirs leaves the game with it,
   // rather than being put into a graveyard as "no longer attached")
   // Cards they controlled but someone else owns go back to their owners (800.4a: control effects end)
+  // (rules 18) A card someone else owns that entered the battlefield under this player's control (reanimated from
+  // another graveyard, not taken with a control effect) has no control effect to end: it is exiled (800.4a)
+  if (g.rules >= 18) for (const o of q.battlefield.filter(x => x.owner !== q.idx && !x.token && x.enteredUnder === q.idx && !g.players[x.owner]?.lost)) {
+    g.log(`${g.cn(o)} is exiled: it entered under ${g.pn(q)}'s control`, { kind: 'minor', rule: '800.4a' });
+    g.move(o, 'exile');
+  }
   const borrowed = q.battlefield.filter(o => o.owner !== q.idx && !g.players[o.owner]?.lost);
   const leaving = q.battlefield.filter(o => !borrowed.includes(o));
   for (const o of leaving) o.zone = 'gone';
@@ -703,6 +743,7 @@ export function lose(g, q, reason, rule) {
   for (const o of leaving) g.leaveBattlefield(o);
   // Their cards that someone else controls leave too
   for (const r of g.players) for (const o of [...r.battlefield]) if (o.owner === q.idx) { r.battlefield.splice(r.battlefield.indexOf(o), 1); g.leaveBattlefield(o); o.zone = 'gone'; }
+  if (g.rules >= 18) leaveGame18(g, q);
   g.emit('loss', q);
   // A monarch who leaves the game passes the title to the active player (or the next one) (724.4)
   if (g.monarch === q.idx) { const n = g.players[g.active].lost ? g.players[g.nextAlive(g.active)] : g.players[g.active]; g.monarch = null; if (!n.lost) g.setMonarch(n, `${q.name} left the game`); }
@@ -718,7 +759,29 @@ export function lose(g, q, reason, rule) {
     }
     return;
   }
+  // (several players leaving together: loseTogether checks for the end of the game once all have left)
+  if (g._loseBatch) return;
   if (g.alive().length <= 1) g.finish(g.alive()[0], g.winNote || 'last player standing');
+}
+// (Phase 2J, rules 18) The rest of 800.4a: everything the player owns leaves the game, in every zone, and so do the
+// spells and abilities they control on the stack and their triggers still waiting to go on it. Nothing of theirs
+// resolves afterwards. Their command zone is kept for the table to show who they were; nothing can reach it.
+/** @param {import('./engine.js').Game} g */
+function leaveGame18(g, q) {
+  let n = 0;
+  for (const it of g.stack) {
+    if (it.left || (it.p !== q && it.o?.owner !== q.idx)) continue;
+    it.left = it.countered = true; n++;
+  }
+  for (let i = g.queue.length - 1; i >= 0; i--) if (g.queue[i].p === q) { g.queue.splice(i, 1); n++; }
+  if (n) g.log(`${g.pn(q)}'s spells and abilities leave the stack`, { rule: '800.4a', kind: 'minor' });
+  for (const zone of ['hand', 'library', 'graveyard', 'exile']) {
+    for (const o of q[zone]) { if (o.owner === q.idx) o.zone = 'gone'; }
+    // (a card someone else owns that sits in this player's zone stays in the game: it goes to its owner's zone)
+    const others = q[zone].filter(o => o.owner !== q.idx && !g.players[o.owner]?.lost);
+    q[zone] = [];
+    for (const o of others) g.players[o.owner][zone].push(o);
+  }
 }
 /** @param {import('./engine.js').Game} g @param {any} winner @param {string} why @param {any[] | null} [team] */
 export function finish(g, winner, why, team = null) {

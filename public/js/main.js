@@ -22,7 +22,7 @@ import { coverage } from './effects.js';
 import { TableView, installPreview, installDetails, installLifeHistory, foldTurn, Sound } from './ui.js';
 import { Music } from './music.js';
 import { HumanAgent, HumanUI, SeatUI } from './human.js';
-import { Room, RemoteUI, snapshot, TURN_CLOCKS, askDraftPick } from './net.js';
+import { Room, RemoteUI, snapshot, TURN_CLOCKS, DROP_POLICIES, askDraftPick } from './net.js';
 // (a friend's time bank counts down on their board while they decide)
 setInterval(() => { if (view && game && !game.over && [...remoteUIs.values()].some(u => u.waiting && u.clockMode !== 'off')) view.render(); }, 1000);
 import { qrSvg } from './qr.js';
@@ -426,7 +426,7 @@ function newGame(opts = {}) {
   remoteUIs.forEach(u => u.cancel());
   humanUI.onRecord = noteAnswer;
   remoteUIs = new Map(setup.remote.map(i => {
-    const u = new RemoteUI(room, i, prefs.decisionTime || 120, setup.replayOnly ? 'off' : prefs.turnClock || 'off');
+    const u = new RemoteUI(room, i, prefs.decisionTime || 120, setup.replayOnly ? 'off' : prefs.turnClock || 'off', prefs.dropPolicy || 'ai');
     u.setRecord(setup.remoteDecisions[i] ||= [], setup.replayOnly);
     u.onRecord = noteAnswer;
     return [i, u];
@@ -466,6 +466,8 @@ function newGame(opts = {}) {
   remoteUIs.forEach(u => u.attach(game));
   if (opts.untilLive) clock.untilLive = true;
   $('tlUndo').hidden = !(setup.human >= 0) || !!locked;
+  // (conceding: for a seat you play in a game still going; not in a puzzle or a loaded replay)
+  $('tlConcede').hidden = !(setup.human >= 0) || !!setup.puzzle || !!setup.loadedReplay;
   if (opts.skip) clock.skip = opts.skip;
   // (a seat taken over becomes yours at the step it was taken over, in this game and every rebuild of it)
   if (setup.chatDeals?.length) {
@@ -594,6 +596,9 @@ function showInvite() {
     <label class="decision-time">Time for each decision
       <select id="decisionTime" class="input">${[30, 60, 120, 300, 600].map(s => `<option value="${s}" ${(prefs.decisionTime || 120) === s ? 'selected' : ''}>${s < 120 ? `${s} seconds` : `${s / 60} minutes`}</option>`).join('')}</select>
       <span class="muted">After this, the AI decides for them.</span></label>
+    <label class="decision-time">If a friend disconnects
+      <select id="dropPolicy" class="input">${Object.entries(DROP_POLICIES).map(([k, c]) => `<option value="${k}" ${(prefs.dropPolicy || 'ai') === k ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
+      <span class="muted">A dropped connection is not a concession: reopening the same link always rejoins the seat. This is this table's rule, not a Magic rule.</span></label>
     <label class="decision-time">Turn clock
       <select id="turnClock" class="input">${Object.entries(TURN_CLOCKS).map(([k, c]) => `<option value="${k}" ${(prefs.turnClock || 'off') === k ? 'selected' : ''}>${esc(c.label)}</option>`).join('')}</select>
       <span class="muted">A time bank per friend instead of a time per decision; it runs down while they decide. When it's empty the AI plays for them until their next turn. You can nudge a friend who's thinking. Applies from the next game.</span></label>` + room.links().map(({ seat, urls, internet }) => seat === -2 ? `
@@ -683,6 +688,7 @@ $('inviteBody').addEventListener('click', async e => {
 });
 $('inviteBody').addEventListener('change', e => {
   if (e.target.id === 'turnClock') { prefs.turnClock = e.target.value; store('ct.prefs', prefs); return; }
+  if (e.target.id === 'dropPolicy') { prefs.dropPolicy = e.target.value; store('ct.prefs', prefs); remoteUIs.forEach(u => { u.drop = prefs.dropPolicy; }); return; }
   if (e.target.id !== 'decisionTime') return;
   prefs.decisionTime = +e.target.value;
   store('ct.prefs', prefs);
@@ -789,6 +795,9 @@ setInterval(async () => {
     // A friend's deal offer arrives as "/deal <seat> <kind>"
     const deal = m.seat >= 0 && m.text.match(/^\/deal (\d) (\w+)(?: (\d))?$/);
     if (deal) { queueDeal(m.seat, +deal[1], deal[2], deal[3] ?? 2); continue; }
+    // A friend concedes from their own page (the server knows the seat by its key: nobody can concede for another seat)
+    if (m.seat >= 0 && m.text === '/concede') { remoteUIs.get(m.seat)?.concede(); continue; }
+    if (/^\/concede\b/.test(m.text)) continue;
     say(m.seat, m.seat >= 0 ? (game?.players[m.seat]?.name || m.name) : `${m.name || 'Spectator'} (watching)`, m.text);
   }
   const st = room.presence = await room.status();
@@ -3454,6 +3463,16 @@ function friendUndo(seat) {
   game?.log(`${esc(setup.seats[seat].name)}'s last decision is taken back`, { kind: 'minor' });
 }
 $('tlUndo').addEventListener('click', undo);
+// Concede (104.3a): your seat leaves the game; with several people at this PC, the seat being asked right now
+$('tlConcede').addEventListener('click', async () => {
+  if (!game || game.over) return;
+  const seat = humanUI.askerIdx() >= 0 ? humanUI.askerIdx() : setup.human;
+  const p = game.players[seat];
+  if (!p || p.lost || p.conceded) return;
+  const others = game.alive().length - 1;
+  if (!(await askUser(`${p.name} leaves the game${others > 1 ? '; the other players play on' : ' and the game ends'}. This can be undone with Undo.`, { title: 'Concede this game?', confirm: 'Concede', danger: true }))) return;
+  if (humanUI.concede(seat) && !p.conceded) notice('You concede at your next decision.');
+});
 
 document.addEventListener('keydown', e => {
   if (e.target.matches?.('input, textarea, select')) return;

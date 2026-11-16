@@ -46,7 +46,7 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // … pays", mana value and color conditions; targets keep their restrictions (nonblack, mana value, power …) and are
 // checked by the engine; creatures that die together see each other die; "until this leaves the battlefield" exile
 // comes back; Chrome Mox needs its imprinted card; replays at 4–16 keep the old handling)
-export const RULES = 17;
+export const RULES = 18;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -90,6 +90,7 @@ export class Game {
     /** @type {{ turn: number, seen: Set<string> } | undefined} (rules 7: game states seen while triggers repeat, triggers.loopRepeats) */ this.loopStates = undefined;
     /** @type {any} (the read-only cache while the AI plans combat: withEvalCache) */ this._ev = null;
     /** @type {any} (while state-based actions are checked: whether anything is attached or an anthem exists, triggers.sbaPass) */ this._sbaFacts = null;
+    /** @type {{ place: number } | null} (rules 18: players losing in the same check, triggers.loseTogether) */ this._loseBatch = null;
     /** @type {any} (rules 10: the loop being watched in the current chain of triggers, triggers.loopWatch) */ this.loop10 = undefined;
     /** (a recognised loop is played without the clock's waits; the steps stay the same) */ this.loopFast = false;
     /** (how many flushTriggers calls are running, nested: the chain of triggers is over when the outermost ends) */ this._flushDepth = 0;
@@ -787,6 +788,8 @@ export class Game {
   async commanderChoices() { return triggers.commanderChoices(this); }
   cantLose(q) { return triggers.cantLose(this, q); }
   lose(q, reason, rule) { return triggers.lose(this, q, reason, rule); }
+  /** A player concedes (104.3a): they leave at the next state-based check. @param {any} q */
+  concede(q) { return triggers.concede(this, q); }
   /** @param {any} winner @param {string} why @param {any[] | null} [team] */
   finish(winner, why, team = null) { return triggers.finish(this, winner, why, team); }
 
@@ -1095,7 +1098,13 @@ export class Game {
 
     await this.priority(item);
     this.stack.splice(this.stack.indexOf(item), 1);
-    item.status = item.countered ? 'countered' : 'resolved';
+    item.status = item.left ? 'removed' : item.countered ? 'countered' : 'resolved';
+    // (rules 18) Its controller or owner left the game while it was on the stack: it leaves with them (800.4a). A
+    // card someone else owns goes to its owner's exile.
+    if (item.left) {
+      if (o.spellCopy || this.players[o.owner]?.lost) { o.zone = 'gone'; if (o.spellCopy) this.objects.delete(o.iid); } else this.move(o, 'exile');
+      return true;
+    }
     // A flashback (or jump-start) spell is exiled instead of going anywhere else (702.34a); buyback returns it to hand
     // (Yawgmoth's Will: a card cast from the graveyard this way is exiled instead of returning there)
     const gone = mode.alt === 'flashback' || mode.alt === 'jumpstart' || o.castAftermath || (o.castFrom === 'graveyard' && (p.gyCast?.turn === this.turn || o.gyOnceExile)) ? 'exile' : buyback ? 'hand' : 'graveyard';
@@ -2878,13 +2887,17 @@ export class Game {
       this.discard(p, disc, null);
       this.log(`${this.pn(p)} discards ${disc.map(o => this.cn(o)).join(', ')} down to seven cards`, { rule: '514.1', kind: 'minor' });
     }
-    for (const q of this.players) for (const o of q.battlefield) {
-      Object.assign(o, { damage: 0, deathtouched: false, tempP: 0, tempT: 0, tempKw: null, regen: 0 });
-      // "Becomes a copy … until end of turn" ends (Mirage Mirror, Shifting Woodland, Cursed Mirror)
-      if (o.copyUntil != null && o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; o.copyUntil = null; }
-      // A crewed vehicle stops being a creature at end of turn
-      if (o.crewed) { o.crewed = false; o.fx = o.card.fx; }
-    }
+    // 514.2: damage wears off and "until end of turn" effects end, all at once
+    const wearOff = () => {
+      for (const q of this.players) for (const o of q.battlefield) {
+        Object.assign(o, { damage: 0, deathtouched: false, tempP: 0, tempT: 0, tempKw: null, regen: 0 });
+        // "Becomes a copy … until end of turn" ends (Mirage Mirror, Shifting Woodland, Cursed Mirror)
+        if (o.copyUntil != null && o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; o.copyUntil = null; }
+        // A crewed vehicle stops being a creature at end of turn
+        if (o.crewed) { o.crewed = false; o.fx = o.card.fx; }
+      }
+    };
+    wearOff();
     // "Until end of turn" control changes end
     for (const { o, back } of this.tempSteals.splice(0)) {
       const now = this.players[o.controller];
@@ -2893,6 +2906,16 @@ export class Game {
       o.controller = back;
       this.players[back].battlefield.push(o);
       this.log(`${this.cn(o)} returns to ${this.pn(this.players[back])}`, { kind: 'minor' });
+    }
+    // (Phase 2J, rules 18) 514.3a: if a state-based action happens or a trigger is waiting during cleanup (a card
+    // discarded to hand size with a trigger, a creature that dies as a pump wears off), it is dealt with now, with
+    // priority, and another cleanup step follows. Before, such triggers waited for the next turn's upkeep.
+    if (this.rules >= 18) for (let k = 0; k < 4 && !this.over; k++) {
+      const acted = this.sbaPass();
+      if (!acted && !this.queue.length) break;
+      this.log('Something happened during cleanup: players get priority, then another cleanup step', { rule: '514.3a', kind: 'minor' });
+      await this.sba();
+      wearOff();
     }
     await this.beat(0.4);
   }
