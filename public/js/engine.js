@@ -46,7 +46,7 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // … pays", mana value and color conditions; targets keep their restrictions (nonblack, mana value, power …) and are
 // checked by the engine; creatures that die together see each other die; "until this leaves the battlefield" exile
 // comes back; Chrome Mox needs its imprinted card; replays at 4–16 keep the old handling)
-export const RULES = 18;
+export const RULES = 19;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 

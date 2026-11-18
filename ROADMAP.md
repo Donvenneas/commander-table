@@ -765,6 +765,21 @@ on top of the ones above:
     separate end-of-combat step with priority; Kingdoms and team games keep the one-at-a-time order for losses; a
     concession takes effect at the seat's next decision, not instantly; the host's own window still shows every hand
     it could before.
+- [x] 382. AI decisions (asked 2026-11-17, Phase 2K of the engine audit): an audit of how the AI pilots choose plays,
+  targets, attacks, blocks and responses, with the weaknesses found fixed through the real engine.
+  - Done (rules 19, version 1.54.0; rules 4–18 golden games unchanged): counterspells are never cast at a spell that
+    can't be countered (Cavern of Souls, "your next spell", Veil of Summer, Grand Abolisher-style effects; one test,
+    resolve.js cantBeCountered, shared with the counter itself). Removal targets the creature that makes an opponent's
+    next attack lethal (nextAttackOn, lethalKey: public information, Game.canBlock for flying, reach, menace), never a
+    permanent already being removed on the stack, and in response only a target the card's words allow (Doom Blade on
+    a black creature was tried and refused). Generic costs are paid with mana the other spells in hand don't need
+    (Sol Ring then Llanowar Elves from a Forest and a Mountain). Instant-speed spells in main 1 keep the counterspell
+    mana too. A play the engine refuses no longer ends the main phase: it is left out and the pilot picks again (three
+    refusals end it). threatKind sorts a permanent as lethal, combo, engine, untouchable or minor. Explain mode's 🧠
+    and a garbled dash fixed. Tests: new tests/ai.mjs (30, each decision recorded with its board, legal plays,
+    expected and actual play, in tests/ai-decisions.md), golden 96, all other suites; report in
+    tests/phase-2k-report.md. Not done: no measured strength gain; the AI difficulty setting was already there and
+    is unchanged; no new interface.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

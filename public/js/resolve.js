@@ -137,6 +137,17 @@ const TR_COLOR = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
  * effects.js targetWords)? The one test used when an effect resolves, by the AI when it picks a target and for the
  * list a person chooses from.
  * @param {import('./engine.js').Game} g @param {any} p the effect's controller @param {any} e @param {any} o @param {any} [src] */
+// A spell on the stack that counterspells can't counter: printed "can't be countered", made uncounterable as it was cast
+// (Cavern of Souls, "your next spell can't be countered"), its caster shielded this turn (Veil of Summer), a permanent
+// that stops all countering, or one of its owner's permanents that protects their spells. One test, used when a counter
+// resolves and by the AI before it spends a counterspell (Phase 2K).
+/** @param {import('./engine.js').Game} g @param {any} item */
+export function cantBeCountered(g, item) {
+  if (!item || item.ability) return false;
+  const o = item.o;
+  return !!(o.fx.uncounterable || item.uncounterable || (g.rules >= 5 && item.p?.shieldTurn === g.turn) || g.alive().some(q => q.battlefield.some(x => x.fx.noCounterAll))
+    || g.players[o.owner]?.battlefield.some(x => x.fx.protectsSpells && (!x.fx.costReduce?.minMv || (o.card.cmc || 0) >= x.fx.costReduce.minMv)));
+}
 export function targetFits(g, p, e, o, src) {
   const r = e.tr;
   if (!r || g.rules < 17) return true;
@@ -316,7 +327,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
         if (e.laterMana) g.addLater(p, src, 'main', mv ? [{ k: 'addManaN', n: mv, color: 'C' }] : [], `add {C} equal to ${sp.o.card.name}'s mana value (${mv})`);
         if (e.laterDraw && sp.p && !sp.p.lost) g.addLater(p, src, 'upkeep', [{ k: 'drawUpTo', n: e.laterDraw, who: sp.p.idx }], `${sp.p.name} may draw up to ${e.laterDraw} cards`);
       }
-      if (tgt?.spell && !tgt.spell.ability && (tgt.spell.o.fx.uncounterable || tgt.spell.uncounterable || (g.rules >= 5 && tgt.spell.p?.shieldTurn === g.turn) || g.alive().some(q => q.battlefield.some(o => o.fx.noCounterAll)) || g.players[tgt.spell.o.owner]?.battlefield.some(o => o.fx.protectsSpells && (!o.fx.costReduce?.minMv || (tgt.spell.o.card.cmc || 0) >= o.fx.costReduce.minMv)))) {
+      if (tgt?.spell && !tgt.spell.ability && cantBeCountered(g, tgt.spell)) {
         g.log(`${g.cn(tgt.spell.o)} can't be countered`, { kind: 'minor' });
         break;
       }

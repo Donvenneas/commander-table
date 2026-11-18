@@ -670,6 +670,7 @@ Choose **A cube** in Draft / Sealed to draft or open a cube instead of a set.
     The approach follows two open-source rules engines' AIs: [Forge](https://github.com/Card-Forge/forge)'s ordered block passes and attack-aggression checks, and [XMage](https://github.com/magefree/mage)'s simulate-and-search players. The ideas were used; none of their code was copied.
   - don't overextend: with a board already well ahead, extra plain creatures are held back from a likely board wipe
   - keep mana up for a protection spell when the commander or a combo piece is on the battlefield
+  - (1.54.0) remove first the creature that would make an opponent's next attack lethal, never spend removal on something already being removed or on a target the card can't take, never cast a counterspell at a spell that can't be countered, keep counterspell mana up in the first main phase too, tap lands so the other spells in hand can still be cast, and carry on with other plays when one turns out not to be possible
   - block with two creatures to kill a big attacker, and chump-block only against lethal damage or a commander about to reach 21
   - mulligan toward the deck's plan (combo pieces, tutors, card engines, an early commander), not just lands and colors
   - save the last counterspell or removal for whoever is visibly closest to a combo

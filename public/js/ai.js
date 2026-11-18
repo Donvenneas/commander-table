@@ -4,7 +4,7 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
-import { spellFits, counterFits, targetFits, matchesWhat, withKinds } from './resolve.js';
+import { spellFits, counterFits, targetFits, matchesWhat, withKinds, cantBeCountered } from './resolve.js';
 import { combosIn, comboState, comboBlocked, comboPlay } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
@@ -307,7 +307,7 @@ export class Agent {
   }
 
   // Which opponent looks closest to going off, from public information only: combos (known to the
-  // table) whose pieces are visible on their battlefield, command zone or graveyard. 0â€“1.
+  // table) whose pieces are visible on their battlefield, command zone or graveyard. 0–1.
   comboCloseness(g, q) {
     const seen = [...q.battlefield, ...q.command, ...q.graveyard];
     let best = 0;
@@ -330,7 +330,7 @@ export class Agent {
   }
   // Explain-the-play mode: the log says why the AI made a decision (it can reveal hidden cards)
   explain(g, p, text) {
-    if (g.explain) g.log(`ðŸ§  ${esc(p.name)} ${esc(text)}`, { kind: 'why', p: p.idx });
+    if (g.explain) g.log(`🧠 ${esc(p.name)} ${esc(text)}`, { kind: 'why', p: p.idx });
   }
 
   // Value of a card as part of one of our combos (kept in hand, not discarded or bottomed)
@@ -468,13 +468,86 @@ export class Agent {
   }
   bestEnemy(g, p, filter) {
     const rank = this.threatRank(g, p);
+    // (rules 19, Phase 2K) What each opponent could swing at us next turn, worked out once per choice
+    const r19 = g.rules >= 19;
+    const hits = r19 ? new Map() : null;
     let best = null, bv = 0;
     for (const q of g.opponents(p)) for (const o of q.battlefield) {
       if (!filter(o) || !g.canTarget(p, o) || (this.fitNow && !this.fitNow(o))) continue;
-      const v = (this.value(g, o) + this.comboDanger(g, o)) * (rank.get(q.idx) || 1);
+      // (rules 19) a permanent already on its way out (removal aimed at it on the stack) isn't worth a second answer
+      if (r19 && this.doomed(g, o)) continue;
+      let v = (this.value(g, o) + this.comboDanger(g, o)) * (rank.get(q.idx) || 1);
+      // (rules 19) the creature that turns its controller's next attack into a lethal one comes first
+      if (r19 && o.fx.type.creature && this.lethalKey(g, p, o, hits)) v += 25;
       if (v > bv) { bv = v; best = o; }
     }
     return best ? { obj: best, v: bv } : null;
+  }
+  // (rules 19, Phase 2K) Is this permanent the target of removal already on the stack (destroy, exile, bounce, tuck, or
+  // damage enough to kill it) that hasn't been countered? Removal that can't take it (indestructible against "destroy")
+  // doesn't count.
+  doomed(g, o) {
+    for (const it of g.stack) {
+      if (it.countered || it.left || it.status === 'resolved') continue;
+      for (const [i, t] of (it.targets || []).entries()) {
+        if (t?.obj !== o) continue;
+        const e = (it.effects || it.o?.fx?.spell || [])[i];
+        if (!e) continue;
+        if (e.k === 'remove' && (e.mode === 'exile' || !g.has(o, 'indestructible'))) return true;
+        if (e.k === 'bounce' || e.k === 'tuck') return true;
+        if (e.k === 'damage' && o.fx.type.creature && !g.has(o, 'indestructible') && typeof e.n === 'number' && g.toughness(o) - o.damage <= e.n) return true;
+      }
+    }
+    return false;
+  }
+  // (rules 19, Phase 2K) The most combat damage player q could deal to `me` next turn with these creatures, from public
+  // information only: every creature of q's that could attack (it untaps first), against `me`'s creatures that could
+  // block it (Game.canBlock: flying, reach, menace, "can't block", ...), each blocker stopping one attacker (the
+  // biggest it can), trample going through. A rough bound, used to find the creature that makes an attack lethal.
+  nextAttackOn(g, me, q, without = null) {
+    const atk = q.battlefield.filter(o => o !== without && o.fx.type.creature && !g.has(o, 'defender') && g.power(o) > 0 && !g.dormant?.(o));
+    const blockers = me.battlefield.filter(b => b.fx.type.creature && !g.has(b, 'cantblock') && !g.dormant?.(b));
+    // (canBlock reads "tapped": next turn our creatures untap, so ask as if they were untapped)
+    const can = (b, a) => { const t = b.tapped; b.tapped = false; try { return g.canBlock(b, a); } finally { b.tapped = t; } };
+    const used = new Set();
+    let dmg = 0;
+    for (const a of [...atk].sort((x, y) => g.power(y) - g.power(x))) {
+      const pw = g.power(a);
+      const menace = g.has(a, 'menace');
+      const ok = blockers.filter(b => !used.has(b) && can(b, a));
+      if (!ok.length || (menace && ok.length < 2)) { dmg += pw; continue; }
+      const take = menace ? ok.sort((x, y) => g.toughness(y) - g.toughness(x)).slice(0, 2) : [ok.sort((x, y) => g.toughness(y) - g.toughness(x))[0]];
+      for (const b of take) used.add(b);
+      if (g.has(a, 'trample')) dmg += Math.max(0, pw - take.reduce((s, b) => s + Math.max(0, g.toughness(b) - b.damage), 0));
+    }
+    return dmg;
+  }
+  // (rules 19, Phase 2K) Removing `o` takes its controller's next attack on `me` from lethal to not lethal (life, or 21
+  // commander damage from one commander, the format's limit). hits: a cache of each opponent's full attack.
+  lethalKey(g, me, o, hits = null) {
+    const q = g.players[o.controller];
+    if (!q || q === me || q.lost) return false;
+    const full = hits?.get(q.idx) ?? this.nextAttackOn(g, me, q);
+    hits?.set(q.idx, full);
+    const lim = g.format?.cmdDamage || 0;
+    const cmdLethal = lim && o.isCommander && (me.cmdDamage[o.iid] || 0) + g.power(o) >= lim
+      && this.nextAttackOn(g, me, q) - this.nextAttackOn(g, me, q, o) >= g.power(o);
+    if (cmdLethal) return true;
+    if (full < me.life) return false;
+    return this.nextAttackOn(g, me, q, o) < me.life;
+  }
+  // (rules 19, Phase 2K) What kind of threat a permanent is to `me`, from public information: 'lethal' (its controller's
+  // next attack kills us, and not without it), 'combo' (a combo it belongs to is assembled or one piece short), 'engine'
+  // (it makes cards, mana, tokens or value every turn), 'untouchable' (we can't target it: hexproof, shroud,
+  // protection), or 'minor'. Used by removal choices and Explain mode.
+  threatKind(g, me, o) {
+    if (o.controller === me.idx) return 'minor';
+    if (!g.canTarget(me, o)) return 'untouchable';
+    if (o.fx.type.creature && this.lethalKey(g, me, o)) return 'lethal';
+    if (this.comboDanger(g, o) >= 7) return 'combo';
+    const f = o.fx;
+    if (f.upkeep.length || f.endstep.length || f.onCast || f.onOppCast || (f.mana && !f.type.land) || f.landfall?.length || f.anthem || (f.watch || []).length) return 'engine';
+    return 'minor';
   }
   bestOwn(g, p, filter = o => o.fx.type.creature) {
     let best = null, bv = -1;
@@ -711,16 +784,24 @@ export class Agent {
 
   // ---------- main phase
   async mainPhase(g, p, phase) {
-    for (let guard = 0; guard < 40 && !g.over && !p.lost; guard++) {
-      if (p.landsPlayed < g.landDrops(p)) {
-        const land = this.chooseLand(g, p);
-        if (land) { await g.playLand(p, land); continue; }
+    // (rules 19, Phase 2K) plays the engine refused this phase (a cost that couldn't be paid after all, a target gone):
+    // they are left out of the next choices, and the pilot carries on with its other plays; three refusals end the phase
+    this.refused = g.rules >= 19 ? { turn: g.turn, phase, keys: new Set() } : null;
+    try {
+      for (let guard = 0; guard < 40 && !g.over && !p.lost; guard++) {
+        if (p.landsPlayed < g.landDrops(p)) {
+          const land = this.chooseLand(g, p);
+          if (land) { await g.playLand(p, land); continue; }
+        }
+        const best = this.lookahead && !g.sim ? await lookAheadPlay(this, g, p, phase) : this.bestPlay(g, p, phase);
+        if (!best) break;
+        const ok = await best.run();
+        if (ok) continue;
+        if (!this.refused || this.refused.keys.size >= 2) break;
+        this.refused.keys.add(best.key || best.why || '?');
+        this.explain(g, p, `can't do that after all (${best.why || 'the play'}): it picks again`);
       }
-      const best = this.lookahead && !g.sim ? await lookAheadPlay(this, g, p, phase) : this.bestPlay(g, p, phase);
-      if (!best) break;
-      const ok = await best.run();
-      if (!ok) break;
-    }
+    } finally { this.refused = null; }
   }
 
   chooseLand(g, p) {
@@ -830,6 +911,7 @@ export class Agent {
       } };
     }
 
+    /** @type {any[]} */
     const opts = [];
     // Walking Ballista: ping to kill something worth it, or to finish a player
     for (const o of p.battlefield.filter(x => x.fx.pingCounters && x.counters > 0)) {
@@ -838,6 +920,9 @@ export class Agent {
     }
     const avail = g.availableMana(p);
     const reserve = phase === 'main2' && !g.infinite(p) ? this.reserveFor(g, p) : 0;
+    // (rules 19, Phase 2K) In main 1 too, an instant-speed spell that would eat the mana kept for a counterspell waits:
+    // it can still be cast at an opponent's end step (endOfTurn), when the counter mana comes back the next turn
+    const reserve1 = g.rules >= 19 && phase === 'main1' && !g.infinite(p) ? this.reserveFor(g, p) : 0;
     const held = this.heldPieces(g, p);
     // (with Underworld Breach out, every nonland card in the graveyard can be cast again with escape)
     const breach = p.battlefield.some(x => x.fx.breach);
@@ -911,7 +996,8 @@ export class Agent {
       const cost = mode.alt && !['free', 'pitch'].includes(mode.alt) ? g.altCost(o, mode.alt) : mode.alt ? null : parseCost(o.card.manaCost);
       const mana = cost ? cost.generic + cost.pips.length : 0;
       if (reserve && avail - mana < reserve && s < 9) continue;
-      opts.push({ s, cost: mana, why: `casts ${o.card.name}${mode.alt ? ` (${mode.alt})` : ''}`, run: () => g.cast(p, o, { mode }) });
+      if (reserve1 && instantSpeed(o) && !o.fx.type.creature && avail - mana < reserve1 && s < 9) continue;
+      opts.push({ s, cost: mana, o, cast: o, why: `casts ${o.card.name}${mode.alt ? ` (${mode.alt})` : ''}`, run: () => g.cast(p, o, { mode, ...(this.avoidNow ? { avoid: this.avoidNow } : {}) }) });
     }
     // A companion: {3} to put it into hand, worth it when it's a card we'd cast (more so with a small hand)
     if (g.canCompanion(p)) {
@@ -983,6 +1069,22 @@ export class Agent {
       const instant = !ab.ab.sorcery;
       if (phase === 'main1' && instant && ab.s < 3) continue;
       if (ab.s > 0.5) opts.push({ s: ab.s * 0.8, why: `uses ${ab.o.card.name}'s ability${ab.x ? ` (X = ${ab.x})` : ''}`, run: () => g.activate(p, ab.o, ab.ab, { x: ab.x }) });
+    }
+    // (rules 19, Phase 2K) Each play has a key; plays the engine refused this phase are left out. Spells keep back the
+    // colors that the other spells we want to cast this turn need when paying generic mana (a Forest isn't tapped for
+    // Sol Ring while Llanowar Elves waits in hand).
+    if (g.rules >= 19) {
+      for (const x of opts) x.key ||= `${x.why || ''}|${x.o?.iid ?? ''}`;
+      const refused = this.refused?.turn === g.turn && this.refused.phase === phase ? this.refused.keys : null;
+      if (refused?.size) for (let i = opts.length - 1; i >= 0; i--) if (refused.has(opts[i].key)) opts.splice(i, 1);
+      const spells = opts.filter(x => x.cast);
+      for (const x of spells) {
+        const others = spells.filter(y => y !== x && y.cast.zone !== 'graveyard' && y.cast !== x.cast);
+        const avoid = new Set(others.flatMap(y => parseCost(y.cast.card.manaCost || '').pips.flat()).filter(c => 'WUBRG'.includes(c)));
+        if (!avoid.size) continue;
+        const run = x.run;
+        x.run = () => { this.avoidNow = avoid; try { return run(); } finally { this.avoidNow = null; } };
+      }
     }
     if (!opts.length) return null;
     // Casual pilots don't always find the best play
@@ -1637,7 +1739,8 @@ export class Agent {
       const e = card.fx.spell.find(x => x.k === 'remove' || x.k === 'damage' || x.k === 'bounce');
       if (!e || card.fx.spell.indexOf(e) !== 0) continue;
       const n = e.n === 'X' ? g.availableMana(q) - 1 : e.n;
-      const ok = a => g.canTarget(q, a) && (e.k === 'remove' ? this.matches(a, e.what) && (e.mode === 'exile' || !g.has(a, 'indestructible'))
+      // (rules 19) the card's own words too: Doom Blade can't take a black creature, Abrupt Decay one of mana value 4+
+      const ok = a => g.canTarget(q, a) && (g.rules < 19 || (targetFits(g, q, e, a, card) && !this.doomed(g, a))) && (e.k === 'remove' ? this.matches(a, e.what) && (e.mode === 'exile' || !g.has(a, 'indestructible'))
         : e.k === 'bounce' ? this.matches(a, e.what) : /any|creature/.test(e.to) && a.fx.type.creature && g.toughness(a) - a.damage <= n && !g.has(a, 'indestructible'));
       const target = candidates.filter(ok).sort((a, b) => this.value(g, b) - this.value(g, a))[0];
       if (target) return { card, target, targets: card.fx.spell.map((x, i) => (i === 0 ? { obj: target } : null)) };
@@ -1788,6 +1891,8 @@ export class Agent {
   shieldResponse(g, q, item) {
     const mine = item.targets.find(t => t?.spell && t.spell.p === q)?.spell;
     if (!mine || !item.o.fx.spell.some(e => e.k === 'counter') || q.shieldTurn === g.turn || mine.uncounterable) return null;
+    // (rules 19) a counterspell that can't counter our spell anyway needs no answer
+    if (g.rules >= 19 && cantBeCountered(g, mine)) return null;
     const s = mine.o;
     const worth = mine.combo || s.isCommander || (s.card.cmc || 0) >= 4 || this.comboSpell(g, mine) || s.fx.spell.some(e => e.k === 'wipe' || e.k === 'counter' || e.k === 'remove');
     if (!worth) return null;
@@ -1866,6 +1971,9 @@ export class Agent {
   wantCountered(g, q, item) {
     const spell = item.o;
     if (spell.fx.uncounterable) return false;
+    // (rules 19, Phase 2K) Cavern of Souls, "your next spell can't be countered", Veil of Summer, Grand Abolisher-style
+    // protection: the same test the counterspell would meet as it resolves
+    if (g.rules >= 19 && cantBeCountered(g, item)) return false;
     const combo = this.comboSpell(g, item);
     const mineHit = spell.fx.spell.some(e => e.k === 'wipe' || e.k === 'sweep') && q.battlefield.filter(o => !o.fx.type.land).reduce((s, o) => s + this.value(g, o), 0) > 6;
     const targetsMe = (item.targets || []).some(tg => (tg?.obj && tg.obj.controller === q.idx && this.value(g, tg.obj) >= 5) || tg?.player === q.idx);
@@ -1878,6 +1986,7 @@ export class Agent {
   counterResponse(g, q, item) {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
+    if (g.rules >= 19 && cantBeCountered(g, item)) { this.explain(g, q, `lets ${item.o.card.name} resolve: it can't be countered`); return null; }
     const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.counterUsable(g, q, o, item));
     // (rules 5, item 97: a permanent's counter ability — Glen Elendra Archmage, Siren Stormtamer — when there's no
     // counterspell in hand; Stormtamer only answers something aimed at us or our creatures)
@@ -1900,6 +2009,8 @@ export class Agent {
       const s = mySpell.o;
       const worth = mySpell.combo || s.isCommander || (s.card.cmc || 0) >= 4 || s.fx.spell.some(e => e.k === 'wipe' || e.k === 'counter' || e.k === 'remove')
         || (mySpell.targets || []).some(t => t?.obj?.controller === q.idx);
+      // (rules 19) a counterspell aimed at our spell that can't be countered does nothing: no need to fight
+      if (g.rules >= 19 && cantBeCountered(g, mySpell)) return null;
       if (worth) g.log(`${g.pn(q)} fights back over ${g.cn(s)}`, { kind: 'minor' });
       return worth ? as(cheapest()) : null;
     }
