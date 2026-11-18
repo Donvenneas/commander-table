@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Commander Table · Interface test</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { overflow: auto; }
+    .st { max-width: 980px; margin: 0 auto; padding: 20px 16px 40px; }
+    .st h1 { font-size: 22px; margin: 0 0 6px; }
+    .st table { width: 100%; border-collapse: collapse; margin: 10px 0 18px; font-size: 13px; }
+    .st td, .st th { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .st .pass { color: var(--good); font-weight: 800; }
+    .st .fail { color: var(--bad); font-weight: 800; }
+    .st .skip { color: var(--warn); font-weight: 800; }
+    .st .wait { color: var(--muted); }
+    .st .summary { font-size: 16px; font-weight: 700; margin: 8px 0; }
+    .ut-stage { border: 1px solid var(--line-2); border-radius: var(--r-md); overflow: auto; max-width: 100%; }
+    .ut-stage iframe { display: block; border: 0; background: var(--bg); }
+  </style>
+</head>
+<body>
+  <main class="st">
+    <h1>Commander Table interface test</h1>
+    <p class="muted">Opens the game page in the frame below and uses it the way a person would: the start menu, windows, the deck builder, and small puzzle games played through the action bar with real cards. Every check compares what the table shows with the engine's own state. Your settings and saved drafts are put back when it ends, and its games are never added to your history. It needs Scryfall for the card data.</p>
+    <p><button class="btn primary" id="btnRun">Run the interface test</button> <a class="btn ghost" href="/">Back to the game</a></p>
+    <div class="summary" id="summary"></div>
+    <table id="checks"><tbody></tbody></table>
+    <div class="ut-stage"><iframe id="frame" title="The game page under test" width="1366" height="768"></iframe></div>
+  </main>
+  <script type="module" src="js/uitest.js"></script>
+</body>
+</html>

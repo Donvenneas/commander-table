@@ -106,6 +106,9 @@ jobs:
       - name: Run the self-test
         run: python tests/selftest_ci.py --url http://localhost:8777
 
+      - name: Run the interface test (the game page driven in a frame: menu, builder, targets, stack, combat, sizes)
+        run: python tests/selftest_ci.py --url http://localhost:8777 --page uitest.html --timeout 300
+
   windows:
     # (item 177) build Commander Table.exe and run the self-test against it, then against server.ps1 (start.bat's server)
     if: github.event_name != 'push' || github.ref == 'refs/heads/main'
@@ -134,7 +137,8 @@ jobs:
           $up = $false
           for ($i = 0; $i -lt 30 -and -not $up; $i++) { try { Invoke-WebRequest -UseBasicParsing http://localhost:8777/ | Out-Null; $up = $true } catch { Start-Sleep 1 } }
           if (-not $up) { throw 'Commander Table.exe did not answer on port 8777' }
-          try { python tests/selftest_ci.py --url http://localhost:8777; if ($LASTEXITCODE) { throw 'self-test failed (.exe)' } }
+          try { python tests/selftest_ci.py --url http://localhost:8777; if ($LASTEXITCODE) { throw 'self-test failed (.exe)' }
+                python tests/selftest_ci.py --url http://localhost:8777 --page uitest.html --timeout 300; if ($LASTEXITCODE) { throw 'interface test failed (.exe)' } }
           finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
 
       - name: Self-test against server.ps1
@@ -144,5 +148,6 @@ jobs:
           $up = $false
           for ($i = 0; $i -lt 40 -and -not $up; $i++) { try { Invoke-WebRequest -UseBasicParsing http://localhost:8778/ | Out-Null; $up = $true } catch { Start-Sleep 1 } }
           if (-not $up) { throw 'server.ps1 did not answer on port 8778' }
-          try { python tests/selftest_ci.py --url http://localhost:8778; if ($LASTEXITCODE) { throw 'self-test failed (server.ps1)' } }
+          try { python tests/selftest_ci.py --url http://localhost:8778; if ($LASTEXITCODE) { throw 'self-test failed (server.ps1)' }
+                python tests/selftest_ci.py --url http://localhost:8778 --page uitest.html --timeout 300; if ($LASTEXITCODE) { throw 'interface test failed (server.ps1)' } }
           finally { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }

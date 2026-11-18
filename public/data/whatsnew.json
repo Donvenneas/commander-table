@@ -1,5 +1,5 @@
 {
- "version": "1.54.0",
+ "version": "1.55.0",
  "round": "Round 8",
  "items": [
   {
@@ -265,6 +265,12 @@
    "section": "The table",
    "title": "A full screen button.",
    "done": "1.38.0."
+  },
+  {
+   "n": 293,
+   "section": "The table",
+   "title": "Touch preview, and the table's pictures and motion (Phase 2L).",
+   "done": "1.55.0."
   },
   {
    "n": 315,

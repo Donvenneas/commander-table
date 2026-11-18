@@ -131,7 +131,10 @@ export class HumanUI {
         this.onRecord?.('h', this.record.length - 1);
         resolve(v);
       };
-      this.pending = { resolve: rec, buttons, objs: objMap, players: new Set(players) };
+      // (choosing: a question that asks for particular cards or players, such as a target, rather than a turn's open
+      // prompt where every playable card is highlighted; only then is the rest of the table dimmed)
+      const choosing = (objs.length + players.length) > 0 && !/main phase|Declare attackers|blockers|respond|priority|you may (cast|play|activate)/i.test(String(text).replace(/<[^>]+>/g, ''));
+      this.pending = { resolve: rec, buttons, objs: objMap, players: new Set(players), choosing };
       this.waiting = true;
       // (the second half of a drag-to-attack: answer at once if this question offers that attack)
       const auto = this.autoNext;
@@ -200,6 +203,9 @@ export class HumanUI {
       else { el.removeAttribute('tabindex'); el.removeAttribute('role'); }
     }
     for (const b of this.view.boards) b.el.classList.toggle('pickable', on && this.pending.players.has(b.p.idx));
+    // (1.55.0) While a question offers cards or players to click, everything it doesn't offer is dimmed and marked (the
+    // stylesheet), so the choices stand out by more than their glow. Only the offered ones answer a click.
+    if (typeof document !== 'undefined') document.body.classList.toggle('choosing', on && !!this.pending.choosing);
   }
   finish(value) {
     const p = this.pending;

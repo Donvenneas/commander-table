@@ -1,7 +1,7 @@
 // The page a friend opens to play one seat of a game hosted on someone else's PC.
 // It polls the host for this seat's view of the table and any question waiting for this player,
 // draws the table with the same look as the host, and sends answers back.
-import { esc, symbolize, store } from './util.js';
+import { esc, symbolize, store, installImageFallback } from './util.js';
 import { startI18n } from './i18n.js';
 import { startModals, askUser } from './dialogs.js';
 import { renderTabletop } from './manual.js';
@@ -389,6 +389,9 @@ document.addEventListener('mouseover', e => {
   pv.style.left = `${Math.max(8, x)}px`;
   pv.style.top = `${Math.max(8, Math.min(e.clientY - r.height / 2, innerHeight - r.height - 8))}px`;
 });
+
+// (1.55.0) a card picture that fails to load shows the card's face in words
+installImageFallback(host => { const c = host && cardData.get(+(host.dataset.iid || 0)); return c ? { name: c.name, manaCost: c.cost, typeLine: c.type, pt: c.pt, colors: [] } : null; });
 
 // ---------- polling the host
 async function poll() {

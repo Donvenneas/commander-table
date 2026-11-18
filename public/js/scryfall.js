@@ -100,6 +100,7 @@ function build(raw, r8) {
   const front = faces.length && !raw.oracle_text && faces[0].oracle_text !== undefined ? faces[0] : raw;
   const img = raw.image_uris || faces[0]?.image_uris || {};
   const back = faces[1]?.image_uris;
+  const backImg = back; // (the inner block below has its own 'back')
   const card = {
     id: raw.id,
     name: raw.name,
@@ -136,6 +137,9 @@ function build(raw, r8) {
     const b = faces[1];
     /** @type {any} */
     const back = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: '', text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, imgNormal: card.backNormal || card.imgNormal, canBeCommander: false };
+    // (1.55.0) the back face's own small picture and art (the table showed the front's after a transform), and the
+    // front as the "other face" for the preview. Pictures only: nothing a game reads.
+    if (backImg) Object.assign(back, { imgSmall: imgUrl(backImg.small) || card.imgSmall, imgLarge: imgUrl(backImg.large) || card.imgLarge, art: imgUrl(backImg.art_crop) || card.art, backNormal: card.imgNormal });
     if (multi) back.keywords = faceKeywords(raw.keywords, b.oracle_text);
     back.fx = analyzeCard(back);
     Object.defineProperty(card, 'backCard', { value: back, enumerable: false });

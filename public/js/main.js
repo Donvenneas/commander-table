@@ -42,7 +42,7 @@ const STRENGTH = {
 };
 import { topCommanders, ddbDecks, edhtop16Name, offlineSince, compareWithMeta, trendHistory } from './cedhdata.js';
 import { Rules } from './rules.js';
-import { esc, sleep, store, symbolize, makeRng, whenText, dayText, numText } from './util.js';
+import { esc, sleep, store, symbolize, makeRng, whenText, dayText, numText, installImageFallback } from './util.js';
 import { prefs } from './prefs.js';
 import { SEAT_COLORS, deckText, runOnCores, gameFromSummary } from './cores.js';
 import { showImages, showStorage, openHelp } from './windows.js';
@@ -338,6 +338,9 @@ function matchScore(m) { return m.wins.join('–'); }
 
 // ---------- game lifecycle
 let game = null, clock = null, view = null;
+// (1.55.0) The interface tests (uitest.html) open this page in a frame with ?uitest: no tour, nothing recorded, and the
+// live game, table view and puzzle starter are handed to the test page (window.ctTest, set at the end of this file)
+const UITEST = /[?&]uitest\b/.test(location.search);
 // What's needed to rebuild the current game exactly: its seed and seats, plus where each turn starts
 /** @type {any} */
 let setup = null;
@@ -508,7 +511,8 @@ function newGame(opts = {}) {
   game.on('over', () => {
     setup.total = game.steps;
     // Each game teaches the decks once (not again when it's replayed or rewound)
-    if (!setup.recorded && !setup.loadedReplay) { setup.recorded = true; recordGame(game); addHistory(game); }
+    // (the interface tests' games, uitest.html, are never recorded)
+    if (!setup.recorded && !setup.loadedReplay && !UITEST) { setup.recorded = true; recordGame(game); addHistory(game); }
     // A match game counts once (rewinding and replaying it doesn't add another result)
     if (setup.matchGame && match && match.games.length === setup.matchGame - 1) {
       const w = game.winner ? game.winner.idx : null;
@@ -3552,6 +3556,14 @@ Rules.load().then(() => {
 });
 
 installPreview(iid => game?.objects.get(iid));
+if (UITEST) /** @type {any} */ (window).ctTest = { startPuzzle, humanUI, prefs, applyDisplay: () => applyDisplay(), game: () => game, view: () => view, clock: () => clock, setup: () => setup };
+// (1.55.0) a card picture that fails to load is replaced by the card's face in words (the card is found by the data-iid
+// of the element holding the picture, or by the card the preview is showing)
+installImageFallback((host, img) => {
+  const iid = host ? +(host.dataset.iid || 0) : +(img.closest('#preview')?.dataset.for || 0);
+  const o = iid ? game?.objects.get(iid) : null;
+  return o && !o.faceDown ? o.card : null;
+});
 installDetails(iid => game?.objects.get(iid), () => view);
 renderSeats();
 if (location.protocol === 'file:') $('setupStatus').textContent = 'Open this game with Commander Table.exe or start.bat. Deck import needs its local server.';
@@ -4122,7 +4134,7 @@ $('startMenu').addEventListener('click', e => {
   const hide = () => { $('startMenu').hidden = true; };
   const toSetup = () => { hide(); $('setup').hidden = false; };
   switch (go) {
-    case 'play': toSetup(); if (!prefs.toured) setTimeout(() => startTour(toured), 400); break;
+    case 'play': toSetup(); if (!prefs.toured && !UITEST) setTimeout(() => startTour(toured), 400); break;
     case 'resume': {
       const a = store(AUTOSAVE);
       if (!a) { showResume(); break; }

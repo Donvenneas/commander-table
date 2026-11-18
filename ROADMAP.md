@@ -780,6 +780,27 @@ on top of the ones above:
     expected and actual play, in tests/ai-decisions.md), golden 96, all other suites; report in
     tests/phase-2k-report.md. Not done: no measured strength gain; the AI difficulty setting was already there and
     is unchanged; no new interface.
+- [x] 383. Interface and gameplay presentation (asked 2026-11-17, Phase 2L): an audit of the table, menus, previews,
+  targeting, stack, combat, log, settings and small screens against the engine, with what it found fixed and an
+  interface test that drives the real page.
+  - Done (version 1.55.0; no engine or rules change, golden games unchanged): a card picture that fails to load is
+    replaced by the card's face in words (name, cost, type, power and toughness) on the table, the stack, the preview
+    and the battle panel; decorative pictures (log thumbnails, stack art) are dropped; the manual tabletop's role
+    pictures had inline onerror handlers the page's security policy blocked. A transformed double-faced card shows its
+    back face on the table (it kept the front's small picture), and the preview labels the card's other face. Touch:
+    a tap on a card shows its preview docked at the bottom; a long press previews a card you could pick. While a
+    question asks for particular cards or players (a target), everything else is faded and greyed. Calm mode and the
+    system's reduced-motion setting now also stop the script animations (card glides, move copies, the turn banner,
+    smooth scrolling); move copies are removed after 1.5 s even when the window is hidden. Phones: Resume, Step and
+    speed come first in the control row, and the stack panel sits at the bottom instead of over the first board. All
+    three servers allow the game's own pages to frame it (frame-ancestors 'self'; other sites still can't). Tests:
+    new public/uitest.html (17 checks run, online seats not: menu, deck selection, builder search and restore, land
+    play, tapping, preview, double-faced cards, legal and illegal targets, stack and priority, life and log,
+    picture fallback, calm mode, listeners, combat and simultaneous deaths, four players, six screen sizes, results,
+    AI turns), CI runs it; tests/servers.mjs checks the framing rule; report in tests/phase-2l-report.md. Not done:
+    the main menu, deck builder and table were already redesigned (items 219 to 300) and are unchanged in layout;
+    no drag-to-block, no targeting lines while choosing, no new results screen, no printing picker (a Universes
+    Beyond printing can still be the default picture).
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
@@ -1458,6 +1479,9 @@ chat or model can take any item). Reproductions: `node tests/audit-probes.mjs` (
   - Done: 1.38.0. Display → Card preview: beside the pointer, in the bottom right corner, or off.
 - [x] 300. A full screen button.
   - Done: 1.38.0. Beside Display in the top bar.
+
+- [x] 293. Touch preview, and the table's pictures and motion (Phase 2L).
+  - Done: 1.55.0. A tap on a card shows its preview docked at the bottom; a card whose picture can't load shows its name, type and power instead; a transformed card shows its back; while you choose a target the rest of the table is faded; Fewer animations stops every animation on the table.
 
 ### Deck builder
 - [x] 315. Fill in basic lands.

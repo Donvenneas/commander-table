@@ -65,6 +65,45 @@ export function symbolize(text) {
     `<img class="sym" alt="${esc(symbolName(s))}" src="${esc(imgUrl(`https://svgs.scryfall.io/card-symbols/${encodeURIComponent(s.replace('/', '').toUpperCase())}.svg`))}">`);
 }
 
+// A card's face in words (moved here from builder.js in 1.55.0): under a picture while it loads, and instead of it
+// when there is none or it fails to load (installImageFallback). Built only from the card's own data.
+const TYPE_MARK = [['Creature', '◆'], ['Planeswalker', '✪'], ['Instant', '⚡'], ['Sorcery', '✦'], ['Artifact', '⚙'], ['Enchantment', '✧'], ['Battle', '⛨'], ['Land', '▲']];
+const typeMark = c => (TYPE_MARK.find(([t]) => String(c.typeLine || '').includes(t)) || ['', '•'])[1];
+export const ptOf = c => (c.power != null ? `${c.power}/${c.toughness}` : c.loyalty ? `Loyalty ${c.loyalty}` : c.defense ? `Defense ${c.defense}` : c.pt || '');
+export const colorBar = c => {
+  const cs = c.colors?.length ? c.colors : /\bLand\b/.test(c.typeLine || '') ? c.colorIdentity || [] : [];
+  const v = cs.filter(x => 'WUBRG'.includes(x)).map(x => `var(--mana-${x.toLowerCase()})`);
+  return v.length > 1 ? `linear-gradient(90deg, ${v.join(', ')})` : v[0] || 'var(--mana-c)';
+};
+export const cardFace = c => `<div class="cface" style="--cf:${colorBar(c)}"><i class="cface-type" aria-hidden="true">${typeMark(c)}</i><b>${esc(c.name)}</b><small>${esc(c.typeLine || '')}</small>${c.manaCost ? `<span class="cost">${symbolize(c.manaCost)}</span>` : ''}${ptOf(c) ? `<span class="pt">${esc(ptOf(c))}</span>` : ''}</div>`;
+
+// (1.55.0) One listener for every card picture on a page: a picture that fails to load (offline, Scryfall busy) is
+// replaced by the card's face in words, or simply removed where it was only decoration (log thumbnails, stack art).
+// cardFor(el) finds the card for the element holding the picture (by its data-iid), or returns null.
+export function installImageFallback(cardFor) {
+  if (typeof document === 'undefined' || document.documentElement.dataset.imgFallback) return;
+  document.documentElement.dataset.imgFallback = '1';
+  document.addEventListener('error', ev => {
+    const img = ev.target;
+    // (mana symbols keep their alt text; the deck builder's tiles already have a face under the picture)
+    if (!(img instanceof HTMLImageElement) || img.classList.contains('sym') || img.closest('.ctile-img, .insp-img')) return;
+    if (img.closest('.le, .sp-art, .pile, .mt-roleart, .mt-tips') || img.classList.contains('le-thumb')) {
+      if (img.closest('.mt-tips')) img.closest('.mt-tips')?.remove(); else img.remove();
+      return;
+    }
+    const host = /** @type {HTMLElement | null} */ (img.closest('[data-iid]'));
+    const card = cardFor(host, img);
+    if (!card) { img.remove(); return; }
+    const d = document.createElement('div');
+    d.className = `img-fallback${img.classList.contains('big') ? ' big' : ''}`;
+    d.innerHTML = cardFace(card);
+    d.setAttribute('role', 'img');
+    d.setAttribute('aria-label', `${card.name} (picture unavailable)`);
+    img.replaceWith(d);
+    host?.classList.add('noimg-failed');
+  }, true);
+}
+
 // On the host's own page, Scryfall images go through the local server, which keeps them in data\images
 // for offline play. Friends' pages (play.html) load them from Scryfall directly.
 const HOSTED = typeof location !== 'undefined' && ['localhost', '127.0.0.1'].includes(location.hostname) && !/play\.html$/.test(location.pathname);

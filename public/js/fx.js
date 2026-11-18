@@ -15,7 +15,9 @@ function ensure() {
   addEventListener('resize', size);
   return true;
 }
-const calm = () => document.body.classList.contains('calm') || document.hidden;
+// (1.55.0) also when the system asks for reduced motion: script animations aren't covered by the stylesheet's rule
+export const motionOff = () => document.body.classList.contains('calm') || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const calm = () => motionOff() || document.hidden;
 
 function hexRgb(c) {
   const m = /^#?([0-9a-f]{6})$/i.exec((c || '').trim());

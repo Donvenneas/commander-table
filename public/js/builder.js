@@ -11,7 +11,7 @@ import { sampleHands } from './goldfish.js';
 import { formatOf } from './formats.js';
 import { Rules } from './rules.js';
 import { rulingsFor } from './ui.js';
-import { esc, symbolize, store, whenText, dayText, numText } from './util.js';
+import { esc, symbolize, store, whenText, dayText, numText, cardFace, ptOf } from './util.js';
 import { notice } from './dialogs.js';
 import { owned, hasCollection } from './collection.js';
 import { almostCombos } from './combos.js';
@@ -22,17 +22,9 @@ const TYPES = ['creature', 'instant', 'sorcery', 'artifact', 'enchantment', 'pla
 const typeOf = c => TYPES.find(t => new RegExp(`\\b${t}\\b`, 'i').test(c.typeLine)) || 'other';
 const isLand = c => /\bland\b/i.test(c.typeLine);
 const isBasic = c => /\bbasic\b/i.test(c.typeLine) && isLand(c);
-const ptOf = c => (c.power != null ? `${c.power}/${c.toughness}` : c.loyalty ? `Loyalty ${c.loyalty}` : c.defense ? `Defense ${c.defense}` : '');
 const cost = c => (c.manaCost ? `<span class="cost">${symbolize(c.manaCost)}</span>` : '');
-// A card's face in words: under the picture while it loads, and instead of it when there is none
-const TYPE_MARK = [['Creature', '◆'], ['Planeswalker', '✪'], ['Instant', '⚡'], ['Sorcery', '✦'], ['Artifact', '⚙'], ['Enchantment', '✧'], ['Battle', '⛨'], ['Land', '▲']];
-const typeMark = c => (TYPE_MARK.find(([t]) => String(c.typeLine || '').includes(t)) || ['', '•'])[1];
-const colorBar = c => {
-  const cs = c.colors?.length ? c.colors : /\bLand\b/.test(c.typeLine || '') ? c.colorIdentity || [] : [];
-  const v = cs.filter(x => 'WUBRG'.includes(x)).map(x => `var(--mana-${x.toLowerCase()})`);
-  return v.length > 1 ? `linear-gradient(90deg, ${v.join(', ')})` : v[0] || 'var(--mana-c)';
-};
-const face = c => `<div class="cface" style="--cf:${colorBar(c)}"><i class="cface-type" aria-hidden="true">${typeMark(c)}</i><b>${esc(c.name)}</b><small>${esc(c.typeLine)}</small>${cost(c)}${ptOf(c) ? `<span class="pt">${esc(ptOf(c))}</span>` : ''}</div>`;
+// A card's face in words: under the picture while it loads, and instead of it when there is none (util.js)
+const face = cardFace;
 
 // The deck being built is kept here after every change, so closing the builder (or the game) doesn't lose it
 const DRAFT = 'ct.builderDraft';

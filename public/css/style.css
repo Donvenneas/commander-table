@@ -2037,3 +2037,42 @@ body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-ins
 .grid-legend i.hi { background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--good) 40%, transparent)); }
 /* (Phase 2J) the player who has priority right now */
 .polchip.prio { --cc: var(--warn); font-weight: 700; }
+
+/* =========================================================================================
+   Grimoire layer 21 (Phase 2L, 1.55.0): pictures that fail, the other face, touch preview,
+   choosing, phones.
+   ========================================================================================= */
+/* A card picture that failed to load: the card's face in words, the size of the picture it replaces */
+.img-fallback { position: relative; width: 100%; aspect-ratio: 63 / 88; border-radius: 4.75% / 3.5%; overflow: hidden; }
+.img-fallback.big { width: 250px; }
+.card > .img-fallback { position: absolute; inset: 0; width: auto; aspect-ratio: auto; }
+.card .cface, .spot .cface, .bp-card .cface { font-size: max(7px, calc(var(--cw, 66px) * .12)); gap: 1px; padding: 6% 6% 0; }
+.card .cface b, .spot .cface b, .bp-card .cface b { font-size: inherit; line-height: 1.15; }
+.card .cface small, .card .cface .cost, .card .cface-type { display: none; }
+.card .cface .pt { margin: auto 4% 6% auto; font-size: inherit; }
+.preview .img-fallback .cface { font-size: 15px; }
+.preview .img-fallback .cface b { font-size: 17px; }
+/* The preview's second picture is the card's other face, labelled */
+.pv-other { margin: 0; display: flex; flex-direction: column; gap: 3px; }
+.pv-other img.big, .pv-other .img-fallback.big { width: 120px; }
+.pv-other figcaption { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+/* Touch preview (item 293): docked at the bottom, scrolls, closes on a tap */
+.preview.touch { left: 8px; right: 8px; top: auto; bottom: calc(8px + env(safe-area-inset-bottom)); max-width: none; max-height: 62vh; overflow-y: auto; pointer-events: auto; }
+.preview.touch .imgs { flex: 0 0 auto; width: min(42%, 250px); }
+.preview.touch img.big, .preview.touch .img-fallback.big { width: 100%; }
+.preview.touch .pv-other img.big { width: 60%; }
+.preview.touch .ptext { width: auto; flex: 1 1 auto; min-width: 0; }
+body.your-move .preview.touch { bottom: calc(96px + env(safe-area-inset-bottom)); max-height: 50vh; }
+/* Choosing cards or players: what the question doesn't offer is faded and greyed (the offered ones keep their ring mark
+   from layer 15, so the difference isn't color alone) */
+body.choosing .board .card:not(.pickable):not(.chosen) { opacity: .42; filter: saturate(.45); cursor: not-allowed; }
+body.choosing .board .card.pickable { opacity: 1; filter: none; }
+body.choosing .board:not(.pickable) .avatar { opacity: .7; }
+body.calm.choosing .board .card:not(.pickable) { transition: none; }
+/* Phones: the game's own buttons (Resume, Step, speed) come first in the scrolling control row, and the stack sits at the
+   bottom of the screen instead of over the first board (above the action bar while you're answering) */
+@media (max-width: 600px) {
+  .topbar .controls .ctl-group[aria-label="Game"] { order: -1; }
+  .stack-panel { position: fixed; top: auto; right: 8px; left: 8px; bottom: calc(64px + env(safe-area-inset-bottom)); width: auto; max-height: 32vh; }
+  body.your-move .stack-panel { bottom: auto; top: calc(8px + env(safe-area-inset-top)); max-height: 28vh; }
+}

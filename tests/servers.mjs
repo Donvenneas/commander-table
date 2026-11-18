@@ -13,6 +13,8 @@ await test('The page comes with a content security policy and nosniff', async ()
   const r = await fetch(base + '/');
   const csp = r.headers.get('content-security-policy') || '';
   ok(/default-src 'self'/.test(csp) && /script-src 'self'/.test(csp) && !/script-src[^;]*unsafe/.test(csp), `policy: ${csp || 'none'}`);
+  // (1.55.0) only the game's own pages may frame it (the interface test page does); other sites may not
+  ok(/frame-ancestors 'self'(;|$)/.test(csp), `frame-ancestors: ${/frame-ancestors[^;]*/.exec(csp)?.[0] || 'none set'}`);
   eq(r.headers.get('x-content-type-options'), 'nosniff', 'X-Content-Type-Options');
 });
 await test('The deck-site proxy refuses a site that is not on the list', async () => {

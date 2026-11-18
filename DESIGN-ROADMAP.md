@@ -185,6 +185,7 @@ without the conversation that produced it. Rules fixes are in `AUDIT-ROADMAP.md`
   Add a shape or badge for each (⚔, 🛡, a tick, a number in pick order); extend the color-blind setting's seat
   numbers to log entries and combat arrows.
   - Progress (1.42.0): cards carry a mark as well as a glow, in the stylesheet (`.card…::before`): crossed swords when attacking, a shield when blocking, a tick when chosen, a green dot when they can be chosen. Not seen on a live attacker yet (the test game was paused after combat). Still to do: a number for pick order, and seat numbers on log entries and combat arrows.
+  - More (1.55.0): while a question asks for particular cards or players (`HumanUI` `pending.choosing`, `body.choosing`), cards it doesn't offer are faded and greyed, so the choices differ by brightness and their mark too. The interface test checks an attacker's and a blocker's marks in a live combat.
 - [ ] **254. Text size without `zoom`.** (M) `body.big` uses `zoom`, which breaks positions of the preview and
   arrows. Drive sizes from `rem` and `--text-scale`, and check 200% browser zoom has no clipped windows.
 - [x] **255. Touch target sizes.** (S) 44 px minimum on phones for `.btn.small`, `.zbtn`, `.pile`, seat picks,
@@ -295,8 +296,9 @@ without the conversation that produced it. Rules fixes are in `AUDIT-ROADMAP.md`
 - [x] **292. Hover preview that stays out of the way.** (S) Options: beside the pointer (today), docked in the
   sidebar, or only on a key held down. Delay of 150 ms before showing so sweeping the mouse does not flash cards.
   - Done: 1.38.0. The preview waits 140 ms before the first card (none when moving from one card to the next), and Display → **Card preview** chooses beside the pointer, docked in the bottom right corner, or off (`prefs.preview`, `body[data-preview]`). Docking it in the sidebar and a hold-a-key mode are not done.
-- [ ] **293. Touch preview.** (S) On touch, a tap shows the preview docked at the bottom; a second tap acts. Long
+- [x] **293. Touch preview.** (S) On touch, a tap shows the preview docked at the bottom; a second tap acts. Long
   press keeps opening the details window.
+  - Done: 1.55.0 (Phase 2L). `installPreview` in ui.js: a tap on a card that isn't a choice opens the preview docked at the bottom (`.preview.touch`, above the action bar while you're answering); a long press (0.5 s) previews a card you could pick, whose tap still picks it; a tap elsewhere or on the preview closes it. The emulated mouse events after a tap are ignored. Checked by dispatching touch pointer events at 375 wide; not tried on a real phone.
 - [x] **294. Action bar that does not cover the board.** (M) It is fixed at the bottom center and hides hand
   cards. Dock it under your board, let it be dragged, and remember where.
   - Done: 1.40.0 for moving it: a grip (⠿, `#abGrip`) on the action bar drags it anywhere; arrow keys on the grip move it in steps and Home puts it back, as does a double-click. The place is kept in `prefs.barPos`, restored each time the bar appears and kept on screen when the window changes size. Its default place is unchanged (bottom center), and phones keep it pinned to the bottom edge. Docking it under your board by default is not done.
@@ -329,6 +331,7 @@ without the conversation that produced it. Rules fixes are in `AUDIT-ROADMAP.md`
   the right-click details show the same card three ways. Share one renderer with three layouts (docked, floating, window).
 - [ ] **304. Both faces.** (S) Double-faced cards: a flip button on tiles and in the inspector, with the flip animated.
   - Progress (1.50.0): the builder's inspector has a **Flip** button for double-faced cards (the picture turns to the other face, `card.backNormal`). Still to do: a flip button on tiles, and on the table's preview and details window.
+  - More (1.55.0): a transformed card's back face has its own small picture and art (scryfall.js; the table showed the front), its `backNormal` is the front, and the table's preview labels the second picture "Other face".
 - [ ] **305. Printing picker.** (M) In the builder and deck viewer, choose which printing's art to show for a card
   (Scryfall `prints_search_uri`, or the printings file when downloaded). Saved with the deck's About section as
   `Print <name> <set> <number>`; the loader must keep ignoring lines it does not know.
@@ -515,6 +518,7 @@ without the conversation that produced it. Rules fixes are in `AUDIT-ROADMAP.md`
 
 - [ ] **372. Translate item 219's text.** (S) Dashboard panel titles and stats, builder inspector, checks, sort
   options, empty states: add to `i18n.js` / `i18n_more.js` for es, fr, de, pt, it, ja.
+  - Also (1.55.0): the preview's "Other face" caption and the fallback face's "(picture unavailable)" label; the interface test page (uitest.html) is a developer page and stays English.
 - [ ] **373. Layout under translation.** (S) German and Japanese: check the dashboard buttons, stat labels, tab
   labels and the top bar for clipping; let labels wrap rather than truncate.
 - [x] **374. Dates and numbers by language.** (S) `toLocaleDateString()` follows the browser, not the chosen

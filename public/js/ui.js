@@ -3,10 +3,10 @@ import { PHASES } from './engine.js';
 import { describeFx, droppedSentences } from './effects.js';
 import { STYLES } from './ai.js';
 import { combosFor, RESULT_TEXT } from './combos.js';
-import { esc, symbolize } from './util.js';
+import { esc, symbolize, cardFace } from './util.js';
 import { Rules } from './rules.js';
 import { preview as battlePreview } from './combatai.js';
-import { Fx } from './fx.js';
+import { Fx, motionOff } from './fx.js';
 import { Music } from './music.js';
 import { currentLang, cardInLanguage } from './i18n.js';
 import { roleChip } from './kingdomsPlay.js';
@@ -62,11 +62,11 @@ export class TableView {
     game.on('life', d => { if (live() && d.d > 0) Fx.burst(this.boards[d.p]?.life, '#3ecf8e', 'heal'); });
     game.on('combo', d => { if (live() && d.stage === 'resolve') Fx.burst(els.table, d.p.color, 'combo'); });
     Fx.ambient(els.table.parentElement, true);
-    game.on('move', d => { if (live() && this.g.clock.speed !== 4 && !document.body.classList.contains('calm')) this.animateMove(d); });
+    game.on('move', d => { if (live() && this.g.clock.speed !== 4 && !motionOff()) this.animateMove(d); });
     game.on('battle', d => { if (live()) { this.battle(d); Sound.combat(); } });
     game.on('combo', d => { if (live()) this.comboBanner(d); });
-    game.on('turn', p => { if (live() && this.g.clock.speed !== undefined && this.g.clock.speed < 4) this.turnBanner(p); });
-    game.on('turn', p => { if (live() && document.body.classList.contains('follow')) this.boards[p.idx]?.el.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); if (live() && p.idx === this.humanIdx) Sound.play('yourTurn'); });
+    game.on('turn', p => { if (live() && this.g.clock.speed !== undefined && this.g.clock.speed < 4 && !motionOff()) this.turnBanner(p); });
+    game.on('turn', p => { if (live() && document.body.classList.contains('follow')) this.boards[p.idx]?.el.scrollIntoView({ block: 'nearest', behavior: motionOff() ? 'auto' : 'smooth' }); if (live() && p.idx === this.humanIdx) Sound.play('yourTurn'); });
     document.querySelectorAll('.combo-banner, .combat-svg, .turn-banner').forEach(e => e.remove());
     this.banner = document.createElement('div');
     this.banner.className = 'combo-banner';
@@ -120,7 +120,7 @@ export class TableView {
     panel.addEventListener('click', () => panel.remove());
     document.body.append(panel);
     // Clash effects on each pairing
-    if (!document.body.classList.contains('calm')) requestAnimationFrame(() => {
+    if (!motionOff()) requestAnimationFrame(() => {
       for (const r of shown) {
         const el = this.cards.get(r.a.iid);
         if (el) Fx.burst(el, g.players[r.a.controller].color, r.blockers.length ? 'clash' : 'charge');
@@ -157,6 +157,8 @@ export class TableView {
       const dx = toRect.left + toRect.width / 2 - (fromRect.left + fromRect.width / 2), dy = toRect.top + toRect.height / 2 - (fromRect.top + fromRect.height / 2);
       gEl.animate([{ transform: 'translate(0,0) scale(1)', opacity: 1 }, { transform: `translate(${dx}px,${dy}px) scale(.35)`, opacity: 0.15 }],
         { duration: 650, easing: 'cubic-bezier(.4,.1,.3,1)' }).onfinish = () => gEl.remove();
+      // (1.55.0) a hidden window pauses animations: the copy goes anyway, so none pile up over the table
+      setTimeout(() => gEl.remove(), 1500);
     };
     const counter = z => b.n[z]?.parentElement?.getBoundingClientRect();
     if (from === 'library' && to === 'hand') {
@@ -257,6 +259,9 @@ export class TableView {
       } else if (src) {
         const img = new Image();
         img.src = src; img.alt = o.card.name; img.draggable = false; img.decoding = 'async';
+        // (1.55.0) a picture that fails, even before the card is on screen, gives way to the card's face in words
+        // (the page-wide fallback in util.js handles it first when the card is already on screen)
+        img.addEventListener('error', () => { if (!img.parentElement) return; const d = document.createElement('div'); d.className = 'img-fallback'; d.innerHTML = cardFace(o.card); img.replaceWith(d); el.classList.add('noimg-failed'); });
         el.append(img);
       } else {
         el.classList.add('noimg');
@@ -340,7 +345,7 @@ export class TableView {
       prevKey = key;
       if (container.children[i] !== el) {
         // A card moving between zones (hand → battlefield, creature row → another player) glides there
-        const from = el.isConnected && el.parentElement !== container && !this.g.clock.ff ? el.getBoundingClientRect() : null;
+        const from = el.isConnected && el.parentElement !== container && !this.g.clock.ff && !motionOff() ? el.getBoundingClientRect() : null;
         container.insertBefore(el, container.children[i] || null);
         if (from && from.width) {
           const to = el.getBoundingClientRect();
@@ -591,7 +596,7 @@ export class TableView {
 
   renderSpotlight() {
     const items = this.g.stack;
-    const html = items.map(it => `<div class="spot ${it.countered ? 'countered' : ''}" style="--pc:${it.p.color}">
+    const html = items.map(it => `<div class="spot ${it.countered ? 'countered' : ''}" style="--pc:${it.p.color}" data-iid="${it.o.iid}">
       <img decoding="async" src="${it.o.card.imgNormal || ''}" alt="${esc(it.o.card.name)}">
       <div class="cap">${it.ability ? `${esc(it.o.card.name)}: ${esc(String(it.label).slice(0, 48))}` : `${esc(it.p.name)} casts ${esc(it.o.card.name)}`}</div></div>`).join('');
     if (this.els.spotlight.dataset.v !== html) { this.els.spotlight.innerHTML = html; this.els.spotlight.dataset.v = html; }
@@ -851,7 +856,7 @@ export function installDetails(getObject, getView) {
     if (!t) return;
     const el = getView()?.cards.get(+t.dataset.iid);
     if (!el?.isConnected) return;
-    el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    el.scrollIntoView({ block: 'nearest', behavior: motionOff() ? 'auto' : 'smooth' });
     el.classList.remove('pointed'); void el.offsetWidth; el.classList.add('pointed');
     setTimeout(() => el.classList.remove('pointed'), 1600);
   });
@@ -919,6 +924,8 @@ export function installPreview(getObject) {
   const mode = () => document.body.dataset.preview || 'pointer';
   document.addEventListener('mousemove', ev => { last = ev; }, { passive: true });
   document.addEventListener('mouseover', ev => {
+    // (a touch screen's emulated mouse events don't move the docked touch preview)
+    if (Date.now() - touchAt < 800) return;
     const t = ev.target.closest('[data-iid]');
     if (!t) { clearTimeout(wait); if (current) { pv.hidden = true; current = null; } return; }
     const o = getObject(+t.dataset.iid);
@@ -929,11 +936,40 @@ export function installPreview(getObject) {
     if (pv.hidden) { wait = window.setTimeout(() => { if (t.isConnected && t.matches(':hover')) open(o, last || ev); }, 140); return; }
     open(o, ev);
   });
+  // (1.55.0, item 293) Touch: a tap on a card shows its preview docked at the bottom of the screen (a card you can pick
+  // is picked by the tap as before; a long press shows its preview instead). A tap on the preview or anywhere else
+  // closes it. Nothing here answers a question: picking still goes through the action bar's own click handler.
+  let touchAt = 0, pressTimer = 0, pressed = false;
+  const touchCard = ev => /** @type {HTMLElement | null} */ (ev.target instanceof Element ? ev.target.closest('[data-iid]') : null);
+  document.addEventListener('pointerdown', ev => {
+    if (ev.pointerType !== 'touch') return;
+    touchAt = Date.now();
+    pressed = false;
+    clearTimeout(pressTimer);
+    const t = touchCard(ev);
+    if (!t || t.closest('#preview')) return;
+    pressTimer = window.setTimeout(() => { const o = getObject(+t.dataset.iid); if (o && mode() !== 'off') { pressed = true; openTouch(o); } }, 500);
+  }, { passive: true });
+  for (const e of ['pointerup', 'pointercancel', 'pointermove']) document.addEventListener(e, ev => { const m = /** @type {PointerEvent} */ (ev); if (m.type !== 'pointermove' || Math.abs(m.movementX) + Math.abs(m.movementY) > 6) clearTimeout(pressTimer); }, { passive: true });
+  document.addEventListener('click', ev => {
+    if (Date.now() - touchAt > 800) return;
+    if (pressed) { pressed = false; ev.preventDefault(); ev.stopPropagation(); return; }
+    const t = touchCard(ev);
+    if (!t || t.closest('#preview')) { if (!pv.hidden) { pv.hidden = true; current = null; pv.classList.remove('touch'); } return; }
+    if (t.classList.contains('pickable') || t.closest('.action-bar, button, a')) return;
+    const o = getObject(+t.dataset.iid);
+    if (o && mode() !== 'off') openTouch(o);
+  }, true);
+  function openTouch(o) {
+    pv.classList.add('touch');
+    open(o, null);
+  }
   function open(o, ev) {
     current = o;
     pv.innerHTML = previewHtml(o);
+    pv.dataset.for = String(o.iid);
     pv.hidden = false;
-    place(ev);
+    if (ev) { pv.classList.remove('touch'); place(ev); } else { pv.style.left = ''; pv.style.top = ''; }
     // In another language: the card's printed name and image in it, when Scryfall has them
     if (currentLang() !== 'en') {
       const shown = o;
@@ -946,7 +982,7 @@ export function installPreview(getObject) {
       });
     }
   }
-  document.addEventListener('mousemove', ev => { if (!pv.hidden) place(ev); });
+  document.addEventListener('mousemove', ev => { if (!pv.hidden && !pv.classList.contains('touch')) place(ev); });
   function place(ev) {
     // (docked: the stylesheet keeps it in the bottom right corner)
     if (mode() === 'dock') { pv.style.left = ''; pv.style.top = ''; return; }
@@ -969,7 +1005,7 @@ function previewHtml(o) {
   return `
     <div class="imgs">
       ${c.imgNormal ? `<img decoding="async" class="big" src="${c.imgNormal}" alt="">` : `<div class="tkn big" style="width:250px;height:349px;background-image:url('${c.art || ''}')"><b>${esc(c.name)}</b></div>`}
-      ${c.backNormal ? `<img decoding="async" class="big" src="${c.backNormal}" alt="" style="width:120px">` : ''}
+      ${c.backNormal ? `<figure class="pv-other"><img decoding="async" class="big" src="${c.backNormal}" alt="The card's other face"><figcaption>Other face</figcaption></figure>` : ''}
     </div>
     <div class="ptext">
       <h3><span>${esc(c.name)}</span><span>${symbolize(c.manaCost || '')}</span></h3>
