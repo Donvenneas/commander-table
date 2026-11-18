@@ -7,7 +7,7 @@ import { importCollection, clearCollection, summary as collectionSummary, missin
 import { newCup, pairRound, recordPod, roundDone, standings, standingsText } from './friendcup.js';
 import { Agent, STYLES, guessStyle, wantsLookahead } from './ai.js';
 import { loadDeck, parseText, archidektFolder, archidektDeckText } from './decks.js';
-import { sf, fetchCollection } from './scryfall.js';
+import { sf, fetchCollection, onNetStatus } from './scryfall.js';
 import { planarCards } from './planar.js';
 import { listDecks, saveDeck, deleteDeck, deckMeta, withMeta, commandersOf, versions, diffLists } from './library.js';
 import { BUILT_IN, puzzleDeckText, validPuzzle, boardToPuzzle } from './puzzles.js';
@@ -3959,7 +3959,9 @@ $('btnReport').addEventListener('click', saveReport);
 function showBulk(msg) {
   const m = bulkInfo();
   const on = !!(m?.on && m.count);
-  $('bulkBody').textContent = msg || (on ? `Saved: ${numText(m.count)} cards, from ${whenText(m.at, { dateStyle: 'medium', timeStyle: 'short' })}.` : 'Not downloaded: searches go to Scryfall.');
+  // (1.56.0) what the file in use is, how many damaged cards were left out, and why the last update didn't happen
+  const extra = on ? `${m.updated ? ` Scryfall's file of ${whenText(m.updated, { dateStyle: 'medium' })}.` : ''}${m.invalid ? ` ${numText(m.invalid)} damaged cards were left out.` : ''}${m.lastError && (m.lastErrorAt || 0) > (m.at || 0) ? ` The last update failed (${m.lastError}); this file is still in use.` : ''}` : '';
+  $('bulkBody').textContent = msg || (on ? `Saved: ${numText(m.count)} cards, from ${whenText(m.at, { dateStyle: 'medium', timeStyle: 'short' })}.${extra}` : 'Not downloaded: searches go to Scryfall.');
   $('btnBulk').textContent = on ? 'Download again now' : 'Download the card file';
   $('btnBulkOff').hidden = !on;
 }
@@ -4170,6 +4172,16 @@ if (!$('setup').hidden || openedChallenge) $('startMenu').hidden = true;
 renderMenu();
 if (prefs.autoSets !== false) dailySetCheck().then(r => { if (r) { renderMenu(r); refreshSetLists(); } });
 dailyBulk();
+// (1.56.0, Phase 2N) The offline chip: shown while Scryfall can't be reached (scryfall.js netStatus) or the browser has no
+// connection. Saved cards, decks, pictures kept by the local server and games against the AI go on working.
+const showNet = online => { $('netChip').hidden = online; };
+showNet(navigator.onLine !== false);
+window.addEventListener('offline', () => showNet(false));
+window.addEventListener('online', () => showNet(true));
+onNetStatus(s => {
+  showNet(s.online);
+  notice(s.online ? 'Scryfall can be reached again.' : `Scryfall can't be reached (${s.lastError}). Saved cards and decks still work.`, { tone: s.online ? 'good' : 'bad', ms: 4000 });
+});
 
 startModals();
 

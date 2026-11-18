@@ -2,6 +2,7 @@
 import { sleep, imgUrl, hashText, stableJson } from './util.js';
 import { analyzeCard } from './effects.js';
 import { getCards, putCards } from './cardcache.js';
+import { check, safeImageUrl } from './carddata.js';
 import { bulkAnswer, bulkCard } from './bulk.js';
 
 const API = 'https://api.scryfall.com';
@@ -11,7 +12,7 @@ const byId = new Map();
 
 // The parts of Scryfall's card data the game reads (build below). Replays keep this much of every card they use
 // (replaydata.js), and its hash tells when Scryfall's data for a card has changed.
-const CARD_KEYS = ['id', 'name', 'layout', 'oracle_text', 'mana_cost', 'cmc', 'type_line', 'power', 'toughness', 'loyalty', 'defense',
+const CARD_KEYS = ['id', 'oracle_id', 'name', 'layout', 'oracle_text', 'mana_cost', 'cmc', 'type_line', 'power', 'toughness', 'loyalty', 'defense',
   'colors', 'color_identity', 'keywords', 'produced_mana', 'set', 'set_name', 'collector_number', 'artist', 'rarity', 'scryfall_uri',
   'legalities', 'game_changer'];
 const FACE_KEYS = ['name', 'oracle_text', 'mana_cost', 'type_line', 'power', 'toughness', 'loyalty', 'defense', 'colors'];
@@ -25,7 +26,7 @@ export function slimCard(raw) {
 }
 export const cardDataHash = raw => hashText(stableJson(slimCard(raw)));
 // (only what can change a game: Scryfall updating a card's legalities, images or artist isn't reported as a change)
-const NOT_PLAY = ['legalities', 'image_uris', 'artist', 'set_name', 'scryfall_uri', 'rarity'];
+const NOT_PLAY = ['oracle_id', 'legalities', 'image_uris', 'artist', 'set_name', 'scryfall_uri', 'rarity'];
 const playHash = raw => { const s = slimCard(raw); for (const k of NOT_PLAY) delete s[k]; for (const f of s.card_faces || []) delete f.image_uris; return hashText(stableJson(s)); };
 
 // A loaded replay's own card data (replaydata.js): while it's set, decks are built from it before anything else, so
@@ -37,32 +38,110 @@ let pinNotes = { used: 0, differs: /** @type {string[]} */ ([]), notSaved: /** @
 export function pinCards(raws) { pinned = raws ? [...raws] : null; if (raws) pinNotes = { used: 0, differs: [], notSaved: [] }; }
 export const pinReport = () => pinNotes;
 
-async function throttle() {
-  // Scryfall asks for no more than ~10 requests per second.
-  const now = Date.now();
-  const wait = Math.max(0, nextSlot - now);
-  nextSlot = Math.max(now, nextSlot) + 110;
-  if (wait) await sleep(wait);
+// ---------- talking to Scryfall (1.56.0, Phase 2N)
+// Scryfall's guidance: about 10 requests a second at most (50–100 ms apart), back off on HTTP 429, and keep what was
+// fetched (cards change rarely). The game waits 110 ms between requests and, to stay well inside the limits on the
+// heavier card endpoints, 500 ms between searches, random cards, named cards and collections; it honours Retry-After,
+// tries three times at most, and never waits more than 15 s for an answer. Identical GET requests in flight share one
+// answer. After a network failure the game counts as offline for 30 s (60 s, then 120 s if it keeps failing): requests
+// in that time fail at once with an "offline" error instead of each waiting for the network, and saved data is used.
+// The browser's online event, or any request that works, ends it. netStatus() and onNetStatus() feed the offline chip.
+const HEAVY = /^\/cards\/(search|random|named|collection)\b/;
+const timing = { timeout: 15000, backoff: 1500, gap: 110, heavyGap: 500 };
+let heavySlot = 0;
+/** @type {Map<string, Promise<any>>} */
+const inflight = new Map();
+const net = { online: true, since: 0, until: 0, failures: 0, lastError: '', requests: 0, shared: 0 };
+/** @type {Set<Function>} */
+const netWatchers = new Set();
+const tellNet = () => { for (const f of netWatchers) try { f(netStatus()); } catch { /* a watcher's problem */ } };
+/** Whether Scryfall is reachable, as far as the game knows (requests: sent to Scryfall, shared: answered by another one) */
+export const netStatus = () => ({ online: net.online, since: net.since, lastError: net.lastError, requests: net.requests, shared: net.shared });
+/** @param {(s: ReturnType<typeof netStatus>) => void} f */
+export function onNetStatus(f) { netWatchers.add(f); return () => netWatchers.delete(f); }
+function wentOffline(msg) {
+  net.failures++;
+  net.until = Date.now() + Math.min(120000, 30000 * 2 ** Math.min(2, net.failures - 1));
+  net.lastError = msg;
+  if (net.online) { net.online = false; net.since = Date.now(); tellNet(); }
+}
+function backOnline() {
+  net.failures = 0; net.until = 0;
+  if (!net.online) { net.online = true; net.since = Date.now(); tellNet(); }
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => { net.until = 0; backOnline(); });
+  window.addEventListener('offline', () => wentOffline('the browser reports no connection'));
+}
+/** For tests: forget the offline state and the counts, and set the waits (ms) */
+export function resetNet(t = {}) { Object.assign(net, { online: true, since: 0, until: 0, failures: 0, lastError: '', requests: 0, shared: 0 }); nextSlot = 0; heavySlot = 0; inflight.clear(); Object.assign(timing, t); }
+
+/** An error from talking to Scryfall: status (HTTP status, 0 when there was no answer), offline (no network) */
+export class ScryfallError extends Error {
+  constructor(msg, { status = 0, offline = false } = {}) { super(msg); this.status = status; this.offline = offline; }
 }
 
+async function throttle(path) {
+  const now = Date.now();
+  const heavy = HEAVY.test(path);
+  const at = Math.max(now, nextSlot, heavy ? heavySlot : 0);
+  nextSlot = at + timing.gap;
+  if (heavy) heavySlot = at + timing.heavyGap;
+  if (at > now) await sleep(at - now);
+}
+
+// (fetch with a time limit: a request that hangs is cut off, so a loading deck never waits forever)
+async function fetchWithin(url, init) {
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null;
+  let timer;
+  const limit = new Promise((_, rej) => { timer = setTimeout(() => { ctl?.abort(); rej(new ScryfallError(`Scryfall did not answer within ${timing.timeout / 1000} s`, { offline: true })); }, timing.timeout); });
+  try { return await Promise.race([fetch(url, { ...init, ...(ctl ? { signal: ctl.signal } : {}) }), limit]); } finally { clearTimeout(timer); }
+}
+const retryAfter = r => { const v = +(r.headers?.get?.('Retry-After') || 0); return Number.isFinite(v) && v > 0 ? Math.min(v, 30) * 1000 : 0; };
+
 export async function sf(path, init = {}) {
+  const get = !init.method || init.method === 'GET';
   // Searches the saved card file can answer don't go to Scryfall at all (bulk.js; off unless turned on)
-  if (!init.method || init.method === 'GET') { const local = await bulkAnswer(path); if (local) return local; }
-  await throttle();
-  const go = () => fetch(API + path, {
-    ...init,
-    headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
-  });
-  // When Scryfall is busy it answers 429 without CORS headers, which the browser reports only as a
-  // network error: back off and try again a couple of times before giving up
+  if (get) { const local = await bulkAnswer(path); if (local) return local; }
+  if (!get) return request(path, init);
+  // (one request for identical GETs asked at the same time)
+  const shared = inflight.get(path);
+  if (shared) { net.shared++; return shared; }
+  const p = request(path, init).finally(() => inflight.delete(path));
+  inflight.set(path, p);
+  return p;
+}
+
+async function request(path, init) {
+  if (!net.online && Date.now() < net.until) throw new ScryfallError(`Offline: Scryfall can't be reached (${net.lastError || 'no connection'}). Saved cards still work.`, { offline: true });
+  const go = async () => {
+    await throttle(path);
+    net.requests++;
+    return fetchWithin(API + path, { ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}) } });
+  };
+  // When Scryfall is busy it answers 429 (sometimes without CORS headers, which the browser reports only as a network
+  // error) or 5xx: back off and try again twice before giving up
   let r;
   for (let attempt = 0; ; attempt++) {
-    try { r = await go(); } catch (e) { if (attempt >= 2) throw e; await sleep(1500 * (attempt + 1) ** 2); nextSlot = Date.now() + 500; continue; }
-    if (r.status === 429 && attempt < 2) { await sleep(1500 * (attempt + 1) ** 2); continue; }
+    try { r = await go(); } catch (e) {
+      if (attempt >= 2) {
+        wentOffline(e?.message || 'network error');
+        throw e instanceof ScryfallError ? e : new ScryfallError(`Can't reach Scryfall (${e?.message || 'network error'})`, { offline: true });
+      }
+      await sleep(timing.backoff * (attempt + 1) ** 2); nextSlot = Date.now() + timing.heavyGap; continue;
+    }
+    if ((r.status === 429 || r.status >= 500) && attempt < 2) { await sleep(retryAfter(r) || timing.backoff * (attempt + 1) ** 2); continue; }
     break;
   }
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.details || `Scryfall error ${r.status}`);
+  backOnline();
+  let j;
+  try { j = await r.json(); } catch { j = null; }
+  if (!r.ok) {
+    if (r.status === 429) throw new ScryfallError('Scryfall is busy (too many requests). Wait a minute and try again.', { status: 429 });
+    throw new ScryfallError(j && typeof j.details === 'string' ? j.details.slice(0, 300) : `Scryfall error ${r.status}`, { status: r.status });
+  }
+  // (a successful answer that isn't Scryfall data: a cut-off reply, or a page from a captive portal or proxy)
+  if (!j || typeof j !== 'object' || Array.isArray(j) || (j.object === 'list' && !Array.isArray(j.data))) throw new ScryfallError("Scryfall's answer wasn't card data (cut off, or from another site)", { status: r.status });
   return j;
 }
 
@@ -94,6 +173,9 @@ export function normalize(raw) {
   return card;
 }
 
+// (a picture address only when it is one of Scryfall's own: carddata.js safeImageUrl; otherwise the card is shown in words)
+const pic = u => imgUrl(safeImageUrl(u));
+
 /** @returns {any} */
 function build(raw, r8) {
   const faces = raw.card_faces || [];
@@ -103,6 +185,8 @@ function build(raw, r8) {
   const backImg = back; // (the inner block below has its own 'back')
   const card = {
     id: raw.id,
+    // (the card as a rule object, the same for every printing; null for cards Scryfall gives none)
+    oracleId: raw.oracle_id || null,
     name: raw.name,
     frontName: front.name || raw.name,
     typeLine: front.type_line || raw.type_line || '',
@@ -118,8 +202,8 @@ function build(raw, r8) {
     colorIdentity: raw.color_identity || [],
     keywords: raw.keywords || [],
     produced: raw.produced_mana || [],
-    imgSmall: imgUrl(img.small), imgNormal: imgUrl(img.normal), imgLarge: imgUrl(img.large), art: imgUrl(img.art_crop),
-    backNormal: imgUrl(back?.normal),
+    imgSmall: pic(img.small), imgNormal: pic(img.normal), imgLarge: pic(img.large), art: pic(img.art_crop),
+    backNormal: pic(back?.normal),
     set: raw.set, setName: raw.set_name, cn: raw.collector_number,
     artist: raw.artist, rarity: raw.rarity, uri: raw.scryfall_uri,
     legal: raw.legalities?.commander,
@@ -139,7 +223,7 @@ function build(raw, r8) {
     const back = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: '', text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, imgNormal: card.backNormal || card.imgNormal, canBeCommander: false };
     // (1.55.0) the back face's own small picture and art (the table showed the front's after a transform), and the
     // front as the "other face" for the preview. Pictures only: nothing a game reads.
-    if (backImg) Object.assign(back, { imgSmall: imgUrl(backImg.small) || card.imgSmall, imgLarge: imgUrl(backImg.large) || card.imgLarge, art: imgUrl(backImg.art_crop) || card.art, backNormal: card.imgNormal });
+    if (backImg) Object.assign(back, { imgSmall: pic(backImg.small) || card.imgSmall, imgLarge: pic(backImg.large) || card.imgLarge, art: pic(backImg.art_crop) || card.art, backNormal: card.imgNormal });
     if (multi) back.keywords = faceKeywords(raw.keywords, b.oracle_text);
     back.fx = analyzeCard(back);
     Object.defineProperty(card, 'backCard', { value: back, enumerable: false });
@@ -154,6 +238,8 @@ function build(raw, r8) {
     /** @type {any} */
     const alt = { ...card, name: b.name, frontName: b.name, typeLine: b.type_line || '', manaCost: cost, cmc: mv, text: b.oracle_text || '', power: b.power, toughness: b.toughness, loyalty: b.loyalty, colors: b.colors ?? card.colors, keywords: multi ? faceKeywords(raw.keywords, b.oracle_text) : [], produced: dfc ? card.produced : [], imgNormal: dfc ? card.backNormal || card.imgNormal : card.imgNormal, imgSmall: dfc ? card.backNormal || card.imgSmall : card.imgSmall, canBeCommander: false, isAltFace: raw.layout };
     alt.fx = analyzeCard(alt);
+    // (1.56.0) a modal card's back face shows its own small and large picture and art, not the front's (pictures only)
+    if (dfc && backImg) Object.assign(alt, { imgSmall: pic(backImg.small) || alt.imgSmall, imgLarge: pic(backImg.large) || alt.imgLarge, art: pic(backImg.art_crop) || alt.art });
     Object.defineProperty(card, 'altFace', { value: alt, enumerable: false });
   }
   // (rules 8) A split card's first half as a spell: only its own mana value exists on the stack (709.3b), and a Room
@@ -171,20 +257,30 @@ function build(raw, r8) {
 
 function matches(ident, c) {
   if (ident.id) return c.id === ident.id;
-  if (ident.set) return c.set === ident.set.toLowerCase() && c.collector_number === String(ident.collector_number);
+  if (ident.oracle_id) return c.oracle_id === ident.oracle_id;
+  if (ident.set) return c.set === String(ident.set).toLowerCase() && c.collector_number === String(ident.collector_number);
+  if (typeof ident.name !== 'string') return false;
   const n = ident.name.toLowerCase();
-  return c.name.toLowerCase() === n || (c.card_faces || []).some(f => f.name.toLowerCase() === n) || c.name.toLowerCase().split(' // ')[0] === n;
+  return c.name.toLowerCase() === n || (c.card_faces || []).some(f => String(f?.name).toLowerCase() === n) || c.name.toLowerCase().split(' // ')[0] === n;
 }
 
-// identifiers: [{id} | {set, collector_number} | {name}] -> Map(key -> normalized card)
-// Cards saved from earlier loads come from the browser's database (cardcache.js); only new ones are
-// asked for. Saved card text is refreshed from Scryfall when it's more than 30 days old and online.
+// identifiers: [{id} | {oracle_id} | {set, collector_number} | {name}] -> Map(key -> normalized card)
+// Cards saved from earlier loads come from the browser's database (cardcache.js, which also finds a card saved under
+// another of its identifiers); only new ones are asked for. Saved card text is refreshed from Scryfall when it's more
+// than 30 days old and online; offline, older saved copies are used.
+// (1.56.0, Phase 2N) Every card Scryfall sends is checked (carddata.js check) before it's used or saved: a damaged one
+// counts as missing, with the reason in `rejected`. Cards fetched before a failure are still saved. A card another
+// load is already fetching is waited for, not asked for twice.
 const FRESH = 30 * 24 * 3600 * 1000;
+/** @type {Map<string, Promise<any>>} key → the raw card another fetchCollection is fetching (null if it failed) */
+const fetching = new Map();
 export async function fetchCollection(identifiers, onProgress) {
   const key = i => JSON.stringify(i);
   const uniq = [...new Map(identifiers.map(i => [key(i), i])).values()];
   const out = new Map();
   const missing = [];
+  /** @type {string[]} */
+  const rejected = [];
   // A loaded replay's cards come first (pinCards)
   if (pinned) for (const i of uniq) { const raw = pinned.find(c => matches(i, c)); if (raw) { out.set(key(i), normalize(raw)); pinNotes.used++; } }
   const saved = await getCards(uniq.map(key));
@@ -192,7 +288,7 @@ export async function fetchCollection(identifiers, onProgress) {
     for (const i of uniq) {
       const mine = out.get(key(i)), here = saved.get(key(i));
       if (mine && here && playHash(here) !== playHash(mine.src)) pinNotes.differs.push(mine.name);
-      if (!mine) pinNotes.notSaved.push(i.name || `${i.set || ''} ${i.collector_number || i.id || ''}`.trim());
+      if (!mine) pinNotes.notSaved.push(i.name || `${i.set || ''} ${i.collector_number || i.id || i.oracle_id || ''}`.trim());
     }
     for (const k of [...saved.keys()]) if (out.has(k)) saved.delete(k);
   }
@@ -204,27 +300,61 @@ export async function fetchCollection(identifiers, onProgress) {
   for (const i of uniq) {
     if (out.has(key(i)) || i.set) continue;
     const raw = await bulkCard(i);
-    if (raw) out.set(key(i), normalize(raw));
+    if (raw && check(raw).ok) out.set(key(i), normalize(raw));
   }
   const need = uniq.filter(i => !out.has(key(i)));
+  // (cards another load is fetching right now: wait for its answer instead of asking again)
+  const theirs = need.filter(i => fetching.has(key(i))).map(i => /** @type {[any, Promise<any>]} */ ([i, /** @type {Promise<any>} */ (fetching.get(key(i)))]));
+  const mine = need.filter(i => !fetching.has(key(i)));
+  /** @type {Map<string, (raw: any) => void>} */
+  const done = new Map();
+  for (const i of mine) fetching.set(key(i), new Promise(res => done.set(key(i), res)));
   const fresh = [];
+  let failure = null;
   try {
-    for (let i = 0; i < need.length; i += 75) {
-      const chunk = need.slice(i, i + 75);
+    for (let i = 0; i < mine.length; i += 75) {
+      const chunk = mine.slice(i, i + 75);
       const j = await sf('/cards/collection', { method: 'POST', body: JSON.stringify({ identifiers: chunk }) });
+      if (!Array.isArray(j.data)) throw new ScryfallError("Scryfall's answer wasn't a list of cards");
       for (const ident of chunk) {
-        const hit = j.data.find(c => matches(ident, c));
-        if (hit) { out.set(key(ident), normalize(hit)); fresh.push([key(ident), { ...hit, _at: Date.now() }]); } else missing.push(ident);
+        const hit = j.data.find(c => c && typeof c.name === 'string' && matches(ident, c));
+        const verdict = hit ? check(hit) : null;
+        if (hit && verdict?.ok) { out.set(key(ident), normalize(hit)); const rec = { ...hit, _at: Date.now() }; fresh.push([key(ident), rec]); done.get(key(ident))?.(rec); }
+        else { if (hit) rejected.push(`${String(hit.name).slice(0, 80)}: ${verdict?.fatal.join(', ')}`); missing.push(ident); }
       }
-      onProgress?.(Math.min(need.length, i + 75), need.length);
+      onProgress?.(Math.min(mine.length, i + 75), mine.length);
     }
-  } catch (e) {
-    // Offline: older saved copies are still good enough
-    for (const ident of need) { const raw = saved.get(key(ident)); if (raw) out.set(key(ident), normalize(raw)); }
-    if (need.some(i => !out.has(key(i)))) throw new Error(`${e.message}. Cards not loaded before can't be fetched without an internet connection.`);
+  } catch (e) { failure = e; } finally {
+    for (const i of mine) { done.get(key(i))?.(null); fetching.delete(key(i)); }
+    // (cards fetched before a failure are kept too; only checked cards are ever saved)
+    putCards(fresh);
   }
-  putCards(fresh);
-  return { cards: out, missing, key };
+  for (const [ident, p] of theirs) {
+    const raw = await p;
+    if (raw) out.set(key(ident), normalize(raw));
+    else if (!failure) {
+      // (the other load failed or didn't find it: ask once more, alone)
+      const again = await fetchCollection([ident]).catch(e => { failure = e; return null; });
+      const c = again?.cards.get(key(ident));
+      if (c) out.set(key(ident), c); else if (again) missing.push(ident);
+    }
+  }
+  // Offline, Scryfall failing, or a refreshed card that came back damaged or not at all: an older saved copy is still
+  // good enough (a failed refresh never loses a card that loaded before)
+  for (const ident of need) {
+    const raw = saved.get(key(ident));
+    if (raw && !out.has(key(ident))) { out.set(key(ident), normalize(raw)); const at = missing.indexOf(ident); if (at >= 0) missing.splice(at, 1); }
+  }
+  if (failure) {
+    const left = need.filter(i => !out.has(key(i)) && !missing.includes(i));
+    if (left.length) {
+      const e = /** @type {any} */ (failure);
+      const why = e.offline ? "Cards not loaded before can't be fetched without an internet connection." : `${left.length} card${left.length === 1 ? '' : 's'} could not be fetched; try again later.`;
+      const err = new ScryfallError(`${e.message}. ${why}`, { status: e.status || 0, offline: !!e.offline });
+      throw err;
+    }
+  }
+  return { cards: out, missing, key, rejected };
 }
 
 // What each Commander bracket leaves out of a generated deck (Scryfall search syntax)

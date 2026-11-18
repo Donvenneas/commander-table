@@ -9,6 +9,15 @@
 // searches (e:, is:booster, cn:) too, so Draft / Sealed and printing searches work offline. It's kept apart and
 // is only downloaded when asked for.
 
+import { check, acceptList, CARD_SCHEMA } from './carddata.js';
+
+// (1.56.0, Phase 2N) A safe update, in steps: (1) ask Scryfall for the file's details (its date and address) and check
+// them; (2) stop when the file in use is already that one; (3) download it as a stream, (4) checking every card
+// (carddata.js check: damaged ones are left out and counted) and that the file isn't cut off; (5) check the whole list
+// (acceptList: enough cards, few damaged, no card twice, not far fewer than the file in use); (6) save it in one
+// IndexedDB transaction, which saves every card or none, so the file in use stays whole when anything fails; (7) only
+// then use it and record its details (meta: schema, source, Scryfall's date, count, damaged, duplicates, import time).
+// A failed update keeps the old file and records lastError.
 const DB = 'ct-bulk', STORE = 'chunks', META = 'ct.bulk', CHUNK = 2000, PAGE = 175;
 const DAY = 20 * 3600 * 1000;
 // Never search results by default on Scryfall either: tokens, emblems, art cards
@@ -60,23 +69,43 @@ function slim(c) {
 // ---------- download and storage
 
 // Downloads the file and saves it. onStatus gets short progress messages. Returns the card count.
-export async function downloadBulk(onStatus) {
-  const { list, info } = await fetchFile('oracle-cards', c => !SKIP_LAYOUTS.has(c.layout), onStatus);
-  await saveList(DB, list, onStatus);
-  writeMeta({ on: true, at: Date.now(), updated: info.updated_at, count: list.length });
-  use(list);
-  return list.length;
+export async function downloadBulk(onStatus, { info = null } = {}) {
+  const m = readMeta() || {};
+  try {
+    const got = await fetchFile('oracle-cards', c => !SKIP_LAYOUTS.has(c.layout), onStatus, info);
+    const { list, report } = got;
+    // (the Oracle Cards file has one card per oracle id)
+    report.duplicateOracle = list.length - new Set(list.map(c => c.oracle_id || c.id)).size;
+    const verdict = acceptList(report, { previous: m.on && m.count ? m.count : 0 });
+    if (!verdict.ok) throw new Error(`Scryfall's card file was not used: ${verdict.reason}. The cards saved before are kept.`);
+    await saveList(DB, list, onStatus);
+    writeMeta({ on: true, at: Date.now(), checked: Date.now(), updated: got.info.updated_at, count: list.length, schema: CARD_SCHEMA,
+      source: 'Scryfall bulk data: oracle-cards', invalid: report.invalid, duplicates: report.duplicateIds + report.duplicateOracle, importMs: got.ms });
+    use(list);
+    return list.length;
+  } catch (e) {
+    // (the file in use, if any, stays: saveList writes in one transaction, and use() only runs after it)
+    if (m.on || m.count) writeMeta({ ...m, lastError: String(e?.message || e).slice(0, 300), lastErrorAt: Date.now() });
+    throw e;
+  }
 }
-// One of Scryfall's bulk files, read as a stream into slim cards (keep: which cards to keep)
-async function fetchFile(kind, keep, onStatus) {
-  onStatus?.('Asking Scryfall for its card file…');
+// Scryfall's details of one bulk file, checked: the download address must be Scryfall's own data host
+export async function bulkMeta(kind) {
   const metaR = await fetch(`https://api.scryfall.com/bulk-data/${kind}`, { headers: { Accept: 'application/json' } });
   if (!metaR.ok) throw new Error(`Scryfall answered HTTP ${metaR.status}`);
-  const info = await metaR.json();
-  const url = info.jsonl_download_uri || info.download_uri;
-  const r = await fetch(url);
+  const info = await metaR.json().catch(() => null);
+  const url = info?.jsonl_download_uri || info?.download_uri;
+  if (!info || typeof info !== 'object' || typeof url !== 'string' || !/^https:\/\/data\.scryfall\.io\//.test(url) || typeof info.updated_at !== 'string') throw new Error("Scryfall's description of its card file wasn't usable");
+  return { ...info, url };
+}
+// One of Scryfall's bulk files, read as a stream into slim cards (keep: which cards to keep). info: from bulkMeta.
+async function fetchFile(kind, keep, onStatus, info = null) {
+  onStatus?.('Asking Scryfall for its card file…');
+  info ||= await bulkMeta(kind);
+  const t0 = Date.now();
+  const r = await fetch(info.url);
   if (!r.ok || !r.body) throw new Error(`The card file download failed (HTTP ${r.status})`);
-  const total = +(r.headers.get('Content-Length') || info.compressed_size || 0);
+  const total = +(r.headers.get('Content-Length') || 0);
   // Read the (compressed) file with a progress message, then unpack it as a stream
   const reader = r.body.getReader();
   const parts = [];
@@ -87,19 +116,39 @@ async function fetchFile(kind, keep, onStatus) {
     parts.push(value); got += value.length;
     if (got - shown > 1 << 20) { shown = got; onStatus?.(`Downloading Scryfall's card file… ${(got / 1048576).toFixed(0)}${total ? ` of ${(total / 1048576).toFixed(0)}` : ''} MB`); }
   }
-  const blob = new Blob(parts);
+  // (a browser unpacking a gzip-encoded answer reads more bytes than Content-Length, never fewer)
+  if (total && got < total) throw new Error(`The card file download stopped early (${got} of ${total} bytes)`);
+  const { list, report } = await readCards(new Blob(parts), keep, onStatus);
+  return { list, info, report, ms: Date.now() - t0 };
+}
+/**
+ * Reads a bulk file (JSON Lines, or Scryfall's JSON array with one card per line, maybe gzipped) into checked slim
+ * cards. A damaged line or card is counted and left out; a file cut off at the end is refused.
+ * @param {Blob} blob
+ * @param {(c: any) => boolean} keep
+ * @param {(s: string) => void} [onStatus]
+ */
+export async function readCards(blob, keep, onStatus) {
   const head = new Uint8Array(await blob.slice(0, 2).arrayBuffer());
   let stream = blob.stream();
   if (head[0] === 0x1f && head[1] === 0x8b) stream = stream.pipeThrough(new DecompressionStream('gzip'));
   const text = stream.pipeThrough(new TextDecoderStream()).getReader();
   const list = [];
-  let buf = '';
-  const line = l => {
-    // (one card per line: JSON Lines, or Scryfall's JSON array with one card per line)
-    l = l.trim().replace(/^\[/, '').replace(/,?\]?$/, '');
+  /** @type {any[]} (what checkList needs of each card: ids, name, layout, faces count) */
+  const seen = [];
+  let buf = '', badLines = 0, sawEnd = false, array = /** @type {boolean | null} */ (null);
+  const line = (l, last = false) => {
+    l = l.trim();
+    if (array === null && l) array = l.startsWith('[');
+    if (l === ']' || l.endsWith('}]')) sawEnd = true;
+    l = l.replace(/^\[/, '').replace(/,?\]?$/, '');
     if (!l.startsWith('{')) return;
-    const c = JSON.parse(l);
-    if (keep(c)) list.push(slim(c));
+    let c;
+    try { c = JSON.parse(l); } catch { if (last) throw new Error('The card file is cut off (its last card is incomplete)'); badLines++; return; }
+    if (!keep(c)) return;
+    const verdict = check(c);
+    seen.push({ id: c?.id, ok: verdict.ok, problems: verdict.fatal, layout: c?.layout, faces: Array.isArray(c?.card_faces) ? c.card_faces.length : 0 });
+    if (verdict.ok) list.push(slim(c));
   };
   for (;;) {
     const { done, value } = await text.read();
@@ -109,9 +158,20 @@ async function fetchFile(kind, keep, onStatus) {
     while ((i = buf.indexOf('\n')) >= 0) { line(buf.slice(0, i)); buf = buf.slice(i + 1); }
     if (list.length % 5000 < 50) onStatus?.(`Reading cards… ${list.length}`);
   }
-  line(buf);
-  if (list.length < 10000) throw new Error(`The card file looks incomplete (${list.length} cards)`);
-  return { list, info };
+  line(buf, true);
+  if (array && !sawEnd) throw new Error('The card file is cut off (no end of the list)');
+  const report = { total: seen.length + badLines, valid: list.length, invalid: seen.length - list.length + badLines, duplicateIds: 0, duplicateOracle: 0, multiFaced: 0,
+    layouts: /** @type {Record<string, number>} */ ({}), problems: /** @type {Record<string, number>} */ ({}) };
+  if (badLines) report.problems['unreadable line'] = badLines;
+  const ids = new Set();
+  for (const x of seen) {
+    if (x.id) { if (ids.has(x.id)) report.duplicateIds++; ids.add(x.id); }
+    const lay = String(x.layout || 'normal');
+    report.layouts[lay] = (report.layouts[lay] || 0) + 1;
+    if (x.faces > 1) report.multiFaced++;
+    for (const p of x.problems) report.problems[p] = (report.problems[p] || 0) + 1;
+  }
+  return { list, report };
 }
 async function saveList(name, list, onStatus) {
   onStatus?.(`Saving ${list.length} cards…`);
@@ -136,9 +196,11 @@ const writePMeta = m => { try { localStorage.setItem(PMETA, JSON.stringify(m)); 
 export const printsInfo = () => readPMeta();
 export async function downloadPrints(onStatus) {
   // (paper printings only: digital-only cards never come in a paper booster)
-  const { list, info } = await fetchFile('default-cards', c => !SKIP_LAYOUTS.has(c.layout) && !c.digital && (c.games || []).includes('paper'), onStatus);
+  const { list, info, report, ms } = await fetchFile('default-cards', c => !SKIP_LAYOUTS.has(c.layout) && !c.digital && (c.games || []).includes('paper'), onStatus);
+  const verdict = acceptList(report, { previous: readPMeta()?.count || 0 });
+  if (!verdict.ok) throw new Error(`Scryfall's printings file was not used: ${verdict.reason}. The printings saved before are kept.`);
   await saveList(PDB, list, onStatus);
-  writePMeta({ on: true, at: Date.now(), updated: info.updated_at, count: list.length });
+  writePMeta({ on: true, at: Date.now(), updated: info.updated_at, count: list.length, schema: CARD_SCHEMA, source: 'Scryfall bulk data: default-cards', invalid: report.invalid, importMs: ms });
   prints = list;
   return list.length;
 }
@@ -152,7 +214,8 @@ export function loadPrints() {
       try { const r = db.transaction(STORE, 'readonly').objectStore(STORE).getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); } catch { res([]); }
     });
     db.close();
-    prints = chunks.flat();
+    // (a damaged saved chunk or card is left out, not used)
+    prints = usableChunks(chunks);
     return prints.length ? prints : null;
   })();
   return pLoading;
@@ -165,6 +228,9 @@ export async function removePrints() {
   await new Promise(res => { try { const tx = db.transaction(STORE, 'readwrite'); tx.objectStore(STORE).clear(); tx.oncomplete = tx.onerror = tx.onabort = () => res(); } catch { res(); } });
   db.close();
 }
+
+// The saved cards of a file, leaving out anything that isn't a card with an id and a name
+const usableChunks = chunks => (Array.isArray(chunks) ? chunks : []).filter(Array.isArray).flat().filter(c => c && typeof c === 'object' && typeof c.id === 'string' && typeof c.name === 'string');
 
 function use(list) {
   cards = list; byName = new Map(); byId = new Map();
@@ -190,7 +256,7 @@ export function loadBulk() {
       } catch { res([]); }
     });
     db.close();
-    const list = chunks.flat();
+    const list = usableChunks(chunks);
     if (!list.length) return null;
     use(list);
     return cards;
@@ -213,12 +279,16 @@ export async function dailyBulk(onStatus) {
   const m = readMeta();
   if (!m?.on || Date.now() - (m.checked || m.at || 0) < DAY) return null;
   try {
-    const r = await fetch('https://api.scryfall.com/bulk-data/oracle-cards', { headers: { Accept: 'application/json' } });
-    const info = await r.json();
+    const info = await bulkMeta('oracle-cards');
     writeMeta({ ...m, checked: Date.now() });
-    if (info.updated_at && info.updated_at === m.updated && m.count) return null;
-    return await downloadBulk(onStatus);
-  } catch { return null; }
+    // (the same file as the one in use: nothing to download)
+    if (info.updated_at === m.updated && m.count) return null;
+    return await downloadBulk(onStatus, { info });
+  } catch (e) {
+    // (offline or Scryfall failing: the file in use stays, and it's tried again tomorrow)
+    writeMeta({ ...(readMeta() || m), checked: Date.now(), lastError: String(e?.message || e).slice(0, 300), lastErrorAt: Date.now() });
+    return null;
+  }
 }
 
 // A card by exact name (either face) or Scryfall id, from the file; null when it isn't there
@@ -279,8 +349,11 @@ function parse(q) {
 
 const RAR = { common: 0, c: 0, uncommon: 1, u: 1, rare: 2, r: 2, special: 2.5, s: 2.5, mythic: 3, m: 3, bonus: 2.5, b: 2.5 };
 const COLOR_WORDS = { white: 'w', blue: 'u', black: 'b', red: 'r', green: 'g', colorless: 'c' };
-const text = c => [c.oracle_text, ...(c.card_faces || []).map(f => f.oracle_text)].filter(Boolean).join('\n').toLowerCase();
-const types = c => (c.type_line || (c.card_faces || []).map(f => f.type_line).join(' // ')).toLowerCase();
+// (1.56.0) each card's lowercased text and types are worked out once and kept beside it (a WeakMap: they go when the
+// card list goes), not again for every search
+const lowText = new WeakMap(), lowTypes = new WeakMap();
+const text = c => { let v = lowText.get(c); if (v === undefined) { v = [c.oracle_text, ...(c.card_faces || []).map(f => f.oracle_text)].filter(Boolean).join('\n').toLowerCase(); lowText.set(c, v); } return v; };
+const types = c => { let v = lowTypes.get(c); if (v === undefined) { v = (c.type_line || (c.card_faces || []).map(f => f.type_line).join(' // ')).toLowerCase(); lowTypes.set(c, v); } return v; };
 const colorsOf = c => c.colors || [...new Set((c.card_faces || []).flatMap(f => f.colors || []))];
 const cmp = (op, a, b) => op === ':' || op === '=' ? a === b : op === '!=' ? a !== b : op === '<' ? a < b : op === '<=' ? a <= b : op === '>' ? a > b : a >= b;
 function colorSet(v) {

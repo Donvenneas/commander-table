@@ -801,6 +801,25 @@ on top of the ones above:
     the main menu, deck builder and table were already redesigned (items 219 to 300) and are unchanged in layout;
     no drag-to-block, no targeting lines while choosing, no new results screen, no printing picker (a Universes
     Beyond printing can still be the default picture).
+- [x] 384. Card database reliability, Scryfall and offline play (asked 2026-11-17, Phase 2N): an audit of how card
+  data is fetched, checked, cached, updated and shown, with what it found fixed.
+  - Done (version 1.56.0; no rules change, golden games unchanged): new public/js/carddata.js checks every card from
+    Scryfall (ids, name, mana value, colors, faces, legalities, picture addresses) before it is used or saved, checks
+    whole lists (duplicate ids and oracle ids) and says which face layouts the engine plays (meld and reversible
+    cards: data only). scryfall.js: a 15 s time limit on every request, Retry-After and 5xx retries, a clear "busy"
+    error after three 429s, answers that aren't card data refused, identical requests in flight sent once (searches
+    and card loads), 500 ms between heavy requests, and an offline state (30 s, growing to 2 min) that fails requests
+    at once and shows an Offline chip. fetchCollection: oracle-id lookups, cards fetched before a failure are saved,
+    a refresh that fails or comes back damaged keeps the saved copy, damaged cards are named in the deck warnings.
+    cardcache.js: records carry a schema version, damaged records are skipped, and each card is also saved under its
+    id, name, front face, oracle id and printing (never over another card). bulk.js: the file's details are checked
+    (Scryfall's data host only), an unchanged file isn't downloaded, cut-off files are refused, every card is checked,
+    the whole file must pass before it is saved (in one transaction), and the details (schema, source, date, damaged,
+    duplicates, import time, last error) are recorded and shown in Updates. Cards keep their oracle id; a modal card's
+    back face shows its own small picture and art. Local search caches lowercased text (o:"draw a card" over 35,000
+    cards: 21.9 ms to 12.0 ms). The builder drops answers to older searches. Tests: new tests/carddata.mjs (30, CI),
+    tests/card-data.md diagnostics; report in tests/phase-2n-report.md. Not done: saved decks are still name lists
+    (no printing ids), no Web Worker for the bulk import, no printing picker, meld and reversible cards not played.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

@@ -61,6 +61,10 @@ After a deck has been loaded once, it loads without an internet connection:
 - card data is kept in the game window's browser profile (refreshed after 30 days when online)
 - card images and mana symbols are kept in `data\images` by the local server (up to 400 MB; the oldest are dropped first)
 - EDHTop16 and cEDH Decklist Database results are kept too, so the meta browser and meta decks still work; the status line says when it shows a saved copy
+- a card is found again by its name, its Scryfall id, its printing or its oracle id, however the deck asked for it first (a deck imported from Moxfield by ids loads offline from a list of names)
+- when Scryfall can't be reached, an **Offline** chip shows beside the title; the game stops asking Scryfall for 30 seconds at a time (longer if it keeps failing) instead of waiting on every request, and the chip goes when it can be reached again
+- works offline once loaded: saved decks, the deck library, games against the AI, replays, settings, game history, Help, saved card searches with the card file, and card pictures already shown. Needs a connection: cards never loaded before, Scryfall searches without the card file, card rulings not read before, Commander Spellbook answers not saved before, EDHTop16 and precon lists not saved before, new card sets, updates, and online seats with friends
+- Scryfall's answers are checked before they are used or saved: a damaged card is left out and named in the deck's warnings, and a failed or damaged refresh never replaces a card saved before
 
 ## Updates
 
@@ -83,6 +87,7 @@ For the official versions, use the project's GitHub releases address, which alwa
 **Card file (optional):** **Download the card file** in Updates saves Scryfall's free bulk card file (every card, about 25 MB to download) in the game's browser data.
 - Random decks of every kind, the deck builder's searches and decks loaded by card name then come from this PC: a random Commander deck takes about a tenth of a second instead of two, and works offline.
 - While it's on, a newer file is fetched at most once a day when the game starts (only if Scryfall has published one).
+- Every card in a new file is checked. The new file replaces the old one only when it is whole: not cut off, no card twice, at most 1% damaged cards (those are left out and counted), and not far smaller than the file in use. It is saved in one step, so a download that fails or is stopped leaves the old file in use; Updates says when the last update failed.
 - Searches it can't answer still go to Scryfall: search terms it doesn't know, and (unless you also have the printings file) a set's cards for Draft / Sealed and specific printings.
 
 **Printings file (optional):** **Download the printings file** in Updates saves Scryfall's file of every paper printing (about 80 MB to download, about 105,000 printings, roughly 40 MB once saved). With it, a set's booster cards for Draft / Sealed and searches by set (`e:`), collector number (`cn:`) or `is:booster` are answered on this PC too, so drafting works offline. It isn't refreshed by itself: download it again after a new set comes out.

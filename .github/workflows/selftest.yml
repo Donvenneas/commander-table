@@ -65,6 +65,8 @@ jobs:
         run: node tests/net.mjs
       - name: Multiplayer and Commander (turn order, losing together, leaving the game, conceding, tax, damage, views)
         run: node tests/multiplayer.mjs
+      - name: Card data (identity, Scryfall requests, card database, bulk file updates, faces, pictures, offline)
+        run: node tests/carddata.mjs
       - name: Element ids
         run: node tests/ids.mjs
       - name: Stylesheet lint

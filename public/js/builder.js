@@ -6,6 +6,7 @@
 // a ★ to choose the commander; one-on-one formats get a sideboard. On a narrow screen the search and the
 // deck are two tabs, and the inspector opens over the page from the magnifier on a card.
 import { sf, normalize, fetchCollection } from './scryfall.js';
+import { usable } from './carddata.js';
 import { dekXml, arenaText, checklistText } from './deckexport.js';
 import { sampleHands } from './goldfish.js';
 import { formatOf } from './formats.js';
@@ -378,15 +379,22 @@ export function openBuilder(opts) {
   };
   const busy = t => { $('bldStatus').innerHTML = `<span class="rune" aria-hidden="true"></span>${esc(t)}`; };
   let loading = false;
+  // (1.56.0) each search has a number: an answer to an older search that arrives late is dropped, so it never replaces
+  // the results of the newer one. Cards that fail carddata.js check() are left out of the results.
+  let searchNo = 0;
+  const cardsOf = j => (Array.isArray(j?.data) ? j.data : []).filter(usable).map(normalize);
   async function search(more = false) {
     if (loading && more) return;
     loading = true;
+    const mine = more ? searchNo : ++searchNo;
+    const stale = () => mine !== searchNo;
     if (!more) recall($('bldQuery').value);
     try {
       busy('Searching Scryfall…');
       let j = more && next ? await sf(next.replace('https://api.scryfall.com', '')) : await sf(`/cards/search?order=${order()}&q=${encodeURIComponent(query())}`);
+      if (stale()) return;
       next = j.has_more ? j.next_page : null;
-      let cards = j.data.map(normalize);
+      let cards = cardsOf(j);
       // (only owned cards, item 147, and only fully simulated cards, item 154: Scryfall knows neither, so pages are
       // filtered here, reading on for a few pages until there are enough)
       const keep = c => (!$('bldOwned').checked || owned(c.name)) && (!$('bldSim').checked || !ignoredText(c));
@@ -395,20 +403,21 @@ export function openBuilder(opts) {
         for (let k = 0; k < 6 && cards.length < 30 && next; k++) {
           busy('Looking for more cards that match…');
           j = await sf(next.replace('https://api.scryfall.com', ''));
+          if (stale()) return;
           next = j.has_more ? j.next_page : null;
-          cards.push(...j.data.map(normalize).filter(keep));
+          cards.push(...cardsOf(j).filter(keep));
         }
       }
       show(cards, more);
       $('bldStatus').textContent = $('bldOwned').checked || $('bldSim').checked ? `${cards.length} matching cards shown${next ? ' (More results reads on)' : ''}. Click a card to add a copy.` : `${j.total_cards} card${j.total_cards === 1 ? '' : 's'}${order() === 'edhrec' ? ', most played first' : ''}. Click a card to add a copy.`;
       $('bldMore').hidden = !next;
     } catch (e) {
+      if (stale()) return;
       const none = /no cards/i.test(e.message);
       $('bldStatus').textContent = none ? 'No cards match.' : `Search failed: ${e.message}`;
       if (!more) $('bldResults').innerHTML = `<div class="empty-state"><b>${none ? 'No cards match' : "Couldn't search"}</b><span>${none ? 'Try fewer filters, or another spelling.' : `${esc(e.message)}. Check the connection and search again.`}</span></div>`;
       $('bldMore').hidden = true;
-    }
-    loading = false;
+    } finally { if (!stale()) loading = false; }
   }
   $('bldGo').onclick = () => search();
   $('bldAlmost').hidden = !f.commander;
