@@ -466,7 +466,10 @@ try {
         } elseif ($req.HttpMethod -eq 'POST') {
           $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
           if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }
-          [IO.File]::WriteAllText((Join-Path $dir "$safe.txt"), $body, (New-Object Text.UTF8Encoding($false)))
+          # (Phase 2O) a temporary file swapped in, so a save that fails part way leaves the last saved deck whole
+          $dest = Join-Path $dir "$safe.txt"; $tmp = "$dest.tmp"
+          [IO.File]::WriteAllText($tmp, $body, (New-Object Text.UTF8Encoding($false)))
+          if (Test-Path -LiteralPath $dest) { [IO.File]::Replace($tmp, $dest, [NullString]::Value) } else { [IO.File]::Move($tmp, $dest) }
           Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ name = $safe } -Compress)))
         } elseif ($req.HttpMethod -eq 'DELETE') {
           $file = Join-Path $dir "$safe.txt"

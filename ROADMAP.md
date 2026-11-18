@@ -820,6 +820,23 @@ on top of the ones above:
     cards: 21.9 ms to 12.0 ms). The builder drops answers to older searches. Tests: new tests/carddata.mjs (30, CI),
     tests/card-data.md diagnostics; report in tests/phase-2n-report.md. Not done: saved decks are still name lists
     (no printing ids), no Web Worker for the bulk import, no printing picker, meld and reversible cards not played.
+- [x] 385. Quality, rules validation, security and release readiness (asked 2026-11-17, Phase 2O): a baseline audit
+  (tests/phase-2o-audit.md), the defects it found fixed, event-sequence rules tests, saved-data tests, fuzz failure
+  capture, measurements and other browsers.
+  - Done (rules 20, version 1.57.0; rules 4–19 golden games unchanged, and the rules 20 games are identical to rules
+    19): the engine itself refuses a mistimed cast (a sorcery on an opponent's turn or with something on the stack;
+    AUDIT-ROADMAP item 200 done) while the AI keeps planning as before; Humility is read and applied (base P/T in
+    layer 7b by timestamp, no keywords, activated abilities, triggers or creature anthems; item 212 progress, Blood
+    Moon + Urborg still open); Leyline of the Void's replacement is read. The deck library is written to a temporary
+    file and swapped in on all three servers (the .exe rebuilt), so a failed save keeps the last one; browser storage
+    that is full, blocked or damaged is reported once, keeps the last saved value, and settings of the wrong type are
+    ignored; replay files are checked for shape before anything changes. Tests: new tests/rules.mjs (27: 26 pass, 1
+    known deviation: additional costs are paid before the card is on the stack), tests/storage.mjs (8), an event
+    recorder in tests/scenario.mjs, fuzz failures saved and replayable with every run replaying its first game,
+    tests/browsers.mjs (Chrome 157 and Firefox 160: self-test 19/19 and interface test 17/0 in each),
+    tests/perf.mjs, servers.mjs deck library check; report in tests/phase-2o-report.md. Not done: the layer system
+    below 7b (dependency, Blood Moon + Urborg), the AI's slow blocks on very large boards (about 1 s against 40
+    attackers), Edge and Safari not tested.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same

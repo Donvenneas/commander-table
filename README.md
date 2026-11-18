@@ -64,6 +64,7 @@ After a deck has been loaded once, it loads without an internet connection:
 - a card is found again by its name, its Scryfall id, its printing or its oracle id, however the deck asked for it first (a deck imported from Moxfield by ids loads offline from a list of names)
 - when Scryfall can't be reached, an **Offline** chip shows beside the title; the game stops asking Scryfall for 30 seconds at a time (longer if it keeps failing) instead of waiting on every request, and the chip goes when it can be reached again
 - works offline once loaded: saved decks, the deck library, games against the AI, replays, settings, game history, Help, saved card searches with the card file, and card pictures already shown. Needs a connection: cards never loaded before, Scryfall searches without the card file, card rulings not read before, Commander Spellbook answers not saved before, EDHTop16 and precon lists not saved before, new card sets, updates, and online seats with friends
+- if the browser's storage for the game is full or can't be read, a notice says so once; whatever was saved before is kept, and saved decks in the deck library are written so that a save that fails part way leaves the last one whole
 - Scryfall's answers are checked before they are used or saved: a damaged card is left out and named in the deck's warnings, and a failed or damaged refresh never replaces a card saved before
 
 ## Updates

@@ -96,6 +96,9 @@ export function guessStyle(deck) {
 }
 
 const isCounter = o => o.fx.spell.some(e => e.k === 'counter');
+// (1.57.0, rules 20) The AI plans with g.castMode (costs and permissions: "could I cast this later this turn?"), not
+// g.canCast, which since rules 20 also asks whether timing allows it right now (mana.js timingRefuses). Its plans stay as
+// they were at rules 19; Game.cast refuses a mistimed cast whatever plans it.
 // (Valley Floodcaller and friends let noncreature, or all, spells be cast as though they had flash)
 const instantSpeed = o => !o.ownerP?.sorceryLocked && (o.fx.type.instant || o.fx.kw.has('flash')
   || (!o.fx.type.land && (!!o.ownerP?.flashNow || !!o.ownerP?.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature)))));
@@ -238,7 +241,7 @@ export class Agent {
       const need = ready.find(r => r.payable).cost;
       return left >= need.generic + need.pips.length;
     }
-    const wants = p.hand.filter(o => !o.fx.type.land && g.canCast(p, o)).map(o => o.card.cmc || 0).sort((a, b) => b - a);
+    const wants = p.hand.filter(o => !o.fx.type.land && !!g.castMode(p, o)).map(o => o.card.cmc || 0).sort((a, b) => b - a);
     if (!wants.length) return true;
     // Paying is fine if the best spell we can afford afterwards is about as good as before
     const before = wants.find(c => c <= avail) ?? 0, after = wants.find(c => c <= left) ?? 0;
@@ -254,7 +257,7 @@ export class Agent {
   wantsEmptyLibrary(g, p, src) {
     if (p.battlefield.some(o => o.fx.labMan)) return true;
     const oracle = [...p.hand, ...p.command].find(o => o !== src && o.fx.etb.some(e => e.k === 'if' && e.cond?.c === 'oracle'));
-    return !!oracle && g.canCast(p, oracle);
+    return !!oracle && !!g.castMode(p, oracle);
   }
   // Tainted Pact: take the first spell (a land only when the library is nearly gone), unless emptying the library
   takePactCard(g, p, c, wantEmpty) { return !wantEmpty && (!c.fx.type.land || p.library.length < 4); }
@@ -680,7 +683,7 @@ export class Agent {
   wantsAbilityCopy(g, p, o, ab) {
     if ((ab.effects || []).some(e => ['sacSelf', 'exileSelf'].includes(e.k))) return false;
     const after = g.availableMana(p) - 2;
-    const wanted = p.hand.filter(x => !x.fx.type.land && (x.card.cmc || 0) > after && (x.card.cmc || 0) <= after + 2 && g.canCast(p, x));
+    const wanted = p.hand.filter(x => !x.fx.type.land && (x.card.cmc || 0) > after && (x.card.cmc || 0) <= after + 2 && !!g.castMode(p, x));
     return after >= 0 && !wanted.length;
   }
   chooseAuraTarget(g, p, aura) {
@@ -814,7 +817,7 @@ export class Agent {
       // (the cheapest front first; never while the front could be cast and the board has 6+ lands)
       const onBf = p.battlefield.filter(o => o.fx.type.land).length;
       const backs = p.hand.filter(o => g.canPlayBackLand(p, o)).sort((a, b) => (a.card.cmc || 0) - (b.card.cmc || 0));
-      return backs.find(o => onBf < 6 || !g.canCast(p, o)) || null;
+      return backs.find(o => onBf < 6 || !g.castMode(p, o)) || null;
     }
     const have = new Set(p.battlefield.flatMap(o => o.fx.mana?.colors || []));
     const wanted = new Set(p.hand.concat(p.command).flatMap(o => [...o.card.manaCost.matchAll(/\{([WUBRG])\}/g)].map(m => m[1])));
@@ -876,7 +879,7 @@ export class Agent {
       if (near) {
         const short = near.cost.generic + near.cost.pips.length - g.availableMana(p);
         const pieces = new Set(near.st.found.map(f => f.o));
-        const ritual = p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'addMana' && e.syms.length - (o.card.cmc || 0) >= short));
+        const ritual = p.hand.find(o => !pieces.has(o) && !!g.castMode(p, o) && o.fx.spell.some(e => e.k === 'addMana' && e.syms.length - (o.card.cmc || 0) >= short));
         if (ritual) return { s: 900, run: () => g.cast(p, ritual) };
       }
     }
@@ -885,18 +888,18 @@ export class Agent {
       if (this.shieldsUp(g, p) && comboScore(go.combo, p) >= 500) {
         const need = go.cost.generic + go.cost.pips.length;
         const pieces = new Set(go.st.found.map(f => f.o));
-        const silence = p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'silence' && !e.who.startsWith('target'))
+        const silence = p.hand.find(o => !pieces.has(o) && !!g.castMode(p, o) && o.fx.spell.some(e => e.k === 'silence' && !e.who.startsWith('target'))
           && g.availableMana(p) - (o.card.cmc || 0) >= need && !Object.values(g.silenced).includes(g.turn));
         if (silence) return { s: 999, run: () => { g.log(`${g.pn(p)} casts ${g.cn(silence)} to clear the way for a combo`, { kind: 'minor' }); return g.cast(p, silence); } };
         // (rules 5, item 106: or make this turn's spells uncounterable, when that leaves the mana for the combo)
-        const veil = g.rules >= 5 && !this.noVeil && p.shieldTurn !== g.turn && p.hand.find(o => !pieces.has(o) && g.canCast(p, o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.availableMana(p) - (o.card.cmc || 0) >= need);
+        const veil = g.rules >= 5 && !this.noVeil && p.shieldTurn !== g.turn && p.hand.find(o => !pieces.has(o) && !!g.castMode(p, o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.availableMana(p) - (o.card.cmc || 0) >= need);
         if (veil) return { s: 999, run: () => { g.log(`${g.pn(p)} casts ${g.cn(veil)} so the combo can't be countered`, { kind: 'minor' }); return g.cast(p, veil); } };
       }
       // Against open blue mana, cast another real threat first to draw out the counterspell
-      if (this.shieldsUp(g, p) && !p.hand.some(o => isCounter(o) && g.canCast(p, o)) && this.baited !== g.turn && comboScore(go.combo, p) >= 500) {
+      if (this.shieldsUp(g, p) && !p.hand.some(o => isCounter(o) && !!g.castMode(p, o)) && this.baited !== g.turn && comboScore(go.combo, p) >= 500) {
         const need = go.cost.generic + go.cost.pips.length;
         const pieces = new Set(go.st.found.map(f => f.o));
-        const bait = p.hand.filter(o => !pieces.has(o) && !o.fx.type.land && !isCounter(o) && (o.card.cmc || 0) >= 3 && g.canCast(p, o)
+        const bait = p.hand.filter(o => !pieces.has(o) && !o.fx.type.land && !isCounter(o) && (o.card.cmc || 0) >= 3 && !!g.castMode(p, o)
           && g.availableMana(p) - (o.card.cmc || 0) >= need && this.scoreCast(g, p, o, phase) > 3)
           .sort((a, b) => this.scoreCast(g, p, b, phase) - this.scoreCast(g, p, a, phase))[0];
         if (bait) {
@@ -1053,7 +1056,7 @@ export class Agent {
       let s;
       if (o.fx.channel && !o.fx.cycling) s = o.fx.channel.effects.reduce((a, e) => a + this.effectValue(g, p, o, e, true), 0) - (o.fx.type.land ? 1 : 3);
       else if (o.fx.cycling.land) s = landCount < 5 ? 4 : 0.5;
-      else s = (g.canCast(p, o) ? this.scoreCast(g, p, o, phase) < 2 : (o.card.cmc || 0) > landCount + 1) ? 2 : 0;
+      else s = (!!g.castMode(p, o) ? this.scoreCast(g, p, o, phase) < 2 : (o.card.cmc || 0) > landCount + 1) ? 2 : 0;
       if (s > 0.5 && (phase === 'main2' || s >= 3)) opts.push({ s, why: `${o.fx.channel && !o.fx.cycling ? 'channels' : 'cycles'} ${o.card.name}`, run: () => g.cycle(p, o) });
     }
     // Unearth, embalm and eternalize from the graveyard
@@ -1176,7 +1179,7 @@ export class Agent {
     // Per-deck memory: cards that showed up in this deck's wins get a nudge (learn.js)
     if (this.learned?.[o.card.name] && s > 0) s = Math.max(0.1, s + this.learned[o.card.name]);
     // Big spells into likely counterspell mana are worth less (unless we can fight back); cheap ones are fine
-    if ((o.card.cmc || 0) >= 4 && this.style !== 'aggressive' && !p.hand.some(c => c !== o && isCounter(c) && g.canCast(p, c))) {
+    if ((o.card.cmc || 0) >= 4 && this.style !== 'aggressive' && !p.hand.some(c => c !== o && isCounter(c) && !!g.castMode(p, c))) {
       const risk = this.counterRisk(g, p);
       if (risk > 0.25) s *= 1 - risk * 0.45;
     }
@@ -1614,7 +1617,7 @@ export class Agent {
   commanderToCommandZone(g, p, o, to) {
     if (to !== 'graveyard') return true;
     const recast = g.gyOnceSource?.(p, o) || p.gyCast?.turn === g.turn;
-    const reanimate = p.hand.some(x => [...x.fx.spell].some(e => e.k === 'reanimate') && g.canCast(p, x));
+    const reanimate = p.hand.some(x => [...x.fx.spell].some(e => e.k === 'reanimate') && !!g.castMode(p, x));
     return !(recast || reanimate) || (o.card.cmc || 0) <= 2;
   }
   // Enlist: tap a creature that wouldn't do more (not needed to block next turn: the weakest that adds 2+ power)
@@ -1698,7 +1701,7 @@ export class Agent {
       const close = this.closestCombo(g, q);
       const lastAnswer = close.closeness >= 0.5 && q.hand.filter(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'remove' || e.k === 'bounce')).length <= 1;
       for (const o of q.hand) {
-        if (!instantSpeed(o) || o.fx.type.land || isCounter(o) || !g.canCast(q, o)) continue;
+        if (!instantSpeed(o) || o.fx.type.land || isCounter(o) || !g.castMode(q, o)) continue;
         if (g.availableMana(q) - (o.card.cmc || 0) < keep) continue;
         if (lastAnswer && o.fx.spell.some(e => e.k === 'remove' || e.k === 'bounce')) {
           const tgt = this.chooseTarget(g, q, o.fx.spell.find(e => e.k === 'remove' || e.k === 'bounce'), o);
@@ -1735,7 +1738,7 @@ export class Agent {
   // An instant in hand that can remove/bounce/kill one of the given permanents
   instantAnswer(g, q, candidates) {
     for (const card of q.hand) {
-      if (!card.fx.type.instant || !g.canCast(q, card)) continue;
+      if (!card.fx.type.instant || !g.castMode(q, card)) continue;
       const e = card.fx.spell.find(x => x.k === 'remove' || x.k === 'damage' || x.k === 'bounce');
       if (!e || card.fx.spell.indexOf(e) !== 0) continue;
       const n = e.n === 'X' ? g.availableMana(q) - 1 : e.n;
@@ -1782,7 +1785,7 @@ export class Agent {
   combatTrick(g, q, active) {
     // A Fog when the unblocked damage coming at us is lethal, or a big share of our life
     if (q !== active && g.fogTurn !== g.turn) {
-      const fog = q.hand.find(o => instantSpeed(o) && g.canCast(q, o) && o.fx.spell.some(e => e.k === 'fog'));
+      const fog = q.hand.find(o => instantSpeed(o) && !!g.castMode(q, o) && o.fx.spell.some(e => e.k === 'fog'));
       if (fog) {
         const incoming = active.battlefield.filter(a => a.attacking === q.idx && (!a.blocked || g.has(a, 'trample'))).reduce((s, a) => s + Math.max(0, g.power(a)), 0);
         const cmd = active.battlefield.some(a => a.attacking === q.idx && !a.blocked && a.isCommander && (q.cmdDamage[a.iid] || 0) + g.power(a) >= 21);
@@ -1792,7 +1795,7 @@ export class Agent {
         }
       }
     }
-    const tricks = q.hand.filter(o => o.fx.type.instant && g.canCast(q, o) && o.fx.spell[0]?.k === 'pump');
+    const tricks = q.hand.filter(o => o.fx.type.instant && !!g.castMode(q, o) && o.fx.spell[0]?.k === 'pump');
     if (!tricks.length) return null;
     const fights = [];
     for (const o of q.battlefield) {
@@ -1896,7 +1899,7 @@ export class Agent {
     const s = mine.o;
     const worth = mine.combo || s.isCommander || (s.card.cmc || 0) >= 4 || this.comboSpell(g, mine) || s.fx.spell.some(e => e.k === 'wipe' || e.k === 'counter' || e.k === 'remove');
     if (!worth) return null;
-    const card = q.hand.find(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'shieldSpells') && g.canCast(q, o));
+    const card = q.hand.find(o => instantSpeed(o) && o.fx.spell.some(e => e.k === 'shieldSpells') && !!g.castMode(q, o));
     if (!card) return null;
     g.log(`${g.pn(q)} protects ${g.cn(s)} from the counterspell`, { kind: 'minor' });
     return { kind: 'cast', card, targets: card.fx.spell.map(() => null) };
@@ -1922,7 +1925,7 @@ export class Agent {
     const t = ts[0];
     const hitsMe = (t.obj && t.obj.controller === q.idx && this.value(g, t.obj) + this.pieceWorth(g, q, t.obj) >= 4) || (t.player === q.idx && (item.effects || []).some(e => e.k === 'damage' || e.k === 'loseLife'));
     if (!hitsMe) return null;
-    const card = q.hand.find(o => o.fx.spell.some(e => e.k === 'redirect') && instantSpeed(o) && g.canCast(q, o));
+    const card = q.hand.find(o => o.fx.spell.some(e => e.k === 'redirect') && instantSpeed(o) && !!g.castMode(q, o));
     if (!card || !this.redirectTarget(g, q, item, item.targets.indexOf(t))) return null;
     g.log(`${g.pn(q)} turns ${g.cn(item.o)} around`, { kind: 'minor' });
     return { kind: 'cast', card, targets: card.fx.spell.map(e => (e.k === 'redirect' ? { spell: item } : null)) };
@@ -1954,7 +1957,7 @@ export class Agent {
 
   // Abilities can only be countered by Stifle-style cards; worth it against something big or aimed at us
   abilityCounter(g, q, item) {
-    const card = q.hand.find(o => o.fx.spell.some(e => e.k === 'counterAbility') && instantSpeed(o) && g.canCast(q, o));
+    const card = q.hand.find(o => o.fx.spell.some(e => e.k === 'counterAbility') && instantSpeed(o) && !!g.castMode(q, o));
     if (!card) return null;
     if (item.loopStart) {
       g.log(`${g.pn(q)} answers the loop before it starts`, { kind: 'minor' });
@@ -1987,7 +1990,7 @@ export class Agent {
     if (item.ability) return this.abilityCounter(g, q, item);
     if (item.o.fx.uncounterable || g.players[item.o.owner]?.battlefield.some(o => o.fx.protectsSpells)) return null;
     if (g.rules >= 19 && cantBeCountered(g, item)) { this.explain(g, q, `lets ${item.o.card.name} resolve: it can't be countered`); return null; }
-    const usable = q.hand.filter(o => isCounter(o) && g.canCast(q, o) && this.counterUsable(g, q, o, item));
+    const usable = q.hand.filter(o => isCounter(o) && !!g.castMode(q, o) && this.counterUsable(g, q, o, item));
     // (rules 5, item 97: a permanent's counter ability — Glen Elendra Archmage, Siren Stormtamer — when there's no
     // counterspell in hand; Stormtamer only answers something aimed at us or our creatures)
     if (!usable.length && g.rules >= 5) {
@@ -2069,7 +2072,7 @@ export class Agent {
     if (wipe) {
       const atStake = q.battlefield.filter(o => o.fx.type.creature).reduce((s, o) => s + this.value(g, o), 0);
       if (atStake < 8 || wipe.mode === 'exile') return null;
-      const card = q.hand.find(o => instantSpeed(o) && g.canCast(q, o) && o.fx.spell.some(e => e.k === 'protect' && e.scope === 'all' && e.kw.includes('indestructible')));
+      const card = q.hand.find(o => instantSpeed(o) && !!g.castMode(q, o) && o.fx.spell.some(e => e.k === 'protect' && e.scope === 'all' && e.kw.includes('indestructible')));
       return card ? { kind: 'cast', card, targets: card.fx.spell.map(() => null) } : null;
     }
     for (const [i, t] of item.targets.entries()) {
@@ -2082,7 +2085,7 @@ export class Agent {
       if (worth < 4 && !o.token) continue;
       const destroyish = e.k === 'damage' || (e.k === 'remove' && e.mode === 'destroy');
       for (const card of q.hand) {
-        if (!instantSpeed(card) || !g.canCast(q, card)) continue;
+        if (!instantSpeed(card) || !g.castMode(q, card)) continue;
         const pe = card.fx.spell[0];
         if (!pe) continue;
         const shields = pe.k === 'protect' || pe.k === 'pump' ? (pe.kw.includes('hexproof') || pe.kw.includes('shroud') || (destroyish && pe.kw.includes('indestructible'))) : false;
@@ -2120,7 +2123,7 @@ export class Agent {
   copyResponse(g, q, item) {
     const o = item.o;
     if (item.ability || !(o.fx.type.instant || o.fx.type.sorcery) || !o.fx.spell.length || o.fx.spell.some(e => e.k === 'counter')) return null;
-    const card = q.hand.find(c => instantSpeed(c) && g.canCast(q, c) && [...c.fx.spell, ...c.fx.etb].some(e => e.k === 'copySpell'));
+    const card = q.hand.find(c => instantSpeed(c) && !!g.castMode(q, c) && [...c.fx.spell, ...c.fx.etb].some(e => e.k === 'copySpell'));
     if (!card) return null;
     const v = o.fx.spell.reduce((s, e) => s + this.effectValue(g, q, o, e, true), 0);
     if (v < 5) return null;

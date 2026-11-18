@@ -422,7 +422,10 @@ static class CommanderTable
                 var body = ReadBody(req.InputStream, req.ContentLength64);
                 if (body.Length > 200000) { SendText(ctx, 400, "That decklist is too long."); return; }
                 Directory.CreateDirectory(dir);
-                File.WriteAllText(file, body, new UTF8Encoding(false));
+                // (Phase 2O) a temporary file swapped in, so a save that fails part way leaves the last saved deck whole
+                var tmp = file + ".tmp";
+                File.WriteAllText(tmp, body, new UTF8Encoding(false));
+                if (File.Exists(file)) File.Replace(tmp, file, null); else File.Move(tmp, file);
                 Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"name\":" + Js(safe) + "}"));
                 return;
             }

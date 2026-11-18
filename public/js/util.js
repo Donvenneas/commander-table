@@ -123,7 +123,6 @@ const bigVals = new Map();
 let bigDb = null;
 /** @type {BroadcastChannel | null} */
 let bigChan = null;
-function bigPut(k, v) { try { bigDb?.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch { /* saved again on the next write */ } }
 async function loadBig() {
   if (typeof window === 'undefined' || typeof indexedDB === 'undefined') return;
   try {
@@ -158,19 +157,36 @@ export function storeSize(key) {
   try { const v = localStorage.getItem(key); return v ? (v.length + key.length) * 2 : 0; } catch { return 0; }
 }
 
+// (Phase 2O) Saved data that can't be read, and writes that fail, are counted and reported (a "ct-store" event on the
+// page, which main.js turns into one notice), never thrown at the caller. A read of damaged data gives null (the
+// caller's defaults) and leaves the saved text alone; a failed write (storage full, blocked) keeps the last value
+// that was saved. storeProblems() is what happened this session.
+const problems = { damaged: /** @type {string[]} */ ([]), failed: /** @type {string[]} */ ([]), quota: false };
+export const storeProblems = () => ({ damaged: [...problems.damaged], failed: [...problems.failed], quota: problems.quota });
+function storeReport(kind, key, e) {
+  const list = problems[kind];
+  if (!list.includes(key)) list.push(key);
+  if (kind === 'failed' && /quota/i.test(`${e?.name || ''} ${e?.message || ''}`)) problems.quota = true;
+  try { if (typeof dispatchEvent === 'function' && typeof CustomEvent === 'function') dispatchEvent(new CustomEvent('ct-store', { detail: { kind, key, quota: problems.quota } })); } catch { /* no page */ }
+}
+const parseSaved = (key, text) => { if (text == null || text === '') return null; try { return JSON.parse(text); } catch { storeReport('damaged', key); return null; } };
+
 export function store(key, value) {
   if (bigDb && BIG.has(key)) {
-    if (value === undefined) { try { return JSON.parse(bigVals.get(key) || 'null'); } catch { return null; } }
+    if (value === undefined) return parseSaved(key, bigVals.get(key));
     const s = JSON.stringify(value);
     bigVals.set(key, s);
-    bigPut(key, s);
+    try {
+      const req = bigDb.transaction('kv', 'readwrite').objectStore('kv').put(s, key);
+      req.onerror = () => storeReport('failed', key, req.error);
+    } catch (e) { storeReport('failed', key, e); }
     bigChan?.postMessage({ k: key, v: s });
-    return;
+    return true;
   }
-  try {
-    if (value === undefined) return JSON.parse(localStorage.getItem(key) || 'null');
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch { return null; }
+  let text = null;
+  try { if (value === undefined) text = localStorage.getItem(key); } catch { return null; }
+  if (value === undefined) return parseSaved(key, text);
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { storeReport('failed', key, e); return false; }
 }
 
 // Dates and numbers in the language chosen in Display (i18n.js sets it on <html lang>), not the browser's own

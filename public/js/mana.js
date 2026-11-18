@@ -427,6 +427,24 @@ export function castMode(g, p, o) {
   g.payingFor = { o, ability: false };
   try { return g.castModeRaw(p, o); } finally { g.payingFor = prev; }
 }
+// (rules 20, item 200) The engine itself keeps casting timing (307.1, 117.1a): a spell without flash only in its
+// controller's main phase with an empty stack; Teferi, Time Raveler-style locks make instants sorcery-speed too.
+// Checked where a spell is actually cast (Game.cast) and by canCast ("can it be cast now?"). castMode stays a question
+// about costs and permissions only, because the AI plans with it ("could I cast this later this turn?"). Before rules
+// 20 the callers' own checks kept timing (the person's prompts, the AI's instantSpeed), so older replays play as they
+// did. Foretelling is a special action and a miracle is cast from its trigger.
+/** @param {import('./engine.js').Game} g */
+export function timingRefuses(g, p, o, mode) {
+  return g.rules >= 20 && !!mode && mode.alt !== 'foretell' && mode.alt !== 'miracle' && o.zone !== 'stack' && !castTimingOk(g, p, o);
+}
+/** Whether p may cast o now as far as timing goes (rules 20) @param {import('./engine.js').Game} g */
+export function castTimingOk(g, p, o) {
+  const sorceryTime = g.active === p.idx && (g.phase === 'main1' || g.phase === 'main2') && !g.stack.length;
+  if (sorceryTime) return true;
+  if (p.sorceryLocked) return false;
+  return !!(o.fx.type.instant || o.fx.kw.has('flash') || g.has(o, 'flash') || o.fx.castWhen || p.flashNow
+    || p.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature)));
+}
 /** @param {import('./engine.js').Game} g */
 export function castModeRaw(g, p, o) {
   // Morph, megamorph, disguise (702.37, 702.168): cast face down as a 2/2 for {3} at sorcery speed
@@ -601,7 +619,7 @@ export function reduces(g, what, o) {
     ?? g.spellIs(o, what);
 }
 /** @param {import('./engine.js').Game} g */
-export function canCast(g, p, o) { return !!g.castMode(p, o); }
+export function canCast(g, p, o) { const m = g.castMode(p, o); return !!m && !timingRefuses(g, p, o, m); }
 // The spells p has cast this turn (Rule of Law, Conduit of Ruin)
 /** @param {import('./engine.js').Game} g */
 export function castThisTurn(g, p) { return p.castList?.turn === g.turn ? p.castList.list : []; }

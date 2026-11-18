@@ -1306,6 +1306,8 @@ export function analyzeCard(card) {
     // Dragon's Rage Channeler: "as long as …, ~ gets +2/+2, has flying, and attacks each combat if able"
     if ((m = line.match(/^as long as (.+?), ~ gets \+(\d+)\/\+(\d+), has ([\w ]+?), and attacks each combat if able/))) { fx.condBuff = { cond: parseCond(m[1]), p: +m[2], t: +m[3], kw: kwList(m[4]), mustAttack: true }; continue; }
     if (/^as long as ~ is attached to a creature, your opponents can't cast spells during your turn/.test(line)) { fx.noCastMyTurn = 'attached'; continue; }
+    // (rules 20, item 212) Humility-style statics: every creature loses all abilities and has base power and toughness N/N
+    if ((m = line.match(/^all creatures lose all abilities and have base power and toughness (\d+)\/(\d+)/))) { fx.allLoseAbilities = { p: +m[1], t: +m[2] }; continue; }
     // Lignify-style auras
     if ((m = line.match(/^enchanted creature is an? [\w ]+? with base power and toughness (\d+)\/(\d+) and loses all abilities/))) { fx.attachSet = { p: +m[1], t: +m[2] }; continue; }
     // Self cost reductions by the total mana value of what you control (Earthquake Dragon, Excalibur)
@@ -1644,6 +1646,8 @@ export function analyzeCard(card) {
     if ((m = line.match(/^whenever enchanted (?:land|forest|plains|island|swamp|mountain) is tapped for mana, its controller adds an additional (\{[wubrgc]\}|one mana of any color|(?:one )?mana of the chosen color|one mana of any type that land produced)/))) { fx.auraMana = m[1].match(/\{([wubrgc])\}/)?.[1]?.toUpperCase() || '*'; continue; }
     if (/^treasures you control have "\{t\}, sacrifice ~: add two mana of any one color\.?"/.test(line)) { fx.treasureTwo = true; continue; }
     if (/^if a card would be put into an opponent's graveyard from anywhere, instead exile it/.test(line)) { fx.oppGyExile = true; continue; }
+    // (rules 20) the same replacement in today's wording (Leyline of the Void); older games didn't read it
+    if (/^if a card would be put into an opponent's graveyard from anywhere, exile it instead/.test(line)) { fx.oppGyExile20 = true; continue; }
     if ((m = line.match(/^spells your opponents cast that target ~ cost an additional (\d+) life to cast/))) { fx.wardLife = +m[1]; continue; }
     if (/^untap ~ during each other player's untap step/.test(line)) { fx.untapSelfOthers = true; continue; }
     if (/^while an opponent is searching their library, they exile each card they find/.test(line)) { if (fx.searchHate) pending = null; fx.searchHate = true; continue; }
@@ -2562,7 +2566,7 @@ const FLAG_TEXT = {
   protectAttackers: () => 'damage to your attacking creatures is prevented', attachSet: v => `enchanted creature becomes a ${v.p}/${v.t} with no abilities`, stationN: v => `a creature at ${v}+ charge counters`,
   station: () => 'station (tap another creature: charge counters equal to its power)', dredge: v => `dredge ${v}`, hideaway: v => `hideaway ${v} (the hidden card goes to your hand)`, overload: v => `overload ${v}`, umbra: () => 'umbra armor',
   gift: v => `gift a ${v} (not promised)`, speed: () => 'start your engines (speed rises when opponents lose life on your turn)',
-  allLandsAdd: v => `every land also taps for {${v}}`, chargeKick: () => 'a charge counter if kicked', treasureTwo: () => 'your Treasures make two mana', oppGyExile: () => "opponents' cards go to exile instead of the graveyard",
+  allLandsAdd: v => `every land also taps for {${v}}`, chargeKick: () => 'a charge counter if kicked', treasureTwo: () => 'your Treasures make two mana', oppGyExile: () => "opponents' cards go to exile instead of the graveyard", oppGyExile20: () => "opponents' cards go to exile instead of the graveyard",
   untapSelfOthers: () => "untaps during other players' untap steps", freeEquip: v => `equip {0}${v ? ` with ${v}+ artifacts` : ''}`, gyCastSelf: v => `can be cast from your graveyard${v.exile ? ' or exile' : ''}${v.cond ? ` while ${condText(v.cond)}` : ''}`,
   altLife: v => `may pay ${v.n} life instead of its mana cost${v.cond ? ` if ${condText(v.cond)}` : ''}`, attackTaxDyn: v => `attacking you costs {1} per ${v} its owner controls`, escalate: () => 'escalate (one mode here)',
   landsAnyColorN: v => `(only with ${v}+ lands)`, hasteAbilities: () => 'your creatures can use {T} abilities right away', shuffleOnGy: () => 'shuffled into the library instead of going to the graveyard',

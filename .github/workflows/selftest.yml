@@ -67,6 +67,10 @@ jobs:
         run: node tests/multiplayer.mjs
       - name: Card data (identity, Scryfall requests, card database, bulk file updates, faces, pictures, offline)
         run: node tests/carddata.mjs
+      - name: Rules validation (event sequences for casting, stack, combat, state-based actions, replacements, layers, zones, Commander)
+        run: node tests/rules.mjs
+      - name: Saved data (damaged, wrong-typed and blocked storage, full storage, replay files, decklists)
+        run: node tests/storage.mjs
       - name: Element ids
         run: node tests/ids.mjs
       - name: Stylesheet lint

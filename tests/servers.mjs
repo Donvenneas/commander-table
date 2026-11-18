@@ -24,6 +24,24 @@ await test('Host-only calls from another website are refused', async () => {
   eq((await fetch(base + '/api/room/status', { headers: { Origin: 'https://example.com' } })).status, 403, 'status');
 });
 
+// (Phase 2O) The deck library writes a temporary file and swaps it in: a save, an overwrite and a delete leave exactly
+// one deck file with the last text, and the temporary file never shows up as a deck. (A test deck, removed after.)
+await test('The deck library saves, overwrites and deletes a deck, with no temporary file left', async () => {
+  const name = 'zz servers test deck';
+  const lib = () => fetch(base + '/api/library').then(r => r.json());
+  const post = text => fetch(`${base}/api/library?name=${encodeURIComponent(name)}`, { method: 'POST', headers: { 'X-Commander-Table': 'library' }, body: text });
+  try {
+    eq((await post('1 Island\n')).status, 200, 'first save');
+    eq((await post('1 Island\n1 Forest\n')).status, 200, 'overwrite');
+    const mine = (await lib()).filter(d => d.name.startsWith(name));
+    eq(mine.map(d => [d.name, d.text]), [[name, '1 Island\n1 Forest\n']], 'one deck, the last text');
+    eq((await fetch(`${base}/api/library?name=${encodeURIComponent(name)}`, { method: 'POST', body: 'x' })).status, 400, 'a save without the header is refused');
+  } finally {
+    await fetch(`${base}/api/library?name=${encodeURIComponent(name)}`, { method: 'DELETE', headers: { 'X-Commander-Table': 'library' } });
+  }
+  eq((await lib()).filter(d => d.name.startsWith(name)).length, 0, 'deleted');
+});
+
 const open = await (await fetch(base + '/api/room/open', { method: 'POST', body: '1' })).json();
 const lan = `http://localhost:${open.port}`, key = open.keys?.['1'];
 try {

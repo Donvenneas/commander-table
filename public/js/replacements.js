@@ -114,7 +114,7 @@ export function moveDefs(g, ev) {
   const owner = g.players[o.owner];
   for (const q of g.alive()) for (const s of q.battlefield) {
     if (s.fx.rip) defs.push({ id: `rip:${s.iid}`, label: s.card.name, applies: e => e.to === 'graveyard', apply: e => { e.to = 'exile'; return e; } });
-    if (s.fx.oppGyExile && q.idx !== o.owner) defs.push({ id: `oppGy:${s.iid}`, label: s.card.name, applies: e => e.to === 'graveyard' && !o.token, apply: e => { e.to = 'exile'; return e; } });
+    if ((s.fx.oppGyExile || (g.rules >= 20 && s.fx.oppGyExile20)) && q.idx !== o.owner) defs.push({ id: `oppGy:${s.iid}`, label: s.card.name, applies: e => e.to === 'graveyard' && !o.token, apply: e => { e.to = 'exile'; return e; } });
     const de = s.fx.oppDieExile;
     if (de && q.idx !== o.controller && (!de.nontoken || !o.token)) defs.push({
       id: `oppDie:${s.iid}`, label: s.card.name, applies: e => e.from === 'battlefield' && e.to === 'graveyard' && o.fx.type.creature,

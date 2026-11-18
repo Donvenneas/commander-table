@@ -643,7 +643,14 @@ class Handler(BaseHTTPRequestHandler):
             if len(body) > 200000:
                 return self.text(400, 'That decklist is too long.')
             os.makedirs(folder, exist_ok=True)
-            open(path, 'w', encoding='utf-8').write(body)
+            # (Phase 2O) Written to a temporary file first and then swapped in, so a save that fails part way (disk full,
+            # the program stopped) leaves the deck as it was saved last time
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(body)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
             return self.send(200, 'application/json', json.dumps({'name': name}))
         if self.command == 'DELETE':
             if os.path.exists(path):

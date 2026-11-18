@@ -14,6 +14,9 @@ import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 export function trigger(g, o, kind) {
   // (a card stopped on its way in, by Grafdigger's Cage, never entered)
   if (kind === 'etb' && (o.zone !== 'battlefield' || g.etbSuppressed(g.players[o.controller]) || creatureTriggersStopped(g, o, 'noEtbCreature'))) return;
+  // (rules 20) a creature with no abilities (Humility) has no triggered abilities either; a dying creature is looked at
+  // as it last was on the battlefield (603.10a), with the Humility that was there
+  if (g.rules >= 20 && o.fx.type.creature) { const h = g.humilitySource(); if (h && h !== o) return; }
   if (o.fx[kind]?.length || (kind === 'etb' && o.fx.etbModes)) g.queue.push({ o, kind, p: g.players[o.controller] });
 }
 // Elesh Norn, Mother of Machines (and Torpor Orb-style effects): entering doesn't trigger this player's abilities
@@ -263,6 +266,7 @@ export function fire(g, ev, info = {}) {
   /** @returns {boolean | void} */
   function one(q, s, ws) {
     if (ev === 'enter' && g.etbSuppressed(q)) return;
+    if (g.abilitiesOff(s)) return;
     for (const w of ws) {
       if (w.ev !== ev || (w.gate && !g.gateOk(s, w.gate))) continue;
       const r = g.watchMatches(w, s, q, info);

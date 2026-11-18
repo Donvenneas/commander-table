@@ -17,7 +17,7 @@ import { setPool, sealedPools, runDraft, buildDeck, deckText as limitedDeckText,
 import { boosterData, boosterPacker } from './boosters.js';
 import { combosIn, fetchSpellbook, fetchSpellbookBracket, almostCombos, comboPlay } from './combos.js';
 import { pinCards, pinReport } from './scryfall.js';
-import { REPLAY_FORMAT, snapshotDecks, tableSpellbook, checkReplay, readingChanges } from './replaydata.js';
+import { REPLAY_FORMAT, snapshotDecks, tableSpellbook, checkReplay, readingChanges, replayShapeProblem } from './replaydata.js';
 import { coverage } from './effects.js';
 import { TableView, installPreview, installDetails, installLifeHistory, foldTurn, Sound } from './ui.js';
 import { Music } from './music.js';
@@ -975,7 +975,8 @@ $('replayFile').addEventListener('change', async e => {
 async function loadReplayData(data, { resume = false } = {}) {
   {
     const rf = data.format && FORMATS[data.format] ? data.format : 'commander';
-    if (data.app !== 'commander-table' || !Array.isArray(data.seats) || data.seats.length !== formatOf(rf).seats) throw new Error("That isn't a Commander Table replay file");
+    const shape = replayShapeProblem(data, formatOf(rf).seats);
+    if (shape) throw new Error(shape);
     // The replay's format decides the table (Commander replays from earlier versions have none)
     setFormat(rf, { quiet: true });
     match = null;
@@ -4178,6 +4179,17 @@ const showNet = online => { $('netChip').hidden = online; };
 showNet(navigator.onLine !== false);
 window.addEventListener('offline', () => showNet(false));
 window.addEventListener('online', () => showNet(true));
+// (Phase 2O) Saved data the browser couldn't read or write (util.js store): one notice per kind, saying what was kept
+const storeTold = new Set();
+window.addEventListener('ct-store', e => {
+  const d = /** @type {CustomEvent} */ (e).detail || {};
+  const kind = d.kind === 'failed' ? (d.quota ? 'quota' : 'failed') : 'damaged';
+  if (storeTold.has(kind)) return;
+  storeTold.add(kind);
+  notice(kind === 'quota' ? "The browser's storage for this game is full: the last change wasn't saved, and what was saved before is kept. Storage (in the menu) shows what takes the room."
+    : kind === 'failed' ? "A change couldn't be saved by the browser; what was saved before is kept."
+    : 'Some saved data could not be read and was left out (defaults are used instead). Nothing was deleted.', { tone: 'bad', ms: 7000 });
+});
 onNetStatus(s => {
   showNet(s.online);
   notice(s.online ? 'Scryfall can be reached again.' : `Scryfall can't be reached (${s.lastError}). Saved cards and decks still work.`, { tone: s.online ? 'good' : 'bad', ms: 4000 });

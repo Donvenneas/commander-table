@@ -46,7 +46,11 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // … pays", mana value and color conditions; targets keep their restrictions (nonblack, mana value, power …) and are
 // checked by the engine; creatures that die together see each other die; "until this leaves the battlefield" exile
 // comes back; Chrome Mox needs its imprinted card; replays at 4–16 keep the old handling)
-export const RULES = 19;
+// (rules 20, Phase 2O: the engine keeps casting timing itself (mana.js castTimingOk: no sorcery-speed spell outside its
+// controller's main phase with an empty stack, item 200); Humility-style "all creatures lose all abilities and have base
+// power and toughness N/N" is read and applied in layers 6 and 7b (Game.humility, item 212); replays at 4–19 keep the old
+// handling)
+export const RULES = 20;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -343,7 +347,7 @@ export class Game {
     if (o.zone !== 'battlefield') return { p, t };
     // (state-based actions skip the scans when the board has no anthem of that kind: triggers.sbaPass)
     const sf = this._sbaFacts;
-    if (!sf || sf.anthem.has(o.controller)) for (const s of this.players[o.controller].battlefield) if (s.fx.anthem && this.anthemApplies(s, o)) {
+    if (!sf || sf.anthem.has(o.controller)) for (const s of this.players[o.controller].battlefield) if (s.fx.anthem && !this.abilitiesOff(s) && this.anthemApplies(s, o)) {
       // Door of Destinies, Chitterspitter: +1/+1 for each counter of a kind on the source
       const an = s.fx.anthem;
       const k = an.perCounter ? s.named?.[an.perCounter] || 0 : an.perOther ? this.players[o.controller].battlefield.filter(x => x !== o && x.fx.type.creature && this.isA(x, an.perOther)).length : 0;
@@ -389,8 +393,37 @@ export class Game {
     if (o.zone !== 'battlefield') return null;
     let best = anim, ts = anim ? anim.ts ?? 0 : -1;
     for (const a of this.attachments(o)) if (a.fx.attachSet && (a.ts ?? 0) > ts) { best = a.fx.attachSet; ts = a.ts ?? 0; }
+    // (rules 20) Humility: base power and toughness N/N in layer 7b, by timestamp with the other setting effects; the
+    // anthems (7c) and counters (7d) still apply on top of it
+    const h = this.humility(o);
+    if (h && (h.ts ?? 0) > ts) best = h.fx.allLoseAbilities;
     return best;
   }
+  // (rules 20, item 212) The newest Humility-style permanent on the battlefield when o is a creature there: o has no
+  // abilities (613.1f layer 6) and its base power and toughness are set (layer 7b). Read in one place: keywords
+  // (hasNow), activated abilities (abilitiesOf), its own and watched triggers (triggers.js) and its anthems (bonus).
+  // Not covered: other static abilities a creature has (they still apply) and the few triggers queued directly by
+  // combat and special events; see tests/phase-2o-report.md.
+  humility(o) {
+    if (this.rules < 20 || !o?.fx?.type.creature || o.zone !== 'battlefield') return null;
+    return this.humilitySource();
+  }
+  // The newest Humility-style permanent on the battlefield, worked out again only when the battlefield changes (a
+  // permanent enters: tsN; or leaves: the count). Asked for every trigger and watcher, so a scan each time made long
+  // trigger chains with thousands of tokens quadratic (tests/loops.mjs 10). Not seen until the battlefield next
+  // changes: a permanent that becomes a copy of Humility without entering (Mirage Mirror); see the Phase 2O report.
+  humilitySource() {
+    let n = 0;
+    for (const q of this.players) n += q.battlefield.length;
+    const key = `${this.tsN}:${n}`;
+    if (this._humKey !== key || (this._hum && this._hum.game !== this)) {
+      let best = null;
+      for (const q of this.players) for (const s of q.battlefield) if (s.fx.allLoseAbilities && (!best || (s.ts ?? 0) > (best.ts ?? 0))) best = s;
+      this._humKey = key; this._hum = best;
+    }
+    return this._hum;
+  }
+  abilitiesOff(o) { return !!this.humility(o); }
   // (while the AI plans combat, power, toughness and keywords are worked out once per object: item 171)
   power(o) { const ev = this._ev; if (!ev) return this.powerNow(o); let v = ev.p.get(o); if (v === undefined) { v = this.powerNow(o); ev.p.set(o, v); } return v; }
   toughness(o) { const ev = this._ev; if (!ev) return this.toughnessNow(o); let v = ev.t.get(o); if (v === undefined) { v = this.toughnessNow(o); ev.t.set(o, v); } return v; }
@@ -416,7 +449,7 @@ export class Game {
     // Stinkweed Imp: creatures it deals combat damage to are destroyed (deathtouch does the same in combat)
     if (kw === 'deathtouch' && o.fx.combatKill && o.zone === 'battlefield') return true;
     // (an aura that makes it lose all abilities leaves only what's granted)
-    if (o.fx.kw.has(kw) && !(o.zone === 'battlefield' && this.setPT(o))) return true;
+    if (o.fx.kw.has(kw) && !(o.zone === 'battlefield' && this.setPT(o)) && !this.abilitiesOff(o)) return true;
     if (o.zone === 'battlefield') {
       // Concordant Crossroads: all creatures have haste
       if (kw === 'haste' && o.fx.type.creature && this.alive().some(q => q.battlefield.some(s => s.fx.hasteAll))) return true;
@@ -435,6 +468,7 @@ export class Game {
   pacified(o) { return this.attachments(o).some(a => a.fx.pacify); }
   // Its own activated abilities, plus any it borrows (Marvin, Murderous Mimic; Necrotic Ooze)
   abilitiesOf(o) {
+    if (this.abilitiesOff(o)) return [];
     // (rules 7) abilities read in the combo audit (Isochron Scepter, Grand Architect, fx.abilities7) and ones an Aura
     // grants its creature (Splinter Twin). Kept apart so older games, and the AI's card values, see the old reading.
     if (this.rules >= 7) {
@@ -871,6 +905,8 @@ export class Game {
     if (o.zone === 'hand') { if (o.bestowed) this.unbestow(o); o.mutateOnto = null; }
     const mode = choice.mode || this.castMode(p, o);
     if (!mode) return false;
+    // (rules 20) timing, unless an effect is casting it (choice.mode: cascade, rebound, suspend, "cast it now")
+    if (!choice.mode && mana.timingRefuses(this, p, o, mode)) return false;
     this.payingFor = { o, ability: false };
     o.castFrom = o.zone;
     // (item 206: "if you cast it"; cleared when the card goes anywhere but the stack and the battlefield, zones.js)

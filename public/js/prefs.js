@@ -3,4 +3,6 @@
 import { store } from './util.js';
 
 /** @type {Record<string, any>} */
-export const prefs = store('ct.prefs') || {};
+// (Phase 2O) saved settings that aren't an object (damaged, or written by something else) are ignored: defaults apply
+const savedPrefs = store('ct.prefs');
+export const prefs = savedPrefs && typeof savedPrefs === 'object' && !Array.isArray(savedPrefs) ? savedPrefs : {};
