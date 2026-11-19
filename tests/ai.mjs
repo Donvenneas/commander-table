@@ -8,6 +8,7 @@ import { writeFileSync } from 'node:fs';
 import { scenario, card, find, P, logText, errors, settle } from './scenario.mjs';
 import { RULES } from '../public/js/engine.js';
 import { Agent } from '../public/js/ai.js';
+import { HumanAgent } from '../public/js/human.js';
 import { lookAheadPlay } from '../public/js/lookahead.js';
 import { targetLegal } from '../public/js/resolve.js';
 
@@ -403,6 +404,69 @@ await test('30. Difficulty: Beginner plays worse than Strong, with the same rule
   decision({ state: 'the lethal-Bolt board from test 22, decided 12 times by each strength', legal: ['Lightning Bolt (wins)', 'Shivan Dragon', 'Hill Giant', 'stop'], expected: { strong: 12, beginnerBelow: true, allLegal: true },
     actual: { strong: counts.strong.lethal, beginnerBelow: counts.beginner.lethal < 12, allLegal: counts.strong.legal === 12 && counts.beginner.legal === 12 },
     why: `Strong finds the win every time; Beginner sometimes plays something else or stops (found it ${counts.beginner.lethal} of 12). Both only ever make legal plays.` });
+});
+
+// ====================================================================== rules 23: politics and attacks by level
+const styled = (g, i, style) => { const a = new Agent(style); P(g, i).agent = a; return a; };
+await test('31. Attacks by level: a cEDH pilot keeps its mana creature home against players with shields up, but swings at the one who paid life for Ad Nauseam', async () => {
+  const seats = () => [{ battlefield: ['Llanowar Elves', 'Island'] }, { battlefield: ['Island', 'Island', 'Island'], hand: ['Opt', 'Opt'] }, { battlefield: ['Swamp', 'Swamp', 'Swamp'], hand: ['Opt', 'Opt'] }];
+  const g = await table(seats()); ready(g, 0); styled(g, 0, 'cedh');
+  const kept = attacks(g, 0);
+  const h = await table(seats()); ready(h, 0); styled(h, 0, 'cedh');
+  P(h, 2).castNames.add('Ad Nauseam');
+  const at = attacks(h, 0);
+  decision({ state: 'cEDH pilot with Llanowar Elves; P2 and P3 have no creatures and three lands up; then P3 has cast Ad Nauseam', legal: ['no attack', 'attack P2', 'attack P3'],
+    expected: [[], ['Llanowar Elves → P3']], actual: [kept, at], why: 'cEDH keeps the board it wins with (mana, engines, combo pieces) while shields are up, and punishes a player who paid life to win' });
+});
+await test('32. Attacks by level: a casual pilot goes after the player with no blockers, then the biggest threat', async () => {
+  const g = await table([{ battlefield: ['Hill Giant'] }, { battlefield: ['Grizzly Bears'] }, { battlefield: [] }]); ready(g, 0); styled(g, 0, 'balanced');
+  const open = attacks(g, 0);
+  const h = await table([{ battlefield: ['Hill Giant'] }, { battlefield: ['Sol Ring', 'Mana Crypt', 'Rhystic Study', 'Island', 'Island'] }, { battlefield: ['Island'] }]); ready(h, 0); styled(h, 0, 'balanced');
+  const big = attacks(h, 0);
+  decision({ state: 'balanced pilot, a 3/3; P2 has a 2/2 blocker and P3 none; then neither has blockers and P2 has the stronger board', legal: ['attack P2', 'attack P3', 'no attack'],
+    expected: [['Hill Giant → P3'], ['Hill Giant → P2']], actual: [open, big], why: 'casual pilots hit the open player, and with nobody blocking, the biggest threat' });
+});
+await test('33. Redirect: the targeted bot points a person\'s removal at the bigger threat; the person decides (rules 23; not at rules 22)', async () => {
+  for (const rules of [23, 22]) {
+    const g = await table([{ battlefield: ['Plains'], hand: ['Swords to Plowshares'] }, { battlefield: ['Grizzly Bears'] }, { battlefield: ['Craterhoof Behemoth'] }], { rules });
+    const asked = [];
+    P(g, 0).agent = new HumanAgent('balanced', { ask: async (html, o = {}) => { asked.push(String(html).replace(/<[^>]+>/g, '')); return { button: (o.buttons || []).find(b => b.value === true) ? true : 'pass' }; }, key: () => null, replaying: false });
+    ok(await g.cast(P(g, 0), find(g, 0, 'Swords to Plowshares', 'hand'), { targets: [{ obj: find(g, 1, 'Grizzly Bears') }] }), 'cast');
+    await settle(g);
+    if (rules === 23) {
+      ok(asked.some(t => /P2 asks you to aim Swords to Plowshares at Craterhoof Behemoth/.test(t)), `asked: ${asked.join(' / ')}`);
+      eq([!!find(g, 1, 'Grizzly Bears'), !!find(g, 2, 'Craterhoof Behemoth')], [true, false], 'Craterhoof exiled instead');
+    } else eq([!!find(g, 1, 'Grizzly Bears'), asked.length], [false, 0], 'rules 22 (old replays): no offer, the Bears are exiled');
+    noErrors(g);
+  }
+});
+await test('34. No-win deal: offered to the likeliest counterspell holder, the partner lets the spell resolve, and the proposer doesn\'t go off while promising', async () => {
+  const g = await table([{ battlefield: ['Island', 'Island', 'Island', 'Zirda, the Dawnwaker', 'Basalt Monolith'], hand: ['Rhystic Study', 'Walking Ballista'] },
+    { battlefield: ['Island', 'Island', 'Island'], hand: ['Counterspell', 'Opt', 'Opt'] }, { battlefield: ['Forest'], hand: ['Opt'] }]);
+  styled(g, 0, 'combo'); styled(g, 1, 'cedh');
+  // (the combo is held back for the deal check, then promised away)
+  P(g, 0).agent.readyCombos = () => [];
+  P(g, 1).countersCast = 1;
+  const offer = P(g, 0).agent.proposeDeal(g, P(g, 0));
+  decision({ state: 'combo pilot with Rhystic Study in hand and no win this turn; P2 has three Islands up and three cards', legal: ['no deal', 'no-win deal with P2', 'no-win deal with P3'],
+    expected: 'noWin → P2', actual: offer ? `${offer.kind} → P${offer.to.idx + 1}` : 'no deal', why: 'ask the player most likely to hold a counterspell, while the promise costs nothing' });
+  g.deals.push({ a: 0, b: 1, kind: 'noWin', until: g.round + 1, rounds: 1, broken: false, madeTurn: g.turn });
+  const item = { o: find(g, 0, 'Rhystic Study', 'hand'), p: P(g, 0), effects: [], targets: [], name: 'Rhystic Study' };
+  eq(P(g, 1).agent.respond(g, P(g, 1), item), null, 'P2 lets it resolve (holding Counterspell)');
+  delete P(g, 0).agent.readyCombos;
+  eq(P(g, 0).agent.readyCombos(g, P(g, 0), 'main1').length, 0, 'P1 keeps the promise: no combo offered to itself');
+});
+await test('35. Draws: a bot agrees only when the table is locked as far as it can tell and it has no win of its own', async () => {
+  const seats = () => [0, 1, 2].map(() => ({ battlefield: ['Island', 'Island', 'Island'], hand: ['Counterspell', 'Opt', 'Opt'] }));
+  const g = await table(seats(), { round: 8 });
+  for (const i of [0, 1, 2]) { styled(g, i, 'cedh'); P(g, i).countersCast = 2; }
+  const yes = P(g, 1).agent.considerDraw(g, P(g, 1), P(g, 0));
+  const h = await table(seats(), { round: 8 });
+  for (const i of [0, 1, 2]) { styled(h, i, 'cedh'); P(h, i).countersCast = 2; }
+  P(h, 1).hand.splice(P(h, 1).hand.findIndex(o => o.card.name === 'Counterspell'), 1);
+  const noInteraction = P(h, 1).agent.considerDraw(h, P(h, 1), P(h, 0));
+  decision({ state: 'three cEDH players, all with Islands up and counterspells shown; P2 holds Counterspell, then doesn\'t', legal: ['agree', 'decline'],
+    expected: [true, false], actual: [yes, noInteraction], why: 'a draw by agreement is for a table where nobody can win through the interaction held up' });
 });
 
 for (const [name, e] of results) console.log(`${e ? 'FAIL' : 'ok  '}  ${name}${e ? `\n        ${e.message}` : ''}`);

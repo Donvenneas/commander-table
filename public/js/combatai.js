@@ -163,6 +163,17 @@ export function bestBlocks(g, q, attackers, agent, { quick = false } = {}) {
 }
 
 // ---------- attacks
+// (rules 23) Public signs that a player pays life to win or to build their board: Ad Nauseam, Necropotence, Bolas's
+// Citadel and friends cast this game or on the battlefield. cEDH pilots attack such a player even with the board kept back.
+const LIFE_ENGINES = new Set(['Ad Nauseam', 'Necropotence', "Bolas's Citadel", 'Dark Confidant', 'Bob', 'Sylvan Library', 'Peer into the Abyss',
+  'Toxic Deluge', 'Snuff Out', 'Vampiric Tutor', 'Yawgmoth, Thran Physician', 'Griselbrand', 'Necrologia', 'Vilis, Broker of Blood', 'Dismember']);
+export function lifeAsResource(q) {
+  for (const n of q.castNames || []) if (LIFE_ENGINES.has(n)) return true;
+  return q.battlefield.some(o => o.fx.necro || LIFE_ENGINES.has(o.card.name));
+}
+// (rules 23) Open: nothing untapped that could block
+export const openTo = q => !q.battlefield.some(o => o.fx.type.creature && !o.tapped);
+
 export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {}) {
   const ready = p.battlefield.filter(o => g.canAttack(o) && P(g, o) > 0).sort((a, b) => P(g, b) - P(g, a)).slice(0, 9);
   const opps = g.opponents(p);
@@ -173,6 +184,25 @@ export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {})
     combo: { dmg: 1.35, loss: 1.15, back: 1 }, cedh: { dmg: 1.3, loss: 1.25, back: 0.9 },
   }[style] || { dmg: 1.6, loss: 0.85, back: 0.8 };
   Object.assign(w, agent.combatTune || {});
+  // (rules 23) Attacks by level: casual pilots go after open players and the biggest threat on the table; cEDH pilots
+  // keep their board for the combo and swing only at a player whose shields are down (no blockers, tapped out) or who
+  // pays life as a resource
+  const focus = new Map();
+  if (g.rules >= 23) {
+    if (style === 'cedh') { w.dmg *= 0.55; w.back *= 1.35; }
+    const power = new Map(opps.map(q => [q.idx, g.tablePower(q)]));
+    const top = opps.reduce((a, b) => ((power.get(b.idx) || 0) > (power.get(a.idx) || 0) ? b : a));
+    for (const q of opps) {
+      let f = 1;
+      // (cEDH: open means shields down: no blockers and at most one mana up for interaction)
+      if (style === 'cedh') { if (lifeAsResource(q)) f *= 2.4; else if (openTo(q) && g.availableMana(q) <= 1) f *= 2; } else { if (openTo(q)) f *= 1.6; if (q === top) f *= 1.35; }
+      focus.set(q.idx, f);
+    }
+  }
+  // (rules 23, cEDH) the board that wins the game stays home: mana creatures, creatures with tap abilities and combo
+  // pieces attack only a player whose shields are down or who pays life as a resource
+  const keepHome = o => g.rules >= 23 && style === 'cedh' && (!!o.fx.mana || g.abilitiesOf(o).some(a => a.tap) || agent.comboDanger(g, o) >= 3);
+  const mayHit = (o, q) => !keepHome(o) || (focus.get(q.idx) || 1) > 1;
   // Long games push everyone to finish them
   if (g.round >= 12) { w.dmg *= 1.25; w.back *= 0.8; }
   if (g.round >= 20) { w.dmg *= 1.5; w.back *= 0.4; }
@@ -193,7 +223,7 @@ export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {})
       const pol = agent.politicalWeight(g, p, q) * (1 + (p.grudge[t] || 0) * 0.02);
       // An elimination (Kingdoms: only of someone your role wants gone; finishing off an ally is a blunder)
       if (d >= q.life || (r.cmd.get(t) || 0) >= 21) s += g.kingdoms && pol < 0.5 ? -60 : 80 + q.battlefield.length * 0.5;
-      else s += w.dmg * pol * d * (0.35 + 8 / Math.max(6, q.life - d));
+      else s += w.dmg * pol * (focus.get(t) || 1) * d * (0.35 + 8 / Math.max(6, q.life - d));
       if ((r.cmd.get(t) || 0) >= 14) s += w.dmg * ((r.cmd.get(t) || 0) - 13);
       for (const o of r.dead) s += o.controller === p.idx ? -w.loss * keyValue(agent, g, o) : (agent.value(g, o) + agent.comboDanger(g, o)) * 0.9;
       // Combat tricks (rules 5, item 112): a blocked attacker that only just survives is at risk when the defender has
@@ -223,7 +253,7 @@ export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {})
     for (const o of ready) {
       if (chosen.some(x => x.o === o)) continue;
       for (const q of opps) {
-        if (!g.canAttack(o)) continue;
+        if (!g.canAttack(o) || !mayHit(o, q)) continue;
         const s = evaluate([...chosen, { o, target: q.idx }]);
         if (s > bestS + 0.05) { bestS = s; bestC = { o, target: q.idx }; }
       }
@@ -234,7 +264,8 @@ export function bestAttacks(g, p, agent, { style = 'balanced', noise = 0 } = {})
   }
   // All-in on one player can be better than any one-at-a-time build (lethal through blockers)
   for (const q of opps) {
-    const all = ready.map(o => ({ o, target: q.idx }));
+    const all = ready.filter(o => mayHit(o, q)).map(o => ({ o, target: q.idx }));
+    if (!all.length) continue;
     const s = evaluate(all);
     if (s > cur + 0.05) { cur = s; chosen = all; }
   }

@@ -571,9 +571,13 @@ export class Agent {
     let t;
     // (item 209, rules 17: bestEnemy and bestOwn only see permanents the effect's words allow)
     const prevFit = this.fitNow;
-    this.fitNow = g.rules >= 17 && e.tr ? o => targetFits(g, p, e, o, src) : null;
+    // (item 389, rules 24) another copy of "up to two target …": not what an earlier copy already took
+    const taken = e.more && g.rules >= 24 ? new Set((g.pickedTargets || []).map((/** @type {any} */ x) => x?.obj).filter(Boolean)) : null;
+    const fits = g.rules >= 17 && (e.tr || (g.rules >= 24 && e.tr24)) ? (/** @type {any} */ o) => targetFits(g, p, e, o, src) : null;
+    this.fitNow = taken ? (/** @type {any} */ o) => !taken.has(o) && (!fits || fits(o)) : fits;
     try { t = this.chooseTarget0(g, p, withKinds(g, e), src); } finally { g.targetSrc = prev; this.fitNow = prevFit; }
     if (t?.obj && !targetFits(g, p, e, t.obj, src)) return null;
+    if (t?.obj && taken?.has(t.obj)) return null;
     if (g.rules >= 13 && t?.player != null && t.player !== p.idx && g.players[t.player]?.shield >= g.turn) {
       const other = g.opponents(p).filter(q => !(q.shield >= g.turn)).sort((a, b) => a.life - b.life || a.idx - b.idx)[0];
       return other ? { ...t, player: other.idx } : null;
@@ -596,6 +600,15 @@ export class Agent {
       // (an untapped creature that could block, or attack)
       case 'noBlock': return this.bestEnemy(g, p, o => o.fx.type.creature && !o.tapped);
       case 'loseLife': { const q = this.weakestOpponent(g, p); return q ? { player: q.idx } : null; }
+      // (item 389) "target player draws N and loses N life": an opponent it kills, else ourselves when we can afford it
+      case 'drawLose': {
+        const life = e.life === 'X' ? n : N0(e.life);
+        const kill = g.opponents(p).filter(q => q.life <= life && !(q.shield >= g.turn)).sort((a, b) => a.life - b.life)[0];
+        if (kill) return { player: kill.idx };
+        if (e.who === 'target player' && p.life > life + 4 && p.library.length > n + 1) return { player: p.idx };
+        const q = e.who === 'target opponent' ? this.weakestOpponent(g, p) : null;
+        return q ? { player: q.idx } : null;
+      }
       case 'discard': { const q = g.opponents(p).sort((a, b) => b.hand.length - a.hand.length)[0]; return q ? { player: q.idx } : null; }
       case 'silence': { const q = [...g.opponents(p)].sort((a, b) => this.threat(g, p, b) - this.threat(g, p, a))[0]; return q ? { player: q.idx } : null; }
       // Mill whoever is closest to running out
@@ -619,6 +632,8 @@ export class Agent {
         for (const o of p.battlefield) {
           // (a blinker never blinks itself: its own enter trigger would start over and over)
           if (!this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) || o.token || o === src || o.fx.etb.some(x => x.k === 'blink')) continue;
+          // (item 389, rules 24: what the effect's words and the targets already taken allow)
+          if (g.rules >= 24 && this.fitNow && !this.fitNow(o)) continue;
           // (blink-on-ETB creatures like Restoration Angel aren't counted, or the valuation would recurse)
           const v = o.fx.etb.filter(x => x.k !== 'blink').reduce((s, x) => s + this.effectValue(g, p, o, x, false), 0);
           if (v > bv) { bv = v; best = o; }
@@ -723,13 +738,16 @@ export class Agent {
   // Is this combo fully assembled (bar mana), and can it be fired this phase?
   comboAssembled(g, p, combo, phase) {
     if (p.comboTried.turn === g.turn && p.comboTried.ids.has(combo.id)) return null;
+    // (rules 23) a no-win promise is kept
+    if (!this.human && this.promisedNoWin(g, p)) return null;
     const st = comboState(g, p, combo);
     if (!st.ready) return null;
     if (combo.result === 'attack' && phase !== 'main1') return null;
     // (pieces that tap must be on the battlefield untapped and free of summoning sickness, and so on)
     if (comboBlocked(g, p, combo, st)) return null;
     // Unbounded mana with nothing to spend it on wins nothing: hold it until there's an outlet
-    if (combo.result === 'mana' && !g.manaOutlet(p)) return null;
+    // (rules 21: a person is offered it anyway, and decides; the mana lasts the turn)
+    if (combo.result === 'mana' && !g.manaOutlet(p) && !(this.human && g.rules >= 21)) return null;
     // Kingdoms: a combo that hits every opponent mustn't take down a secret ally (a face-down Knight's King),
     // nor end the game for the wrong side (a Bandit or Renegade killing the King while Assassins remain)
     // (rules 5, item 115: only a true ally holds a combo back. Before, Bandits and Renegades, who'd rather keep the King
@@ -1187,6 +1205,12 @@ export class Agent {
   }
 
   effectValue(g, p, src, e, isSpell) {
+    // (item 389) an effect this game's rules version doesn't play is worth nothing (from rules 24; older games valued
+    // everything they read, and keep doing so)
+    if (g.rules >= 24 && e.until && g.rules >= e.until) return 0;
+    if (e.since >= 24 && g.rules < e.since) return 0;
+    // (item 389) a further target of "up to two target …": a smaller bonus, never a reason not to cast the spell
+    if (e.more) return Math.max(0, this.effectValue(g, p, src, { ...e, more: false, since: 0 }, isSpell) * 0.6);
     const opps = g.opponents(p);
     const N = v => (v === 'X' ? this.xOverride ?? Math.max(1, g.availableMana(p) - (src.card.cmc || 0)) : v && typeof v === 'object' ? g.dynValue(p, v, { src }) : v);
     const myCreatures = p.battlefield.filter(o => o.fx.type.creature);
@@ -1332,7 +1356,7 @@ export class Agent {
       case 'counter': case 'counterAbility': case 'copySpell': case 'protect': return isSpell ? -100 : 0;
       case 'if': {
         const ok = g.evalCond(p, src, e.cond, { x: e.cond.c === 'x' ? N('X') : 0, kicked: g.availableMana(p) >= (src.card.cmc || 0) + 2 });
-        const branch = ok && !(e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && (g.rules >= 17 || e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
+        const branch = ok && !(e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && !(g.rules >= 24 && e.cond.r24) && (g.rules >= 17 || e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
         return branch.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0);
       }
       case 'scry': return N(e.n) * 0.5;
@@ -1395,6 +1419,15 @@ export class Agent {
       case 'pumpSelf': return src.attacking != null || src.blocking != null ? (N(e.p) + N(e.t)) * 0.8 + e.kw.length : 0;
       case 'loseAll': return N(e.n) * (0.5 * opps.length - (p.life < 15 * L ? 0.6 : 0.15)) / L;
       case 'loseSelf': return -N(e.n) * (p.life < 15 * L ? 0.6 : 0.15) / L;
+      // (item 389) Sign in Blood: cards for us (or the life loss for an opponent it finishes); each player: like drawEach
+      case 'drawLose': {
+        const n = N(e.n), life = e.life === 'X' ? n : N(e.life);
+        if (/^each/.test(e.who)) return n * (2 - opps.length * 0.5) + life * 0.5 * opps.length - (e.who === 'each player' ? life * (p.life < 15 * L ? 0.6 : 0.15) / L : 0);
+        const t = this.chooseTarget(g, p, e, src);
+        if (!t) return isSpell ? -100 : 0;
+        if (t.player !== p.idx) return 6;
+        return 2 * n * (p.hand.length <= 2 ? 1.5 : 1) - life * (p.life < 15 * L ? 0.6 : 0.15) / L;
+      }
       case 'monarch': return g.monarch === p.idx ? 0 : 5;
       case 'fromHand': return p.hand.some(o => o !== src && (e.what === 'land' ? o.fx.type.land : this.matches(o, e.what))) ? (e.what === 'land' ? 2.5 : 4) : 0;
       case 'reshuffle': return p.library.length < 15 ? 3 : 0;
@@ -1824,6 +1857,8 @@ export class Agent {
   // Deal kinds: truce (no attacks), gangUp (no attacks, both hit the archenemy), noCounter (no attacks,
   // no counterspells between us: good for a combo deck), tribute (we give a card for safety when we're losing)
   proposeDeal(g, p) {
+    // (rules 23) "Let this resolve, I'm not winning": a no-win deal comes first when it fits
+    if (g.rules >= 23) { const nw = this.noWinOffer(g, p); if (nw) return nw; }
     if (g.alive().length < 3 || g.round - (this.lastOffer ?? -9) < 3 || g.rand() < 0.5) return null;
     const free = g.opponents(p).filter(q => !g.dealBetween(p.idx, q.idx) && (p.grudge[q.idx] || 0) < 12);
     const arch = g.archenemy != null && g.archenemy !== p.idx ? g.archenemy : null;
@@ -1842,9 +1877,82 @@ export class Agent {
     this.explain(g, p, `offers ${to.name} a ${kind} deal for ${rounds} round${rounds === 1 ? '' : 's'}: ${kind === 'gangUp' ? 'the archenemy needs stopping' : kind === 'tribute' ? 'we are lowest on life and they keep hitting us' : 'their counterspells are what could stop our combo'}`);
     return { to, kind, rounds };
   }
+  // (rules 23) A no-win deal, the way cEDH pods make them: we hold a spell that builds our engine, someone is likely
+  // holding up a counterspell, and we can't win this turn anyway. We ask them to let our spells resolve this turn and
+  // promise not to try to win until the end of next round (a promise we keep: comboAssembled).
+  noWinOffer(g, p) {
+    // (at most once every three rounds: a pod hears it now and then, not every turn)
+    if (g.alive().length < 3 || g.round - (this.lastNoWin ?? -9) < 3 || g.archenemy === p.idx) return null;
+    if (this.readyCombos(g, p, 'main1').some(r => r.payable)) return null;
+    // (a spell worth asking for: a piece of one of our combos, a card-draw engine, a tutor or draw spell, or a big one)
+    const key = o => (p.combos || []).some(c => c.pieces.includes(o.card.name)) || !!o.fx.onOppCast || o.fx.spell.some(e => ['tutor', 'draw', 'drawEach'].includes(e.k))
+      || this.comboDanger(g, o) >= 3 || (o.card.cmc || 0) >= 4;
+    const engine = p.hand.filter(o => !o.fx.type.land && key(o) && !!g.castMode(p, o)).sort((a, b) => (b.card.cmc || 0) - (a.card.cmc || 0))[0];
+    if (!engine) return null;
+    const to = g.opponents(p).filter(q => q.idx !== g.archenemy && !g.dealBetween(p.idx, q.idx) && (p.grudge[q.idx] || 0) < 12)
+      .map(q => [q, this.counterOdds(g, q)]).filter(([, c]) => c >= 0.25).sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (!to) return null;
+    this.lastNoWin = g.round;
+    this.explain(g, p, `offers ${to.name} a no-win deal: let ${engine.card.name} resolve, and we won't try to win until the end of next round (they are the likeliest to hold a counterspell)`);
+    return { to, kind: 'noWin', rounds: 1 };
+  }
+  // (rules 23) Are we promising not to try to win? (a no-win deal we offered and that was accepted)
+  promisedNoWin(g, p) { return g.rules >= 23 && g.deals.some(d => !d.broken && d.kind === 'noWin' && d.a === p.idx && d.until >= g.round); }
+  // (rules 23) Interaction in our own hand: a counterspell or removal we could cast at instant speed
+  holdsInteraction(g, q) {
+    return q.hand.some(o => (o.fx.type.instant || o.fx.kw.has('flash')) && o.fx.spell.some(e => ['counter', 'remove', 'bounce', 'tuck', 'counterAbility'].includes(e.k)) && !!g.castMode(q, o));
+  }
+  // (rules 23) A locked table, from what this player can know: we hold interaction, and every other player looks like
+  // they do too (public signs only: counterspells and removal shown, open mana, cards in hand)
+  tableLocked(g, q) {
+    if (!this.holdsInteraction(g, q)) return false;
+    return g.alive().filter(r => r !== q).every(r => r.hand.length >= 2 && (this.counterOdds(g, r) >= 0.25 || (r.stats?.interaction || 0) >= 2));
+  }
+  // (rules 23) Offer the table a draw at a stalemate (engine.js stalemateDraw has already seen a win stopped recently)
+  offerDraw(g, p) {
+    if (g.round - (this.lastDrawOffer ?? -9) < 3 || g.archenemy === p.idx || !this.tableLocked(g, p)) return false;
+    this.lastDrawOffer = g.round;
+    this.explain(g, p, 'offers a draw: every win so far was stopped on the stack, we hold interaction and so does everyone else, as far as we can tell');
+    return true;
+  }
+  /** @returns {any} (a person answers later: HumanAgent) */
+  considerDraw(g, q, from) {
+    if (g.archenemy === q.idx || this.readyCombos(g, q, 'main1').some(r => r.payable)) return false;
+    return this.tableLocked(g, q);
+  }
+  // (rules 23) Our permanent is about to be removed: point the caster at the bigger threat, judged as the caster's own
+  // removal choice would be (value and combo danger, weighted by threat), if there is a clearly better one that isn't
+  // ours and isn't a deal partner's. Public information only.
+  redirectOffer(g, q, p, e, src, target) {
+    const rank = this.threatRank(g, p);
+    const score = o => (this.value(g, o) + this.comboDanger(g, o)) * (rank.get(o.controller) || 1);
+    let best = null, bv = score(target) * 1.15;
+    for (const r of g.alive()) {
+      if (r === q || r === p || g.dealBetween(q.idx, r.idx)) continue;
+      for (const o of r.battlefield) {
+        if (!g.canTarget(p, o) || !targetFits(g, p, e, o, src)) continue;
+        const v = score(o);
+        if (v > bv) { bv = v; best = o; }
+      }
+    }
+    return best;
+  }
+  /** @returns {any} The caster's answer to a redirect: our own valuation (a person is asked: HumanAgent) */
+  considerRedirect(g, p, q, e, src, orig, alt) {
+    if (!g.canTarget(p, alt) || !targetFits(g, p, e, alt, src) || g.dealBetween(p.idx, alt.controller)) return false;
+    const rank = this.threatRank(g, p);
+    const score = o => (this.value(g, o) + this.comboDanger(g, o)) * (rank.get(o.controller) || 1);
+    return score(alt) >= score(orig) * 0.95;
+  }
   /** @returns {any} (a seat played by a person answers later: HumanAgent overrides this with an async version) */
   considerDeal(g, q, from, kind = 'truce', rounds = 2) {
     if (from.idx === g.archenemy || (q.grudge[from.idx] || 0) >= 12) return false;
+    // (rules 23) A no-win deal: accepted unless we hold a counterspell and they look close to a win anyway
+    if (kind === 'noWin') {
+      const danger = from.battlefield.reduce((s, o) => s + this.comboDanger(g, o), 0);
+      if (q.hand.some(isCounter) && danger >= 8) return false;
+      return g.rand() < (this.style === 'aggressive' ? 0.45 : 0.75);
+    }
     // Not if they're the biggest threat to us, or we were about to kill them
     if ((this.threatRank(g, q).get(from.idx) || 0) >= 1.3) return false;
     const myPower = q.battlefield.filter(o => o.fx.type.creature).reduce((s, o) => s + g.power(o), 0);
@@ -1876,6 +1984,8 @@ export class Agent {
   /** @returns {any} */
   respond(g, q, item) {
     if (item.p === q) return null;
+    // (rules 23) a no-win deal: the proposer's spells resolve this turn
+    if (g.rules >= 23) { const pact = g.dealBetween(q.idx, item.p.idx); if (pact?.kind === 'noWin' && pact.a === item.p.idx && pact.madeTurn === g.turn) return null; }
     // (a look-ahead copy trying "let it resolve": this pilot lets that spell through)
     if (g.laHold && g.laHold.q === q.idx && g.laHold.iid === item.o.iid) return null;
     // A combo loop is about to start: kill one of its pieces now if there's no Stifle

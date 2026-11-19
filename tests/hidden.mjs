@@ -28,6 +28,13 @@ const SIGS = {
   declareAttackersPlan: list => (list || []).map(x => `${x.o.iid}>${x.target}`).sort().join(',') || 'no attack',
   declareBlockers: list => (list || []).map(x => `${x.b.iid}>${x.a.iid}`).sort().join(',') || 'no blocks',
   respond: r => (r ? `${r.kind}:${r.card?.card.name || r.source?.card.name || ''}` : 'pass'),
+  // (rules 23) table politics: deals offered and answered, draw offers, redirect offers and answers
+  proposeDeal: d => (d ? `${d.kind}>${d.to.idx}/${d.rounds}` : 'no deal'),
+  considerDeal: v => String(!!v),
+  offerDraw: v => String(!!v),
+  considerDraw: v => String(!!v),
+  redirectOffer: o => (o ? String(o.iid) : 'none'),
+  considerRedirect: v => String(!!v),
 };
 let checked = 0, changed = 0;
 const counts = {};
@@ -43,7 +50,8 @@ for (let i = 0; i < GAMES; i++) {
       agent[method] = (gg, pp, ...rest) => {
         if (gg === g && pp === p && !g.over) {
           const realRand = g.rand, notes = { ...agent };
-          const ask = () => { g.rand = makeRng(12345); try { return toSig(orig(gg, pp, ...rest)); } finally { Object.assign(agent, notes); } };
+          // (the agent exactly as it was: fields a call adds, such as the round of its last deal offer, are removed too)
+          const ask = () => { g.rand = makeRng(12345); try { return toSig(orig(gg, pp, ...rest)); } finally { for (const k of Object.keys(agent)) if (!(k in notes)) delete agent[k]; Object.assign(agent, notes); } };
           const before = ask();
           const saved = g.players.map(q => ({ hand: q.hand, library: q.library, zones: [...q.hand, ...q.library].map(o => o.zone) }));
           for (const q of g.opponents(p)) {

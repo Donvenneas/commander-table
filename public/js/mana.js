@@ -171,6 +171,11 @@ export function poolText(g, p) { return (p.pool || []).map(x => (x.colors.length
 // A mana combo gives its controller unbounded mana for the rest of the turn
 /** @param {import('./engine.js').Game} g */
 export function infinite(g, p) { return p.infiniteMana === g.turn && g.active === p.idx; }
+// (rules 22) The colors of the mana a loop added to the pool between two snapshots of it (p.pool before, after)
+export function loopColors(before, after) {
+  const was = new Set(before);
+  return [...new Set(after.filter(u => !was.has(u)).flatMap(u => u.colors || []))];
+}
 /** @param {import('./engine.js').Game} g */
 export function availableMana(g, p) { return g.infinite(p) ? 99 : g.units(p).length; }
 // avoid: colors needed by spells still to be cast this turn, kept back when paying generic costs
@@ -179,7 +184,21 @@ export function availableMana(g, p) { return g.infinite(p) ? 99 : g.units(p).len
  * @param {any} p @param {any} cost @param {number} [extra] @param {any} [exclude] @param {Set<string> | null} [avoid] @param {any[]} [help]
  */
 export function planPayment(g, p, cost, extra = 0, exclude = null, avoid = null, help = []) {
-  if (g.infinite(p)) return { free: true };
+  if (g.infinite(p)) {
+    // (rules 22) Unbounded mana is of the colors the loop made: it pays generic mana, two-brid symbols and symbols of
+    // those colors; any other colored symbol is paid from real sources, or the cost can't be paid. (Before rules 22,
+    // and for the old combo shortcut, which records no colors, it paid everything.)
+    const cols = g.rules >= 22 ? p.infiniteColors : null;
+    if (!cols) return { free: true };
+    const rest = cost.pips.filter((/** @type {any} */ x) => !x.two && !x.some((/** @type {string} */ c) => cols.includes(c)));
+    if (!rest.length) return { free: true };
+    const plan = planReal(g, p, { generic: 0, pips: rest, x: 0 }, 0, exclude, avoid, help);
+    return plan ? { ...plan, unbounded: true } : null;
+  }
+  return planReal(g, p, cost, extra, exclude, avoid, help);
+}
+/** The payment from p's real mana: pool and untapped sources @param {import('./engine.js').Game} g */
+function planReal(g, p, cost, extra, exclude, avoid, help) {
   const units = g.units(p, exclude).concat(help);
   // (rules 12) Phyrexian and two-brid symbols have two ways to be paid: planTagged tries them
   if (g.rules >= 12 && cost.pips.some((/** @type {any} */ x) => x.phy || x.two)) return planTagged(g, p, units, cost, extra, avoid);
@@ -410,6 +429,18 @@ export function dynValue(g, p, d, ctx = {}) {
   if (d.dyn === 'attackers') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking != null && (!d.other || o !== ctx.src)).length;
   if (d.dyn === 'life') return Math.max(0, p.life);
   if (d.dyn === 'oppArtEnch') return g.opponents(p).reduce((n, q) => n + q.battlefield.filter(o => o.fx.type.artifact || o.fx.type.enchantment).length, 0);
+  // (item 389) "X, where X is …" clauses read at rules 24: 0 in older games, as they were before
+  if (d.dyn === 'r24') return g.rules >= 24 ? dynValue(g, p, d.d, ctx) : 0;
+  if (d.dyn === 'attackingYou') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking === p.idx).length;
+  if (d.dyn === 'attackPower') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking != null).reduce((s, o) => s + Math.max(0, g.power(o)), 0);
+  if (d.dyn === 'exiledMv') return (p.lastExiledMv || 0) + (d.plus || 0);
+  if (d.dyn === 'targetMv') { const t = (ctx.targets || []).find((/** @type {any} */ x) => x?.obj); return t ? t.obj.card.cmc || 0 : 0; }
+  if (d.dyn === 'tokensTurn') return p.tokensTurn?.turn === g.turn ? p.tokensTurn.n : 0;
+  if (d.dyn === 'playerCounter') return p[d.kind] || 0;
+  if (d.dyn === 'commanderMv') return Math.max(0, ...[...p.battlefield, ...p.command].filter(o => o.isCommander && o.owner === p.idx).map(o => o.card.cmc || 0));
+  if (d.dyn === 'drawnTurn') return Math.max(0, (p.drawsThisTurn?.turn === g.turn ? p.drawsThisTurn.n : 0) - (d.minus || 0));
+  if (d.dyn === 'oppsWithPower') return g.opponents(p).filter(q => q.battlefield.some(o => o.fx.type.creature && g.power(o) >= d.n)).length;
+  if (d.dyn === 'countAny') return (d.where === 'all' ? g.alive().flatMap(q => q.battlefield) : p.battlefield).filter(o => (!d.other || o !== ctx.src) && d.whats.some((/** @type {string} */ w) => g.isA(o, w))).length;
   if (d.dyn === 'thatPower') { const o = ctx.trig?.o; return o ? Math.max(0, o.zone === 'battlefield' ? g.power(o) : g.basePower(o.card) + (o.lastCounters || 0)) : p.lastSacPower || 0; }
   // "That many", "its power": from the event that set off the trigger
   const t = ctx.trig || {};

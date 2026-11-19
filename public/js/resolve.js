@@ -118,6 +118,10 @@ export function legalTargets(g, p, e, src) {
     case 'pump': case 'protect': case 'counters': return { objs: all.filter(o => o.fx.type.creature && !(g.rules >= 6 && g.dormant(o)) && g.canTarget(p, o)) };
     case 'blink': return { objs: p.battlefield.filter(o => matchesWhat(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && o !== src) };
     case 'loseLife': return { players: g.opponents(p).map(q => q.idx).concat(p.idx) };
+    // (item 389, rules 24) "target player / target opponent draws … and loses … life"
+    case 'drawLose': return { players: g.alive().filter(q => e.who !== 'target opponent' || q !== p).map(q => q.idx) };
+    // (item 389, rules 24) a copy's target, for a person to pick (the AI picks its own); "you control" is in e.tr24
+    case 'copyToken': return g.rules >= 24 ? { objs: all.filter(o => matchesWhat(o, (g.rules >= 7 && e.what7) || e.what, g) && g.canTarget(p, o)) } : {};
     case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
     case 'tap': return { objs: all.filter(o => matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
     case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
@@ -149,7 +153,8 @@ export function cantBeCountered(g, item) {
     || g.players[o.owner]?.battlefield.some(x => x.fx.protectsSpells && (!x.fx.costReduce?.minMv || (o.card.cmc || 0) >= x.fx.costReduce.minMv)));
 }
 export function targetFits(g, p, e, o, src) {
-  const r = e.tr;
+  // (item 389: a copy's restrictions are read from rules 24, e.tr24)
+  const r = e.tr || (g.rules >= 24 ? e.tr24 : null);
   if (!r || g.rules < 17) return true;
   const t = o.fx.type, cols = g.colorsOf(o);
   for (const w of r.not || []) {
@@ -214,7 +219,24 @@ export async function doEffect(g, p, src, e, ctx, i) {
   if (e.dup && g.rules >= 6) return;
   // (an effect read from rules 16 on: older games and their replays play without it)
   if (e.since && g.rules < e.since) return;
+  // (item 389: an older reading replaced from rules 24, kept for older games and their replays)
+  if (e.until && g.rules >= e.until) return;
   let tgt = ctx.targets?.[i];
+  // (item 389, rules 24) a person chose no target for "up to one target": this part does nothing
+  if (tgt?.none) { g.log(`${S}: no target chosen`, { kind: 'minor' }); return; }
+  // (item 389, rules 24) a further target of "up to two target …": optional, chosen now only for the AI when none was, and
+  // never the same object as another target of the effect
+  if (e.more) {
+    const used = new Set(ctx.used || []);
+    // (none chosen yet: the AI picks one now, as it does for its other targets; a person is never picked for)
+    if (!tgt?.obj && tgt?.player == null && !p.agent.human && g.rules >= 24) {
+      g.pickedTargets = [...used].map(o => ({ obj: o }));
+      try { tgt = p.agent.chooseTarget(g, p, e, src); } finally { g.pickedTargets = null; }
+    }
+    if (!tgt?.obj && tgt?.player == null) return;
+    if (tgt.obj && used.has(tgt.obj)) return;
+    if (!g.validTarget(tgt, p, src)) { g.log(`${S}: ${g.tname(tgt)} is no longer a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
+  }
   if (needsTargetIn(e, g.rules) && !g.validTarget(tgt, p, src)) {
     // A spell's chosen target that became illegal is skipped, never swapped for a new one (608.2b)
     if (ctx.strict && tgt) { g.log(`${S}: ${g.tname(tgt)} is no longer a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
@@ -223,6 +245,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
   const tName = t => g.tname(t);
   // (item 209, rules 17) A permanent the effect's words don't allow isn't a legal target: nothing happens to it (608.2b)
   if (tgt?.obj && needsTargetIn(e, g.rules) && !targetLegal(g, p, e, tgt, src)) { g.log(`${S}: ${g.cn(tgt.obj)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
+  // (item 389) what this spell or ability has targeted so far, so a further target of "up to two" is another one
+  if (tgt?.obj && g.rules >= 24) (ctx.used ||= []).push(tgt.obj);
   // (item 208, rules 17) "Destroy target permanent if it's blue" (Pyroblast): another color is a legal target, but nothing happens
   if (g.rules >= 17 && e.ifColor && e.k !== 'counter' && tgt?.obj && !g.colorsOf(tgt.obj).includes(e.ifColor)) { g.log(`${S}: ${g.cn(tgt.obj)} isn't ${protName(e.ifColor)}, nothing happens`, { kind: 'minor' }); return; }
   // Shalai, Leyline of Sanctity-style: an opponent with hexproof can't be targeted
@@ -349,6 +373,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       }
       if (tgt?.spell) {
         tgt.spell.countered = true;
+        if (!tgt.spell.ability) g.noteWinStopped(tgt.spell.p, tgt.spell.o, 'countered');
         // (Baral: "whenever a spell or ability you control counters a spell")
         if (!tgt.spell.ability) g.fire('countered', { p: p.idx, o: tgt.spell.o });
         // Reprieve, Remand-style: the spell goes back to its owner's hand
@@ -525,6 +550,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       if (e.warp && g.rules >= 13) { await chaosWarp(g, p, src, tgt.obj, S); break; }
       // (what the target was as it last existed on the battlefield: its power and controller, 608.2h)
       const v = tgt.obj, q = g.players[v.controller], pow = g.power(v), mv = v.card.cmc || 0;
+      if (q && q !== p) g.noteWinStopped(q, v, 'removed');
       // (item 210, rules 17) "until this leaves the battlefield": if the source already left, nothing is exiled (610.3c);
       // else the source remembers the card, which returns when the source leaves (zones.js move)
       const hold = g.rules >= 17 && e.untilLeaves;
@@ -554,7 +580,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       if (tgt?.obj) {
         g.log(`${S} returns ${tName(tgt)} to its owner's hand`, { kind: 'removal' }); g.move(tgt.obj, 'hand');
         // "Return two target creatures": the second one too
-        if (e.n === 2) { const t2 = p.agent.chooseTarget(g, p, { ...e, n: 1 }, src); if (t2?.obj && t2.obj.zone === 'battlefield') { g.log(`${S} returns ${tName(t2)} to its owner's hand`, { kind: 'removal' }); g.move(t2.obj, 'hand'); } }
+        if (e.n === 2 && !(g.rules >= 24 && e.upTo)) { const t2 = p.agent.chooseTarget(g, p, { ...e, n: 1 }, src); if (t2?.obj && t2.obj.zone === 'battlefield') { g.log(`${S} returns ${tName(t2)} to its owner's hand`, { kind: 'removal' }); g.move(t2.obj, 'hand'); } }
       }
       break;
     case 'wipe': {
@@ -918,7 +944,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       // (item 206, rules 17) resolving: coin flips are flipped now, and a condition that can't be read is not met
       let ok = g.evalCond(p, src, e.cond, g.rules >= 17 ? { ...ctx, resolving: true } : ctx);
       // (unread: no reading at all, or a game from before the reading existed)
-      const unread = e.cond.c === '?' && !(g.rules >= 17 && e.cond.r);
+      const unread = e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && !(g.rules >= 24 && e.cond.r24);
       // An unreadable condition on an "instead" upgrade keeps the plain version, and never wins the game
       if (unread && (e.else || e.effects.some(x => x.k === 'win'))) ok = false;
       if (unread && g.rules >= 17 && !e.else) g.noteUnread(src, `"if ${e.cond.text}" can't be checked, so that part does nothing`);
@@ -1076,6 +1102,17 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'drawEach': for (const q of g.alive()) g.draw(q, X(e.n)); break;
+    // (item 389, rules 24) Sign in Blood, Damnable Pact, Stormfist Crusader: the player draws, then loses the life
+    case 'drawLose': {
+      const who = /^each/.test(e.who) ? g.alive().filter(q => e.who === 'each player' || q !== p) : tgt?.player != null ? [g.players[tgt.player]] : [];
+      const n = X(e.n), life = e.life === 'X' ? n : X(e.life);
+      for (const q of who) {
+        if (!q || q.lost) continue;
+        g.draw(q, n);
+        if (life > 0) { q.life -= life; g.emit('life', { p: q.idx, d: -life }); g.log(`${S}: ${g.pn(q)} loses ${life} life`, { kind: 'minor' }); }
+      }
+      break;
+    }
     case 'discardSelf': {
       const cards = (await p.agent.chooseDiscard(g, p, Math.min(X(e.n), p.hand.length))) || [];
       g.discard(p, cards);

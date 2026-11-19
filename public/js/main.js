@@ -737,7 +737,8 @@ function hostSay(text) {
 }
 $('chatInput').addEventListener('keydown', e => { if (e.key === 'Enter') { hostSay(e.target.value); e.target.value = ''; } });
 // Table talk: offer a deal from the chat. It's put to the other player at the start of the next turn.
-const DEAL_KINDS = ['truce', 'gangUp', 'noCounter', 'tribute'];
+// (rules 23: a no-win deal, and a draw offered to the whole table; older games skip them)
+const DEAL_KINDS = ['truce', 'gangUp', 'noCounter', 'tribute', 'noWin', 'draw'];
 function queueDeal(from, to, kind, rounds = 2) {
   if (!game || !DEAL_KINDS.includes(kind) || from === to || !game.players[from] || !game.players[to]) return;
   rounds = Math.max(0, Math.min(5, Number.isFinite(+rounds) ? +rounds : 2));

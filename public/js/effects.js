@@ -672,7 +672,37 @@ export function parseCond(s) {
   // (item 206) Still '?' for games at rules 16 and earlier, which count it as met. From rules 17 the reading in r is
   // checked instead, and a condition with no r is not met (and is reported), never assumed.
   const r = cond17(s);
-  return r ? { c: '?', text: s, r } : { c: '?', text: s };
+  if (r) return { c: '?', text: s, r };
+  // (item 389, rules 24) Read since: checked from rules 24 (r24); older games keep the rules 17 behaviour
+  const r24 = cond24(s);
+  return r24 ? { c: '?', text: s, r24 } : { c: '?', text: s };
+}
+// (item 389, rules 24) More conditions, each checked from what the engine tracks (triggers.js evalCond)
+const BIGW = { eleven: 11, twelve: 12, thirteen: 13, fifteen: 15, twenty: 20, thirty: 30 };
+const numBig = (/** @type {string} */ w) => BIGW[w] ?? num(w);
+const COUNTB = '(a|an|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fifteen|twenty|thirty|\\d+)';
+function cond24(s) {
+  let m;
+  if ((m = s.match(/^~ was cast from (exile|a graveyard|your graveyard)$/))) return { c: 'castFromZ', zone: m[1] === 'exile' ? 'exile' : 'graveyard' };
+  if ((m = s.match(new RegExp(`^you have ${COUNTB} or more ([\\w ]+?) cards in your graveyard$`))) && typeWords(m[2]).length) return { c: 'gyType', n: numBig(m[1]), types: typeWords(m[2]) };
+  if ((m = s.match(new RegExp(`^a graveyard has ${COUNTB} or more cards in it$`)))) return { c: 'anyGy', n: numBig(m[1]) };
+  if (/^it'?s untapped$/.test(s)) return { c: 'selfUntapped' };
+  if (/^it'?s tapped$/.test(s)) return { c: 'selfUntapped', neg: true };
+  if (/^you created a token this turn$/.test(s)) return { c: 'tokenTurn' };
+  if (/^you've drawn more than one card this turn$/.test(s)) return { c: 'drewN', n: 2 };
+  if (/^you gained and lost life this turn$/.test(s)) return { c: 'gainedAndLost' };
+  if ((m = s.match(new RegExp(`^~ has ${COUNTB} or more ([\\w+/-]+) counters on it$`)))) return m[2] === '+1/+1' ? { c: 'selfCounters', min: numBig(m[1]) } : { c: 'named', n: numBig(m[1]), kind: m[2] };
+  if ((m = s.match(new RegExp(`^you have exactly ${COUNTB} cards in your hand$`)))) return { c: 'handEq', n: numBig(m[1]) };
+  if (/^an opponent controls no basic lands$/.test(s)) return { c: 'oppNoBasic' };
+  if ((m = s.match(new RegExp(`^you control ${COUNTB} or more permanents you don't own$`)))) return { c: 'notOwned', n: numBig(m[1]) };
+  if ((m = s.match(/^creatures you control have total toughness (\d+) or greater$/))) return { c: 'totalTough', n: +m[1] };
+  if ((m = s.match(/^(?:equipped|enchanted) creature is an? ([\w-]+)$/))) return { c: 'attachedIs', what: m[1] };
+  if (/^~ is in the command zone or on the battlefield$/.test(s)) return { c: 'selfZones', zones: ['command', 'battlefield'] };
+  if ((m = s.match(new RegExp(`^you've cast ${COUNTB} or more (noncreature|creature|instant and sorcery|instant or sorcery) spells this turn$`)))) return { c: 'castKind', n: numBig(m[1]), what: m[2] };
+  if ((m = s.match(/^you control no creatures with ([\w ]+)$/))) return { c: 'noneWithKw', kw: m[1] };
+  if (/^you've completed a dungeon$/.test(s)) return { c: 'dungeonDone' };
+  if (/^the gift wasn't promised$/.test(s)) return { c: 'noGift' };
+  return null;
 }
 // (item 206, rules 17) Conditions read since the 1.31.0 audit (triggers.js evalCond)
 function cond17(s) {
@@ -1039,11 +1069,37 @@ function whereX(c) {
   if ((m = c.match(/^(half )?the number of (other )?(tapped )?([a-z' -]+?) (you control|on the battlefield)(?:, rounded (down|up))?$/)) && !/ and | or /.test(m[4])) {
     return { dyn: 'countX', what: m[4].split(' ').map(singular).join(' '), where: m[5] === 'you control' ? 'you' : 'all', ...(m[1] ? { half: m[6] || 'down' } : {}), ...(m[2] ? { other: true } : {}), ...(m[3] ? { tapped: true } : {}) };
   }
-  return { dyn: '?' };
+  // (item 389, rules 24) Clauses read since: wrapped so games before rules 24 still count them as 0 (mana.js dynValue)
+  const d24 = whereX24(c) || whereX24(c.split(',')[0].trim());
+  return d24 ? { dyn: 'r24', d: d24 } : { dyn: '?' };
+}
+function whereX24(c) {
+  let m;
+  if (/^the number of creatures attacking you$/.test(c)) return { dyn: 'attackingYou' };
+  if (/^the total power of attacking creatures$/.test(c)) return { dyn: 'attackPower' };
+  if ((m = c.match(/^(?:(\d+|one) plus )?the exiled (?:creature|card)'s mana value$/))) return { dyn: 'exiledMv', plus: m[1] ? num(m[1]) : 0 };
+  if (/^(?:that|the target) (?:artifact|enchantment|creature|permanent)'s mana value$/.test(c)) return { dyn: 'targetMv' };
+  if (/^the number of tokens you(?:'ve)? created this turn$/.test(c)) return { dyn: 'tokensTurn' };
+  if ((m = c.match(/^the number of (experience|energy|rad|poison) counters you have$/))) return { dyn: 'playerCounter', kind: m[1] };
+  if (/^the mana value of a commander you own on the battlefield or in the command zone$/.test(c)) return { dyn: 'commanderMv' };
+  if (/^the number of cards you've drawn this turn minus one$/.test(c)) return { dyn: 'drawnTurn', minus: 1 };
+  if (/^the number of cards you've drawn this turn$/.test(c)) return { dyn: 'drawnTurn', minus: 0 };
+  if ((m = c.match(/^the number of opponents who control a creature with power (\d+) or greater$/))) return { dyn: 'oppsWithPower', n: +m[1] };
+  // "the number of other squirrels, bats, lizards, and rats you control" (or "on the battlefield")
+  if ((m = c.match(/^the number of (other )?((?:[a-z-]+, )+(?:and|or) [a-z-]+|[a-z-]+ and(?:\/or)? [a-z-]+) (you control|on the battlefield)$/))) {
+    const whats = m[2].split(/, (?:and |or )?| and(?:\/or)? | or /).filter(Boolean).map(singular);
+    return { dyn: 'countAny', whats, other: !!m[1], where: m[3] === 'you control' ? 'you' : 'all' };
+  }
+  if ((m = c.match(/^(half )?the number of (other )?(tapped )?([a-z' -]+?) (you control|on the battlefield)(?:, rounded (down|up))?$/)) && !/ and | or /.test(m[4])) {
+    return { dyn: 'countX', what: m[4].split(' ').map(singular).join(' '), where: m[5] === 'you control' ? 'you' : 'all', ...(m[1] ? { half: m[6] || 'down' } : {}), ...(m[2] ? { other: true } : {}), ...(m[3] ? { tapped: true } : {}) };
+  }
+  return null;
 }
 
 // (item 209) The effects whose one target is a permanent, and the restriction words of the first "target …" phrase
 // in the sentence the effect was read from
+// (item 389) effects that take several targets as copies of themselves ("up to two target …")
+const MULTI = new Set(['remove', 'bounce', 'blink', 'tap', 'tuck', 'flickerDelay']);
 const TARGETED = new Set(['remove', 'bounce', 'blink', 'flickerDelay', 'steal', 'tap', 'pump', 'protect', 'counters', 'shrink', 'minus', 'goad', 'damage', 'tuck', 'noBlock', 'regen', 'doublePT', 'evade', 'kwCounter']);
 const TR_COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 const TR_KW = 'flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|defender|first strike|double strike';
@@ -1172,11 +1228,50 @@ function readRiders(t, found, effects) {
     if ((m = t.match(/(sacrifice|exile) (?:it|that token|the token|them|those tokens) at the beginning of the next end step|at the beginning of the (?:next )?end step, (sacrifice|exile) (?:this token|~)/))) copy.temp = m[1] || m[2];
     if (/except (?:the token|it) isn't legendary/.test(t)) copy.notLegend = true;
   }
+  // (item 389, rules 24) "Target player draws two cards and loses 2 life" (Sign in Blood, Damnable Pact) and "each
+  // player draws a card and loses 1 life" (Stormfist Crusader): one effect for both halves, aimed at the player the
+  // words name. The older reading (you draw, nobody loses life) is kept for games before rules 24 (until: 24).
+  const dl = t.match(/\b(target player|target opponent|each player|each opponent) draws? (a card|\w+ cards) and (?:then )?loses? (\d+|x) life/);
+  if (dl) {
+    const old = effects.find(e => (e.k === 'draw' || e.k === 'drawEach') && !e.dup && !e.until);
+    if (old) {
+      const n = old.n, life = dl[3] === 'x' ? 'X' : +dl[3];
+      old.until = 24;
+      effects.splice(effects.indexOf(old) + 1, 0, { k: 'drawLose', n, life, who: dl[1], since: 24, ...(old.xw ? { xw: old.xw } : {}) });
+    }
+  }
+  // (item 389, rules 24) A copy's target: "target creature you control" (Quasiduplicate) or anyone's "target artifact or
+  // creature" (Saheeli Rai); a person picks it from rules 24 (resolve.js legalTargets), the AI keeps its own choice
+  for (const x of found) {
+    if (x.e.k !== 'copyToken' || x.e.dup || x.e.of || x.e.tr24) continue;
+    const tr = targetWords(t, x.i, x.e.k);
+    if (tr) x.e.tr24 = tr;
+  }
+  // (item 389) "up to one / two / three target …": how many targets the words allow (upTo). From rules 24 a person may
+  // choose none; more than one target is not modelled yet (coverage.mjs still lists those cards)
+  for (const x of found) {
+    if (x.e.dup || !needsTarget(x.e)) continue;
+    const from = Math.max(t.lastIndexOf('.', x.i), t.lastIndexOf('\n', x.i)) + 1;
+    const sentence = t.slice(from).split(/[.\n]/)[0];
+    const up = sentence.match(/\bup to (one|two|three|four|five|x) (?:other )?(?:[\w-]+ )*?target\b/);
+    if (up) x.e.upTo = up[1] === 'x' ? 'X' : num(up[1]);
+    // (item 389, rules 24) "destroy / exile / return / tap up to two target …": one more copy of the effect for each
+    // further target (more: true; since: 24, so older games still use one target). Amounts divided or distributed
+    // among the targets (Shatterskull Smashing, Court of Garenbrig) are not split this way.
+    if (typeof x.e.upTo === 'number' && x.e.upTo >= 2 && MULTI.has(x.e.k) && !/\b(divided|distribute)\b/.test(sentence)) {
+      const at = effects.indexOf(x.e);
+      if (at >= 0) effects.splice(at + 1, 0, ...Array.from({ length: x.e.upTo - 1 }, () => ({ ...x.e, upTo: 1, more: true, since: 24 })));
+    }
+  }
 }
 
 // Effects that take no target on the battlefield from rules 6: a duplicate reading of the same words (readRiders),
 // and "exile target land card from a graveyard" (Deathrite Shaman), whose card is picked as it resolves
-export function needsTargetIn(e, rules) { return needsTarget(e) && !(rules >= 6 && (e.dup || e.gyCard)); }
+export function needsTargetIn(e, rules) {
+  // (item 389) an effect a game's rules version doesn't play (since / until) asks for no target
+  if ((e.since && rules < e.since) || (e.until && rules >= e.until)) return false;
+  return needsTarget(e) && !(rules >= 6 && (e.dup || e.gyCard));
+}
 export function needsTarget(e) {
   if (e.k === 'copyToken' && e.of) return false;
   if (['remove', 'bounce', 'loseLife', 'pump', 'blink', 'copySpell', 'counter', 'counterAbility', 'steal', 'flickerDelay', 'copyToken', 'redirect', 'fight', 'tap', 'shrink', 'noBlock', 'tuck', 'equipAttach'].includes(e.k)) return true;
@@ -1185,7 +1280,7 @@ export function needsTarget(e) {
   if (e.k === 'regen') return !e.self && !e.all;
   if (e.k === 'doublePT') return !e.all && !e.trig && !e.self;
   if (e.k === 'minus') return e.on.startsWith('target');
-  if (e.k === 'discard' || e.k === 'silence' || e.k === 'mill' || e.k === 'poison') return e.who.startsWith('target');
+  if (e.k === 'discard' || e.k === 'silence' || e.k === 'mill' || e.k === 'poison' || e.k === 'drawLose') return e.who.startsWith('target');
   if (e.k === 'protect') return e.scope === 'one';
   if (e.k === 'damage') return !e.to.startsWith('each') && e.to !== 'defender' && e.to !== 'that player';
   if (e.k === 'counters') return e.on.startsWith('target');

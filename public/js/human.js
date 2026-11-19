@@ -5,6 +5,7 @@ import { Agent } from './ai.js';
 import { defaultPick } from './net.js';
 import { DUNGEONS } from './dungeons.js';
 import { parseCost } from './engine.js';
+import { loopColors } from './mana.js';
 import { needsTarget, needsTargetIn, costText } from './effects.js';
 import { esc, makeRng } from './util.js';
 import { targetFits, legalTargets } from './resolve.js';
@@ -449,21 +450,25 @@ export class HumanAgent extends Agent {
   takeBacks(g, p) { return p.battlefield.filter(o => g.canUntapForMana(p, o)); }
   // Permanents you could tap for mana right now (lands, mana creatures and rocks, Cryptolith Rite creatures)
   manaSources(g, p) { return p.battlefield.filter(o => !o.tapped && g.manaUnitsOf(p, o).length); }
-  poolNote(g, p) { const t = g.poolText(p); return t ? ` <b>Mana pool: ${esc(t)}</b> (spent first; it empties at the end of this step${this.takeBacks(g, p).length ? '; click a source you tapped to take its mana back' : ''}).` : ''; }
+  poolNote(g, p) { if (g.infinite(p)) return ` <b>Unbounded mana this turn</b> (727.1c)${g.rules >= 22 && p.infiniteColors ? `: ${p.infiniteColors.map(c => `{${c}}`).join('')} as much as needed; other colors come from your lands and other sources` : ': costs are paid from it'}.`; const t = g.poolText(p); return t ? ` <b>Mana pool: ${esc(t)}</b> (spent first; it empties at the end of this step${this.takeBacks(g, p).length ? '; click a source you tapped to take its mana back' : ''}).` : ''; }
   candidates(g, p, e, src) {
     const prev = g.targetSrc;
     g.targetSrc = src;
     // (item 209, rules 17: only the permanents the effect's words allow, e.g. nonblack, mana value 3 or less, you control)
-    try { const c = this.candidates0(g, p, e, src); return c.objs ? { ...c, objs: c.objs.filter(o => targetFits(g, p, e, o, src)) } : c; } finally { g.targetSrc = prev; }
+    const taken = e.more && g.rules >= 24 ? new Set((g.pickedTargets || []).map((/** @type {any} */ t) => t?.obj).filter(Boolean)) : null;
+    try { const c = this.candidates0(g, p, e, src); return c.objs ? { ...c, objs: c.objs.filter(o => targetFits(g, p, e, o, src) && !taken?.has(o)) } : c; } finally { g.targetSrc = prev; }
   }
   candidates0(g, p, e, src) { return legalTargets(g, p, e, src); }
   async pickTarget(g, p, e, src) {
     const { objs = [], players = [] } = this.candidates(g, p, e, src);
     if (!objs.length && !players.length) return null;
+    // (item 389, rules 24) "up to one target": choosing none is allowed
+    const none = g.rules >= 24 && e.upTo ? [{ label: 'No target', value: 'none' }] : [];
     const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: choose a target (${esc(e.k === 'damage' ? `${e.n} damage` : e.k)})`, {
-      objs, players, buttons: [{ label: 'Let the AI pick', value: 'ai' }, { label: 'Cancel', value: 'cancel' }],
+      objs, players, buttons: [...none, { label: 'Let the AI pick', value: 'ai' }, { label: 'Cancel', value: 'cancel' }],
     });
     if (r.button === 'cancel') return 'cancel';
+    if (r.button === 'none') return { none: true };
     if (r.button === 'ai') return super.chooseTarget(g, p, e, src);
     return r.obj ? { obj: r.obj } : { player: r.player };
   }
@@ -487,13 +492,16 @@ export class HumanAgent extends Agent {
     let effects = o.fx.type.permanent ? [] : o.fx.spell;
     if (!o.fx.type.permanent && o.fx.modes) { effects = await this.pickModes(g, p, o); if (!effects) return false; }
     const targets = [];
-    for (const e of effects) {
-      if (e.k === 'counter' || e.k === 'counterAbility' || e.k === 'copySpell') { targets.push(extra.spellTarget ? { spell: extra.spellTarget } : null); continue; }
-      if (!needsTargetIn(e, g.rules)) { targets.push(null); continue; }
-      const t = await this.pickTarget(g, p, e, o);
-      if (t === 'cancel') return false;
-      targets.push(t);
-    }
+    g.pickedTargets = targets;
+    try {
+      for (const e of effects) {
+        if (e.k === 'counter' || e.k === 'counterAbility' || e.k === 'copySpell') { targets.push(extra.spellTarget ? { spell: extra.spellTarget } : null); continue; }
+        if (!needsTargetIn(e, g.rules)) { targets.push(null); continue; }
+        const t = await this.pickTarget(g, p, e, o);
+        if (t === 'cancel') return false;
+        targets.push(t);
+      }
+    } finally { g.pickedTargets = null; }
     let auraTarget;
     if (o.fx.type.aura) {
       // (what it can enchant: "Enchant artifact" for Power Artifact, lands, any permanent, else creatures)
@@ -532,6 +540,26 @@ export class HumanAgent extends Agent {
   // The loop shortcut: play the block again up to n times, checking every step; it stops at the first
   // action that can't be done the same way
   async repeatLoop(g, p, block, n) {
+    // (rules 21, 727.1c) "As many times as needed": the loop is played three more times for real, and if each time leaves
+    // more mana in the pool than the time before, the rest is a shortcut: unbounded mana for the turn (as the AI's mana
+    // combos, comboplay.js). A loop that doesn't make more mana each time stops there, with the reason.
+    if (n === 'unbounded') {
+      const start = [...p.pool];
+      const pools = [p.pool.length];
+      for (let k = 0; k < 3; k++) {
+        await this.repeatLoop(g, p, block, 1);
+        if (g.over || p.lost) return;
+        pools.push(p.pool.length);
+        if (pools[k + 1] <= pools[k]) break;
+      }
+      if (pools.length === 4 && pools.every((v, i) => !i || v > pools[i - 1])) {
+        p.infiniteMana = g.turn;
+        p.infiniteColors = loopColors(start, p.pool);
+        g.log(`${g.pn(p)} has repeated the loop three times, making ${pools[1] - pools[0]} more mana each time, and repeats it as often as needed: unbounded mana for the rest of the turn`, { kind: 'combo', rule: '727.1c' });
+      } else g.log(`${g.pn(p)}'s loop doesn't make more mana each time (mana pool: ${pools.join(', ')}), so it can't be repeated as often as needed`, { kind: 'combo' });
+      this.acts = [];
+      return;
+    }
     let done = 0, why = '';
     for (; done < n && !g.over && !p.lost; done++) {
       for (const x of block) {
@@ -608,6 +636,8 @@ export class HumanAgent extends Agent {
           ...(canAnnounce(g, p) ? [{ label: announceLabel(p), value: 'announce' }] : []),
           ...(g.canCompanion(p) ? [{ label: `Companion: ${p.companion.card.name} to hand ({3})`, value: 'companion' }] : []),
           ...(loop ? [{ label: `Repeat this loop ×10`, value: { repeat: 10 } }, { label: `Repeat ×99`, value: { repeat: 99 } }] : []),
+          // (rules 21) a loop that taps something for mana can be repeated as many times as needed (727.1c)
+          ...(loop && g.rules >= 21 && loop.some(x => x.k === 'mana') && !g.infinite(p) ? [{ label: 'Repeat as many times as needed (unbounded mana)', value: { repeat: 'unbounded' } }] : []),
           { label: `${phase === 'main1' ? 'Go to combat' : 'End turn'}${playable ? ` (${playable} playable)` : ''}`, value: 'pass', primary: !combos.length },
           { label: 'Let the AI play this phase', value: 'ai' },
         ],
@@ -935,7 +965,8 @@ export class HumanAgent extends Agent {
     // Targets are chosen here so the engine can cast it straight away
     const effects = r.obj.fx.spell;
     const targets = [];
-    for (const e of effects) { const t = needsTargetIn(e, g.rules) ? await this.pickTarget(g, q, e, r.obj) : null; if (t === 'cancel') return null; targets.push(t); }
+    g.pickedTargets = targets;
+    try { for (const e of effects) { const t = needsTargetIn(e, g.rules) ? await this.pickTarget(g, q, e, r.obj) : null; if (t === 'cancel') return null; targets.push(t); } } finally { g.pickedTargets = null; }
     return { card: r.obj, targets, human: true };
   }
 
@@ -1067,6 +1098,22 @@ export class HumanAgent extends Agent {
     return r.button === true;
   }
   proposeDeal() { return null; }
+  // (rules 23) Bots make these offers; a person decides for themselves
+  offerDraw() { return false; }
+  redirectOffer() { return null; }
+  async considerDraw(g, q, from) {
+    const r = await this.ui.ask(`<b>${esc(from.name)}</b> offers the table a draw: the game ends with no winner if everyone agrees.`, {
+      buttons: [{ label: 'Agree to the draw', value: true }, { label: 'Play on', value: false, primary: true }],
+    });
+    return r.button === true;
+  }
+  async considerRedirect(g, p, q, e, src, orig, alt) {
+    const r = await this.ui.ask(`<b>${esc(q.name)}</b> asks you to aim <b>${esc(src.card.name)}</b> at <b>${esc(alt.card.name)}</b> (${esc(g.players[alt.controller].name)}'s) instead of <b>${esc(orig.card.name)}</b>.`, {
+      objs: [alt, orig],
+      buttons: [{ label: `Target ${alt.card.name}`, value: true }, { label: `Keep ${orig.card.name}`, value: false, primary: true }],
+    });
+    return r.button === true || r.obj === alt;
+  }
   // (item 208) "Counter target spell unless its controller pays {N}", aimed at your spell: you choose whether to pay
   async payUnlessAsync(g, p, src, e, item) {
     const r = await this.ui.ask(`<b>${esc(src.card.name)}</b> (${esc(g.players[src.controller]?.name || '')}): pay {${e.unless}}, or <b>${esc(item.o.card.name)}</b> is countered?`, {

@@ -93,7 +93,7 @@ export function watchGame(g) {
   g.commitPayment = (p, plan) => {
     // (rules 12: a Phyrexian symbol paid with 2 life counts as paid; a two-brid symbol paid with {2} spends two units)
     if (paying && g.payingFor?.o === paying.o && !plan.free) paying.spent += (plan.used?.size || 0) + (plan.lifeSymbols || 0);
-    if (paying && plan.free) paying.spent = Infinity;
+    if (paying && (plan.free || plan.unbounded)) paying.spent = Infinity;
     return commit(p, plan);
   };
   g.cast = async (p, o, choice = {}) => {

@@ -820,6 +820,64 @@ on top of the ones above:
     cards: 21.9 ms to 12.0 ms). The builder drops answers to older searches. Tests: new tests/carddata.mjs (30, CI),
     tests/card-data.md diagnostics; report in tests/phase-2n-report.md. Not done: saved decks are still name lists
     (no printing ids), no Web Worker for the bulk import, no printing picker, meld and reversible cards not played.
+- [x] 386. Unbounded mana for a person's mana loops (asked 2026-11-17: "Zirda and Basalt Monolith or Grim Monolith
+  should combo while on the field to make infinite mana").
+  - Done (rules 21, version 1.58.0; rules 4–20 golden games unchanged, rules 21 AI games identical to rules 20): the
+    AI already went infinite with both pairs, but a person got only "Repeat ×10 / ×99", and the Combo button was hidden
+    while there was nothing to spend the mana on (the AI's hold-back, ai.js comboAssembled). Now a person is offered
+    the ready mana combo anyway, and a hand-played mana loop offers "Repeat as many times as needed": three more real
+    repetitions, then unbounded mana for the turn when each made more (727.1c), or the reason it didn't. Gated by rules
+    21 because a person's answers are recorded by button position. Tests: interactions.mjs (5: both Monoliths, rules
+    20 unchanged, a loop that doesn't net mana). Unbounded mana paying colored costs: fixed in item 387.
+- [x] 388. AI table talk and attacks by level (asked 2026-11-18): better deals, no-win next-turn deals, "target this
+  instead" when targeted, draws at stalemates, casual bots attacking open players and the biggest threat, cEDH bots
+  keeping their board unless a player's shields are down or they use life as a resource (Ad Nauseam).
+  - Done (rules 23, version 1.60.0; rules 4–22 golden games unchanged): engine.js redirectTalk (at cast time, before
+    payment: the targeted AI points at a clearly better target that isn't its own or a deal partner's; the caster
+    accepts by its own valuation, a person is asked), stalemateDraw / offerTableDraw (draw by agreement; everyone must
+    accept), winStops (wins countered or combo pieces removed), the noWin deal kind (the proposer's combos are held,
+    the partner lets its spells resolve that turn, going off anyway breaks it); ai.js noWinOffer, tableLocked,
+    offerDraw, considerDraw, redirectOffer, considerRedirect; combatai.js attacks by level (casual: open players ×1.6,
+    the biggest threat ×1.35; cEDH: damage ×0.55, backswing ×1.35, engines and combo pieces stay home, ×2.4 against
+    a player paying life, ×2 against shields down). The chat deal menus (host and friends) gained no-win and draw.
+    Measured over 24 games with the built-in cEDH decks (rules 23 against 22, same seeds): cEDH pilots' combat damage
+    lines 148 against 283, casual pilots' 303 against 268; about 2 no-win offers a game, 0 simulator errors, 0 broken
+    rules. Tests: ai.mjs 31–35 (attacks by level, redirect with a person casting and rules 22 unchanged, no-win deal,
+    draw judgement), hidden.mjs now also re-asks deal, draw and redirect decisions with hands scrambled (0 changed).
+    Not done: no draw was agreed in the 24 measured games (bots accept only a fully locked table); "real tournament
+    examples" were taken from common cEDH table talk, not from specific event records.
+- [x] 387. Unbounded mana has the colors its loop made (asked 2026-11-18, after item 386).
+  - Done (rules 22, version 1.59.0; rules 4–21 golden games unchanged, rules 22 games identical to rules 21): a mana
+    loop records the colors it added to the pool (Player.infiniteColors: comboplay.js for the AI, human.js for a
+    person), and mana.js planPayment lets unbounded mana pay generic mana, two-brid symbols and symbols of those colors
+    only; any other colored symbol is paid from real sources, or the cost can't be paid (Zirda + Basalt Monolith: Walking
+    Ballista for X=40, but Colossal Dreadmaw needs two green sources and taps only them). The rules watcher counts such
+    a payment as unbounded. The old combo shortcut (rules 10 and earlier) records no colors and pays everything, as
+    before. Tests: interactions.mjs (2).
+- [x] 389. Card simulation coverage (asked 2026-11-18: audit every card, implement what's missing with reusable
+  mechanics, test it, and a coverage dashboard that reflects real results).
+  - Done (rules 24, version 1.61.0; rules 4–23 golden games unchanged): effects.js cond24 (20 more "if" conditions:
+    cast from exile or a graveyard, N creature cards in your graveyard, a graveyard with 20+ cards, tokens created and
+    cards drawn this turn, gained and lost life, exactly N cards in hand, growth counters and the like, permanents you
+    don't own, total toughness, the equipped creature's type, noncreature spells cast this turn, a completed dungeon…;
+    triggers.js evalCond via cond.r24), whereX24 (12 more "X, where X is …" amounts: creatures attacking you, total
+    attacking power, the exiled card's or the target's mana value, tokens created and cards drawn this turn, player
+    counters, your commander's mana value, several creature types; mana.js dynValue 'r24', 0 before rules 24), drawLose
+    ("target player / each player draws N and loses N life": Sign in Blood, Damnable Pact, Stormfist Crusader,
+    Insatiable Avarice; the old "you draw" reading kept with until: 24), copyToken tr24 (a person picks which creature
+    a copy spell copies; "you control" kept), upTo ("up to one target": a person may choose no target; "up to two
+    or more": one more copy of the effect per target, marked more and since: 24, each a different target: Force of
+    Vigor, Angel of the Ruins, Displace, Tamiyo, Marang River Regent; Game.pickedTargets keeps the AI and a person off
+    what another copy took). New `until`
+    gate beside `since` (resolve.js doEffect, effects.js needsTargetIn, ai.js effectValue). The audit (tests/coverage.mjs)
+    lost false alarms (mana value limits read as maxMv, "play an additional land", fights whose own creature the
+    engine picks), gained a real one ("up to two or more targets": only one is used), five simulation classes and
+    `--json public/data/coverage.json` for the new page public/coverage.html (filters by class, type, color, keyword,
+    effect kind, ability type and rarity). Coverage of the 3,500 snapshot cards: full 2,677 → 2,743 (48 from the new
+    engine work, the rest audit corrections), misread 188 → 110. Tests: interactions.mjs 20 (each with its rules 23
+    check), 24 targeted AI games with every changed card under the rules watcher (0 errors, 0 broken rules).
+    Not done: amounts divided among several targets (Shatterskull Smashing, Court of Garenbrig), "up to X", converge ("colors of mana spent"), "this way" conditions
+    that need the result of an earlier effect, set filter on the page (the snapshot has no set field).
 - [x] 385. Quality, rules validation, security and release readiness (asked 2026-11-17, Phase 2O): a baseline audit
   (tests/phase-2o-audit.md), the defects it found fixed, event-sequence rules tests, saved-data tests, fuzz failure
   capture, measurements and other browsers.

@@ -50,7 +50,21 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // controller's main phase with an empty stack, item 200); Humility-style "all creatures lose all abilities and have base
 // power and toughness N/N" is read and applied in layers 6 and 7b (Game.humility, item 212); replays at 4–19 keep the old
 // handling)
-export const RULES = 20;
+// (rules 21: a person's mana loops reach unbounded mana like the AI's (727.1c): a ready mana combo is offered even with
+// nothing yet to spend the mana on, and a loop played by hand twice offers "Repeat as many times as needed" (human.js);
+// both add buttons, and a person's answers are recorded by button position, so replays at 4–20 keep the old lists)
+// (rules 22: unbounded mana is of the colors its loop made (Player.infiniteColors): Basalt Monolith's pays generic costs
+// and {C}, never a {G}; other colored symbols are paid from real sources (mana.js planPayment); replays at 4–21 pay
+// everything from it, as before)
+// (rules 23: table politics as cEDH pods play them: "no-win next turn" deals, a targeted player asking for a better
+// target, a draw by agreement at a stalemate (every player holding interaction and wins stopped on the stack), and
+// attacks by level: casual pilots go after open players and the biggest threat, cEDH pilots keep their board unless a
+// player is open or pays life to win (Ad Nauseam, Necropotence); ai.js, combatai.js. Replays at 4–22 play as before)
+// (rules 24, item 389: card coverage. More "if" conditions (effects.js cond24, triggers.js evalCond), more "X, where X
+// is …" amounts (whereX24, mana.js dynValue 'r24'), "target player draws N and loses N life" (drawLose), a person
+// picking what a copy spell copies (copyToken tr24) and choosing no target for "up to one target"; replays at 4–23
+// play as before)
+export const RULES = 24;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -211,6 +225,8 @@ export class Game {
     // Every combo attempt (for batch statistics)
     this.comboLog = [];
     this.deals = [];
+    /** (rules 23) wins stopped on the stack or just before: { round, p, name, how } (a stalemate is judged from these) */
+    this.winStops = [];
     // Deals offered from the chat, waiting for the next turn
     this.pendingDeals = [];
     this.archenemy = null;
@@ -1012,7 +1028,15 @@ export class Game {
     const spent = c.generic + c.pips.length + extra + x * (c.x || 0);
     // Overloaded: "target" becomes "each" (the opponents' permanents for removal, bounce and damage)
     if (mode.alt === 'overload') effects = effects.map(e => ({ remove: { k: 'wipeOpp', mode: e.mode, what: e.what }, bounce: { k: 'wipeOpp', mode: 'bounce', what: e.what }, damage: { k: 'wipeOpp', mode: 'damage', n: e.n, what: 'creature' }, tap: { k: 'tapAll', what: 'creatures' }, pump: { k: 'teamPump', p: e.p, t: e.t, kw: e.kw }, counters: { ...e, on: 'each creature you control' } }[e.k] || e));
-    const targets = choice.targets || effects.map(e => (needsTargetIn(e, this.rules) ? p.agent.chooseTarget(this, p, e, o) : null));
+    // (item 389: the targets picked so far, so "up to two target …" picks two different ones: Game.pickedTargets)
+    let targets = choice.targets ? [...choice.targets] : null;
+    if (!targets) {
+      targets = [];
+      this.pickedTargets = targets;
+      try { for (const e of effects) targets.push(needsTargetIn(e, this.rules) ? p.agent.chooseTarget(this, p, e, o) : null); } finally { this.pickedTargets = null; }
+    }
+    // (rules 23) A player whose permanent is about to be removed may point at a better target; the caster decides
+    if (this.rules >= 23 && !this.sim && !choice.combo) await this.redirectTalk(p, o, effects, targets);
     let auraTarget = null;
     if (o.fx.type.aura) { auraTarget = choice.auraTarget || p.agent.chooseAuraTarget(this, p, o); if (!auraTarget) return false; }
     // (rules 15) 601.2c: targets given by the caster must be legal, and a spell that needs a target can't be cast
@@ -1119,7 +1143,7 @@ export class Game {
       // Countering a partner in a no-counter deal breaks it
       for (const t of targets) if (t?.spell && this.dealBetween(p.idx, t.spell.p.idx)?.kind === 'noCounter') this.breakDeal(p, t.spell.p);
     }
-    const tgtText = [...targets, auraTarget && { obj: auraTarget }].filter(Boolean).map(t => this.tname(t)).join(', ');
+    const tgtText = [...targets, auraTarget && { obj: auraTarget }].filter(t => t && !t.none).map(t => this.tname(t)).join(', ');
     this.emit('cast', { o, p });
     this.log(`${this.pn(p)} ${choice.response ? 'responds with' : 'casts'} ${this.cn(o)}${fromCommand ? ' from the command zone' : ''}${altText}${x ? ` (X=${x})` : ''}${tgtText ? ` targeting ${tgtText}` : ''}`, { kind: 'cast', p: p.idx, rule: choice.response ? '117.7' : { flashback: '702.34a', evoke: '702.74a', dash: '702.109a', blitz: '702.152a', spectacle: '702.137a', free: '118.9' }[mode.alt] || null });
     await this.beat(1.3);
@@ -1150,7 +1174,7 @@ export class Game {
     if (o.spellCopy && item.countered) { cease(); return true; }
     if (item.countered) { this.move(o, item.toExile ? 'exile' : item.toHand ? 'hand' : gone === 'hand' ? 'graveyard' : gone); await this.beat(0.4); return true; }
     // A spell whose every target has become illegal doesn't resolve
-    const chosen = targets.filter(Boolean);
+    const chosen = targets.filter(t => t && !t.none);
     if (!o.fx.type.permanent && chosen.length && chosen.every(t => !this.validTarget(t, p, o))) {
       this.log(`${this.cn(o)} fizzles: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
       item.status = 'fizzled';
@@ -1368,6 +1392,8 @@ export class Game {
   async goOff(p, combo) {
     const st = comboState(this, p, combo);
     if (this.over || !st.ready) return false;
+    // (rules 23) going for a win while promising not to ("no-win" deal) breaks the deal
+    if (this.rules >= 23) for (const d of this.deals) if (!d.broken && d.kind === 'noWin' && d.a === p.idx && d.until >= this.round) this.breakDeal(p, this.players[d.b]);
     // Pieces that have to tap are on the battlefield, untapped, without summoning sickness; the board has
     // what the combo needs (Commander Spellbook's prerequisites too)
     const blocked = comboBlocked(this, p, combo, st);
@@ -2279,7 +2305,8 @@ export class Game {
       else {
         this.xNow = x || null;
         pre = [];
-        try { for (const e of effs0) pre.push(needsTargetIn(e, this.rules) ? await (p.agent.chooseTargetAsync?.(this, p, e, o) ?? p.agent.chooseTarget(this, p, e, o)) : null); } finally { this.xNow = null; }
+        this.pickedTargets = pre;
+        try { for (const e of effs0) pre.push(needsTargetIn(e, this.rules) ? await (p.agent.chooseTargetAsync?.(this, p, e, o) ?? p.agent.chooseTarget(this, p, e, o)) : null); } finally { this.xNow = null; this.pickedTargets = null; }
       }
       const why = S.targetsBad(this, p, o, effs0, pre, !!opts.targets);
       if (why) { if (opts.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '602.2b' }); return false; }
@@ -2564,10 +2591,15 @@ export class Game {
     // Deals people offered from the chat since the last turn began (handled here, between decisions)
     for (const d of this.pendingDeals.splice(0)) {
       const from = this.players[d.from], to = this.players[d.to];
+      // (rules 23) a draw offered from the chat goes to the whole table; a no-win deal like any other
+      if (d.kind === 'draw') { if (this.rules >= 23 && from && !from.lost && (await this.offerTableDraw(from, true))) return; continue; }
+      if (d.kind === 'noWin' && this.rules < 23) continue;
       if (!from || !to || from.lost || to.lost || from === to || this.dealBetween(from.idx, to.idx)) continue;
       if (d.kind === 'gangUp' && (this.archenemy == null || [from.idx, to.idx].includes(this.archenemy))) continue;
       await this.offerDeal(from, to, d.kind, d.rounds);
     }
+    // (rules 23) A table that can't get anywhere may agree to a draw
+    if (this.rules >= 23 && (await this.stalemateDraw(p))) return;
     // The active player may offer someone a deal. Every deal includes "neither attacks the other";
     // the kinds add a trade on top (see dealText)
     const offer = p.agent.proposeDeal(this, p);
@@ -2580,7 +2612,7 @@ export class Game {
     const target = kind === 'gangUp' ? this.players[this.archenemy] : null;
     this.log(`${this.pn(p)} offers ${this.pn(q)} a deal: ${this.dealText(kind, p, q, target, rounds)}`, { kind: 'politics', p: p.idx });
     if (await q.agent.considerDeal(this, q, p, kind, rounds)) {
-      this.deals.push({ a: p.idx, b: q.idx, kind, target: target?.idx ?? null, until: this.round + rounds, rounds, broken: false });
+      this.deals.push({ a: p.idx, b: q.idx, kind, target: target?.idx ?? null, until: this.round + rounds, rounds, broken: false, madeTurn: this.turn });
       this.log(`${this.pn(q)} accepts`, { kind: 'politics', p: q.idx });
       // Tribute: the one asking for peace pays up front
       if (kind === 'tribute') { this.draw(q, 1); this.log(`${this.pn(q)} draws a card as tribute from ${this.pn(p)}`, { kind: 'politics' }); }
@@ -2596,7 +2628,52 @@ export class Game {
       gangUp: `neither attacks the other, and both go after ${target ? this.pn(target) : 'the leader'} ${len}`,
       noCounter: `neither attacks nor counters the other's spells ${len}`,
       tribute: `${this.pn(q)} draws a card now and doesn't attack ${this.pn(p)} ${len}`,
+      noWin: `${this.pn(q)} lets ${this.pn(p)}'s spells resolve this turn (no counterspells or removal on them), and ${this.pn(p)} won't try to win and neither attacks the other ${len}`,
     }[kind];
+  }
+  // (rules 23) A draw by agreement, as cEDH tournament pods do when nobody can win through the interaction held up:
+  // offered by the active player at the start of a turn when a win was stopped on the stack (or a combo piece removed)
+  // in the last two rounds and the agent judges the table locked; everyone still in must accept.
+  async stalemateDraw(p) {
+    if (this.sim || this.puzzle || this.kingdoms || this.round < 6) return false;
+    if (!this.winStops.some(w => w.round >= this.round - 2)) return false;
+    if (!p.agent.offerDraw?.(this, p)) return false;
+    return this.offerTableDraw(p, false);
+  }
+  async offerTableDraw(p, fromChat) {
+    this.log(`${this.pn(p)} offers the table a draw${fromChat ? '' : ': every player is holding up interaction, and wins keep being stopped on the stack'}`, { kind: 'politics', p: p.idx });
+    for (const q of this.alive()) {
+      if (q === p) continue;
+      const yes = await q.agent.considerDraw(this, q, p);
+      this.log(`${this.pn(q)} ${yes ? 'agrees to the draw' : 'declines the draw'}`, { kind: 'politics', p: q.idx });
+      if (!yes) return false;
+    }
+    this.log('Everyone agrees: the game is a draw by agreement', { kind: 'politics' });
+    this.finish(null, 'a draw by agreement');
+    return true;
+  }
+  // (rules 23) A win stopped on the stack (a combo piece or winning spell countered) or just before (a combo piece removed)
+  noteWinStopped(owner, o, how) {
+    if (this.rules < 23 || !owner || !o) return;
+    const danger = owner.agent?.comboDanger?.(this, o) || 0;
+    const piece = (owner.combos || []).some(c => c.pieces.includes(o.card.name));
+    if (danger >= 5 || piece) this.winStops.push({ round: this.round, p: owner.idx, name: o.card.name, how });
+  }
+  // (rules 23) "Hit that instead": for each removal target, its controller (an AI) may point at a better target that
+  // isn't theirs; the caster accepts or declines (an AI by its own reckoning, a person when asked). Nothing is paid yet.
+  async redirectTalk(p, o, effects, targets) {
+    for (let i = 0; i < effects.length; i++) {
+      const e = effects[i], t = targets[i];
+      if (!t?.obj || !['remove', 'bounce', 'tuck'].includes(e.k)) continue;
+      const q = this.players[t.obj.controller];
+      if (!q || q === p || q.lost || !q.agent.redirectOffer) continue;
+      const alt = q.agent.redirectOffer(this, q, p, e, o, t.obj);
+      if (!alt || alt === t.obj) continue;
+      this.log(`${this.pn(q)} asks ${this.pn(p)} to aim ${this.cn(o)} at ${this.cn(alt)} instead of ${this.cn(t.obj)}: the bigger threat`, { kind: 'politics', p: q.idx });
+      const yes = await p.agent.considerRedirect(this, p, q, e, o, t.obj, alt);
+      this.log(`${this.pn(p)} ${yes ? 'agrees' : 'keeps the target'}`, { kind: 'politics', p: p.idx });
+      if (yes) targets[i] = { obj: alt };
+    }
   }
 
   // ---------- game flow

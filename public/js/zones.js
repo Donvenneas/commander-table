@@ -265,7 +265,12 @@ export function entered(g, o) {
     if (g.basePower(o.card) > g.power(e) || g.baseToughness(o.card) > g.toughness(e)) { e.counters++; g.log(`${g.cn(e)} evolves`, { kind: 'minor', rule: '702.100a' }); }
   }
   g.fire('enter', { o, p: p.idx });
-  if (o.token) g.fire('tokenMade', { o, p: p.idx });
+  if (o.token) {
+    // (item 389, rules 24) tokens created this turn, for "if you created a token this turn" and "X, where X is …"
+    if (p.tokensTurn?.turn !== g.turn) p.tokensTurn = { turn: g.turn, n: 0 };
+    p.tokensTurn.n++;
+    g.fire('tokenMade', { o, p: p.idx });
+  }
 }
 /** @param {import('./engine.js').Game} g */
 export function leaveBattlefield(g, o) {

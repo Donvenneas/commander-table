@@ -453,6 +453,8 @@ export function evalCond(g, p, src, c, ctx = {}) {
     case '?':
       if (g.rules < 17) return true;
       if (c.r) return evalCond(g, p, src, c.r, ctx);
+      // (item 389) conditions read at rules 24
+      if (c.r24 && g.rules >= 24) return evalCond(g, p, src, c.r24, ctx);
       return !ctx.resolving;
     // A seeded flip as the effect resolves; a look ahead of time (the AI valuing the card) never flips
     case 'coin': return ctx.resolving ? (g.rand() < 0.5) === !!c.win : !!c.win;
@@ -476,6 +478,26 @@ export function evalCond(g, p, src, c, ctx = {}) {
       const r = src.resolvedTurn?.turn === g.turn ? src.resolvedTurn : (src.resolvedTurn = { turn: g.turn, n: 0 });
       return ++r.n === c.n;
     }
+    // (item 389, rules 24: reached only through c.r24)
+    case 'castFromZ': return !!src?.wasCast && src.castFrom === c.zone;
+    case 'anyGy': return g.alive().some(q => q.graveyard.length >= c.n);
+    case 'tokenTurn': return p.tokensTurn?.turn === g.turn && p.tokensTurn.n > 0;
+    case 'drewN': return p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= c.n;
+    case 'gainedAndLost': return p.gainedTurn === g.turn && p.lostLifeTurn === g.turn;
+    case 'handEq': return p.hand.length === c.n;
+    case 'oppNoBasic': return g.opponents(p).some(q => !q.battlefield.some(o => o.fx.type.land && o.fx.type.basic));
+    case 'notOwned': return bf.filter(o => o.owner !== p.idx).length >= c.n;
+    case 'totalTough': return bf.filter(o => o.fx.type.creature).reduce((s, o) => s + g.toughness(o), 0) >= c.n;
+    case 'attachedIs': return !!src?.attachedTo && src.attachedTo.zone === 'battlefield' && g.isA(src.attachedTo, c.what);
+    case 'selfZones': return !!src && c.zones.includes(src.zone);
+    case 'castKind': {
+      const list = p.castList?.turn === g.turn ? p.castList.list : [];
+      const fits = (/** @type {any} */ o) => c.what === 'noncreature' ? !o.fx.type.creature : c.what === 'creature' ? !!o.fx.type.creature : !!(o.fx.type.instant || o.fx.type.sorcery);
+      return list.filter(fits).length >= c.n;
+    }
+    case 'noneWithKw': return !bf.some(o => o.fx.type.creature && g.has(o, c.kw));
+    case 'dungeonDone': return (p.dungeonsDone || 0) > 0;
+    case 'noGift': return true;
     // A condition the simulator can't read (it depends on a revealed card, say) counts as met
     default: return true;
   }
@@ -500,8 +522,9 @@ export async function putAbility(g, p, src, effects, label, kind = 'ability', tr
     // (the X already paid, for players choosing targets for "X damage")
     g.xNow = x || null;
     try {
+      g.pickedTargets = targets;
       for (const e of effects) targets.push(needsTargetIn(e, g.rules) ? await (p.agent.chooseTargetAsync?.(g, p, e, src) ?? p.agent.chooseTarget(g, p, e, src)) : null);
-    } finally { g.xNow = null; }
+    } finally { g.xNow = null; g.pickedTargets = null; }
   }
   if (!g.payWard(p, targets, src)) return null;
   for (const t of targets) if (t?.obj) g.fire('targeted', { o: t.obj, p: p.idx });
@@ -509,7 +532,7 @@ export async function putAbility(g, p, src, effects, label, kind = 'ability', tr
   const item = stamp(g, { o: src, p, x, targets, effects, ability: true, label, countered: false, kind, trig }, kind, { x });
 
   g.stack.push(item);
-  const tgtText = targets.filter(Boolean).map(t => g.tname(t)).join(', ');
+  const tgtText = targets.filter(t => t && !t.none).map(t => g.tname(t)).join(', ');
   g.log(`${g.cn(src)} — ${esc(label)}${tgtText ? ` targeting ${tgtText}` : ''}`, { kind: kind === 'trigger' ? 'trigger' : 'minor', rule: kind === 'trigger' ? '603.3' : null });
   await g.beat(0.5);
   return item;
@@ -522,7 +545,7 @@ export async function resolveAbility(g, item) {
   const at = g.stack.indexOf(item);
   if (at >= 0 || g.rules < 15) g.stack.splice(at, 1);
   if (item.countered) { item.status = 'countered'; return; }
-  const chosen = targets.filter(Boolean);
+  const chosen = targets.filter(t => t && !t.none);
   if (chosen.length && chosen.every(t => !g.validTarget(t, p, src))) {
     item.status = 'fizzled';
     g.log(`${g.cn(src)}'s ability does nothing: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });

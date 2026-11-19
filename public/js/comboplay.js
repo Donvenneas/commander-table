@@ -10,6 +10,7 @@
 // more mana each time may be repeated "as many times as needed" (Player.infiniteMana), and what that mana is spent
 // on is again played with the real cards.
 import { comboPlay } from './combos.js';
+import { loopColors } from './mana.js';
 import { esc } from './util.js';
 
 // (safety: no play-out repeats a step more than this, whatever happens)
@@ -156,6 +157,7 @@ const PLAYERS = {
     const step = await manaStep(g, p, combo);
     if (typeof step === 'string') return step;
     const pool = [];
+    const start = [...p.pool];
     for (let i = 0; i < 3 && !g.over; i++) {
       const why = await step();
       if (why) return `the loop stopped after ${i} repetition${i === 1 ? '' : 's'}: ${why}`;
@@ -164,6 +166,8 @@ const PLAYERS = {
     }
     if (!(pool[1] > pool[0] && pool[2] > pool[1])) return `the loop doesn't make more mana each time (${pool.join(', ')})`;
     p.infiniteMana = g.turn;
+    // (rules 22) the unbounded mana is of the colors the loop made
+    p.infiniteColors = loopColors(start, p.pool);
     g.log(`${g.pn(p)} has repeated ${esc(combo.label)} three times, making ${pool[1] - pool[0]} more mana each time, and repeats it as often as needed`, { kind: 'combo', rule: '727.1c' });
     const won = await g.manaFinish(p, combo);
     return won ? `the mana went into ${won}` : 'unbounded mana for the rest of the turn, with nothing to finish with yet';
