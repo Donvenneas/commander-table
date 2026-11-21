@@ -31,7 +31,7 @@ export async function combat(g, p) {
     if (!d) decl.push({ o, target: (others.length ? others : g.opponents(p)).sort((a, b) => a.life - b.life)[0].idx });
   }
   // "Attacks each combat if able" (Toski, Juggernaut)
-  for (const o of p.battlefield) if ((o.fx.mustAttack || (o.fx.condBuff?.mustAttack && g.condBuff(o))) && g.canAttack(o) && !decl.some(x => x.o === o) && g.opponents(p).length) {
+  for (const o of p.battlefield) if ((o.fx.mustAttack || (o.fx.condBuff?.mustAttack && g.condBuff(o)) || (g.rules >= 27 && o.mustAttack27 === g.turn)) && g.canAttack(o) && !decl.some(x => x.o === o) && g.opponents(p).length) {
     decl.push({ o, target: p.agent.weakestOpponent(g, p).idx });
   }
   // Kingdoms, the Straw Man: every creature able to attack them does (until their next turn)

@@ -470,7 +470,11 @@ export function evalCond(g, p, src, c, ctx = {}) {
       return g.rules >= 25 ? false : !ctx.resolving;
     // A seeded flip as the effect resolves; a look ahead of time (the AI valuing the card) never flips
     case 'coin': return ctx.resolving ? (g.rand() < 0.5) === !!c.win : !!c.win;
-    case 'trigIs': return !!ctx.trig?.o && c.types.some(t => ctx.trig.o.fx.type[t]);
+    // (Phase 2F-5, rules 27) "When ~ dies, if it was a creature" (the Enduring cycle): "it" is the source as it last existed
+    // on the battlefield (src.lki, 608.2h) when no other object triggered the ability; before, this was never met
+    case 'trigIs':
+      if (!ctx.trig?.o && g.rules >= 27 && src && src.zone !== 'battlefield' && src.lki?.types) return c.types.some((/** @type {string} */ t) => src.lki.types[t]);
+      return !!ctx.trig?.o && c.types.some(t => ctx.trig.o.fx.type[t]);
     case 'wasCast': return !!src?.wasCast;
     case 'gainedN': return p.gainedTurn === g.turn && (p.gainedAmt || 0) >= c.n;
     case 'lostN': return (c.any ? g.alive() : g.opponents(p)).some(q => q.lostLifeTurn === g.turn && (q.lostAmt || 0) >= c.n);

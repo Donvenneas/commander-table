@@ -150,6 +150,8 @@ export function move(g, o, to, opts = {}) {
   if (o.bestowed && to !== 'battlefield') { o.bestowed = false; o.fx = o.card.fx; }
   if (o.reconfigured) { o.reconfigured = false; o.fx = o.card.fx; }
   if (o.roomUnlocked && from === 'battlefield') { o.roomUnlocked = false; o.fx = o.card.fx; }
+  // (Phase 2F-5, rules 27: an Enduring card returned as an enchantment is a creature card again elsewhere)
+  if (o.notCreature27 && from === 'battlefield') { o.notCreature27 = false; o.fx = o.card.fx; }
   if (o.mutBase && from === 'battlefield') g.unmerge(o, to);
   // (an adventure or the back of a modal double-faced card is the whole card again anywhere but the stack and battlefield)
   if (o.altFaceOn && to !== 'battlefield' && to !== 'stack') { g.mainFace(o); if (to !== 'exile') o.onAdventure = false; }
@@ -249,6 +251,8 @@ export function bestType(g, p, cards = p.battlefield.filter(o => o.fx.type.creat
 /** @param {import('./engine.js').Game} g */
 export function entered(g, o) {
   const p = g.players[o.controller];
+  // (Phase 2F-1, rules 27: what an effect put onto the battlefield, for a following "they gain haste")
+  if (g.touched27) g.touched27.push(o);
   o.monstrous = false;
   // (rules 14) Replacement text this card has that the reader didn't read: said once a game, never applied approximately
   if (g.rules >= 14 && !g.sim) for (const x of R.replacementGaps(o.card, [...(o.fx.unread || []), ...droppedSentences(o.card)])) R.gap(g, o.card, x.line, x.why);

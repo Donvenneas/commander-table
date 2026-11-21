@@ -257,10 +257,26 @@ export async function runEffects(g, p, src, effects, ctx = {}) {
 export async function runEffects0(g, p, src, effects, ctx = {}) {
   for (let i = 0; i < effects.length; i++) {
     if (g.over || p.lost) return;
-    await g.doEffect(p, src, effects[i], ctx, i);
+    // (Phase 2F-1, rules 27) The permanents each effect created, returned, targeted or changed (g.touched27: zones.js
+    // entered, the group effects below, the effect's target), for a following "those creatures …" / "untap it" (them27).
+    // An effect that touched nothing leaves the last group in place; a nested run adds to the outer one.
+    if (g.rules >= 27) {
+      const outer = g.touched27;
+      g.touched27 = []; g.lastTgt27 = null;
+      try { await g.doEffect(p, src, effects[i], ctx, i); } finally {
+        const got = g.touched27;
+        if (g.lastTgt27?.obj) got.push(g.lastTgt27.obj);
+        g.touched27 = outer; g.lastTgt27 = null;
+        if (outer) outer.push(...got);
+        if (effects[i].k !== 'them27' && got.length) ctx.them27 = [...new Set(got)];
+      }
+    } else await g.doEffect(p, src, effects[i], ctx, i);
     g.sbaPass();
   }
 }
+// (Phase 2F-1, rules 27) A permanent an effect just changed, for "those creatures …" (runEffects0)
+/** @param {import('./engine.js').Game} g @param {any} o */
+export function touch27(g, o) { if (g.touched27 && o) g.touched27.push(o); }
 /** @param {import('./engine.js').Game} g */
 export async function doEffect(g, p, src, e, ctx, i) {
   // X from the mana paid, or a counted amount (devotion, creatures you control) checked on resolution
@@ -301,6 +317,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
   if (tgt?.obj && needsTargetIn(e, g.rules) && !targetLegal(g, p, e, tgt, src)) { g.log(`${S}: ${g.cn(tgt.obj)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); return; }
   // (item 389) what this spell or ability has targeted so far, so a further target of "up to two" is another one
   if (tgt?.obj && g.rules >= 24) (ctx.used ||= []).push(tgt.obj);
+  // (Phase 2F-1, rules 27: "untap it" after this effect means its target)
+  if (g.rules >= 27 && tgt?.obj && needsTargetIn(e, g.rules)) g.lastTgt27 = tgt;
   // (item 208, rules 17) "Destroy target permanent if it's blue" (Pyroblast): another color is a legal target, but nothing happens
   if (g.rules >= 17 && e.ifColor && e.k !== 'counter' && tgt?.obj && !g.colorsOf(tgt.obj).includes(e.ifColor)) { g.log(`${S}: ${g.cn(tgt.obj)} isn't ${protName(e.ifColor)}, nothing happens`, { kind: 'minor' }); return; }
   // Shalai, Leyline of Sanctity-style: an opponent with hexproof can't be targeted
@@ -443,6 +461,10 @@ export async function doEffect(g, p, src, e, ctx, i) {
         if (!tgt.spell.ability) g.fire('countered', { p: p.idx, o: tgt.spell.o });
         // Reprieve, Remand-style: the spell goes back to its owner's hand
         if (e.toHand) tgt.spell.toHand = true;
+        // (Phase 2F-5, rules 27) "If that spell is countered this way, exile it / put it on top of its owner's library instead"
+        // (Force of Negation, Memory Lapse; engine.js resolveItem moves it)
+        if (g.rules >= 27 && e.exile27) tgt.spell.toExile = true;
+        if (g.rules >= 27 && e.top27) tgt.spell.toTop27 = true;
         g.log(`${g.cn(tgt.spell.o)}${tgt.spell.ability ? "'s ability" : ''} is countered`, { kind: 'removal', rule: '701.6a' });
         // (rules 6) Swan Song's Bird, An Offer You Can't Refuse's Treasures: for the countered spell's controller
         if (e.comp && g.rules >= 6 && tgt.spell.p && !tgt.spell.p.lost) await compensate(g, tgt.spell.p, src, e.comp, 0);
@@ -791,7 +813,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     case 'teamPump':
-      for (const o of p.battlefield) if (o.fx.type.creature && (!e.minPower || g.power(o) >= e.minPower) && (!e.what || g.spellIs(o, e.what))) { o.tempP += X(e.p); o.tempT += X(e.t); if (e.kw.length) o.tempKw = new Set([...(o.tempKw || []), ...e.kw]); }
+      for (const o of p.battlefield) if (o.fx.type.creature && (!e.minPower || g.power(o) >= e.minPower) && (!e.what || g.spellIs(o, e.what))) { o.tempP += X(e.p); o.tempT += X(e.t); if (e.kw.length) o.tempKw = new Set([...(o.tempKw || []), ...e.kw]); touch27(g, o); }
       g.log(`${S}: creatures ${g.pn(p)} controls get +${X(e.p)}/+${X(e.t)}${e.kw.length ? ' and ' + e.kw.join(', ') : ''}`);
       break;
     case 'pump': if (tgt?.obj) { tgt.obj.tempP += X(e.p); tgt.obj.tempT += X(e.t); if (e.kw.length) tgt.obj.tempKw = new Set([...(tgt.obj.tempKw || []), ...e.kw]); g.log(`${tName(tgt)} gets +${X(e.p)}/+${X(e.t)}`, { kind: 'minor' }); } break;
@@ -805,7 +827,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // "each green creature that entered this turn", "each artifact creature and/or vehicle you control"
       else if (e.on === 'each') objs = p.battlefield.filter(o => (o.fx.type.creature || /vehicle|artifact/.test(e.what)) && (!e.other || o !== src) && (!e.recent || o.enteredTurn === g.turn) && g.spellIs(o, e.what || 'creature'));
       else objs = p.battlefield.filter(o => o.fx.type.creature && (e.on.includes('other') ? o !== src : true));
-      for (const o of objs) { const k = g.moreCounters(o, n); o.counters += k; g.fire('counterPut', { o, p: o.controller, by: p.idx, n: k }); }
+      for (const o of objs) { const k = g.moreCounters(o, n); o.counters += k; g.fire('counterPut', { o, p: o.controller, by: p.idx, n: k }); touch27(g, o); }
       if (objs.length) g.log(`${S} puts ${n} +1/+1 counter${n === 1 ? '' : 's'} on ${objs.length === 1 ? g.cn(objs[0]) : objs.length + ' creatures'}`, { kind: 'minor' });
       // (Phase 2D-7, rules 25) "It can't be blocked this turn" (Kappa Cannoneer)
       if (e.unblock25 && g.rules >= 25) for (const o of objs) { o.tempKw = new Set([...(o.tempKw || []), 'unblockable']); g.log(`${g.cn(o)} can't be blocked this turn`, { kind: 'minor' }); }
@@ -870,6 +892,8 @@ async function compensate(g, q, src, comp, pow) {
     if (gained > 0) { q.life += gained; g.emit('life', { p: q.idx, d: gained }); g.log(`${g.pn(q)} gains ${gained} life (${S})`, { kind: 'minor' }); }
   }
   if (comp.land) await g.fetchLands(q, { n: 1, basic: true, bf: true, tapped: comp.land.tapped }, src);
+  // (Phase 2F-3, rules 27) Boseiju: a land card with a basic land type (dual lands too), searched by that player
+  if (comp.land27 && g.rules >= 27) await g.fetchLands(q, { n: 1, bf: true, subs: ['plains', 'island', 'swamp', 'mountain', 'forest'], tapped: comp.land27.tapped }, src);
   if (comp.token) {
     const n = Math.min(g.tokenCount(q, comp.token.n), 40);
     for (let k = 0; k < n; k++) g.createToken(q, { k: 'token', ...comp.token }, src);
@@ -1322,7 +1346,9 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     case 'grantFlashback': {
       const pool = p.graveyard.filter(o => (o.fx.type.instant || o.fx.type.sorcery) && o !== src);
-      const got = e.all ? pool : [p.agent.pickBest(g, pool.filter(o => o.fx.spell.length))].filter(Boolean);
+      // (Phase 2F-5, rules 27: a person chooses the card; the AI picks its best one as before)
+      const asked = !e.all && g.rules >= 27 && p.agent.chooseCardsAsync && pool.length ? await p.agent.chooseCardsAsync(g, p, pool, 1, `${S}: choose an instant or sorcery card to gain flashback`) : null;
+      const got = e.all ? pool : asked?.length ? asked.slice(0, 1) : [p.agent.pickBest(g, pool.filter(o => o.fx.spell.length))].filter(Boolean);
       for (const o of got) o.tempFlashback = g.turn;
       if (got.length) g.log(`${S}: ${got.length === 1 ? g.cn(got[0]) + ' gains' : got.length + ' cards in ' + g.pn(p) + "'s graveyard gain"} flashback this turn`, { kind: 'minor', rule: '702.34a' });
       break;
@@ -1574,6 +1600,27 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       if (o?.zone === 'battlefield') { o.tempKw = new Set([...(o.tempKw || []), 'unblockable']); g.log(`${g.cn(o)} can't be blocked this turn`, { kind: 'minor' }); }
       break;
     }
+    // (Phase 2F-1, rules 27) "Those creatures gain vigilance until end of turn", "Untap it", "That token attacks this
+    // combat if able", "Sacrifice that token at the beginning of the next end step", "Those permanents phase out": the
+    // permanents the effect before this one created, returned, targeted or changed (ctx.them27), those still here
+    case 'them27': {
+      const objs = (ctx.them27 || []).filter((/** @type {any} */ o) => o.zone === 'battlefield');
+      if (!objs.length) { g.log(`${S}: nothing for it to affect`, { kind: 'minor' }); break; }
+      const who = objs.length === 1 ? g.cn(objs[0]) : `${objs.length} permanents`;
+      for (const o of objs) {
+        if (e.kw?.length) o.tempKw = new Set([...(o.tempKw || []), ...e.kw]);
+        if (e.p || e.t) { o.tempP += e.p || 0; o.tempT += e.t || 0; }
+        if (e.untap) o.tapped = false;
+        if (e.attack) o.mustAttack27 = g.turn;
+        if (e.kwc) (o.permKw ||= new Set()).add(e.kwc);
+        if (e.end) (g.endLater27 ||= []).push({ o, ts: o.ts, act: e.end, mine: e.mine ? p.idx : null });
+      }
+      const did = [e.untap && 'untaps', (e.p || e.t) && `+${e.p || 0}/+${e.t || 0}`, e.kw?.length && `gains ${e.kw.join(', ')}`, e.attack && 'attacks this combat if able', e.kwc && `gets ${/^[aeiou]/.test(e.kwc) ? 'an' : 'a'} ${e.kwc} counter`,
+        e.end && `${{ sac: 'is sacrificed', exile: 'is exiled', hand: 'returns to its owner\'s hand' }[/** @type {'sac'|'exile'|'hand'} */ (e.end)]} at the beginning of ${e.mine ? `${g.pn(p)}'s` : 'the'} next end step`].filter(Boolean);
+      if (did.length) g.log(`${who} (${S}): ${did.join(', ')}`, { kind: 'minor' });
+      if (e.phase) for (const q of g.players) { const mine = objs.filter((/** @type {any} */ o) => o.controller === q.idx); if (mine.length) g.phaseOut(q, mine); }
+      break;
+    }
     case 'kwCounter': {
       if (e.all) { for (const c of p.battlefield) if (c.fx.type.creature) (c.permKw ||= new Set()).add(e.kw); g.log(`${S}: ${g.pn(p)}'s creatures get ${e.kw} counters`, { kind: 'minor', rule: '122.1b' }); break; }
       const o = e.self ? src : tgt?.obj;
@@ -1702,8 +1749,8 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       for (const c of picked) {
         g.move(c, 'battlefield');
         // Kaalia of the Vast: tapped and attacking alongside her
-        if (e.attacking && src.attacking != null) Object.assign(c, { tapped: true, attacking: src.attacking, blockedBy: [], blocked: false });
-        g.log(`${g.pn(p)} puts ${g.cn(c)} onto the battlefield from their hand${c.attacking != null && e.attacking ? ' tapped and attacking' : ''}`, { kind: 'minor' });
+        if ((e.attacking || (e.attacking27 && g.rules >= 27)) && src.attacking != null) Object.assign(c, { tapped: true, attacking: src.attacking, blockedBy: [], blocked: false });
+        g.log(`${g.pn(p)} puts ${g.cn(c)} onto the battlefield from their hand${c.attacking != null && (e.attacking || e.attacking27) ? ' tapped and attacking' : ''}`, { kind: 'minor' });
         g.trigger(c, 'etb');
       }
       break;
@@ -1756,12 +1803,18 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
     }
     case 'returnSelf':
       if (src.zone === 'graveyard') {
+        // (Phase 2F-5, rules 27) the Enduring cycle: it returns as an enchantment, not a creature (set before it enters, so
+        // "a creature enters" abilities don't see one; zones.js move puts the card back when it leaves)
+        if (e.ench27 && g.rules >= 27) { src.notCreature27 = true; src.fx = { ...src.card.fx, type: { ...src.card.fx.type, creature: false } }; }
         g.move(src, 'battlefield', { under: src.owner });
+        if (src.notCreature27 && src.zone !== 'battlefield') { src.notCreature27 = false; src.fx = src.card.fx; }
+        if (src.notCreature27) g.log(`${S} returns as an enchantment, not a creature`, { kind: 'minor' });
         // (Phase 2E-4, rules 26: "return it to the battlefield tapped")
         if (e.tapped26 && g.rules >= 26) src.tapped = true;
         src.counters += e.counters;
         if (e.counters < 0) src.hadMinus = true;
-        g.log(`${S} returns to the battlefield with a ${e.counters > 0 ? '+1/+1' : '-1/-1'} counter`, { kind: 'minor', rule: e.counters > 0 ? '702.93a' : '702.79a' });
+        if (e.counters || g.rules < 27) g.log(`${S} returns to the battlefield with a ${e.counters > 0 ? '+1/+1' : '-1/-1'} counter`, { kind: 'minor', rule: e.counters > 0 ? '702.93a' : '702.79a' });
+        else g.log(`${S} returns to the battlefield`, { kind: 'minor' });
         g.trigger(src, 'etb');
       }
       break;

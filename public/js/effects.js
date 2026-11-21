@@ -255,7 +255,8 @@ const PATTERNS = [
   [/return (?:a|an) (land|creature|permanent|nonland permanent|artifact|enchantment) you control to its owner's hand/, m => ({ k: 'bounceOwn', what: m[1] })],
   [/you may play an additional land this turn/, () => ({ k: 'extraLand' })],
   [/you become the monarch/, () => ({ k: 'monarch' })],
-  [/put (?:a|an|up to one) (land|creature|permanent|artifact|nonland permanent) card from your hand onto the battlefield/, m => ({ k: 'fromHand', what: m[1] })],
+  // (Phase 2F-1, used from rules 27: '… tapped and attacking', Ilharg, the Raze-Boar)
+  [/put (?:a|an|up to one) (land|creature|permanent|artifact|nonland permanent) card from your hand onto the battlefield( tapped and attacking)?/, m => ({ k: 'fromHand', what: m[1], ...(m[2] ? { attacking27: true } : {}) })],
   [/shuffle your graveyard into your library/, () => ({ k: 'reshuffle' })],
   [/exile (?:all cards from )?(?:target player's|each opponent's|all opponents'|all|each player's) graveyards?|exile all graveyards/, () => ({ k: 'exileGy', all: true })],
   [/exile (?:up to (?:one|two|three) )?target cards? from (?:a|an opponent's) graveyard/, () => ({ k: 'exileGy', all: false })],
@@ -432,6 +433,9 @@ const PATTERNS = [
   [/you gain life equal to its power/, () => ({ k: 'gain', n: { dyn: 'selfPower' } })],
   [/(?:they|that player) loses? half their life, rounded up/, () => ({ k: 'loseHalf' })],
   [/return all (creature|artifact and enchantment|legendary permanent|zombie creature) cards(?: with mana value (\d+) or less)? from your graveyard to the battlefield( tapped)?/, m => ({ k: 'massReanimate', what: m[1].replace(' and ', ' or '), maxMv: m[2] ? +m[2] : null, tapped: !!m[3] })],
+  // (Phase 2F-3, used from rules 27) "Return target artifact, creature, enchantment, or planeswalker to its owner's hand"
+  // (Otawara, Soaring City): a list of card types (the kinds go into tr.kinds, readRiders)
+  [/return target ((?:artifact|creature|enchantment|planeswalker|land)(?:,? (?:or )?(?:artifact|creature|enchantment|planeswalker|land))+) to its owner's hand/, () => ({ k: 'bounce', what: 'permanent', since: 27 })],
   [/return (?:up to )?two (?:other )?target (creatures|nonland permanents)(?: controlled by different players)? to their owners' hands/, m => ({ k: 'bounce', what: m[1] === 'creatures' ? 'creature' : 'nonland permanent', n: 2 })],
   [/return all nonland permanents target player controls to their owner's hand/, () => ({ k: 'bounceOpp' })],
   [/target opponent reveals their hand\. you choose a noncreature, nonland card from it\. that player discards that card/, () => ({ k: 'discard', who: 'target opponent', n: 1, chosen: ['instant', 'sorcery', 'artifact', 'enchantment', 'planeswalker', 'battle'] })],
@@ -907,7 +911,14 @@ function keywordLine(line, fx) {
     if (c) { fx.flashback = c.mana || '{0}'; fx.flashbackCosts = c; fx.kw.add('flashback'); return true; }
   }
   if ((m = line.match(/^escape—((?:\{[^}]+\})+), exile (\w+) other cards? from your graveyard/))) { fx.escape = { cost: m[1].toUpperCase(), n: num(m[2]) }; return true; }
-  if ((m = line.match(/^channel — ((?:\{[^}]+\})+), discard ~: (.*)/))) { fx.channel = { cost: m[1].toUpperCase(), effects: parseEffects(m[2]) }; return true; }
+  if ((m = line.match(/^channel — ((?:\{[^}]+\})+), discard ~: (.*)/))) {
+    fx.channel = { cost: m[1].toUpperCase(), effects: parseEffects(m[2]) };
+    // (Phase 2F-3, used from rules 27) "This ability costs {1} less to activate for each legendary creature you control"
+    // (the Kamigawa channel lands: engine.js cycleCost)
+    const less = m[2].match(/this ability costs \{(\d+)\} less to activate for each legendary creature you control/);
+    if (less) fx.channel.less27 = { n: +less[1], what: 'legendary creature' };
+    return true;
+  }
   if ((m = line.match(/^cumulative upkeep(?:—| )(?:pay (\d+) life|((?:\{[^}]+\})+))/))) { fx.cumulative = m[1] ? { life: +m[1] } : { cost: m[2].toUpperCase() }; return true; }
   if ((m = line.match(/^ward(?:—| )pay (\d+) life/))) { fx.wardLife = +m[1]; fx.kw.add('ward'); return true; }
   const segs = line.replace(/\.$/, '').split(/,\s*(?![^{]*\})/).map(s => s.trim());
@@ -1037,7 +1048,8 @@ function searchEffect(s) {
 // Effects with conditions: "If <condition>, <effect>" sentences become {k:'if'} effects, and
 // "... instead" replaces what the sentence before did when the condition holds. Sentences without a
 // condition stay together (some patterns span two sentences).
-export function parseEffects(t, noMay = false) {
+/** @param {string} t @param {boolean} [noMay] @param {any} [prevHint] (Phase 2F-1) the effect read just before this text, for a follow-up sentence at its start */
+export function parseEffects(t, noMay = false, prevHint = null) {
   // (Phase 2E-3, used from rules 26) "Choose [up to one] [other] target enchantment or artifact [you control]. … create a
   // token that's a copy of it" (Court of Vantress, Yenna): "it" is that target, not the source; the copy takes a target
   const ch = noMay ? null : t.match(/^choose (up to one )?(other )?target ([a-z ,]+?)( you control)?(?: that [^.]+)?\.\s+(.+)$/s);
@@ -1089,7 +1101,8 @@ export function parseEffects(t, noMay = false) {
   const pf = t.match(/^(.*?)you may pay ((?:\{[^}]+\})+)\. if you do, ([^.]+\.?)(.*)$/);
   if (pf) {
     const inner = parseFlat(pf[3]);
-    const rest = [...(pf[1].trim() ? parseEffects(pf[1]) : []), ...(inner.length ? [{ k: 'payFor', cost: pf[2].toUpperCase(), effects: inner }] : []), ...(pf[4].trim() ? parseEffects(pf[4].trim()) : [])];
+    const pay = inner.length ? [{ k: 'payFor', cost: pf[2].toUpperCase(), effects: inner }] : [];
+    const rest = [...(pf[1].trim() ? parseEffects(pf[1]) : []), ...pay, ...(pf[4].trim() ? parseEffects(pf[4].trim(), false, pay[0]) : [])];
     return rest;
   }
   const out = [];
@@ -1125,6 +1138,14 @@ export function parseEffects(t, noMay = false) {
       lastIf = e;
       continue;
     }
+    // (Phase 2F-5, used from rules 27) the Enduring cycle: "… return it to the battlefield under its owner's control. It's an
+    // enchantment." The returned card isn't a creature (resolve.js returnSelf ench27)
+    if (/^it's an enchantment\.?$/.test(s)) {
+      flush();
+      const deep = (/** @type {any} */ x) => (x?.effects ? deep(x.effects[x.effects.length - 1]) : x);
+      const last = deep(out[out.length - 1]);
+      if (last?.k === 'returnSelf') { last.ench27 = true; continue; }
+    }
     if ((m = s.match(/^otherwise, (.+)/)) && lastIf && !lastIf.else) {
       flush(); lastIf.else = parseFlat(m[1]);
       // (Phase 2D-1, used from rules 25) "put ~ into its owner's library seventh from the top" (Approach of the Second Sun)
@@ -1132,6 +1153,12 @@ export function parseEffects(t, noMay = false) {
       if (pos) lastIf.else.unshift({ k: 'libraryPos', n: ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'].indexOf(pos[1]) + 2, since: 25 });
       continue;
     }
+    // (Phase 2F-1, used from rules 27) A sentence about what the sentence before it just did: "Those creatures gain
+    // vigilance until end of turn", "Untap it", "That token attacks this combat if able" (them27 below)
+    // (only a sentence the reader gets nothing from: one it already reads together with the sentence before stays)
+    // (the effect before: the last one read so far that isn't itself a follow-up, or the one before this text (prevHint))
+    const th = them27(s, (plain.length ? parseFlat(plain.join(' ')).slice(-1)[0] : null) || out.filter(x => x.k !== 'them27').slice(-1)[0] || prevHint);
+    if (th && fxPrint(parseFlat([...plain, s].join(' '))) === fxPrint(parseFlat(plain.join(' ')))) { flush(); out.push(th); continue; }
     // (Phase 2D-1, used from rules 25) "Then if you're the monarch, double …" (Court of Garenbrig): the condition was
     // dropped and the effect read as unconditional; older games keep that reading (until: 25)
     if ((m = s.match(/^then if (.+?), (.+)$/)) && !/ would /.test(m[1])) {
@@ -1147,6 +1174,44 @@ export function parseEffects(t, noMay = false) {
     mark(out);
   }
   return out;
+}
+
+// (Phase 2F-1, used from rules 27) A sentence whose subject is what the sentence before it just affected ("those
+// creatures", "they", "it", "that token", "each of them"): what it does to them. resolve.js 'them27' applies it to the
+// permanents the effect before it created, returned, targeted or changed (ctx.them27, recorded by runEffects0):
+//   kw      keywords gained until end of turn           untap   untap them
+//   p, t    +N/+N until end of turn                     attack  they attack this combat if able
+//   end     'sac' | 'exile' | 'hand' at the beginning of the next end step (mine: your next end step)
+//   phase   they phase out                              kwc     a keyword counter on each of them
+// Not after a threaten effect ("gain control of … untap that creature, it gains haste"), whose own handler does that.
+const THEM = "(?:those creatures|those permanents|those tokens|those lands|they|it|them|that token|that creature|the token|the creature|each of them|both)";
+const KWS = `((?:${KEYWORDS.join('|')})(?:(?:,|,? and) (?:${KEYWORDS.join('|')}))*)`;
+/** @type {[RegExp, (m: RegExpMatchArray) => any][]} */
+const THEM_RES = [
+  [new RegExp(`^untap ${THEM}(?:,? and ${THEM} gains? ${KWS}(?: until end of turn)?)?$`), m => ({ untap: true, ...(m[1] ? { kw: kwList(m[1]) } : {}) })],
+  [new RegExp(`^${THEM} gains? ${KWS}(?: until end of turn)?(?:,? and attacks? this combat if able)?$`), m => ({ kw: kwList(m[1]), ...(/attacks? this combat if able$/.test(m[0]) ? { attack: true } : {}) })],
+  [new RegExp(`^${THEM} gets? \\+(\\d+)/\\+(\\d+)(?: and gains? ${KWS})? until end of turn$`), m => ({ p: +m[1], t: +m[2], ...(m[3] ? { kw: kwList(m[3]) } : {}) })],
+  [new RegExp(`^${THEM} attacks? this combat if able$`), () => ({ attack: true })],
+  [new RegExp(`^(sacrifice|exile) ${THEM} at the beginning of (the|your) next end step$`), m => ({ end: m[1] === 'sacrifice' ? 'sac' : 'exile', ...(m[2] === 'your' ? { mine: true } : {}) })],
+  [new RegExp(`^at the beginning of (the|your) next end step, (sacrifice|exile) ${THEM}$`), m => ({ end: m[2] === 'sacrifice' ? 'sac' : 'exile', ...(m[1] === 'your' ? { mine: true } : {}) })],
+  [new RegExp(`^return ${THEM} to (?:your|its owner's|their owner's|their owners') hands? at the beginning of the next end step$`), () => ({ end: 'hand' })],
+  [new RegExp(`^${THEM} phases? out$`), () => ({ phase: true })],
+  [new RegExp(`^put an? (${KEYWORDS.join('|')}) counter on each of them$`), m => ({ kwc: m[1] })],
+];
+// (the effects whose permanents the engine records for them27: what they create, return, target or change. After any
+// other effect, or after a sentence the reader got nothing from, the follow-up stays unread rather than act on nothing.)
+const THEM_KINDS = new Set(['token', 'copyToken', 'reanimate', 'massReanimate', 'fromHand', 'pump', 'teamPump', 'counters', 'kwCounter', 'protect', 'attachSelf', 'tap', 'returnSelf', 'reanimateAny']);
+/** @param {any} e @returns {string | null} */
+const lastKind = e => (!e ? null : e.k === 'if' || e.k === 'payFor' || e.k === 'mayCost' ? lastKind(e.effects?.[e.effects.length - 1]) : e.k);
+/** @param {string} s @param {any} prev the effect read just before, if any */
+function them27(s, prev) {
+  if (!THEM_KINDS.has(lastKind(prev) || '')) return null;
+  const t = s.trim().replace(/\.$/, '');
+  for (const [re, f] of THEM_RES) {
+    const m = t.match(re);
+    if (m) return { k: 'them27', ...f(m), since: 27 };
+  }
+  return null;
 }
 
 function parseFlat(t) {
@@ -1377,6 +1442,9 @@ function readRiders(t, found, effects) {
       // value limit counted from the spell's controller's graveyard (Drown in the Loch)
       if ((m = t.match(/counter target spell(?: or ability)? that targets an? (permanent|creature|artifact|enchantment|land|planeswalker) you control/))) e.targetsMine = m[1];
       if (/counter target [\w, ]*?spell with mana value less than or equal to the number of cards in its controller's graveyard/.test(t)) e.mv25 = true;
+      // (Phase 2F-5, used from rules 27) where the countered spell goes instead of its owner's graveyard
+      if (/if that spell is countered this way, exile it instead of putting it into its owner's graveyard/.test(t)) e.exile27 = true;
+      if (/if that spell is countered this way, put it on top of its owner's library instead of into that player's graveyard/.test(t)) e.top27 = true;
     } else if (e.k === 'remove' && (m = t.match(new RegExp(`(?:destroy|exile) target [\\w, ]*?permanent if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
   }
   // (item 209, used from rules 17) What a targeted effect's words ask of its target, beyond the kind of permanent:
@@ -1517,6 +1585,9 @@ function readRiders(t, found, effects) {
     if (new RegExp(`${ctl} gains life equal to its power`).test(t)) comp.gain = 'power';
     else if ((m = t.match(new RegExp(`${ctl} gains (\\d+) life`)))) comp.gain = +m[1];
     if ((m = t.match(new RegExp(`${ctl} may search (?:their|his or her) library for a basic land card, put (?:that card|it) onto the battlefield( tapped)?`)))) comp.land = { tapped: !!m[1] };
+    // (Phase 2F-3, used from rules 27) Boseiju, Who Endures: "That player may search their library for a land card with a
+    // basic land type, put it onto the battlefield" (any land with a basic land type, not only basic lands)
+    else if ((m = t.match(/(?:that player|its controller) may search their library for a land card with a basic land type, put it onto the battlefield( tapped)?/))) comp.land27 = { tapped: !!m[1] };
     if ((m = t.match(new RegExp(`${ctl} creates? (a|an|one|two|three) (\\d+)\\/(\\d+) ([\\w -]*?) ?creature tokens?(?: with ([\\w, ]+))?`)))) comp.token = { n: num(m[1]), p: +m[2], t: +m[3], desc: m[4], kw: kwList(m[5]) };
     if ((m = t.match(new RegExp(`${ctl} creates? (a|an|one|two|three) treasure tokens?`)))) comp.treasure = num(m[1]);
     if (Object.keys(comp).length) hit.comp = comp;
@@ -1857,6 +1928,9 @@ export function analyzeCard(card) {
     if ((m = line.match(/^(?:[\w ]+ — )?whenever you cast (?:or copy )?(?:a |an |your first )?((?:[a-z]+(?:,? or |, | ))*?)spell[^,]*, (.*)/))) {
       const effects = parseEffects(m[2]);
       // ("a spell of the chosen type": Door of Destinies)
+      // (Phase 2F-1, used from rules 27) a second "whenever you cast" line (Jeskai Ascendancy) no longer replaces the first:
+      // the earlier ones are kept in onCast27 (engine.js castTriggers); onCast stays the last, as older games read it
+      if (effects.length && fx.onCast) (fx.onCast27 ||= []).push(fx.onCast);
       if (effects.length) { fx.onCast = { what: /^(?:[\w ]+ — )?whenever you cast a spell of the chosen type/.test(line) ? 'chosen' : (m[1] || 'any').trim(), effects };
         // (Keeper of Secrets: only spells cast from elsewhere; Monstrous Vortex: big creatures; Ojer Pakpatiq: from your hand)
         if (/from anywhere other than your hand/.test(line)) fx.onCast.notHand = true;
@@ -2660,7 +2734,7 @@ function comboReadings(t, fx) {
 export const amount = n => (n && typeof n === 'object' ? ({ devotion: `devotion to {${n.color}}`, hand: 'cards in hand', maxPower: 'greatest power', maxToughness: 'greatest toughness', sacPower: "the sacrificed creature's power", gy: 'cards in graveyard', trigN: 'that many', trigP: "its power", trigT: "its toughness", trigMV: 'its mana value' }[n.dyn] || `# ${n.what}s you control`) : n);
 
 // What a removal spell's or counterspell's target controller gets back (rules 6: readRiders)
-const compText = e => (!e.comp ? '' : ', its controller ' + [e.comp.gain === 'power' ? 'gains life equal to its power' : e.comp.gain ? `gains ${e.comp.gain} life` : '', e.comp.land ? `may get a basic land${e.comp.land.tapped ? ' (tapped)' : ''}` : '', e.comp.token ? `gets ${e.comp.token.n} ${e.comp.token.p}/${e.comp.token.t} token${e.comp.token.n > 1 ? 's' : ''}` : '', e.comp.treasure ? `gets ${e.comp.treasure} Treasure` : ''].filter(Boolean).join(' and '));
+const compText = e => (!e.comp ? '' : ', its controller ' + [e.comp.gain === 'power' ? 'gains life equal to its power' : e.comp.gain ? `gains ${e.comp.gain} life` : '', e.comp.land ? `may get a basic land${e.comp.land.tapped ? ' (tapped)' : ''}` : '', e.comp.land27 ? 'may get a land with a basic land type' : '', e.comp.token ? `gets ${e.comp.token.n} ${e.comp.token.p}/${e.comp.token.t} token${e.comp.token.n > 1 ? 's' : ''}` : '', e.comp.treasure ? `gets ${e.comp.treasure} Treasure` : ''].filter(Boolean).join(' and '));
 
 const EFFECT_TEXT = {
   discard: e => `${e.who} discards ${amount(e.n)}`,
@@ -2675,7 +2749,7 @@ const EFFECT_TEXT = {
   copyToken: e => `token copy of target ${e.what}${e.notLegend ? ' (not legendary)' : ''}${e.haste ? ' with haste' : ''}${e.temp ? `, ${e.temp === 'exile' ? 'exiled' : 'sacrificed'} at the next end step` : ''}`,
   wipe: e => `${e.mode} all ${e.what}`,
   sweep: e => `${e.n} damage to each creature`,
-  counter: e => `counter target ${e.what === 'any' ? '' : e.what + ' '}spell${compText(e)}`,
+  counter: e => `counter target ${e.what === 'any' ? '' : e.what + ' '}spell${e.exile27 ? ' (exiled)' : e.top27 ? ' (put on top of its library)' : ''}${compText(e)}`,
   remove: e => (e.gyCard ? `exile target ${e.what} card from a graveyard` : `${e.mode} target ${e.nonbasic ? 'nonbasic ' : ''}${e.what}${compText(e)}${e.loseMv ? ', you lose life equal to its mana value' : ''}`),
   gyExile: e => `exile target ${e.types.join(' or ')} card from a graveyard`,
   bounce: e => `bounce target ${e.what}`,
@@ -2753,6 +2827,8 @@ const EFFECT_TEXT = {
   untapSelf: () => 'untap this',
   evade: e => `${e.self ? 'this' : 'target creature'} can't be blocked this turn`,
   kwCounter: e => `${e.kw} counter on ${e.self ? 'this' : 'target creature'}`,
+  // (Phase 2F-1)
+  them27: e => `then they ${[e.untap && 'untap', (e.p || e.t) && `get +${e.p || 0}/+${e.t || 0}`, e.kw?.length && `gain ${e.kw.join(', ')}`, e.attack && 'attack this combat if able', e.kwc && `get ${e.kwc} counters`, e.phase && 'phase out', e.end && `are ${{ sac: 'sacrificed', exile: 'exiled', hand: 'returned to hand' }[e.end]} at the next end step`].filter(Boolean).join(', ')}`,
   topLandOrHand: () => 'reveal the top card: a land goes onto the battlefield, anything else to hand',
   animate: e => `becomes a ${e.p}/${e.t} creature until end of turn`,
   attachSelf: () => 'attach to target creature you control',
@@ -2827,7 +2903,7 @@ export function enterCond(line) {
 const dropCache = new WeakMap();
 // (sentences that change nothing the simulator models: library order after a search, an instant-speed timing note,
 // rounding, and the option to keep a copy's targets, which is always a legal choice)
-const HARMLESS = /^(?:then (?:that player )?shuffles?|(?:you may )?shuffle|then shuffle|put the rest on the bottom of (?:your|their) library in (?:a )?random order|activate only as an instant|round (?:up|down) each time|you may choose new targets for the cop(?:y|ies)|if you search your library this way, shuffle)\.?$/i;
+const HARMLESS = /^(?:then (?:that player )?shuffles?|(?:you may )?shuffle|then shuffle|put the rest on the bottom of (?:your|their) library in (?:a )?random order|activate only as an instant|round (?:up|down) each time|you may choose new targets for the cop(?:y|ies)|if you search your library this way, shuffle|the flashback cost is equal to (?:its|that card's) mana cost)\.?$/i;
 const fxPrint = fx => JSON.stringify(fx, (k, v) => (k === 'unread' ? undefined : v instanceof Set ? [...v].sort() : v));
 export function sentencesOf(line) {
   const out = [];
@@ -2909,6 +2985,7 @@ export function describeFx(fx) {
   if (fx.modes) out.push(`choose ${fx.modes.n >= 99 ? 'any' : fx.modes.n}: ${fx.modes.modes.map(list).join(' / ')}`);
   if (fx.etbModes) out.push(`ETB choose ${fx.etbModes.n >= 99 ? 'any' : fx.etbModes.n}: ${fx.etbModes.modes.map(list).join(' / ')}`);
   if (fx.saga) out.push(fx.saga.map((c, i) => `chapter ${i + 1}: ${c?.length ? list(c) : '(not modelled)'}`).join(' · '));
+  for (const oc of fx.onCast27 || []) out.push(`whenever you cast ${oc.what === 'any' ? 'a' : `${/^[aeiou]/.test(oc.what) ? 'an' : 'a'} ${oc.what}`} spell: ${list(oc.effects)}`);
   if (fx.onCast) out.push(`whenever you cast ${fx.onCast.what === 'any' ? 'a' : `${/^[aeiou]/.test(fx.onCast.what) ? 'an' : 'a'} ${fx.onCast.what}`} spell: ${list(fx.onCast.effects)}`);
   if (fx.controlAura) out.push('you control the enchanted permanent');
   if (fx.landfall.length) out.push(`landfall: ${list(fx.landfall)}`);
@@ -2982,7 +3059,7 @@ export function describeFx(fx) {
   cost('kicker', 'kicker'); cost('buyback', 'buyback'); cost('unearth', 'unearth'); cost('embalm', 'embalm'); cost('eternalize', 'eternalize');
   cost('dash', 'dash'); cost('blitz', 'blitz'); cost('spectacle', 'spectacle'); cost('echo', 'echo'); cost('ninjutsu', 'ninjutsu');
   if (fx.cycling) out.push(`${fx.cycling.land ? fx.cycling.land + ' ' : ''}cycling ${fx.cycling.cost}`);
-  if (fx.channel) out.push(`channel ${fx.channel.cost}: ${list(fx.channel.effects)}`);
+  if (fx.channel) out.push(`channel ${fx.channel.cost}${fx.channel.less27 ? ` ({${fx.channel.less27.n}} less for each ${fx.channel.less27.what} you control)` : ''}: ${list(fx.channel.effects)}`);
   if (fx.escape) out.push(`escape ${fx.escape.cost}, exile ${fx.escape.n}`);
   if (fx.cumulative) out.push('cumulative upkeep');
   if (fx.borrow) out.push(`has the activated abilities of ${{ creatures: 'your other creatures', artifacts: 'your artifacts', lands: 'your lands', allCreatures: 'all creatures', myGy: 'creature cards in your graveyard', allGy: 'creature cards in all graveyards' }[fx.borrow.from]}`);

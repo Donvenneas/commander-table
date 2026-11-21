@@ -72,7 +72,12 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // (rules 26, Phase 2E: repairs of the Phase 2C defects. "Activate only once each turn" is enforced; Gilded Drake
 // exchanges control; punishers let the opponent choose; Chandra's Ignition targets; and the further repairs listed in
 // audit/phase-2e. Replays at 4-25 play as before)
-export const RULES = 26;
+// (rules 27, Phase 2F: completions of partly simulated cards. Sentences about what the sentence before just did ("those
+// creatures gain …", "untap it", "sacrifice that token at the beginning of the next end step"), a card's second "whenever
+// you cast" trigger, channel costs that shrink per legendary creature, counterspells that exile or tuck, the Enduring
+// cycle returning as enchantments, colors and creature types chosen as a card enters or resolves, and the further
+// completions listed in audit/phase-2f. Replays at 4-26 play as before)
+export const RULES = 27;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -125,6 +130,9 @@ export class Game {
     /** @type {Set<any> | undefined} (rules 16: attackers and blockers with first or double strike as the first combat damage step began: combat.js) */ this.firstStruck = undefined;
     /** @type {any[]} (what the loop watcher found and decided, one entry per loop: triggers.loopWatch) */ this.loopLog = [];
     /** @type {any[] | undefined} */ this.endSac = undefined;
+    /** @type {any[] | null | undefined} (Phase 2F-1: permanents the effect resolving now changed, resolve.js runEffects0) */ this.touched27 = undefined;
+    /** @type {any} (Phase 2F-1: the target of the effect resolving now) */ this.lastTgt27 = undefined;
+    /** @type {{ o: any, ts: any, act: string, mine: number | null }[] | undefined} (Phase 2F-1: "… at the beginning of the next end step") */ this.endLater27 = undefined;
     /** @type {any[] | undefined} (Phase 2D-5: cards exiled "until the next end step" back to their graveyards) */ this.endReturn25 = undefined;
     /** @type {any[] | undefined} (Phase 2E-4: tokens exiled at end of combat) */ this.endCombat26 = undefined;
     /** @type {any[] | null | undefined} (Phase 2D-1: zone changes while a spell or ability resolves or its costs are paid) */ this.trail = undefined;
@@ -1221,6 +1229,8 @@ export class Game {
     // (a copy of a card cast from Isochron Scepter ceases to exist as it leaves the stack: 707.10a)
     const cease = () => { o.zone = 'gone'; this.objects.delete(o.iid); };
     if (o.spellCopy && item.countered) { cease(); return true; }
+    // (Phase 2F-5, rules 27) Memory Lapse: on top of its owner's library instead (a flashback spell is still exiled, 702.34a)
+    if (item.countered && item.toTop27 && gone !== 'exile' && !item.toExile) { this.move(o, 'library'); this.log(`${this.cn(o)} is put on top of its owner's library`, { kind: 'minor' }); await this.beat(0.4); return true; }
     if (item.countered) { this.move(o, item.toExile ? 'exile' : item.toHand ? 'hand' : gone === 'hand' ? 'graveyard' : gone); await this.beat(0.4); return true; }
     // A spell whose every target has become illegal doesn't resolve
     const chosen = targets.filter(t => t && !t.none);
@@ -1338,7 +1348,8 @@ export class Game {
       // to; prowess granted by another permanent counts too
       if (this.rules >= 16) { if (!t.creature && s.fx.type.creature && this.has(s, 'prowess')) this.queue.push({ o: s, effects: [{ k: 'pumpSelf', p: 1, t: 1, kw: [] }], label: 'prowess', p, trig: { o, p: p.idx } }); }
       else if (s.fx.kw.has('prowess') && !t.creature) { s.tempP++; s.tempT++; this.log(`${this.cn(s)} gets +1/+1 (prowess)`, { kind: 'minor', rule: '702.108a' }); }
-      if (s.fx.onCast && (!s.fx.onCast.notHand || o.castFrom !== 'hand') && (!s.fx.onCast.fromHand || o.castFrom === 'hand') && (!s.fx.onCast.minPower || this.basePower(o.card) >= s.fx.onCast.minPower) && (s.fx.onCast.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[s.fx.onCast.what] ?? this.spellIs(o, s.fx.onCast.what)) && s !== o && (!s.fx.onCast.turnOnce9 || this.onceOk(s, 'cast'))) this.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
+      // (Phase 2F-1, rules 27: a card's earlier 'whenever you cast' lines too, fx.onCast27, in printed order)
+      for (const oc of [...(this.rules >= 27 ? s.fx.onCast27 || [] : []), s.fx.onCast]) if (oc && (!oc.notHand || o.castFrom !== 'hand') && (!oc.fromHand || o.castFrom === 'hand') && (!oc.minPower || this.basePower(o.card) >= oc.minPower) && (oc.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[oc.what] ?? this.spellIs(o, oc.what)) && s !== o && (!oc.turnOnce9 || this.onceOk(s, 'cast'))) this.queue.push({ o: s, effects: oc.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
       if (s.fx.kw.has('extort')) extort++;
     }
     // Extort (702.101): pay {1} per extort permanent to drain each opponent for 1, while there's spare mana
@@ -2445,14 +2456,22 @@ export class Game {
 
   // ---------- costs and abilities used from other zones
   // Cycling (702.29) and landcycling, and channel: pay, discard it, then draw (or search, or the channel effect)
+  // (Phase 2F-3, rules 27) A channel ability that costs {1} less for each legendary creature you control (generic only)
+  cycleCost(p, o) {
+    const c = o.fx.cycling || o.fx.channel;
+    const cost = parseCost(c.cost);
+    const less = !o.fx.cycling && this.rules >= 27 ? o.fx.channel?.less27 : null;
+    if (less) cost.generic = Math.max(0, cost.generic - less.n * p.battlefield.filter((/** @type {any} */ x) => x.fx.type.creature && x.fx.type.legendary).length);
+    return cost;
+  }
   canCycle(p, o) {
     const c = o.fx.cycling || o.fx.channel;
-    return !!c && o.zone === 'hand' && !!this.planPayment(p, parseCost(c.cost), 0);
+    return !!c && o.zone === 'hand' && !!this.planPayment(p, this.cycleCost(p, o), 0);
   }
   async cycle(p, o) {
     const ch = !o.fx.cycling && o.fx.channel;
     const c = ch || o.fx.cycling;
-    const plan = this.planPayment(p, parseCost(c.cost), 0);
+    const plan = this.planPayment(p, this.cycleCost(p, o), 0);
     if (!plan || o.zone !== 'hand') return false;
     this.commitPayment(p, plan);
     this.discard(p, [o], null);
@@ -3026,6 +3045,18 @@ export class Game {
     // Mobilize tokens are sacrificed at the end step
     // (and token copies "exiled at the beginning of the next end step", rules 6: Twinflame, Heat Shimmer)
     for (const o of (this.endSac || []).splice(0)) if (o.zone === 'battlefield') { if (o.endExile) this.move(o, 'exile'); else this.sacrifice(this.players[o.controller], o); }
+    // (Phase 2F-1, rules 27) "Sacrifice that token / exile it / return it to your hand at the beginning of the next end step"
+    // (them27): the same permanent only (o.ts: it hasn't left and come back), and "your next end step" only on yours
+    if (this.endLater27?.length) {
+      const due = this.endLater27.splice(0);
+      for (const d of due) {
+        if (d.mine != null && d.mine !== p.idx) { this.endLater27.push(d); continue; }
+        const o = d.o;
+        if (o.zone !== 'battlefield' || o.ts !== d.ts) continue;
+        if (d.act === 'sac') this.sacrifice(this.players[o.controller], o);
+        else { this.move(o, d.act === 'hand' ? 'hand' : 'exile'); this.log(`${this.cn(o)} ${d.act === 'hand' ? "returns to its owner's hand" : 'is exiled'} at the beginning of the end step`, { kind: 'minor', rule: '603.7' }); }
+      }
+    }
     // (Phase 2D-5, rules 25) "At the beginning of the next end step, if any of those cards remain exiled, return them to
     // their owners' graveyards" (Mnemonic Betrayal)
     for (const o of (this.endReturn25 || []).splice(0)) if (o.zone === 'exile') { o.mayPlay = null; this.move(o, 'graveyard'); }
