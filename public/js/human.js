@@ -1059,6 +1059,13 @@ export class HumanAgent extends Agent {
     const r = await this.chooseCardsAsync(g, p, lib, 1, `<b>Search your library</b>${e.types?.length ? ` for a ${e.types.join(' or ')} card` : ''}${e.gy ? ' (it goes to your graveyard)' : e.bf ? ' (onto the battlefield)' : e.top ? ' (it goes on top)' : ''}`);
     return r?.[0] || super.pickTutor(g, p, e);
   }
+  // (Phase 2F-7) "Choose a creature type" as a spell resolves: the types on the battlefield, or the AI's choice
+  async chooseTypeAsync(g, p, src, types) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: choose a creature type`, {
+      buttons: [...types.slice(0, 40).map(t => ({ label: t[0].toUpperCase() + t.slice(1), value: t })), { label: 'Let the AI choose', value: 'ai', keep: true }],
+    });
+    return r?.button && r.button !== 'ai' ? r.button : null;
+  }
   // (rules 7) Demonic Consultation: name a card in your library, or one that isn't there (exiling the whole library)
   async chooseConsultNameAsync(g, p, src, wantEmpty) {
     const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: choose a card name. Cards are exiled from the top until that card is revealed.`, {

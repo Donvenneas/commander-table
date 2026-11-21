@@ -43,6 +43,8 @@ Reusable mechanics: `node tests/mechanics.mjs [name filter]` (CI runs it too) ch
 
 Repairs: `node tests/repairs.mjs [name filter]` (CI runs it too) checks the Phase 2E repairs at rules 26 (audit/phase-2e): "activate only once each turn", exchanges of control, punisher choices, search words, mana of any type, counterspell riders, copies of a chosen target, token abilities in quotes, granted dies triggers, end of combat, attack limits, each with its rules 25 check. `tests/known-defects.json` lists verified defects the coverage checks can't see (coverage.mjs keeps those cards "incorrect").
 
+Completions: `node tests/completions.mjs [name filter]` (CI runs it too) checks the Phase 2F completions at rules 27 (audit/phase-2f): follow-up sentences ("those creatures gain …", "untap it", delayed end-step actions), second cast triggers, channel discounts, counterspell destinations, the Enduring cycle, chosen colors and creature types, conditional mana, kicked "instead", each with its rules 26 check where a reading changed. `audit/phase-2f/tools/completion.mjs` rebuilds the per-card CSV from a `coverage.mjs --json` file.
+
 Card and interaction tests: `node tests/interactions.mjs [name filter]` (CI runs it too) builds small boards from card names (`tests/scenario.mjs`) and checks one card or interaction each. Every card fix gets a test here. Card data the snapshots lack goes in `tests/interaction-cards.json` via `node tests/fetch-interaction-cards.mjs "Card Name"`.
 
 Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for more) plays random decks with one seat answering every prompt at random, under the rules watcher.

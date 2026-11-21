@@ -269,6 +269,17 @@ export function entered(g, o) {
     for (const c of [...p.battlefield, ...p.hand, ...p.library, ...p.command]) for (const col of c.card.colors || []) n[col] = (n[col] || 0) + 1;
     o.chosenColor = Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || 'W';
   }
+  // (Phase 2F-7, rules 27) A land that chooses a color as it enters makes only that color (and its own, for a Thriving
+  // land): the commonest other color among its controller's cards; the land is its printed self again when it leaves
+  if (g.rules >= 27 && o.fx.chooseColor27 && o.fx.mana && !o.colorFx27) {
+    const not = o.fx.chooseColor27.not;
+    const n = {};
+    for (const c of [...p.battlefield, ...p.hand, ...p.library, ...p.command]) for (const col of c.card.colors || []) if (col !== not) n[col] = (n[col] || 0) + 1;
+    const pick = Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || ['W', 'U', 'B', 'R', 'G'].find(c => c !== not) || 'W';
+    o.chosenColor = pick; o.colorFx27 = true;
+    o.fx = { ...o.fx, mana: { ...o.fx.mana, colors: not ? [not, pick] : [pick] } };
+    g.log(`${g.cn(o)}: ${g.pn(p)} chooses ${({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' })[pick]}`, { kind: 'minor' });
+  }
   if (o.fx.kwN?.bloodthirst && g.opponents(p).some(q => q.damagedTurn === g.turn)) o.counters += o.fx.kwN.bloodthirst;
   if (o.fx.echo) o.echoDue = true;
   if (o.fx.entersNamed) (o.named ||= {})[o.fx.entersNamed.kind] = o.fx.entersNamed.n === 'X' ? 0 : o.fx.entersNamed.n;
@@ -295,6 +306,8 @@ export function leaveBattlefield(g, o) {
   // A clone stops being a copy when it leaves (and a crewed vehicle stops being a creature)
   if (o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; }
   if (o.crewed) { o.fx = o.card.fx; o.crewed = false; }
+  // (Phase 2F-7: a land's chosen color is forgotten as it leaves)
+  if (o.colorFx27) { o.fx = o.card.fx; o.colorFx27 = false; }
   Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, tempProt: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
   // Whatever this permanent was holding on to goes back to the player it was taken from (or its owner)
   for (const q of g.players) for (const s of [...q.battlefield]) {

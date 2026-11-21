@@ -10,5 +10,11 @@
   "Marauding Raptor": "the 2 damage to each other creature you control is not read",
   "Fanatic of Rhonas": "the {G}{G}{G}{G} ability (ferocious) is not read: one mana per card",
   "Throne of Eldraine": "makes one mana of any color instead of four of the chosen color for monocolored spells of that color",
-  "Great Hall of the Citadel": "{1},{T}: two mana for legendary spells is not read; {T} makes restricted any-color mana instead"
+  "Great Hall of the Citadel": "{1},{T}: two mana for legendary spells is not read; {T} makes restricted any-color mana instead",
+  "Incubation Druid": "its mana ability makes any color, not only a type a land you control could produce (Phase 2F)",
+  "Inspiring Call": "draws a card for every creature you control, not only those with a +1/+1 counter; the indestructible rider has nothing to act on (Phase 2F)",
+  "Summon: Knights of Round": "chapter V pumps the Saga creature itself too (\"other creatures\" is not read) (Phase 2F)",
+  "Dalkovan Encampment": "makes the Warriors at once instead of a delayed \"whenever you attack this turn\" trigger (Phase 2F)",
+  "Whip of Erebos": "\"if it would leave the battlefield, exile it instead\" is not applied to the returned creature (Phase 2F)",
+  "Will of the Jeskai": "its first mode (each player may discard their hand and draw five cards) is read as you drawing five (Phase 2F)"
 }

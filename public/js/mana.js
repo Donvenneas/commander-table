@@ -96,6 +96,15 @@ export function manaAmount(g, p, s) {
     n = Math.max(m.floor || 0, Math.max(0, ...Object.values(k)) - (m.less || 0));
   } else if (m.dyn === 'charge') n = s.named?.charge || 0;
   else n = m.dyn ? g.countControlled(p, m.dyn) : m.amount;
+  // (Phase 2F-7, rules 27) "… add {C}{C}{C} instead" when its condition holds (effects.js cond27)
+  const c27 = g.rules >= 27 ? m.cond27 : null;
+  if (c27) {
+    const norm = (/** @type {string} */ x) => x.toLowerCase().replace(/[^a-z']/g, '');
+    const met = c27.named ? c27.named.every((/** @type {string} */ nm) => p.battlefield.some(o => norm(o.card.name) === norm(nm)))
+      : c27.power ? p.battlefield.some(o => o.fx.type.creature && g.power(o) >= c27.power)
+      : c27.counter ? (s.counters || 0) > 0 : false;
+    if (met) n = c27.amount;
+  }
   // Goldspan Dragon: Treasures make two; Nyxbloom Ancient: everything makes three times as much
   if (s.card.name === 'Treasure' && p.battlefield.some(o => o.fx.treasureTwo)) n *= 2;
   for (const o of p.battlefield) if (o.fx.manaMult && (!o.fx.manaMultBasic || (s.fx.type.basic && s.fx.type.land))) n *= o.fx.manaMult;
@@ -492,8 +501,9 @@ export function dynValue(g, p, d, ctx = {}) {
   if (d.dyn === 'maxPowerOther') return Math.max(0, ...p.battlefield.filter(o => o.fx.type.creature && o !== ctx.src).map(o => g.power(o)));
   if (d.dyn === 'chosenCount') {
     const t = (ctx.targets || []).find((/** @type {any} */ x) => x?.player != null);
-    const q = t ? g.players[t.player] : p, type = ctx.src?.chosenType;
-    return type ? q.battlefield.filter(o => o.fx.type.creature && (o.fx.subtypes.includes(type) || o.fx.kw.has('changeling'))).length : 0;
+    const q = t && d.who !== 'you' ? g.players[t.player] : p, type = ctx.src?.chosenType;
+    // (Phase 2F-7: "each permanent you control of that type", Distant Melody: any permanent, not only creatures)
+    return type ? q.battlefield.filter(o => (d.perm || o.fx.type.creature) && (o.fx.subtypes.includes(type) || o.fx.kw.has('changeling'))).length : 0;
   }
   if (d.dyn === 'attackingYou') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking === p.idx).length;
   if (d.dyn === 'attackPower') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking != null).reduce((s, o) => s + Math.max(0, g.power(o)), 0);

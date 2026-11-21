@@ -1,0 +1,2564 @@
+[
+ {
+  "rank": 9,
+  "name": "Path of Ancestry",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "When that mana is spent to cast a creature spell that shares a creature type with your commander, scry 1.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 125,
+  "name": "Victimize",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Choose two target creature cards in your graveyard. | If you do, return the chosen cards to the battlefield tapped.",
+  "family": "modal or \"choose\" spell; conditional or intervening if"
+ },
+ {
+  "rank": 174,
+  "name": "Gemstone Caverns",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you do, exile a card from your hand. | If Gemstone Caverns has a luck counter on it, instead add one mana of any color.",
+  "family": "conditional or intervening if; replacement or prevention; counters (named, moved, doubled)"
+ },
+ {
+  "rank": 217,
+  "name": "Animate Dead",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "When this Aura leaves the battlefield, that creature's controller sacrifices it.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 225,
+  "name": "The Great Henge",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You gain 2 life.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 228,
+  "name": "Malakir Rebirth // Malakir Mire",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Choose target creature.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 256,
+  "name": "Sylvan Library",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you do, choose two cards in your hand drawn this turn. | For each of those cards, pay 4 life or put the card on top of your library.",
+  "family": "modal or \"choose\" spell; conditional or intervening if; library: reveal, look, search, piles"
+ },
+ {
+  "rank": 274,
+  "name": "Bolas's Citadel",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you cast a spell this way, pay life equal to its mana value rather than pay its mana cost.",
+  "family": "additional or alternative cost; conditional or intervening if"
+ },
+ {
+  "rank": 276,
+  "name": "Inspiring Call",
+  "current": "INCORRECTLY SIMULATED",
+  "missing": "known defect: draws a card for every creature you control, not only those with a +1/+1 counter; the indestructible rider has nothing to act on (Phase 2F) | Those creatures gain indestructible until end of turn.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 281,
+  "name": "Reality Shift",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Its controller manifests the top card of their library.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 292,
+  "name": "Finale of Devastation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Search your library and/or graveyard for a creature card with mana value X or less and put it onto the battlefield.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 294,
+  "name": "Braids, Arisen Nightmare",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you do, each opponent may sacrifice a permanent of their choice that shares a card type with it.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 336,
+  "name": "Sevinne's Reclamation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this spell was cast from a graveyard, you may copy this spell and may choose a new target for the copy.",
+  "family": "copy of spell or ability, extra triggers; conditional or intervening if"
+ },
+ {
+  "rank": 353,
+  "name": "Dawn's Truce",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the gift was promised, permanents you control also gain indestructible until end of turn.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 383,
+  "name": "Underworld Breach",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "The escape cost is equal to the card's mana cost plus exile three other cards from your graveyard.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 384,
+  "name": "Forgotten Ancient",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of your upkeep, you may move any number of +1/+1 counters from ~ onto other creatures.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 456,
+  "name": "Thassa's Oracle",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put up to one of them on top of your library and the rest on the bottom of your library in a random order.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 487,
+  "name": "Maskwood Nexus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "The same is true for creature spells you control and creature cards you own that aren't on the battlefield.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 507,
+  "name": "Liquimetal Torque",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{t}: target nonland permanent becomes an artifact in addition to its other types until end of turn.",
+  "family": "continuous type, color or ability change; activated ability not read"
+ },
+ {
+  "rank": 519,
+  "name": "Veil of Summer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You and permanents you control gain hexproof from blue and from black until end of turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 520,
+  "name": "Necropotence",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put that card into your hand at the beginning of your next end step.",
+  "family": "delayed or next-turn effect"
+ },
+ {
+  "rank": 530,
+  "name": "Ripples of Undeath",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then you may pay {1} and 3 life. | If you do, put a card from among those cards into your hand.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 560,
+  "name": "Talon Gates of Madara",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{4}: put ~ from your hand onto the battlefield.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 569,
+  "name": "Unbreakable Formation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "addendum — if you cast ~ during your main phase, put a +1/+1 counter on each of those creatures and they gain vigilance until end of turn.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 571,
+  "name": "Saw in Half",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that creature dies this way, its controller creates two tokens that are copies of that creature, except their power is half that creature's power and their toughness is half that creature's toughness.",
+  "family": "copy of spell or ability, extra triggers; conditional or intervening if"
+ },
+ {
+  "rank": 577,
+  "name": "Growing Rites of Itlimoc // Itlimoc, Cradle of the Sun",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put the rest on the bottom of your library in any order.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 591,
+  "name": "Six",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "during your turn, nonland permanent cards in your graveyard have retrace.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 592,
+  "name": "Culling Ritual",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Destroy each nonland permanent with mana value 2 or less.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 594,
+  "name": "Tibalt's Trickery",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Choose 1, 2, or 3 at random. | Its controller mills that many cards, then exiles cards from the top of their library until they exile a nonland card with a different name than that spell. | They may cast that card without paying its mana cost. | Then they put the exiled cards on the bottom of their library in a random order.",
+  "family": "library: reveal, look, search, piles; cast or play from exile / free cast"
+ },
+ {
+  "rank": 596,
+  "name": "Opposition Agent",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "While an opponent is searching their library, they exile each card they find. | You may play those cards for as long as they remain exiled, and you may spend mana as though it were mana of any color to cast them.",
+  "family": "library: reveal, look, search, piles; cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 608,
+  "name": "Banner of Kinship",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "This artifact enters with a fellowship counter on it for each creature you control of the chosen type.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 618,
+  "name": "Archdruid's Charm",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put it onto the battlefield tapped if it's a land card. | Otherwise, put it into your hand.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 619,
+  "name": "Ancient Copper Dragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You create a number of Treasure tokens equal to the result.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 623,
+  "name": "Torment of Hailfire",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Repeat the following process X times.",
+  "family": "repeat process"
+ },
+ {
+  "rank": 638,
+  "name": "Incubation Druid",
+  "current": "INCORRECTLY SIMULATED",
+  "missing": "known defect: its mana ability makes any color, not only a type a land you control could produce (Phase 2F)",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 639,
+  "name": "Imp's Mischief",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You lose life equal to that spell's mana value.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 657,
+  "name": "Midnight Clock",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when the twelfth hour counter is put on ~, shuffle your hand and graveyard into your library, then draw seven cards. exile ~.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 658,
+  "name": "Sea Gate Restoration // Sea Gate, Reborn",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You have no maximum hand size for the rest of the game.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 687,
+  "name": "Opal Palace",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{1}, {T}: Add one mana of any color in your commander's color identity. | If you spend this mana to cast your commander, it enters with a number of additional +1/+1 counters on it equal to the number of times it's been cast from the command zone this game.",
+  "family": "activated ability not read; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 695,
+  "name": "Fact or Fiction",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "An opponent separates those cards into two piles.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 729,
+  "name": "Veyran, Voice of Duality",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "if you casting or copying an instant or sorcery spell causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.",
+  "family": "copy of spell or ability, extra triggers; conditional or intervening if"
+ },
+ {
+  "rank": 749,
+  "name": "Collective Resistance",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "fx.escalate",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 766,
+  "name": "Eldritch Evolution",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put that card onto the battlefield, then shuffle.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 785,
+  "name": "Inkshield",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Prevent all combat damage that would be dealt to you this turn.",
+  "family": "replacement or prevention; combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 788,
+  "name": "Spinerock Knoll",
+  "current": "NEEDS INTERACTION TESTING",
+  "missing": "—",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 809,
+  "name": "Etali, Primal Conqueror // Etali, Primal Sickness",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ enters, each player exiles cards from the top of their library until they exile a nonland card. you may cast any number of spells from among the nonland cards exiled this way without paying their mana costs.",
+  "family": "cast or play from exile / free cast; library: reveal, look, search, piles; triggered ability not read"
+ },
+ {
+  "rank": 816,
+  "name": "Mizzix's Mastery",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Exile target card that's an instant or sorcery from your graveyard.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 820,
+  "name": "The Soul Stone",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{6}{b}, {t}, exile a creature you control: harness ~. | ∞ — at the beginning of your upkeep, return target creature card from your graveyard to the battlefield.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 826,
+  "name": "Nature's Rhythm",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "harmonize {x}{g}{g}{g}{g}",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 841,
+  "name": "Ripples of Potential",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Those permanents phase out.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 844,
+  "name": "The Mycosynth Gardens",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{x}, {t}: ~ becomes a copy of target nontoken artifact you control with mana value x.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 863,
+  "name": "Beseech the Mirror",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this spell was bargained, you may cast the exiled card without paying its mana cost if that spell's mana value is 4 or less. | Put the exiled card into your hand if it wasn't cast this way.",
+  "family": "cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 870,
+  "name": "Breach the Multiverse",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "For each player, choose a creature or planeswalker card in that player's graveyard. | Put those cards onto the battlefield under your control. | Then each creature you control becomes a Phyrexian in addition to its other types.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 889,
+  "name": "Tempt with Discovery",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Each opponent may search their library for a land card and put it onto the battlefield. | Then each player who searched a library this way shuffles.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 895,
+  "name": "Tainted Pact",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Repeat this process until you put a card into your hand or you exile two cards with the same name, whichever comes first.",
+  "family": "repeat process"
+ },
+ {
+  "rank": 909,
+  "name": "Sword of Hearth and Home",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put both cards onto the battlefield under your control, then shuffle.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 918,
+  "name": "Archway of Innovation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{u}, {t}: the next spell you cast this turn has improvise.",
+  "family": "additional or alternative cost; activated ability not read"
+ },
+ {
+  "rank": 922,
+  "name": "Demonic Consultation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put that card into your hand and exile all other cards revealed this way.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 964,
+  "name": "Moraug, Fury of Akoum",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "each creature you control gets +1/+0 for each time it has attacked this turn.",
+  "family": "combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 986,
+  "name": "Chain of Vapor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then that permanent's controller may sacrifice a land of their choice. | If the player does, they may copy this spell and may choose a new target for that copy.",
+  "family": "copy of spell or ability, extra triggers; conditional or intervening if"
+ },
+ {
+  "rank": 1018,
+  "name": "Restoration Magic",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "tiered | • Cura — {1} — Target permanent gains hexproof and indestructible until end of turn.",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 1030,
+  "name": "Necromancy",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you may cast ~ as though it had flash. if you cast it any time a sorcery couldn't have been cast, the controller of the permanent it becomes sacrifices it at the beginning of the next cleanup step. | When this enchantment leaves the battlefield, that creature's controller sacrifices it.",
+  "family": "delayed or next-turn effect; cast or play from exile / free cast; triggered ability not read"
+ },
+ {
+  "rank": 1035,
+  "name": "Pest Infestation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Destroy up to X target artifacts and/or enchantments.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1060,
+  "name": "Portal to Phyrexia",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "It's a Phyrexian in addition to its other types.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 1062,
+  "name": "Karlach, Fury of Avernus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "They gain first strike until end of turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1063,
+  "name": "Chatterfang, Squirrel General",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{b}, sacrifice x squirrels: target creature gets +x/-x until end of turn.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 1066,
+  "name": "K'rrik, Son of Yawgmoth",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "for each {b} in a cost, you may pay 2 life rather than pay that mana.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 1080,
+  "name": "Ram Through",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the creature you control has trample, excess damage is dealt to that creature's controller instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 1111,
+  "name": "The Darkness Crystal",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{4}{b}{b}, {t}: put target creature card exiled with ~ onto the battlefield tapped under your control with two additional +1/+1 counters on it.",
+  "family": "counters (named, moved, doubled); activated ability not read"
+ },
+ {
+  "rank": 1134,
+  "name": "Plumb the Forbidden",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as an additional cost to cast ~, you may sacrifice one or more creatures. when you do, copy ~ for each creature sacrificed this way.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 1152,
+  "name": "Tyrite Sanctum",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{4}, {t}, sacrifice ~: put an indestructible counter on target god. | {2}, {T}: Target legendary creature becomes a God in addition to its other types.",
+  "family": "counters (named, moved, doubled); activated ability not read; continuous type, color or ability change"
+ },
+ {
+  "rank": 1158,
+  "name": "Tekuthal, Inquiry Dominus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{1}{u/p}{u/p}, remove three counters from among other artifacts, creatures, and planeswalkers you control: put an indestructible counter on ~.",
+  "family": "counters (named, moved, doubled); activated ability not read"
+ },
+ {
+  "rank": 1163,
+  "name": "Windcrag Siege",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "• Jeskai — At the beginning of your upkeep, create a 1/1 red Goblin creature token. | It gains lifelink and haste until end of turn.",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 1180,
+  "name": "Homeward Path",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{t}: each player gains control of all creatures they own.",
+  "family": "control change; activated ability not read"
+ },
+ {
+  "rank": 1181,
+  "name": "Kambal, Profiteering Mayor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more tokens your opponents control enter, for each of them, create a tapped token that's a copy of it. this ability triggers only once each turn.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1194,
+  "name": "Ezuri's Predation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Each of those tokens fights a different one of those creatures.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1206,
+  "name": "Forge Anew",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "during your turn, you may activate equip abilities any time you could cast an instant. | you may pay {0} rather than pay the equip cost of the first equip ability you activate during each of your turns.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 1229,
+  "name": "Wheel of Misfortune",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Each player secretly chooses a number 0 or greater, then all players reveal those numbers simultaneously and determine the highest and lowest numbers revealed this way. | Wheel of Misfortune deals damage equal to the highest number to each player who chose that number.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 1233,
+  "name": "Skyclave Apparition",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ leaves the battlefield, the exiled card's owner creates an x/x blue illusion creature token, where x is the mana value of the exiled card.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1248,
+  "name": "Twinflame",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Choose any number of target creatures you control. | fx.strive",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 1254,
+  "name": "Coveted Jewel",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more creatures an opponent controls attack you and aren't blocked, that player draws three cards and gains control of ~. untap it.",
+  "family": "control change; combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 1279,
+  "name": "Scapeshift",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Sacrifice any number of lands.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1282,
+  "name": "Hedge Shredder",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more land cards are put into your graveyard from your library, put them onto the battlefield tapped.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1287,
+  "name": "Full Throttle",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of each combat this turn, untap all creatures that attacked this turn.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 1291,
+  "name": "Valgavoth, Terror Eater",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "during your turn, you may play cards exiled with ~. if you cast a spell this way, pay life equal to its mana value rather than pay its mana cost.",
+  "family": "cast or play from exile / free cast; additional or alternative cost"
+ },
+ {
+  "rank": 1307,
+  "name": "Vigor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "if damage would be dealt to another creature you control, prevent that damage. put a +1/+1 counter on that creature for each 1 damage prevented this way.",
+  "family": "replacement or prevention; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 1318,
+  "name": "Mikaeus, the Unhallowed",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a human deals damage to you, destroy it.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1329,
+  "name": "Pristine Talisman",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You gain 1 life.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1343,
+  "name": "Sephara, Sky's Blade",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you may pay {w} and tap four untapped creatures you control with flying rather than pay ~'s mana cost.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 1354,
+  "name": "Ad Nauseam",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may repeat this process any number of times.",
+  "family": "repeat process"
+ },
+ {
+  "rank": 1379,
+  "name": "Electrodominance",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may cast a spell with mana value X or less from your hand without paying its mana cost.",
+  "family": "cast or play from exile / free cast"
+ },
+ {
+  "rank": 1380,
+  "name": "Agatha's Soul Cauldron",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you may spend mana as though it were mana of any color to activate abilities of creatures you control. | creatures you control with +1/+1 counters on them have all activated abilities of all creature cards exiled with ~.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled)"
+ },
+ {
+  "rank": 1412,
+  "name": "Legolas's Quick Reflexes",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Until end of turn, it gains reach, hexproof, and \"Whenever this creature becomes tapped, it deals damage equal to its power to up to one target creature.\"",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1438,
+  "name": "Mantle of the Ancients",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ enters, return any number of target aura and/or equipment cards from your graveyard to the battlefield attached to enchanted creature.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1448,
+  "name": "Caduceus, Staff of Hermes",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as long as you have 30 or more life, equipped creature gets +5/+5 and has indestructible and \"prevent all damage that would be dealt to ~.\"",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 1461,
+  "name": "Ancient Silver Dragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Draw cards equal to the result. | You have no maximum hand size for the rest of the game.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1467,
+  "name": "Rain of Riches",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "the first spell you cast each turn that mana from a treasure was spent to cast has cascade.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1485,
+  "name": "Temur Battle Rage",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "ferocious — that creature also gains trample until end of turn if you control a creature with power 4 or greater.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1486,
+  "name": "Odric, Lunarch Marshal",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "The same is true for flying, deathtouch, double strike, haste, hexproof, indestructible, lifelink, menace, reach, skulk, trample, and vigilance.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1501,
+  "name": "Twitching Doll",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put a nest counter on this creature.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 1506,
+  "name": "Meren of Clan Nel Toth",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Otherwise, put it into your hand.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1509,
+  "name": "Gifts Ungiven",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Target opponent chooses two of those cards. | Put the chosen cards into your graveyard and the rest into your hand.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1522,
+  "name": "Final Fortune",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "At the beginning of that turn's end step, you lose the game.",
+  "family": "delayed or next-turn effect; triggered ability not read"
+ },
+ {
+  "rank": 1526,
+  "name": "Stubborn Denial",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "ferocious — if you control a creature with power 4 or greater, counter that spell instead.",
+  "family": "replacement or prevention; counters (named, moved, doubled)"
+ },
+ {
+  "rank": 1534,
+  "name": "Ojer Axonil, Deepest Might // Temple of Power",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "if a red source you control would deal an amount of noncombat damage less than ~'s power to an opponent, that source deals damage equal to ~'s power instead.",
+  "family": "replacement or prevention; combat (attack, block, damage assignment); conditional or intervening if"
+ },
+ {
+  "rank": 1548,
+  "name": "Creeping Bloodsucker",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You gain life equal to the damage dealt this way.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1554,
+  "name": "Case of the Locked Hothouse",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "to solve — you control seven or more lands.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1556,
+  "name": "Ulamog, the Defiler",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when you cast ~, target opponent exiles the top half of their library, rounded up. | ~ enters with a number of +1/+1 counters on it equal to the greatest mana value among cards in exile. | ~ has annihilator x, where x is the number of +1/+1 counters on it.",
+  "family": "triggered ability not read; counters (named, moved, doubled)"
+ },
+ {
+  "rank": 1574,
+  "name": "Malcolm, Alluring Scoundrel",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If there are four or more chorus counters on Malcolm, you may cast the discarded card without paying its mana cost.",
+  "family": "cast or play from exile / free cast; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 1585,
+  "name": "Smuggler's Surprise",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "+ {4}{g} — you may put up to two creature cards from your hand onto the battlefield. | + {1} — creatures you control with power 4 or greater gain hexproof and indestructible until end of turn. | You may put up to two creature and/or land cards from among the milled cards into your hand.",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 1594,
+  "name": "Morophon, the Boundless",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "spells of the chosen type you cast cost {w}{u}{b}{r}{g} less to cast. this effect reduces only the amount of colored mana you pay.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1609,
+  "name": "Consuming Aberration",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you cast a spell, each opponent reveals cards from the top of their library until they reveal a land card, then puts those cards into their graveyard.",
+  "family": "library: reveal, look, search, piles; triggered ability not read"
+ },
+ {
+  "rank": 1622,
+  "name": "Galadriel's Dismissal",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this spell was kicked, each creature target player controls phases out instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 1643,
+  "name": "Illusionist's Bracers",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever an ability of equipped creature is activated, if it isn't a mana ability, copy that ability. you may choose new targets for the copy.",
+  "family": "copy of spell or ability, extra triggers; triggered ability not read"
+ },
+ {
+  "rank": 1649,
+  "name": "Defiler of Vigor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as an additional cost to cast green permanent spells, you may pay 2 life. those spells cost {g} less to cast if you paid life this way. this effect reduces only the amount of green mana you pay.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 1655,
+  "name": "Call the Coppercoats",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "\"X, where X is …\" is left as the X paid on casting (plays as 0) | Choose any number of target opponents. | fx.strive",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 1656,
+  "name": "Chameleon, Master of Disguise",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "mayhem {2}{u}",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 1657,
+  "name": "The Skullspore Nexus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more nontoken creatures you control die, create a green fungus dinosaur creature token with base power and toughness each equal to the total power of those creatures.",
+  "family": "continuous type, color or ability change; triggered ability not read"
+ },
+ {
+  "rank": 1661,
+  "name": "Metalwork Colossus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "sacrifice two artifacts: return ~ from your graveyard to your hand.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1664,
+  "name": "Traverse the Outlands",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put those cards onto the battlefield tapped, then shuffle.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1665,
+  "name": "Blast Zone",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{x}{x}, {t}: put x charge counters on ~. | {3}, {t}, sacrifice ~: destroy each nonland permanent with mana value equal to the number of charge counters on ~.",
+  "family": "counters (named, moved, doubled); activated ability not read"
+ },
+ {
+  "rank": 1682,
+  "name": "Twinning Staff",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may choose new targets for the additional copy.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1684,
+  "name": "Extraplanar Lens",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a land with the same name as the exiled card is tapped for mana, its controller adds one mana of any type that land produced.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1692,
+  "name": "Horizon Explorer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you attack a player, create a lander token.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 1711,
+  "name": "Mirror Box",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "each nontoken creature you control gets +1/+1 for each other creature you control with the same name as that creature.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1715,
+  "name": "Leyline of the Guildpact",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "each nonland permanent you control is all colors.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1720,
+  "name": "Hoarding Broodlord",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "For as long as that card remains exiled, you may play it.",
+  "family": "cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 1733,
+  "name": "Jin-Gitaxias, Progress Tyrant",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever an opponent casts an artifact, instant, or sorcery spell, counter that spell. this ability triggers only once each turn.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 1750,
+  "name": "Overlord of the Hauntwoods",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ enters or attacks, create a tapped colorless land token named everywhere that is every basic land type.",
+  "family": "continuous type, color or ability change; combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 1755,
+  "name": "Seize the Spotlight",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Each opponent chooses fame or fortune. | For each player who chose fame, gain control of a creature that player controls until end of turn. | Untap those creatures and they gain haste until end of turn.",
+  "family": "control change"
+ },
+ {
+  "rank": 1756,
+  "name": "Lithoform Engine",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{4}, {t}: copy target permanent spell you control.",
+  "family": "copy of spell or ability, extra triggers; activated ability not read"
+ },
+ {
+  "rank": 1764,
+  "name": "Timely Ward",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you may cast ~ as though it had flash if it targets a commander.",
+  "family": "cast or play from exile / free cast"
+ },
+ {
+  "rank": 1767,
+  "name": "Ancient Brass Dragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "When you do, put any number of target creature cards with total mana value X or less from graveyards onto the battlefield under your control, where X is the result.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1770,
+  "name": "Season of Gathering",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "choose up to five {p} worth of modes. you may choose the same mode more than once. | {p}{p} — choose artifact or enchantment. destroy all permanents of the chosen type. | {P} — Put a +1/+1 counter on a creature you control.",
+  "family": "modal or \"choose\" spell; counters (named, moved, doubled)"
+ },
+ {
+  "rank": 1780,
+  "name": "Massacre Girl",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Whenever a creature dies this turn, each creature other than Massacre Girl gets -1/-1 until end of turn.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1788,
+  "name": "Call Forth the Tempest",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~ deals damage to each creature your opponents control equal to the total mana value of other spells you've cast this turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1790,
+  "name": "Hit the Mother Lode",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the discovered card's mana value is less than 10, create a number of tapped Treasure tokens equal to the difference.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 1796,
+  "name": "Jarad, Golgari Lich Lord",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "sacrifice a swamp and a forest: return ~ from your graveyard to your hand.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1806,
+  "name": "Brave the Sands",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "each creature you control can block an additional creature each combat.",
+  "family": "combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 1818,
+  "name": "Claim Jumper",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if an opponent controls more lands than you, repeat this process once.",
+  "family": "repeat process; conditional or intervening if"
+ },
+ {
+  "rank": 1819,
+  "name": "Get Lost",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Its controller creates two Map tokens.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1822,
+  "name": "Colossal Grave-Reaver",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more creature cards are put into your graveyard from your library, put one of them onto the battlefield.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 1825,
+  "name": "Emrakul, the Promised End",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when you cast ~, you gain control of target opponent during that player's next turn. after that turn, that player takes an extra turn.",
+  "family": "control change; triggered ability not read"
+ },
+ {
+  "rank": 1834,
+  "name": "Commandeer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "gain control of target noncreature spell. you may choose new targets for it.",
+  "family": "control change"
+ },
+ {
+  "rank": 1846,
+  "name": "Skrelv's Hive",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "corrupted — as long as an opponent has three or more poison counters, creatures you control with toxic have lifelink.",
+  "family": "counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 1863,
+  "name": "Loran's Escape",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Target artifact or creature gains hexproof and indestructible until end of turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1871,
+  "name": "Fists of Flame",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Until end of turn, target creature gains trample and gets +1/+0 for each card you've drawn this turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1873,
+  "name": "Sword of Forge and Frontier",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may play those cards this turn.",
+  "family": "cast or play from exile / free cast"
+ },
+ {
+  "rank": 1904,
+  "name": "As Foretold",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "once each turn, you may pay {0} rather than pay the mana cost for a spell you cast with mana value x or less, where x is the number of time counters on ~.",
+  "family": "additional or alternative cost; counters (named, moved, doubled)"
+ },
+ {
+  "rank": 1911,
+  "name": "Angel's Grace",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Until end of turn, damage that would reduce your life total to less than 1 reduces it to 1 instead.",
+  "family": "replacement or prevention"
+ },
+ {
+  "rank": 1918,
+  "name": "For the Common Good",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Create X tokens that are copies of target token you control. | Then tokens you control gain indestructible until your next turn.",
+  "family": "copy of spell or ability, extra triggers; delayed or next-turn effect"
+ },
+ {
+  "rank": 1926,
+  "name": "The Last Agni Kai",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the creature the opponent controls is dealt excess damage this way, add that much {R}.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 1929,
+  "name": "Winds of Abandon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "For each creature exiled this way, its controller searches their library for a basic land card. | Those players put those cards onto the battlefield tapped, then shuffle.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 1933,
+  "name": "Crystal Barricade",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "prevent all noncombat damage that would be dealt to other creatures you control.",
+  "family": "replacement or prevention; combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 1934,
+  "name": "Aven Interrupter",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "It becomes plotted.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1947,
+  "name": "Drana and Linvala",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may spend mana as though it were mana of any color to activate those abilities.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1950,
+  "name": "Abundance",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put that card into your hand and put all other cards revealed this way on the bottom of your library in any order.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 1961,
+  "name": "Mutational Advantage",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Permanents you control with counters on them gain hexproof and indestructible until end of turn. | Prevent all damage that would be dealt to those permanents this turn.",
+  "family": "counters (named, moved, doubled); replacement or prevention"
+ },
+ {
+  "rank": 1967,
+  "name": "Grave Researcher // Reanimate",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if there are three or more creature cards in your graveyard, this creature becomes prepared.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 1982,
+  "name": "Maha, Its Feathers Night",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "creatures your opponents control have base toughness 1.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 1990,
+  "name": "Wild Magic Surge",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Its controller reveals cards from the top of their library until they reveal a permanent card that shares a card type with that permanent. | They put that card onto the battlefield and the rest on the bottom of their library in a random order.",
+  "family": "library: reveal, look, search, piles"
+ },
+ {
+  "rank": 1993,
+  "name": "Rise of the Witch-king",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you sacrificed a creature this way, you may return another permanent card from your graveyard to the battlefield.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 2009,
+  "name": "Grazilaxx, Illithid Scholar",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a creature you control becomes blocked, you may return it to its owner's hand.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2021,
+  "name": "One with the Multiverse",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "once during each of your turns, you may cast a spell from your hand or the top of your library without paying its mana cost.",
+  "family": "cast or play from exile / free cast; library: reveal, look, search, piles"
+ },
+ {
+  "rank": 2024,
+  "name": "Intuition",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Target opponent chooses one. | Put that card into your hand and the rest into your graveyard.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2028,
+  "name": "Overpowering Attack",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "freerunning {2}{r} | If it's your main phase, there is an additional combat phase after this phase, followed by an additional main phase.",
+  "family": "additional or alternative cost; combat (attack, block, damage assignment); conditional or intervening if"
+ },
+ {
+  "rank": 2030,
+  "name": "Generous Plunderer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "When you do, target opponent creates a tapped Treasure token.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2035,
+  "name": "Emeria Shepherd",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that land is a Plains, you may return that nonland permanent card to the battlefield instead.",
+  "family": "replacement or prevention; continuous type, color or ability change; conditional or intervening if"
+ },
+ {
+  "rank": 2052,
+  "name": "Arixmethes, Slumbering Isle",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as long as ~ has a slumber counter on it, it's a land. | whenever you cast a spell, you may remove a slumber counter from ~.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2059,
+  "name": "Ojer Kaslem, Deepest Growth // Temple of Cultivation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ deals combat damage to a player, reveal that many cards from the top of your library. you may put a creature card and/or a land card from among them onto the battlefield. put the rest on the bottom in a ran…",
+  "family": "library: reveal, look, search, piles; combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2067,
+  "name": "Night of the Sweets' Revenge",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "foods you control have \"{t}: add {g}.\"",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2071,
+  "name": "Akiri, Fearless Voyager",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{w}: you may unattach an equipment from a creature you control. if you do, tap that creature and it gains indestructible until end of turn.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2084,
+  "name": "Nissa, Resurgent Animist",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if this is the second time this ability has resolved this turn, reveal cards from the top of your library until you reveal an Elf or Elemental card. | Put that card into your hand and the rest on the bottom of your library in a random order.",
+  "family": "library: reveal, look, search, piles; conditional or intervening if"
+ },
+ {
+  "rank": 2085,
+  "name": "Will of the Jeskai",
+  "current": "INCORRECTLY SIMULATED",
+  "missing": "known defect: its first mode (each player may discard their hand and draw five cards) is read as you drawing five (Phase 2F)",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2090,
+  "name": "Semblance Anvil",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "spells you cast that share a card type with the exiled card cost {2} less to cast.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2091,
+  "name": "Thousand Moons Smithy // Barracks of the Thousand",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ enters, create a white gnome soldier artifact creature token with \"~'s power and toughness are each equal to the number of artifacts and/or creatures you control.\"",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2092,
+  "name": "Cityscape Leveler",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Its controller creates a tapped Powerstone token.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2096,
+  "name": "Vengeful Ancestor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a goaded creature attacks, it deals 1 damage to its controller.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2100,
+  "name": "Pearl-Ear, Imperial Advisor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "enchantment spells you cast have affinity for auras.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2106,
+  "name": "Sudden Spoiling",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "until end of turn, creatures target player controls lose all abilities and have base power and toughness 0/2.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 2116,
+  "name": "Summon: Knights of Round",
+  "current": "INCORRECTLY SIMULATED",
+  "missing": "known defect: chapter V pumps the Saga creature itself too (\"other creatures\" is not read) (Phase 2F)",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2118,
+  "name": "Teferi, Master of Time",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you may activate loyalty abilities of ~ on any player's turn any time you could cast an instant.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2121,
+  "name": "Fallen Shinobi",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ deals combat damage to a player, that player exiles the top two cards of their library. until end of turn, you may play those cards without paying their mana costs.",
+  "family": "cast or play from exile / free cast; combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2122,
+  "name": "Nashi, Moon Sage's Scion",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Until end of turn, you may play one of those cards. | If you cast a spell this way, pay life equal to its mana value rather than paying its mana cost.",
+  "family": "cast or play from exile / free cast; additional or alternative cost; conditional or intervening if"
+ },
+ {
+  "rank": 2132,
+  "name": "Minas Morgul, Dark Fortress",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{3}{b}, {t}: put a shadow counter on target creature. for as long as that creature has a shadow counter on it, it's a wraith in addition to its other types.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled); activated ability not read"
+ },
+ {
+  "rank": 2134,
+  "name": "The Cabbage Merchant",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a creature deals combat damage to you, sacrifice a food token.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2144,
+  "name": "Brudiclad, Telchor Engineer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then you may choose a token you control. | If you do, each other token you control becomes a copy of that token.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 2163,
+  "name": "Prosper, Tome-Bound",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "pact boon — whenever you play a card from exile, create a treasure token.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2167,
+  "name": "Ancient Gold Dragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You create a number of 1/1 blue Faerie Dragon creature tokens with flying equal to the result.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2169,
+  "name": "Warden of the Grove",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever another nontoken creature you control enters, it endures x, where x is the number of counters on ~.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 2179,
+  "name": "Primal Amulet // Primal Wellspring",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if there are four or more charge counters on it, you may remove those counters and transform it.",
+  "family": "counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2186,
+  "name": "Carnelian Orb of Dragonkind",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that mana is spent on a Dragon creature spell, it gains haste until end of turn.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 2187,
+  "name": "Thunderclap Drake",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{2}{u}, sacrifice ~: when you next cast an instant or sorcery spell this turn, copy it for each time you've cast your commander from the command zone this game. you may choose new targets for the copies.",
+  "family": "copy of spell or ability, extra triggers; activated ability not read"
+ },
+ {
+  "rank": 2197,
+  "name": "Dragonhawk, Fate's Tempest",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may play those cards until your next end step.",
+  "family": "delayed or next-turn effect; cast or play from exile / free cast"
+ },
+ {
+  "rank": 2199,
+  "name": "Serra's Emissary",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you and creatures you control have protection from the chosen card type.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2214,
+  "name": "The Key to the Vault",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever equipped creature deals combat damage to a player, look at that many cards from the top of your library. you may exile a nonland card from among them. put the rest on the bottom of your library in a random or…",
+  "family": "library: reveal, look, search, piles; combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2222,
+  "name": "Final Showdown",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "+ {1} — all creatures lose all abilities until end of turn.",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 2237,
+  "name": "Season of Weaving",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "choose up to five {p} worth of modes. you may choose the same mode more than once. | {p}{p}{p} — return each nonland, nontoken permanent to its owner's hand. | {P}{P} — Choose an artifact or creature you control.",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 2248,
+  "name": "Swarmyard Massacre",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then each creature that isn't an Insect, Rat, Spider, or Squirrel gets -1/-1 until end of turn for each creature you control that's an Insect, Rat, Spider, or Squirrel.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2253,
+  "name": "Brainstealer Dragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a nonland permanent an opponent owns enters the battlefield under your control, they lose life equal to its mana value. | If you cast a spell this way, you may spend mana as though it were mana of any color to cast it.",
+  "family": "triggered ability not read; conditional or intervening if"
+ },
+ {
+  "rank": 2254,
+  "name": "Stuffy Doll",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ is dealt damage, it deals that much damage to the chosen player. | {t}: ~ deals 1 damage to itself.",
+  "family": "triggered ability not read; activated ability not read"
+ },
+ {
+  "rank": 2267,
+  "name": "Rev, Tithe Extractor",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "You may cast that card for as long as it remains exiled.",
+  "family": "cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 2280,
+  "name": "Blacksmith's Skill",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Target permanent gains hexproof and indestructible until end of turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2282,
+  "name": "Starfall Invocation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the gift was promised, return a creature card put into your graveyard this way to the battlefield under your control.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 2283,
+  "name": "Umbral Mantle",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "equipped creature has \"{3}, {q}: ~ gets +2/+2 until end of turn.\"",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2291,
+  "name": "Dance of the Dead",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of the upkeep of enchanted creature's controller, that player may pay {1}{b}. if the player does, untap that creature. | When this Aura leaves the battlefield, that creature's controller sacrifices it.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2298,
+  "name": "PuPu UFO",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{3}: until end of turn, ~'s base power becomes equal to the number of towns you control.",
+  "family": "continuous type, color or ability change; activated ability not read"
+ },
+ {
+  "rank": 2300,
+  "name": "Fighter Class",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "equip abilities you activate cost {2} less to activate. | whenever a creature you control attacks, up to one target creature blocks it this combat if able.",
+  "family": "additional or alternative cost; combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2306,
+  "name": "Grafted Exoskeleton",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ becomes unattached from a permanent, sacrifice that permanent.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2324,
+  "name": "Glittering Stockpile",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put a stash counter on this artifact.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 2336,
+  "name": "Turntimber Symbiosis // Turntimber, Serpentine Wood",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that card has mana value 3 or less, it enters with three additional +1/+1 counters on it.",
+  "family": "counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2344,
+  "name": "Constant Mists",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "buyback—sacrifice a land.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2360,
+  "name": "Starfield of Nyx",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as long as you control five or more enchantments, each other non-aura enchantment you control is a creature in addition to its other types and has base power and base toughness each equal to its mana value.",
+  "family": "continuous type, color or ability change; conditional or intervening if"
+ },
+ {
+  "rank": 2366,
+  "name": "Together Forever",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{1}: choose target creature with a counter on it. when that creature dies this turn, return that card to its owner's hand.",
+  "family": "counters (named, moved, doubled); activated ability not read"
+ },
+ {
+  "rank": 2370,
+  "name": "Encroaching Dragonstorm",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when a dragon you control enters, return ~ to its owner's hand.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2394,
+  "name": "Inscription of Abundance",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "choose one. if ~ was kicked, choose any number instead.",
+  "family": "modal or \"choose\" spell; replacement or prevention"
+ },
+ {
+  "rank": 2403,
+  "name": "Hazel's Brewmaster",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "foods you control have all activated abilities of all creature cards exiled with ~.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 2405,
+  "name": "Y'shtola Rhul",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if it's the first end step of the turn, there is an additional end step after this step.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 2422,
+  "name": "Outpost Siege",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "• Khans — At the beginning of your upkeep, exile the top card of your library. | Until end of turn, you may play that card.",
+  "family": "modal or \"choose\" spell; cast or play from exile / free cast"
+ },
+ {
+  "rank": 2443,
+  "name": "Llanowar Reborn",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "graft 1",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2461,
+  "name": "Gogo, Mysterious Mime",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you do, Gogo and that creature each get +2/+0 and gain haste until end of turn and attack this turn if able.",
+  "family": "combat (attack, block, damage assignment); conditional or intervening if"
+ },
+ {
+  "rank": 2463,
+  "name": "Animist's Awakening",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "spell mastery — if there are two or more instant and/or sorcery cards in your graveyard, untap those lands.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2472,
+  "name": "Mirrodin Besieged",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "• Phyrexian — At the beginning of your end step, draw a card, then discard a card. | Then if there are fifteen or more artifact cards in your graveyard, target opponent loses the game.",
+  "family": "modal or \"choose\" spell; conditional or intervening if"
+ },
+ {
+  "rank": 2478,
+  "name": "Wear Down",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the gift was promised, instead destroy two target artifacts and/or enchantments.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2492,
+  "name": "Firebender Ascension",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a creature you control attacking causes a triggered ability of that creature to trigger, put a quest counter on ~. then if it has four or more quest counters on it, you may copy that ability. you may choose n…",
+  "family": "copy of spell or ability, extra triggers; counters (named, moved, doubled); combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 2498,
+  "name": "Alandra, Sky Dreamer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you draw your fifth card each turn, ~ and drakes you control each get +x/+x until end of turn, where x is the number of cards in your hand.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2505,
+  "name": "Expropriate",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Council's dilemma — Starting with you, each player votes for time or money. | For each money vote, choose a permanent owned by the voter and gain control of it.",
+  "family": "control change"
+ },
+ {
+  "rank": 2509,
+  "name": "Selfless Squire",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever damage that would be dealt to you is prevented, put that many +1/+1 counters on ~.",
+  "family": "replacement or prevention; counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 2510,
+  "name": "Black Mage's Rod",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "job select",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2511,
+  "name": "Wand of Wonder",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "1—9 | x is one. | 10—19 | x is two. | 20 | x is three. | Each opponent exiles cards from the top of their library until they exile an instant or sorcery card, then shuffles the rest into their library. | You may cast up to X instant and/or sorcery spells from among cards exiled this way without paying their mana costs.",
+  "family": "library: reveal, look, search, piles; cast or play from exile / free cast"
+ },
+ {
+  "rank": 2523,
+  "name": "The Lord of Pain",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever a player casts their first spell each turn, choose another target player. ~ deals damage equal to that spell's mana value to the chosen player.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2533,
+  "name": "Doc Aurlock, Grizzled Genius",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "plotting cards from your hand costs {2} less.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2536,
+  "name": "Assault Formation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "each creature you control assigns combat damage equal to its toughness rather than its power. | {g}: target creature with defender can attack this turn as though it didn't have defender.",
+  "family": "combat (attack, block, damage assignment); activated ability not read"
+ },
+ {
+  "rank": 2543,
+  "name": "Oath of Teferi",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "you may activate the loyalty abilities of planeswalkers you control twice each turn rather than only once.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2554,
+  "name": "Armored Skyhunter",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If an Equipment is put onto the battlefield this way, you may attach it to a creature you control. | Put the rest of those cards on the bottom of your library in a random order.",
+  "family": "conditional or intervening if; library: reveal, look, search, piles"
+ },
+ {
+  "rank": 2581,
+  "name": "Unbound Flourishing",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you cast a permanent spell with a mana cost that contains {x}, double the value of x.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2589,
+  "name": "Teval, the Balanced Scale",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then you may return a land card from your graveyard to the battlefield tapped.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2609,
+  "name": "Planar Nexus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~ is every nonbasic land type.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 2622,
+  "name": "The Seriema",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "other tapped legendary creatures you control have indestructible.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2630,
+  "name": "Pemmin's Aura",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{1}: enchanted creature gets +1/-1 or -1/+1 until end of turn.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2632,
+  "name": "Thornbite Staff",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "equipped creature has \"{2}, {t}: ~ deals 1 damage to any target\" and \"whenever a creature dies, untap ~.\"",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2637,
+  "name": "Deadpool, Trading Card",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as ~ enters, you may exchange his text box and another creature's. | {3}, sacrifice ~: each other player draws a card.",
+  "family": "control change; activated ability not read"
+ },
+ {
+  "rank": 2645,
+  "name": "Chandra's Incinerator",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~ costs {x} less to cast, where x is the total amount of noncombat damage dealt to your opponents this turn.",
+  "family": "additional or alternative cost; combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 2646,
+  "name": "Ascend from Avernus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Return all creature and planeswalker cards with mana value X or less from your graveyard to the battlefield.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2651,
+  "name": "Final Parting",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put one into your hand and the other into your graveyard.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2660,
+  "name": "Zombie Master",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "other zombies have \"{b}: regenerate ~.\"",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2668,
+  "name": "Questing Beast",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ deals combat damage to an opponent, it deals that much damage to target planeswalker that player controls.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2673,
+  "name": "Worldsoul's Rage",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put up to X land cards from your hand and/or graveyard onto the battlefield tapped.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2674,
+  "name": "Torrential Gearhulk",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that spell would be put into your graveyard, exile it instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2693,
+  "name": "Teferi's Time Twist",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If it enters as a creature, it enters with an additional +1/+1 counter on it.",
+  "family": "counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2694,
+  "name": "Twilight Diviner",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more other creatures you control enter, if they entered or were cast from a graveyard, create a token that's a copy of one of them. this ability triggers only once each turn.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2695,
+  "name": "Gandalf the White",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "if a legendary permanent or an artifact entering or leaving the battlefield causes a triggered ability of a permanent you control to trigger, that ability triggers an additional time.",
+  "family": "copy of spell or ability, extra triggers; conditional or intervening if"
+ },
+ {
+  "rank": 2700,
+  "name": "Anzrag, the Quake-Mole",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{3}{r}{r}{g}{g}: ~ must be blocked each combat this turn if able.",
+  "family": "combat (attack, block, damage assignment); activated ability not read"
+ },
+ {
+  "rank": 2711,
+  "name": "Murkfiend Liege",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "other blue creatures you control get +1/+1. | untap all green and/or blue creatures you control during each other player's untap step.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2715,
+  "name": "Genesis Hydra",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then shuffle the rest into your library.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2718,
+  "name": "Spectacular Showdown",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "put a double strike counter on target creature, then goad each creature that had a double strike counter put on it this way.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 2719,
+  "name": "Bloodsoaked Insight // Sanguine Morass",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "target opponent exiles the top three cards of their library. until the end of your next turn, you may play those cards. if you cast a spell this way, mana of any type can be spent to cast it.",
+  "family": "cast or play from exile / free cast"
+ },
+ {
+  "rank": 2722,
+  "name": "Ugin's Labyrinth",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "imprint — when ~ enters, you may exile a colorless card with mana value 7 or greater from your hand. | {t}: return the exiled card to its owner's hand. | If a card is exiled with this land, add {C}{C} instead.",
+  "family": "activated ability not read; replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2735,
+  "name": "Lifestream's Blessing",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this spell was cast from exile, you gain twice X life.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 2763,
+  "name": "Spider-Sense",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "web-slinging {u}",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2770,
+  "name": "Ygra, Eater of All",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "other creatures are food artifacts in addition to their other types and have \"{2}, {t}, sacrifice ~: you gain 3 life.\"",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2778,
+  "name": "Witch-king of Angmar",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more creatures deal combat damage to you, each opponent sacrifices a creature of their choice that dealt combat damage to you this turn. the ring tempts you. | Tap him.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 2785,
+  "name": "Aerial Extortionist",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "For as long as that card remains exiled, its owner may cast it.",
+  "family": "cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 2786,
+  "name": "Expel the Interlopers",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Choose a number between 0 and 10.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2788,
+  "name": "River of Tears",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you played a land this turn, add {B} instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2792,
+  "name": "Scythecat Cub",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this is the second time this ability has resolved this turn, double the number of +1/+1 counters on that creature instead.",
+  "family": "replacement or prevention; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2797,
+  "name": "Fated Firepower",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "if a source you control would deal damage to an opponent or a permanent an opponent controls, it deals that much damage plus an amount of damage equal to the number of fire counters on ~ instead.",
+  "family": "replacement or prevention; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2805,
+  "name": "Weathered Sentinels",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~ can attack players who attacked you during their last turn as though it didn't have defender.",
+  "family": "combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 2811,
+  "name": "Inquisitive Glimmer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "unlock costs you pay cost {1} less.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2832,
+  "name": "Toph, Hardheaded Teacher",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that spell is a Lesson, put an additional +1/+1 counter on that land.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2838,
+  "name": "Tishana's Tidebinder",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If an ability of an artifact, creature, or planeswalker is countered this way, that permanent loses all abilities for as long as this creature remains on the battlefield.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 2851,
+  "name": "Struggle for Project Purity",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "• Brotherhood — At the beginning of your upkeep, each opponent draws a card. | You draw a card for each card drawn this way.",
+  "family": "modal or \"choose\" spell"
+ },
+ {
+  "rank": 2856,
+  "name": "Pyromancer's Goggles",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "When that mana is spent to cast a red instant or sorcery spell, copy that spell and you may choose new targets for the copy.",
+  "family": "copy of spell or ability, extra triggers; triggered ability not read"
+ },
+ {
+  "rank": 2867,
+  "name": "Peerless Recycling",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If the gift was promised, instead return two target permanent cards from your graveyard to your hand.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2875,
+  "name": "Vorpal Sword",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{5}{b}{b}{b}: until end of turn, ~ gains \"whenever equipped creature deals combat damage to a player, that player loses the game.\"",
+  "family": "combat (attack, block, damage assignment); activated ability not read"
+ },
+ {
+  "rank": 2884,
+  "name": "Cemetery Tampering",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if there are twenty or more cards in your graveyard, you may play the exiled card without paying its mana cost.",
+  "family": "cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 2886,
+  "name": "Duplicant",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as long as a card exiled with ~ is a creature card, ~ has the power, toughness, and creature types of the last creature card exiled with it. it's still a shapeshifter.",
+  "family": "continuous type, color or ability change; conditional or intervening if"
+ },
+ {
+  "rank": 2902,
+  "name": "Gisa, Glorious Resurrector",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of your upkeep, put all creature cards exiled with ~ onto the battlefield under your control. they gain decayed.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2904,
+  "name": "Case of the Ransacked Lab",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "to solve — you've cast four or more instant and sorcery spells this turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2914,
+  "name": "Emet-Selch of the Third Seat",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever one or more opponents lose life, you may cast target instant or sorcery card from your graveyard. if that spell would be put into your graveyard, exile it instead. do this only once each turn.",
+  "family": "cast or play from exile / free cast; replacement or prevention; triggered ability not read"
+ },
+ {
+  "rank": 2916,
+  "name": "Hell to Pay",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Create a number of tapped Treasure tokens equal to the amount of excess damage dealt to that creature this way.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2919,
+  "name": "Fecund Greenshell",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Otherwise, put it into your hand.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2927,
+  "name": "Wyll's Reversal",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "1—14 | you may choose new targets for that spell or ability. | 15+ | you may choose new targets for that spell or ability. then copy it. you may choose new targets for the copy. | Choose target spell or ability with one or more targets.",
+  "family": "copy of spell or ability, extra triggers"
+ },
+ {
+  "rank": 2929,
+  "name": "Sovereign Okinec Ahau",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ attacks, for each creature you control with power greater than that creature's base power, put a number of +1/+1 counters on that creature equal to the difference.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled); combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 2935,
+  "name": "The Legend of Kyoshi // Avatar Kyoshi",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "That land becomes an Island in addition to its other types.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 2938,
+  "name": "Appa, Steadfast Guardian",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ enters, airbend any number of other target nonland permanents you control.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2939,
+  "name": "Lae'zel's Acrobatics",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "1—9 | return those cards to the battlefield under their owner's control at the beginning of the next end step. | 10—20 | return those cards to the battlefield under their owner's control, then exile them again. return those cards to the battlefield under their owner's control at the beginning of the next end step.",
+  "family": "delayed or next-turn effect"
+ },
+ {
+  "rank": 2961,
+  "name": "Silent-Blade Oni",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ deals combat damage to a player, look at that player's hand. you may cast a spell from among those cards without paying its mana cost.",
+  "family": "cast or play from exile / free cast; library: reveal, look, search, piles; combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 2968,
+  "name": "Fatal Push",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "revolt — destroy that creature if it has mana value 4 or less instead if a permanent left the battlefield under your control this turn.",
+  "family": "replacement or prevention"
+ },
+ {
+  "rank": 2973,
+  "name": "Spikefield Hazard // Spikefield Cave",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If a permanent dealt damage this way would die this turn, exile it instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2975,
+  "name": "Derevi, Empyrial Tactician",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{1}{g}{w}{u}: put ~ onto the battlefield from the command zone.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 2976,
+  "name": "Silver-Fur Master",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "ninjutsu abilities you activate cost {1} less to activate.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 2977,
+  "name": "Rampaging Yao Guai",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ enters, destroy any number of target artifacts and/or enchantments with total mana value x or less.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 2982,
+  "name": "Germination Practicum",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "paradigm",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 2985,
+  "name": "Library of Leng",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "if an effect causes you to discard a card, discard it, but you may put it on top of your library instead of into your graveyard.",
+  "family": "library: reveal, look, search, piles; replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 2989,
+  "name": "Royal Treatment",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Create a Royal Role token attached to that creature.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3027,
+  "name": "Toph, the Blind Bandit",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~'s power is equal to the number of +1/+1 counters on lands you control.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 3028,
+  "name": "Hall of the Bandit Lord",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that mana is spent on a creature spell, it gains haste.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 3043,
+  "name": "Biophagus",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this mana is spent to cast a creature spell, that creature enters with an additional +1/+1 counter on it.",
+  "family": "counters (named, moved, doubled); conditional or intervening if"
+ },
+ {
+  "rank": 3044,
+  "name": "Canopy Gargantuan",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of your upkeep, put a number of +1/+1 counters on each other creature you control equal to that creature's toughness.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 3055,
+  "name": "Xantcha, Sleeper Agent",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~ enters under the control of an opponent of your choice. | Any player may activate this ability.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3064,
+  "name": "Lagomos, Hand of Hatred",
+  "current": "INCORRECTLY SIMULATED",
+  "missing": "Activate only if five or more creatures died this turn.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 3068,
+  "name": "Zellix, Sanity Flayer",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "hive mind — whenever a player mills one or more creature cards, you create a 1/1 black horror creature token.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3075,
+  "name": "Robe of Stars",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "astral projection — {1}{w}: equipped creature phases out.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 3093,
+  "name": "Gluntch, the Bestower",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "They put two +1/+1 counters on a creature they control.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 3099,
+  "name": "The Endstone",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of your end step, your life total becomes half your starting life total, rounded up.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 3106,
+  "name": "Reaver Titan",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "void shields — protection from mana value 3 or less",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3107,
+  "name": "Rottenmouth Viper",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as an additional cost to cast ~, you may sacrifice any number of nonland permanents. ~ costs {1} less to cast for each permanent sacrificed this way.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3109,
+  "name": "Betor, Kin to All",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then if creatures you control have total toughness 20 or greater, untap each creature you control. | Then if creatures you control have total toughness 40 or greater, each opponent loses half their life, rounded up.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 3113,
+  "name": "Surge of Salvation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Prevent all damage that black and/or red sources would deal to creatures you control this turn.",
+  "family": "replacement or prevention"
+ },
+ {
+  "rank": 3142,
+  "name": "Elspeth Conquers Death",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Put a +1/+1 counter or a loyalty counter on it.",
+  "family": "counters (named, moved, doubled)"
+ },
+ {
+  "rank": 3145,
+  "name": "Decorum Dissertation",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "paradigm",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3146,
+  "name": "Tectonic Giant",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "• Exile the top two cards of your library. | Until the end of your next turn, you may play that card.",
+  "family": "modal or \"choose\" spell; cast or play from exile / free cast"
+ },
+ {
+  "rank": 3154,
+  "name": "Mana Sculpt",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you control a Wizard, add an amount of {C} equal to the amount of mana spent to cast that spell at the beginning of your next main phase.",
+  "family": "delayed or next-turn effect; conditional or intervening if"
+ },
+ {
+  "rank": 3175,
+  "name": "Eluge, the Shoreless Sea",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ enters or attacks, put a flood counter on target land. it's an island in addition to its other types for as long as it has a flood counter on it. | the first instant or sorcery spell you cast each turn costs {u}  less to cast for each land you control with a flood counter on it.",
+  "family": "continuous type, color or ability change; counters (named, moved, doubled); combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 3192,
+  "name": "Collective Effort",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "fx.escalate",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3201,
+  "name": "Vnwxt, Verbose Host",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "max speed — if you would draw a card, draw two cards instead.",
+  "family": "replacement or prevention"
+ },
+ {
+  "rank": 3202,
+  "name": "Tezzeret, Master of the Bridge",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "creature and planeswalker spells you cast have affinity for artifacts. | Put all artifact cards from among them onto the battlefield.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3204,
+  "name": "Toph, the First Metalbender",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "nontoken artifacts you control are lands in addition to their other types.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3205,
+  "name": "Endrek Sahr, Master Breeder",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when you control seven or more thrulls, sacrifice ~.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 3208,
+  "name": "Flayer of Loyalties",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Until end of turn, it has base power and toughness 10/10 and gains trample, annihilator 2, and haste.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 3216,
+  "name": "Planetarium of Wan Shi Tong",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you scry or surveil, look at the top card of your library. you may cast that card without paying its mana cost. do this only once each turn.",
+  "family": "cast or play from exile / free cast; library: reveal, look, search, piles; triggered ability not read"
+ },
+ {
+  "rank": 3217,
+  "name": "Whispering Madness",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "cipher",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3218,
+  "name": "Hazel of the Rootbloom",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If that token is a Squirrel, instead create two tokens that are copies of it.",
+  "family": "replacement or prevention; continuous type, color or ability change; copy of spell or ability, extra triggers"
+ },
+ {
+  "rank": 3221,
+  "name": "Roxanne, Starfall Savant",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you tap an artifact token for mana, add one mana of any type that artifact token produced.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 3237,
+  "name": "World at War",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "after the second main phase this turn, there's an additional combat phase followed by an additional main phase. at the beginning of that combat, untap all creatures that attacked this turn.",
+  "family": "combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 3243,
+  "name": "Lunarch Veteran // Luminous Phantom",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "disturb {1}{w}",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3252,
+  "name": "Clive, Ifrit's Dominant // Ifrit, Warden of Inferno",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when ~ enters, you may discard your hand, then draw cards equal to your devotion to red.",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 3254,
+  "name": "Conspicuous Snoop",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as long as the top card of your library is a goblin card, ~ has all activated abilities of that card.",
+  "family": "continuous type, color or ability change; conditional or intervening if"
+ },
+ {
+  "rank": 3255,
+  "name": "Hanweir Battlements",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{3}{r}{r}, {t}: if you both own and control ~ and a creature named hanweir garrison, exile them, then meld them into hanweir, the writhing township. | {3}{R}{R}, {T}: If you both own and control this land and a creature named Hanweir Garrison, exile them, then meld them into Hanweir, the Writhing Township.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 3256,
+  "name": "Tenuous Truce",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "when you attack enchanted opponent or a planeswalker they control or when they attack you or a planeswalker you control, sacrifice ~.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 3263,
+  "name": "Strong Back",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "equip abilities you activate that target enchanted creature cost {3} less to activate. | aura spells you cast that target enchanted creature cost {3} less to cast.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3281,
+  "name": "Extract from Darkness",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Then you put a creature card from a graveyard onto the battlefield under your control.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3285,
+  "name": "Mycosynth Golem",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "artifact creature spells you cast have affinity for artifacts.",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3296,
+  "name": "Mishra's Factory",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{t}: target assembly-worker creature gets +1/+1 until end of turn.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 3303,
+  "name": "Take the Bait",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Prevent all combat damage that would be dealt to you and planeswalkers you control this turn. | Untap all attacking creatures and goad them.",
+  "family": "replacement or prevention; combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 3305,
+  "name": "Nautiloid Ship",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever ~ deals combat damage to a player, you may put a creature card exiled with ~ onto the battlefield under your control.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 3307,
+  "name": "Éowyn, Fearless Knight",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Legendary creatures you control gain protection from each of that creature's colors until end of turn.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3309,
+  "name": "Hallowed Haunting",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever you cast an enchantment spell, create a white spirit cleric creature token with \"~'s power and toughness are each equal to the number of spirits you control.\"",
+  "family": "triggered ability not read"
+ },
+ {
+  "rank": 3318,
+  "name": "Thundermane Dragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you cast a creature spell this way, it gains haste until end of turn.",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 3325,
+  "name": "Grove of the Burnwillows",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Each opponent gains 1 life.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3327,
+  "name": "Athreos, Shroud-Veiled",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "at the beginning of your end step, put a coin counter on another target creature. | whenever a creature with a coin counter on it dies or is put into exile, return that card to the battlefield under your control.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 3330,
+  "name": "Court of Ire",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you're the monarch, it deals 7 damage instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 3334,
+  "name": "Serra Paragon",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you do, it gains \"When this permanent is put into a graveyard from the battlefield, exile it and you gain 2 life.\"",
+  "family": "conditional or intervening if"
+ },
+ {
+  "rank": 3347,
+  "name": "Lulu, Stern Guardian",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever an opponent attacks you, choose target creature attacking you. put a stun counter on that creature.",
+  "family": "counters (named, moved, doubled); combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 3351,
+  "name": "Yedora, Grave Gardener",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "It's a Forest land.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 3377,
+  "name": "Monstrous Rage",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Create a Monster Role token attached to it.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3394,
+  "name": "Cut Your Losses",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "casualty 2",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3412,
+  "name": "Oscorp Industries",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "mayhem",
+  "family": "additional or alternative cost"
+ },
+ {
+  "rank": 3419,
+  "name": "Demon of Fate's Design",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "once during each of your turns, you may cast an enchantment spell by paying life equal to its mana value rather than paying its mana cost.",
+  "family": "cast or play from exile / free cast; additional or alternative cost"
+ },
+ {
+  "rank": 3425,
+  "name": "Champions from Beyond",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "full party — whenever you attack with eight or more creatures, those creatures get +4/+4 until end of turn.",
+  "family": "combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 3430,
+  "name": "Study Hall",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{1}, {T}: Add one mana of any color. | When you spend this mana to cast your commander, scry X, where X is the number of times it's been cast from the command zone this game.",
+  "family": "activated ability not read; triggered ability not read"
+ },
+ {
+  "rank": 3441,
+  "name": "Berserk",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "target creature gains trample and gets +x/+0 until end of turn, where x is its power. at the beginning of the next end step, destroy that creature if it attacked this turn.",
+  "family": "delayed or next-turn effect; combat (attack, block, damage assignment)"
+ },
+ {
+  "rank": 3443,
+  "name": "Eye of Nidhogg",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "enchanted creature is a black dragon with base power and toughness 4/2, has flying and deathtouch, and is goaded.",
+  "family": "continuous type, color or ability change"
+ },
+ {
+  "rank": 3444,
+  "name": "Increasing Devotion",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If this spell was cast from a graveyard, create ten of those tokens instead.",
+  "family": "replacement or prevention; conditional or intervening if"
+ },
+ {
+  "rank": 3451,
+  "name": "Yuna, Grand Summoner",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "whenever another permanent you control is put into a graveyard from the battlefield, if it had one or more counters on it, you may put that number of +1/+1 counters on target creature. | When you next cast a creature spell this turn, that creature enters with two additional +1/+1 counters on it.",
+  "family": "counters (named, moved, doubled); triggered ability not read"
+ },
+ {
+  "rank": 3456,
+  "name": "Mob Rule",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "• Gain control of all creatures with power 4 or greater until end of turn. | Untap those creatures. | They gain haste until end of turn. | • Gain control of all creatures with power 3 or less until end of turn. | Untap those creatures. | They gain haste until end of turn.",
+  "family": "modal or \"choose\" spell; control change"
+ },
+ {
+  "rank": 3458,
+  "name": "Zada, Hedron Grinder",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "Each copy targets a different one of those creatures.",
+  "family": "copy of spell or ability, extra triggers"
+ },
+ {
+  "rank": 3465,
+  "name": "Court of Locthwain",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "If you're the monarch, until end of turn, you may cast a spell from among cards exiled with this enchantment without paying its mana cost.",
+  "family": "cast or play from exile / free cast; conditional or intervening if"
+ },
+ {
+  "rank": 3466,
+  "name": "Titan's Presence",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "as an additional cost to cast ~, reveal a colorless creature card from your hand.",
+  "family": "library: reveal, look, search, piles; additional or alternative cost"
+ },
+ {
+  "rank": 3474,
+  "name": "Aang, Swift Savior // Aang and La, Ocean's Fury",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "waterbend {8}: transform ~.",
+  "family": "activated ability not read"
+ },
+ {
+  "rank": 3477,
+  "name": "Ride the Shoopuf",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "{5}{g}{g}: ~ becomes a 7/7 beast creature in addition to its other types.",
+  "family": "continuous type, color or ability change; activated ability not read"
+ },
+ {
+  "rank": 3484,
+  "name": "Eidolon of Countless Battles",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "~ and enchanted creature each get +1/+1 for each creature you control and +1/+1 for each aura you control.",
+  "family": "card-specific rule"
+ },
+ {
+  "rank": 3493,
+  "name": "All-Out Assault",
+  "current": "PARTIALLY SIMULATED",
+  "missing": "When you next attack this turn, untap each creature you control.",
+  "family": "combat (attack, block, damage assignment); triggered ability not read"
+ },
+ {
+  "rank": 3494,
+  "name": "Jeweled Amulet",
+  "current": "INCORRECTLY SIMULATED",
+  "missing": "{t}, remove a charge counter from ~: add one mana of ~'s last noted type. | Note the type of mana spent to pay this activation cost. | Activate only if there are no charge counters on this artifact.",
+  "family": "counters (named, moved, doubled); activated ability not read; conditional or intervening if"
+ },
+ {
+  "rank": 3496,
+  "name": "Abandon Attachments",
+  "current": "NEEDS INTERACTION TESTING",
+  "missing": "—",
+  "family": "card-specific rule"
+ }
+]

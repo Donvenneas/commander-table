@@ -735,6 +735,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
         const theirs = q.idx !== p.idx;
         // (Wakening Sun's Avatar: all non-Dinosaur creatures)
         if (e.notTribe && g.isA(o, e.notTribe)) continue;
+        // (Phase 2F-7, rules 27: Kindred Dominance, "creatures that aren't of the chosen type")
+        if (e.notChosen27 && g.rules >= 27 && src.chosenType && g.isA(o, src.chosenType)) continue;
         const hit = { creatures: t.creature, 'other creatures': t.creature && o !== src, 'nonland permanents': !t.land, artifacts: t.artifact, enchantments: t.enchantment, 'artifacts and enchantments': t.artifact || t.enchantment,
           'nontoken creatures': t.creature && !o.token, 'nonartifact creatures': t.creature && !t.artifact, "creatures you don't control": t.creature && theirs, 'creatures your opponents control': t.creature && theirs,
           "nonland permanents you don't control": !t.land && theirs, planeswalkers: t.planeswalker, lands: t.land }[e.what];
@@ -1619,6 +1621,16 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
         e.end && `${{ sac: 'is sacrificed', exile: 'is exiled', hand: 'returns to its owner\'s hand' }[/** @type {'sac'|'exile'|'hand'} */ (e.end)]} at the beginning of ${e.mine ? `${g.pn(p)}'s` : 'the'} next end step`].filter(Boolean);
       if (did.length) g.log(`${who} (${S}): ${did.join(', ')}`, { kind: 'minor' });
       if (e.phase) for (const q of g.players) { const mine = objs.filter((/** @type {any} */ o) => o.controller === q.idx); if (mine.length) g.phaseOut(q, mine); }
+      break;
+    }
+    // (Phase 2F-7, rules 27) "Choose a creature type." as a spell resolves (Distant Melody, Kindred Dominance, Pact of the
+    // Serpent): a person picks from the types on the battlefield; the AI picks its own commonest creature type
+    case 'chooseType27': {
+      const types = [...new Set(g.alive().flatMap(q => q.battlefield).filter(o => o.fx.type.creature).flatMap(o => o.fx.subtypes))].sort();
+      const asked = p.agent.chooseTypeAsync && types.length ? await p.agent.chooseTypeAsync(g, p, src, types) : null;
+      const t = asked || g.bestType(p) || g.bestType(p, [...p.hand, ...p.library].filter(o => o.fx.type.creature)) || types[0] || 'human';
+      src.chosenType = t;
+      g.log(`${S}: ${g.pn(p)} chooses ${esc(t)}`, { kind: 'minor' });
       break;
     }
     case 'kwCounter': {

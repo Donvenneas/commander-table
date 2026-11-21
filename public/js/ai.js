@@ -1445,6 +1445,7 @@ export class Agent {
       case 'mayCost': return Math.max(0, e.effects.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0) - this.costWorth(g, p, src, e.cost));
       case 'evade': return e.self ? (g.phase === 'main1' ? 1.5 : 0) : (myCreatures.length && g.phase === 'main1' ? 1.5 : 0);
       case 'kwCounter': return 2;
+      case 'chooseType27': return 0;
       // (Phase 2F-1) a follow-up on what the effect before made or changed: haste and untapping are worth an attack or a blocker
       case 'them27': return (e.untap ? 0.5 : 0) + (e.kw?.length ? 0.3 * e.kw.length : 0) + (e.p || 0) * 0.3 + (e.kwc ? 1 : 0) - (e.end ? 0.5 : 0);
       case 'topLandOrHand': return 2;

@@ -913,6 +913,21 @@ on top of the ones above:
     limit; Lightning Ragers can't attack the Rite player. Coverage now judges the current rules' reading and keeps
     verified defects as incorrect (tests/known-defects.json). Tests: new tests/repairs.mjs (37, CI). Report set in
     audit/phase-2e. Not done: see audit/phase-2e/PHASE_2E_REMAINING_DEFECTS.md.
+- [ ] 392. Phase 2F: complete the partly simulated cards (asked 2026-11-20: reassess the 421 cards the 1.61.0 coverage
+  report called partial and complete them by shared mechanic, 2F-1 to 2F-8). Partly done; left open.
+  - Done so far (rules 27, version 1.64.0; rules 4–26 golden games unchanged): sentences about what the sentence before
+    did ("those creatures gain vigilance", "untap it", "that token attacks this combat if able", "sacrifice/exile it at
+    the beginning of the next end step", "they phase out", indestructible counters on each of them: 24 cards, and
+    Sneak Attack, which never gave haste or sacrificed); a card's second "whenever you cast" trigger (Jeskai Ascendancy);
+    Ilharg's creature enters tapped and attacking; channel costs {1} less per legendary creature (Boseiju, Otawara,
+    Takenuma, Eiganjo, Sokenzan) with Boseiju's land search and Otawara's bounce; Force of Negation exiles and Memory
+    Lapse tucks; the Enduring cycle returns as enchantments (before, it never returned); Thriving and chosen-color
+    lands make only their colors; "choose a creature type" spells (Distant Melody, Kindred Dominance, Pact of the
+    Serpent; a person picks the type); Urza lands, Ilysian Caryatid and Incubation Druid make more when their condition
+    holds; kicked Rite of Replication and Consult the Star Charts; a person picks Snapcaster Mage's card. The coverage
+    check now also finds activated and channel abilities whose effect isn't read, which moved some cards out of "full".
+    Of the 421: 55 fully simulated (3 before), 6 known incorrect, 358 still partial. Tests: new tests/completions.mjs
+    (58, CI). Report set in audit/phase-2f; the rest is listed in audit/phase-2f/PHASE_2F_REMAINING_GAPS.md.
 - [x] 385. Quality, rules validation, security and release readiness (asked 2026-11-17, Phase 2O): a baseline audit
   (tests/phase-2o-audit.md), the defects it found fixed, event-sequence rules tests, saved-data tests, fuzz failure
   capture, measurements and other browsers.

@@ -1063,6 +1063,24 @@ export function parseEffects(t, noMay = false, prevHint = null) {
     });
     return swap(rest);
   }
+  // (Phase 2F-7, used from rules 27) "Choose a creature type. …" as a spell or ability resolves: the choice (chooseType27,
+  // kept on the source as chosenType), then what uses it: "draw a card for each permanent you control of that type"
+  // (Distant Melody, Harmonized Crescendo), "destroy all creatures that aren't of the chosen type" (Kindred Dominance),
+  // "the number of creatures they control of the chosen type" (Pact of the Serpent). The older readings stay for older
+  // games (until: 27): one card drawn, every creature destroyed.
+  const ct = noMay ? null : t.match(/^choose a creature type\.\s+(.+)$/s);
+  if (ct) {
+    const stash = MODAL_STASH;
+    const old = parseEffects(t, true).map(x => (x.until ? x : { ...x, until: 27 }));
+    MODAL_STASH = stash;
+    const rest = ct[1].trim();
+    /** @type {any[]} */
+    let now;
+    if (/^draw a card for each permanent you control of that type\.?$/.test(rest)) now = [{ k: 'draw', n: { dyn: 'chosenCount', who: 'you', perm: true } }];
+    else if (/^destroy all creatures that aren't of the chosen type\.?$/.test(rest)) now = [{ k: 'wipe', mode: 'destroy', what: 'creatures', notChosen27: true }];
+    else now = parseEffects(rest, true).filter(x => !x.until);
+    if (now.length) return [...old, { k: 'chooseType27', since: 27 }, ...now.map(x => ({ ...x, since: x.since && x.since > 27 ? x.since : 27 }))];
+  }
   // (Phase 2E-1, used from rules 26) A punisher choice: "target opponent may have you draw three cards. If the player
   // doesn't, …" (Combustible Gearhulk, Palantír of Orthanc): the opponent chooses; the older reading drew always
   const pun = noMay ? null : t.match(/^(.*?)target opponent may have you draw (a|one|two|three|four) cards?\. if (?:the|that) player doesn't, (.+?)$/);
@@ -1127,6 +1145,18 @@ export function parseEffects(t, noMay = false, prevHint = null) {
       flush();
       const effects = parseFlat(m[2]);
       instead ||= /\binstead\b/.test(m[2]);
+      // (Phase 2F-2, used from rules 27) "If this spell was kicked, create five of those tokens instead" (Rite of
+      // Replication), "… put two of those cards into your hand instead" (Consult the Star Charts): the sentence before,
+      // with another number. Older games keep the plain sentence (until: 27).
+      const more = !effects.length && lastPlain?.length === 1 ? m[2].match(/^(?:create|put) (two|three|four|five|six|seven|ten) of (?:those tokens|those cards into your hand) instead\.?$/) : null;
+      if (more && (lastPlain[0].k === 'copyToken' || (lastPlain[0].k === 'dig' && /into your hand/.test(m[2])))) {
+        const base = lastPlain[0], k = out.indexOf(base);
+        const bigger = base.k === 'dig' ? { ...base, take: num(more[1]) } : { ...base, n: num(more[1]) };
+        if (k >= 0) out[k] = { ...base, until: 27 };
+        out.push({ k: 'if', cond: parseCond(m[1]), effects: [bigger], else: [base], since: 27 });
+        lastPlain = null;
+        continue;
+      }
       if (!effects.length) continue;
       const e = { k: 'if', cond: parseCond(m[1]), effects };
       if (instead && lastPlain?.length) {
@@ -2430,6 +2460,10 @@ export function analyzeCard(card) {
     if (/~ can't be blocked/.test(line)) fx.kw.add('unblockable');
     if (/^~ can't block/.test(line)) fx.kw.add('cantblock');
     if (/~ enters(?: the battlefield)? tapped/.test(line) && !/unless|you may pay|if you control/.test(line)) fx.entersTapped = true;
+    // (Phase 2F-7, used from rules 27) "As it enters, choose a color [other than blue]" on a land whose mana is "{U} or one
+    // mana of the chosen color" / "one mana of the chosen color" (Thriving lands, Uncharted Haven): zones.js entered
+    // narrows its mana to those colors (before, it made any color)
+    if ((m = line.match(/as (?:it|~) enters(?: the battlefield)?, choose a color(?: other than (white|blue|black|red|green))?\.?$/)) && fx.type.land && /one mana of the chosen color/.test(t)) fx.chooseColor27 = { not: m[1] ? COLOR_NAME[m[1]] : null };
     if ((m = line.match(/^~ enters(?: the battlefield)? with (x|\d+|a|an|one|two|three|four|five|six|seven) \+1\/\+1 counters? on it/))) {
       fx.entersCounters = num(m[1]);
       // (Phase 2D-3, used from rules 25) "…, where X is the greatest power among other creatures you control"
@@ -2624,6 +2658,15 @@ export function analyzeCard(card) {
   if (type.land) {
     if (!fx.mana && produced.length) fx.mana = { amount: 1, colors: produced, sac: false };
     if (!produced.length && /search your library for/.test(t)) fx.fetch = true;
+  }
+  // (Phase 2F-7, used from rules 27) A mana ability that adds more "instead" when a condition holds (mana.js manaAmount):
+  // the Urza lands with the other two, Ilysian Caryatid with a creature of power 4 or greater, Incubation Druid with a
+  // +1/+1 counter. (A different color instead, River of Tears, is not read.)
+  if (fx.mana) {
+    let mc;
+    if ((mc = t.match(/if you control an urza's ([\w-]+) and an urza's ([\w-]+), add ((?:\{c\})+) instead/))) fx.mana.cond27 = { named: [`urza's ${mc[1]}`, `urza's ${mc[2]}`], amount: mc[3].length / 3 };
+    else if (/if you control a creature with power 4 or greater, add two mana of any one color instead/.test(t)) fx.mana.cond27 = { power: 4, amount: 2 };
+    else if (/if (?:this creature|~) has a \+1\/\+1 counter on it, add three mana of that type instead/.test(t)) fx.mana.cond27 = { counter: true, amount: 3 };
   }
   comboReadings(t, fx);
   readings13(t, fx);
@@ -2827,6 +2870,8 @@ const EFFECT_TEXT = {
   untapSelf: () => 'untap this',
   evade: e => `${e.self ? 'this' : 'target creature'} can't be blocked this turn`,
   kwCounter: e => `${e.kw} counter on ${e.self ? 'this' : 'target creature'}`,
+  // (Phase 2F-7)
+  chooseType27: () => 'choose a creature type',
   // (Phase 2F-1)
   them27: e => `then they ${[e.untap && 'untap', (e.p || e.t) && `get +${e.p || 0}/+${e.t || 0}`, e.kw?.length && `gain ${e.kw.join(', ')}`, e.attack && 'attack this combat if able', e.kwc && `get ${e.kwc} counters`, e.phase && 'phase out', e.end && `are ${{ sac: 'sacrificed', exile: 'exiled', hand: 'returned to hand' }[e.end]} at the next end step`].filter(Boolean).join(', ')}`,
   topLandOrHand: () => 'reveal the top card: a land goes onto the battlefield, anything else to hand',
@@ -2903,8 +2948,11 @@ export function enterCond(line) {
 const dropCache = new WeakMap();
 // (sentences that change nothing the simulator models: library order after a search, an instant-speed timing note,
 // rounding, and the option to keep a copy's targets, which is always a legal choice)
-const HARMLESS = /^(?:then (?:that player )?shuffles?|(?:you may )?shuffle|then shuffle|put the rest on the bottom of (?:your|their) library in (?:a )?random order|activate only as an instant|round (?:up|down) each time|you may choose new targets for the cop(?:y|ies)|if you search your library this way, shuffle|the flashback cost is equal to (?:its|that card's) mana cost)\.?$/i;
-const fxPrint = fx => JSON.stringify(fx, (k, v) => (k === 'unread' ? undefined : v instanceof Set ? [...v].sort() : v));
+const HARMLESS = /^(?:then (?:that player )?shuffles?|(?:you may )?shuffle|then shuffle|put the rest on the bottom of (?:your|their) library in (?:a )?random order|activate only as an instant|round (?:up|down) each time|you may choose new targets for the cop(?:y|ies)|if you search your library this way, shuffle|the flashback cost is equal to (?:its|that card's) mana cost|it's still a land|activate only once each turn)\.?$/i;
+// (Phase 2F-8: "it's still a land": resolve.js 'animate' keeps the land type; "activate only once each turn": engine.js
+// canActivateRaw reads it from the ability's text from rules 26)
+// (Phase 2F-8: an activated ability's own copy of its text is left out, or every sentence of it would count as read)
+const fxPrint = fx => JSON.stringify(fx, function (k, v) { return k === 'unread' || (k === 'text' && this && typeof this === 'object' && 'effects' in this && 'cost' in this) ? undefined : v instanceof Set ? [...v].sort() : v; });
 export function sentencesOf(line) {
   const out = [];
   let cur = '', quote = false;
@@ -2929,10 +2977,16 @@ export function droppedSentences(card) {
   const covered = (/** @type {string} */ x) => HARMLESS.test(x) || (threaten && /^(?:untap (?:that|those|them|it)\b[^.]*|(?:they|it) gains? haste until end of turn)\.?$/i.test(x));
   lines.forEach((line, li) => {
     const ss = sentencesOf(line.trim());
-    if (ss.length < 2) return;
+    // (Phase 2F-8) A first sentence that starts with a cost ("{3}{U}, Discard this card: …", "{T}, Sacrifice ~: …"): taking
+    // it out takes out only what the ability does, the cost stays. Before, the whole ability went with it, so an
+    // activated ability or channel effect the reader got nothing from was never reported (Otawara's channel effect).
+    let head = ss[0]?.match(/^([^:."]*?(?:\{[^}]+\}|discard|sacrifice|pay \d+ life|exile|remove|tap|return)[^:."]*: )(.+)$/i);
+    // (a mana ability's colors also come from the card data: its line is checked as before)
+    if (head && /^add\b/i.test(head[2])) head = null;
+    if (ss.length < 2 && !head) return;
     // (a line the reader skipped entirely is already reported as unread)
     if (unread.has(cleanText(line, card.frontName || card.name).trim())) return;
-    const same = drop => fxPrint(analyzeCard({ ...card, text: lines.map((l, k) => (k === li ? ss.filter((_, j) => !drop.includes(j)).join(' ') : l)).join('\n') })) === whole;
+    const same = (/** @type {number[]} */ drop) => fxPrint(analyzeCard({ ...card, text: lines.map((l, k) => (k === li ? ss.map((s, j) => (!drop.includes(j) ? s : j === 0 && head ? head[1].trim() : '')).filter(Boolean).join(' ') : l)).join('\n') })) === whole;
     const cand = ss.map((_, si) => si).filter(si => same([si]));
     // (two sentences that each say enough on their own, like a shockland's "pay 2 life" and "if you don't, it enters
     // tapped", aren't dropped: only one that can go together with any other candidate is)
@@ -3059,6 +3113,7 @@ export function describeFx(fx) {
   cost('kicker', 'kicker'); cost('buyback', 'buyback'); cost('unearth', 'unearth'); cost('embalm', 'embalm'); cost('eternalize', 'eternalize');
   cost('dash', 'dash'); cost('blitz', 'blitz'); cost('spectacle', 'spectacle'); cost('echo', 'echo'); cost('ninjutsu', 'ninjutsu');
   if (fx.cycling) out.push(`${fx.cycling.land ? fx.cycling.land + ' ' : ''}cycling ${fx.cycling.cost}`);
+  if (fx.chooseColor27) out.push(`chooses a color as it enters; makes ${fx.chooseColor27.not ? `{${fx.chooseColor27.not}} or ` : ''}that color only`);
   if (fx.channel) out.push(`channel ${fx.channel.cost}${fx.channel.less27 ? ` ({${fx.channel.less27.n}} less for each ${fx.channel.less27.what} you control)` : ''}: ${list(fx.channel.effects)}`);
   if (fx.escape) out.push(`escape ${fx.escape.cost}, exile ${fx.escape.n}`);
   if (fx.cumulative) out.push('cumulative upkeep');

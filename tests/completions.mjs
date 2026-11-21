@@ -324,6 +324,189 @@ await test('Snapcaster Mage: the granted flashback costs the card\'s mana cost; 
   eq([bs.zone, P(g, 0).battlefield.filter(o => o.card.name === 'Island' && o.tapped).length], ['exile', 1], 'exiled after, one Island paid');
 });
 
+// ======================================================================================== 2F-7 choices and mana
+await test('Thriving Isle makes {U} or its one chosen color only (rules 27); rules 26 made any color', async () => {
+  for (const [rules, want] of [[27, ['U', 'G']], [26, ['B', 'G', 'R', 'U', 'W']]]) {
+    const g = await scenario([{ hand: ['Thriving Isle'], library: ['Llanowar Elves', 'Llanowar Elves', 'Grizzly Bears'] }, {}], { rules });
+    const t = find(g, 0, 'Thriving Isle', 'hand');
+    g.move(t, 'battlefield');
+    eq([...t.fx.mana.colors].sort(), [...want].sort(), `rules ${rules}`);
+    if (rules === 27) { g.move(t, 'hand'); eq(t.fx.mana.colors.length, 5, 'back in hand: the printed card again'); }
+  }
+});
+await test('Crossroads Village (no "other than") makes only the chosen color', async () => {
+  const g = await scenario([{ hand: ['Crossroads Village'], library: ['Lightning Bolt', 'Lightning Bolt'] }, {}]);
+  const t = find(g, 0, 'Crossroads Village', 'hand');
+  g.move(t, 'battlefield');
+  eq(t.fx.mana.colors, ['R'], 'red only');
+});
+await test("Urza's Tower makes three with Mine and Power Plant, one without", async () => {
+  const g = await scenario([{ battlefield: ["Urza's Tower", "Urza's Mine"] }, {}]);
+  const t = find(g, 0, "Urza's Tower"), m = find(g, 0, "Urza's Mine");
+  eq([g.manaAmount(P(g, 0), t), g.manaAmount(P(g, 0), m)], [1, 1], 'two of the three: one each');
+  const g2 = await scenario([{ battlefield: ["Urza's Tower", "Urza's Mine", "Urza's Power Plant"] }, {}]);
+  eq(["Urza's Tower", "Urza's Mine", "Urza's Power Plant"].map(n => g2.manaAmount(P(g2, 0), find(g2, 0, n))), [3, 2, 2], 'all three: 3 + 2 + 2');
+  const g3 = await scenario([{ battlefield: ["Urza's Tower", "Urza's Mine", "Urza's Power Plant"] }, {}], { rules: 26 });
+  eq(g3.manaAmount(P(g3, 0), find(g3, 0, "Urza's Tower")), 1, 'rules 26: one');
+});
+await test('Ilysian Caryatid makes two with a power-4 creature; Incubation Druid three with a +1/+1 counter', async () => {
+  const g = await scenario([{ battlefield: ['Ilysian Caryatid', 'Incubation Druid', 'Craterhoof Behemoth'] }, { battlefield: ['Grizzly Bears'] }]);
+  const c = find(g, 0, 'Ilysian Caryatid'), d = find(g, 0, 'Incubation Druid');
+  eq([g.manaAmount(P(g, 0), c), g.manaAmount(P(g, 0), d)], [2, 1], 'Behemoth: Caryatid 2; Druid without a counter 1');
+  d.counters = 1;
+  eq(g.manaAmount(P(g, 0), d), 3, 'with a counter: 3');
+  const g2 = await scenario([{ battlefield: ['Ilysian Caryatid'] }, { battlefield: ['Craterhoof Behemoth'] }]);
+  eq(g2.manaAmount(P(g2, 0), find(g2, 0, 'Ilysian Caryatid')), 1, "an opponent's big creature doesn't count");
+});
+await test('Distant Melody draws one card per permanent of the chosen type (the AI picks its commonest type)', async () => {
+  const g = await scenario([{ battlefield: ['Llanowar Elves', 'Elvish Mystic', 'Grizzly Bears'], hand: ['Distant Melody'] }, {}]);
+  const s = find(g, 0, 'Distant Melody', 'hand');
+  const before = P(g, 0).hand.length;
+  await resolveEffects(g, 0, s, s.fx.spell);
+  eq([s.chosenType, P(g, 0).hand.length - before], ['elf', 2], 'Elves chosen, two cards'); noErrors(g);
+});
+await test('Distant Melody by a person: the type they choose is used', async () => {
+  const g = await scenario([{ battlefield: ['Llanowar Elves', 'Elvish Mystic', 'Grizzly Bears'], hand: ['Distant Melody'] }, {}]);
+  const asked = person(g, 0, (html, o) => ({ button: o?.buttons?.find(b => b.value === 'bear')?.value ?? o?.buttons?.[0]?.value }));
+  const s = find(g, 0, 'Distant Melody', 'hand');
+  const before = P(g, 0).hand.length;
+  await resolveEffects(g, 0, s, s.fx.spell);
+  eq([s.chosenType, P(g, 0).hand.length - before, asked.some(q => /creature type/.test(q))], ['bear', 1, true], 'Bear chosen, one card');
+});
+await test('Kindred Dominance destroys every creature not of the chosen type, on all sides (rules 26: all creatures)', async () => {
+  for (const [rules, want] of [[27, ['battlefield', 'battlefield', 'graveyard', 'graveyard']], [26, ['graveyard', 'graveyard', 'graveyard', 'graveyard']]]) {
+    const g = await scenario([{ battlefield: ['Llanowar Elves', 'Elvish Mystic', 'Grizzly Bears'], hand: ['Kindred Dominance'] }, { battlefield: ['Craterhoof Behemoth'] }, {}], { rules });
+    const s = find(g, 0, 'Kindred Dominance', 'hand');
+    const objs = [find(g, 0, 'Llanowar Elves'), find(g, 0, 'Elvish Mystic'), find(g, 0, 'Grizzly Bears'), find(g, 1, 'Craterhoof Behemoth')];
+    await resolveEffects(g, 0, s, s.fx.spell);
+    eq(objs.map(o => o.zone), want, `rules ${rules}`); noErrors(g);
+  }
+});
+await test('Pact of the Serpent: the target player draws and loses life per creature of the chosen type, once', async () => {
+  const g = await scenario([{ battlefield: ['Llanowar Elves', 'Elvish Mystic'], hand: ['Pact of the Serpent'] }, {}]);
+  const s = find(g, 0, 'Pact of the Serpent', 'hand');
+  const h = P(g, 0).hand.length, life = P(g, 0).life;
+  await resolveEffects(g, 0, s, s.fx.spell, s.fx.spell.map(() => ({ player: 0 })));
+  eq([P(g, 0).hand.length - h, life - P(g, 0).life], [2, 2], 'two cards, two life');
+});
+
+// ======================================================================================== 2F-2 kicked "instead"
+await test('Rite of Replication: kicked makes five copies of the target, unkicked one', async () => {
+  for (const [kicked, want] of [[true, 5], [false, 1]]) {
+    const g = await scenario([{ battlefield: ['Craterhoof Behemoth'], hand: ['Rite of Replication'] }, {}]);
+    const s = find(g, 0, 'Rite of Replication', 'hand');
+    s.kicked = kicked;
+    const t = tgtObj(find(g, 0, 'Craterhoof Behemoth'));
+    await resolveEffects(g, 0, s, s.fx.spell, [t, t]);
+    eq(P(g, 0).battlefield.filter(o => o.token).length, want, kicked ? 'kicked' : 'not kicked'); noErrors(g);
+  }
+});
+await test('Rite of Replication cast for real with kicker by the AI pays {5} more and copies five times', async () => {
+  const g = await scenario([{ battlefield: ['Grizzly Bears', ...Array(9).fill('Island')], hand: ['Rite of Replication'] }, {}]);
+  g.active = 0; g.phase = 'main1';
+  const s = find(g, 0, 'Rite of Replication', 'hand');
+  ok(await g.cast(P(g, 0), s, { kicked: true, targets: [tgtObj(find(g, 0, 'Grizzly Bears'))] }), 'cast');
+  await settle(g);
+  eq([P(g, 0).battlefield.filter(o => o.token && o.card.name === 'Grizzly Bears').length, P(g, 0).battlefield.filter(o => o.card.name === 'Island' && !o.tapped).length], [5, 0], 'five copies; nine Islands paid'); noErrors(g);
+});
+await test('Consult the Star Charts kicked puts two of the cards into hand', async () => {
+  for (const [kicked, want] of [[true, 2], [false, 1]]) {
+    const g = await scenario([{ battlefield: ['Island', 'Island', 'Island', 'Island'], hand: ['Consult the Star Charts'] }, {}]);
+    const s = find(g, 0, 'Consult the Star Charts', 'hand');
+    s.kicked = kicked;
+    const h = P(g, 0).hand.length;
+    await resolveEffects(g, 0, s, s.fx.spell);
+    eq(P(g, 0).hand.length - h, want, kicked ? 'kicked' : 'not kicked');
+  }
+});
+
+// ======================================================================================== 2F-8 verification of the rest of each family
+await test('Channel: Takenuma and Eiganjo cost {1} less per legend and do their effect', async () => {
+  const g = await scenario([{ battlefield: ["Atraxa, Praetors' Voice", 'Swamp', 'Swamp', 'Plains', 'Plains'], hand: ['Takenuma, Abandoned Mire', 'Eiganjo, Seat of the Empire'], graveyard: ['Grizzly Bears'] }, { battlefield: ['Craterhoof Behemoth'] }]);
+  g.active = 0;
+  const t = find(g, 0, 'Takenuma, Abandoned Mire', 'hand'), e = find(g, 0, 'Eiganjo, Seat of the Empire', 'hand');
+  eq([g.cycleCost(P(g, 0), t).generic, g.cycleCost(P(g, 0), e).generic], [2, 1], 'one legend: {2}{B} and {1}{W}');
+  ok(g.canCycle(P(g, 0), t) && g.canCycle(P(g, 0), e), 'both affordable');
+  const h = find(g, 1, 'Craterhoof Behemoth'); h.attacking = 0;
+  await resolveEffects(g, 0, e, e.fx.channel.effects, [tgtObj(h)]);
+  eq(h.damage, 4, 'Eiganjo deals 4 to the attacking creature');
+  const lib = P(g, 0).library.length;
+  await resolveEffects(g, 0, t, t.fx.channel.effects);
+  eq(lib - P(g, 0).library.length >= 3, true, 'Takenuma mills three');
+});
+for (const name of ['Enduring Vitality', 'Enduring Innocence', 'Enduring Tenacity', 'Enduring Courage']) {
+  await test(`${name} returns as an enchantment, not a creature, and keeps its other abilities`, async () => {
+    const g = await scenario([{ battlefield: [name] }, {}]);
+    const c = find(g, 0, name);
+    const statics = JSON.stringify([c.fx.manaAnthem, c.fx.anthem, c.fx.watch?.length, c.fx.lifelinkAll]);
+    g.destroy(c); await settle(g);
+    eq([c.zone, !!c.fx.type.creature, !!c.fx.type.enchantment, JSON.stringify([c.fx.manaAnthem, c.fx.anthem, c.fx.watch?.length, c.fx.lifelinkAll])], ['battlefield', false, true, statics], 'returned as an enchantment'); noErrors(g);
+  });
+}
+for (const [name, own, want] of [['Thriving Heath', 'W', 'U'], ['Thriving Grove', 'G', 'U'], ['Thriving Bluff', 'R', 'U'], ['Thriving Moor', 'B', 'U']]) {
+  await test(`${name} makes {${own}} or the chosen color, never its own color twice`, async () => {
+    const g = await scenario([{ hand: [name], library: ['Counterspell', 'Counterspell', 'Brainstorm'] }, {}]);
+    const t = find(g, 0, name, 'hand');
+    g.move(t, 'battlefield');
+    eq([...t.fx.mana.colors].sort(), [own, want].sort(), 'two colors');
+  });
+}
+for (const name of ["Valgavoth's Lair", 'Uncharted Haven']) {
+  await test(`${name} makes only the color chosen as it enters`, async () => {
+    const g = await scenario([{ hand: [name], library: ['Llanowar Elves', 'Llanowar Elves'] }, {}]);
+    const t = find(g, 0, name, 'hand');
+    g.move(t, 'battlefield');
+    eq([t.fx.mana.colors, t.chosenColor], [['G'], 'G'], 'green only');
+  });
+}
+await test('Past in Flames gives every instant and sorcery flashback for its mana cost; Lier gives it always', async () => {
+  const g = await scenario([{ battlefield: ['Island'], hand: ['Past in Flames'], graveyard: ['Brainstorm', 'Opt'] }, {}]);
+  g.active = 0; g.phase = 'main1';
+  const s = find(g, 0, 'Past in Flames', 'hand');
+  await resolveEffects(g, 0, s, s.fx.spell);
+  const bs = find(g, 0, 'Brainstorm', 'graveyard');
+  eq([bs.tempFlashback, find(g, 0, 'Opt', 'graveyard').tempFlashback], [g.turn, g.turn], 'both gain flashback');
+  ok(await g.cast(P(g, 0), bs, { alt: 'flashback' }), 'Brainstorm cast for {U}'); await settle(g);
+  eq(bs.zone, 'exile', 'exiled after');
+  const g2 = await scenario([{ battlefield: ['Lier, Disciple of the Drowned', 'Island'], graveyard: ['Brainstorm'] }, {}]);
+  g2.active = 0; g2.phase = 'main1';
+  const b2 = find(g2, 0, 'Brainstorm', 'graveyard');
+  ok(await g2.cast(P(g2, 0), b2, { alt: 'flashback' }), 'Lier: cast from the graveyard for {U}'); await settle(g2);
+  eq(b2.zone, 'exile', 'exiled after');
+});
+await test('Harmonized Crescendo draws per permanent of the chosen type', async () => {
+  const g = await scenario([{ battlefield: ['Llanowar Elves', 'Elvish Mystic', 'Elvish Archdruid'], hand: ['Harmonized Crescendo'] }, {}]);
+  const s = find(g, 0, 'Harmonized Crescendo', 'hand');
+  const h = P(g, 0).hand.length;
+  await resolveEffects(g, 0, s, s.fx.spell);
+  eq(P(g, 0).hand.length - h, 3, 'three Elves: three cards');
+});
+for (const name of ['Magic Damper', 'Octopus Form']) {
+  await test(`${name} pumps, gives hexproof and untaps a creature you control`, async () => {
+    const g = await scenario([{ battlefield: ['Grizzly Bears'], hand: [name] }, {}]);
+    const b = find(g, 0, 'Grizzly Bears'); b.tapped = true;
+    const s = find(g, 0, name, 'hand');
+    await resolveEffects(g, 0, s, s.fx.spell, [tgtObj(b)]);
+    eq([b.tapped, has(b, 'hexproof'), b.tempP], [false, true, 1], 'untapped, hexproof, +1');
+  });
+}
+await test('Loyal Apprentice: the Thopter gains haste when you control your commander; none without', async () => {
+  for (const [commander, want] of [["Atraxa, Praetors' Voice", [1, true]], [null, [0, false]]]) {
+    const g = await scenario([{ battlefield: ['Loyal Apprentice'], commander: commander || undefined }, {}]);
+    const s = find(g, 0, 'Loyal Apprentice');
+    await resolveEffects(g, 0, s, s.fx.watch.find(x => x.ev === 'begCombat').effects);
+    const t = P(g, 0).battlefield.filter(o => o.token);
+    eq([t.length, t.length > 0 && t.every(o => has(o, 'haste') && g.has(o, 'flying'))], want, commander ? 'with commander' : 'without');
+  }
+});
+await test('Howlsquad Heavy\'s token must attack this combat', async () => {
+  const g = await scenario([{ battlefield: ['Howlsquad Heavy'] }, {}]);
+  const s = find(g, 0, 'Howlsquad Heavy');
+  await resolveEffects(g, 0, s, s.fx.watch.find(x => x.ev === 'begCombat').effects);
+  const t = P(g, 0).battlefield.find(o => o.token);
+  eq(t?.mustAttack27, g.turn, 'must attack this turn');
+});
+
 // ---------------------------------------------------------------------------------------------------------- report
 const failed = results.filter(([, e]) => e);
 for (const [name, e] of results) console.log(`${e ? 'FAIL' : 'ok  '} ${name}${e ? `\n       ${e.stack?.split('\n').slice(0, 3).join('\n       ')}` : ''}`);

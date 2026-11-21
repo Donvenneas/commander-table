@@ -49,6 +49,8 @@ jobs:
         run: node tests/mechanics.mjs
       - name: Phase 2E repairs of the Phase 2C defects (rules 26: targets, punishers, searches, copies, granted triggers, combat limits)
         run: node tests/repairs.mjs
+      - name: Phase 2F completions of partly simulated cards (rules 27: follow-up sentences, channel costs, counter destinations, chosen colors and types)
+        run: node tests/completions.mjs
       - name: Replay exactness (saved card data and combos, isolation, old replay files)
         run: node tests/replay.mjs
       - name: Loops of triggers (endless loops, loops that end, optional loops, priority, responsiveness)
