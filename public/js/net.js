@@ -5,10 +5,11 @@ import { roleChip } from './kingdomsPlay.js';
 import { unproxy, esc } from './util.js';
 
 const post = (url, body) => fetch(url, { method: 'POST', body: typeof body === 'string' ? body : JSON.stringify(body) });
-const plain = html => { const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
+// (outside a page, in the tests: tags are cut out instead)
+const plain = html => { if (typeof document === 'undefined') return String(html).replace(/<[^>]+>/g, ''); const d = document.createElement('div'); d.innerHTML = html; return d.textContent; };
 
 export class Room {
-  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; /** @type {any} */ this.presence = null; }
+  constructor() { this.code = null; this.keys = {}; this.port = 0; this.ips = []; this.seats = []; /** @type {any} */ this.presence = null; /** @type {any} */ this.sendQ = null; }
   // A seat's join code: its own secret key, then the seat number (spectators: 0), like "K7Q2XF9ABM-2".
   // Each seat has its own key, so changing the seat number in a link doesn't open another player's hand.
   joinCode(seat) { return `${this.keys[seat] || ''}-${seat + 1}`; }
@@ -68,7 +69,12 @@ export class Room {
     this.keys[seat] = (await r.json()).key;
     return this.keys[seat];
   }
-  state(seat, snap) { return post(`/api/room/state?seat=${seat}`, snap).catch(() => {}); }
+  // (Phase 2J) One seat's views are sent one after the other, never two at once: a view that was slow to send can't
+  // arrive after a newer one and replace it on the server
+  state(seat, snap) {
+    const q = this.sendQ ||= {};
+    return (q[seat] = (q[seat] || Promise.resolve()).then(() => post(`/api/room/state?seat=${seat}`, snap)).catch(() => {}));
+  }
   ask(seat, q) { return post(`/api/room/ask?seat=${seat}`, q).catch(() => {}); }
   async answer(seat) { try { return await (await fetch(`/api/room/answer?seat=${seat}`)).json(); } catch { return null; } }
 }
@@ -83,8 +89,30 @@ export const TURN_CLOCKS = {
   relaxed: { label: 'Relaxed (3 minutes a turn, up to 15)', add: 180, cap: 900 },
   tournament: { label: 'Tournament (2 minutes a turn, up to 10)', add: 120, cap: 600 },
 };
+// What happens to a friend's seat when their page stops checking in (Phase 2J). These are this game's own table rules,
+// not Magic rules: the rules only know concession (104.3a). A dropped connection is never a concession by itself.
+//   ai       the AI answers for them until they reopen their link (the default, as before)
+//   wait     the game waits for them, up to the time for each decision; then the AI answers that one decision
+//   concede  the AI answers for them; after `min` minutes away in a row they concede (their seat leaves the game)
+export const DROP_POLICIES = {
+  ai: { label: 'The AI plays for them until they are back' },
+  wait: { label: 'Wait for them (up to the time for each decision)' },
+  concede5: { label: 'The AI plays; after 5 minutes away they concede', min: 5 },
+  concede15: { label: 'The AI plays; after 15 minutes away they concede', min: 15 },
+};
+// The answer given for a seat nobody is answering for: "Let the AI…" when offered, otherwise the main button
+export function defaultPick(buttons = []) {
+  const ai = buttons.findIndex(b => /AI/.test(b.label));
+  const main = buttons.findIndex(b => b.primary);
+  const pick = buttons[ai >= 0 ? ai : main >= 0 ? main : 0];
+  return { button: pick ? pick.value : 'pass' };
+}
 export class RemoteUI {
-  constructor(room, seat, timeoutSec = 120, clockMode = 'off') {
+  constructor(room, seat, timeoutSec = 120, clockMode = 'off', drop = 'ai') {
+    this.drop = DROP_POLICIES[drop] ? drop : 'ai';
+    this.awaySince = 0;
+    /** @type {number | undefined} milliseconds between checks for their answer (the tests shorten it) */ this.poll = undefined;
+    this.wantConcede = false;
     this.room = room; this.seat = seat; this.timeout = timeoutSec; this.n = 0; this.view = null; this.waiting = false; this.offline = false; this.record = []; this.pos = 0;
     this.clockMode = TURN_CLOCKS[clockMode]?.add ? clockMode : 'off';
     // (the bank starts with one turn's worth)
@@ -112,24 +140,54 @@ export class RemoteUI {
     if (this.replayOnly) return;
     const s = this.room.seen(this.seat);
     const off = s < 0 ? this.offline : s > 12;
+    const name = this.game?.players[this.seat]?.name || `Seat ${this.seat + 1}`;
+    // (the table's disconnect rule: away for this long in a row counts as conceding)
+    const min = DROP_POLICIES[this.drop].min;
+    const me = this.game?.players[this.seat];
+    if (off && min && this.awaySince && !this.wantConcede && me && !me.lost && !me.conceded && !this.game.over && this.now() - this.awaySince >= min * 60000) {
+      this.game.log(`${esc(name)} has been away for ${min} minutes: they concede (this table's disconnect rule)`, { kind: 'minor' });
+      this.concede();
+    }
     if (off === this.offline) return;
     this.offline = off;
-    const name = this.game?.players[this.seat]?.name || `Seat ${this.seat + 1}`;
-    this.game?.log(off ? `${esc(name)} has disconnected; the AI plays for them until they rejoin with the same link` : `${esc(name)} is back`, { kind: 'minor' });
+    this.awaySince = off ? this.now() : 0;
+    this.game?.log(off ? `${esc(name)} has disconnected; ${this.drop === 'wait' ? 'the game waits for them at their decisions' : 'the AI plays for them until they rejoin with the same link'}` : `${esc(name)} is back`, { kind: 'minor' });
     this.game?.emit('update');
+  }
+  now() { return Date.now(); }
+  // The friend concedes (their own button, or the disconnect rule): it takes effect at their next decision, where it
+  // is recorded in place of an answer, so a replay concedes at the same moment
+  concede() {
+    const me = this.game?.players[this.seat];
+    if (!me || me.lost || me.conceded || this.game.over || this.replayOnly) return false;
+    this.wantConcede = true;
+    this.game.emit('update');
+    return true;
   }
   attach(game) { this.game = game; this.cancelled = false; }
   cancel() { this.cancelled = true; }
   key() { return false; }
   async ask(text, { buttons = [], objs = [], players = [] } = {}) {
     const objMap = new Map(objs.map(o => [o.iid, o]));
+    // (a seat that has conceded is asked nothing more: its remaining choices get the default answer)
+    const me = this.game?.players?.[this.seat];
+    if (me?.conceded) return defaultPick(buttons);
     if (this.replaying) {
       const a = this.record[this.pos++];
+      if (a.c != null) { this.game.concede(me); return defaultPick(buttons); }
       return a.o != null ? { obj: objMap.get(a.o) || this.game.objects.get(a.o) } : a.pl != null ? { player: a.pl } : { button: buttons[a.b]?.value ?? 'cancel' };
     }
     this.record.length = this.pos;
-    const v = await this.askLive(text, { buttons, objs, players });
+    const v = this.wantConcede ? { concede: true } : await this.askLive(text, { buttons, objs, players });
     if (this.cancelled) return v;
+    if (v.concede) {
+      this.wantConcede = false;
+      this.record.push({ c: this.seat });
+      this.pos++;
+      this.onRecord?.(this.seat, this.record.length - 1);
+      this.game.concede(me);
+      return defaultPick(buttons);
+    }
     this.record.push(v.obj ? { o: v.obj.iid } : v.player != null ? { pl: v.player } : { b: buttons.findIndex(b => b.value === v.button) });
     this.pos++;
     this.onRecord?.(this.seat, this.record.length - 1);
@@ -139,7 +197,7 @@ export class RemoteUI {
     // After an undo the rebuilt game runs fast up to the first live question, then plays normally
     const clock = this.game?.clock;
     if (clock?.untilLive) { clock.untilLive = false; clock.setPaused?.(false); }
-    if (this.offline) return this.aiPick(buttons);
+    if (this.offline && this.drop !== 'wait') return this.aiPick(buttons);
     // Turn clock: the decision may take whatever is left in the bank; an empty bank means the AI decides
     const banked = this.bank != null;
     if (banked && this.bank <= 0) {
@@ -155,9 +213,10 @@ export class RemoteUI {
     await this.room.ask(this.seat, q);
     const t0 = Date.now();
     let ans = null;
-    while (!this.cancelled && !this.offline && Date.now() - t0 < limit * 1000) {
-      await new Promise(r => setTimeout(r, 350));
+    while (!this.cancelled && !this.wantConcede && (!this.offline || this.drop === 'wait') && Date.now() - t0 < limit * 1000) {
+      await new Promise(r => setTimeout(r, this.poll ?? 350));
       const a = await this.room.answer(this.seat);
+      // (only the answer to the question that is waiting counts: an old or repeated answer has another id)
       if (a && a.id === id) { ans = a; break; }
     }
     if (banked) this.bank = Math.max(0, this.bank - (Date.now() - t0) / 1000);
@@ -166,6 +225,7 @@ export class RemoteUI {
     // The game was replaced (rewind, undo): leave the seat's question alone, the new game owns it now
     if (this.cancelled) return new Promise(() => {});
     await this.room.ask(this.seat, null);
+    if (this.wantConcede) return { concede: true };
     if (!ans) {
       // Timed out or disconnected: let the AI decide
       if (!this.offline) this.game?.log(banked ? `${esc(this.game.players[this.seat].name)}'s time bank ran out: the AI decides for them until their next turn` : `${esc(this.game.players[this.seat].name)} took too long, so the AI decides for them`, { kind: 'minor' });
@@ -206,12 +266,7 @@ export class RemoteUI {
     if ([...pool.values()].some(p => p.n !== 0) || main.reduce((a, c) => a + c.qty, 0) < minMain) return null;
     return { ...deck, cards: main, sideboard: side };
   }
-  aiPick(buttons) {
-    const ai = buttons.findIndex(b => /AI/.test(b.label));
-    const main = buttons.findIndex(b => b.primary);
-    const pick = buttons[ai >= 0 ? ai : main >= 0 ? main : 0];
-    return { button: pick ? pick.value : 'pass' };
-  }
+  aiPick(buttons) { return defaultPick(buttons); }
 }
 
 // Drafting with friends (item 136): a friend's pick from a pack over the room channel. Returns the card, or null when
@@ -233,8 +288,16 @@ export async function askDraftPick(room, seat, pack, picks, label, timeout = 90)
   return ans ? pack.find(c => c.name === ans.draftPick) || null : null;
 }
 
-// One seat's view of the table: everything public, plus that player's own hand
+// One seat's view of the table: everything public, plus that player's own hand.
+// (Phase 2J) What a view never holds: another player's hand (only how many cards), any library's cards or order (only
+// how many), a face-down permanent's or face-down exiled card's name (except for its controller or owner). Every view
+// has a revision number that only goes up, across games and rewinds: a friend's page drops a view older than the one
+// it shows. Graveyards and face-up exiled cards are public and are listed by name.
+let viewRev = 0;
 export function snapshot(g, seat) {
+  viewRev = Math.max(viewRev + 1, Date.now());
+  // (a card exiled face down, or foretold, is known only to its owner)
+  const exName = (o, p) => ((o.faceDown || o.foretold != null || o.hiddenExile) && !(p.idx === seat || seat === -2) ? null : o.card.name);
   // (seat -2 is the streamer view, item 142: every hand and face-down card, sent to it only after a delay)
   const all = seat === -2;
   // (friends load images from Scryfall themselves: the host's image cache isn't reachable from their side)
@@ -251,9 +314,18 @@ export function snapshot(g, seat) {
     ...(o.faceDown ? { faceDown: true, ...(o.controller === seat || all ? { peek: o.faceCard.name } : {}) } : {}),
   });
   return {
+    rev: viewRev, rules: g.rules, draw: !!g.over && !g.winner && !(g.winners || []).length,
+    // who has priority right now (null: nobody is being asked), and for which stack object
+    priority: g.prio && !g.over ? g.prio.holder : null, prioritySid: g.prio && !g.over ? g.prio.sid : null,
     seat, turn: g.turn, round: g.round, phase: g.phase, active: g.active, over: g.over, winner: g.winner?.idx ?? null, winners: (g.winners || []).map(w => w.idx), archenemy: g.archenemy,
     players: g.players.map(p => ({
       idx: p.idx, name: p.name, color: p.color, deckName: p.deckName, life: p.life, lost: p.lost, lossReason: p.lossReason,
+      place: p.place ?? null, poison: p.poison || 0,
+      // (conceded, or about to: a concession takes effect at the seat's next decision)
+      conceded: !!p.conceded || p.agent.ui?.wantConcede === true || p.agent.ui?.wantConcede === p.idx,
+      // a friend's seat whose page has stopped checking in (the table's disconnect rule is playing for them)
+      offline: !!p.agent.ui?.offline && !p.agent.ui?.replayOnly,
+      graveyardCards: p.graveyard.map(o => o.card.name), exileCards: p.exile.map(o => exName(o, p)),
       art: unproxy(p.command[0]?.card.art || p.art || ''),
       hand: p.idx === seat || all ? p.hand.map(o => card(o)) : p.hand.length,
       library: p.library.length, graveyard: p.graveyard.length, exile: p.exile.length,
@@ -270,7 +342,7 @@ export function snapshot(g, seat) {
     // How many times the host has nudged this seat (the friend page beeps when it goes up)
     nudges: g.players[seat]?.agent.ui?.nudges || 0,
     cmdLimit: g.format?.cmdDamage || 21,
-    stack: g.stack.map(it => ({ name: it.o.card.name, img: unproxy(it.o.card.imgNormal || ''), who: it.p.name, color: it.p.color, ability: !!it.ability, label: it.label || '', kind: it.kind || (it.ability ? 'ability' : 'spell') })),
+    stack: g.stack.map(it => ({ sid: it.sid ?? null, controller: it.p.idx, name: it.o.card.name, img: unproxy(it.o.card.imgNormal || ''), who: it.p.name, color: it.p.color, ability: !!it.ability, label: it.label || '', kind: it.kind || (it.ability ? 'ability' : 'spell') })),
     log: g.logEntries.filter(e => e.kind !== 'why').slice(-60).map(e => ({ text: plain(e.html), kind: e.kind, color: e.p != null ? g.players[e.p].color : null })),
     chat: (g.chat || []).slice(-8),
   };

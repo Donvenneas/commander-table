@@ -36,6 +36,14 @@ Pass means:
 Outside services (Scryfall, EDHTop16, Commander Spellbook, Archidekt) can be down for a while; a failure in only those rows
 is not caused by your change. Say so in your report rather than calling it a pass.
 
+After a change to the interface (`ui.js`, `human.js`, `main.js`, `style.css`, `index.html`), also open
+http://localhost:8777/uitest.html?run (about 60-90 s; the browser pane's script calls time out after 45 s, so read
+`#summary` in a second call). Pass means "N passed, 0 failed"; "Online seats" is "not run" by design.
+
+Other browsers (Phase 2O): `node tests/browsers.mjs chrome "C:\Program Files\Google\Chrome\Application\chrome.exe"` and
+`node tests/browsers.mjs firefox "C:\Program Files\Mozilla Firefox\firefox.exe"` run both pages headless in that browser with a
+throwaway profile (a few minutes each). Never Edge.
+
 ## 3. Targeted games for the change
 
 The self-test uses the four built-in cEDH decks. When the change touches specific cards, formats or AI behavior, run

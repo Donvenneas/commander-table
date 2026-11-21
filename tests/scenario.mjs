@@ -71,3 +71,41 @@ export async function settle(g) {
   }
   await g.sba();
 }
+
+// ---------- event recorder (Phase 2O): what happened, in order, so a test checks the sequence and not only the end
+// state. Events: cast, push (onto the stack, with the depth it went in at), pop (off the stack; `top` says whether it
+// was the top object), move (zone changes through Game.move), enter, damage (to a player: amount, source, combat or
+// not), hit (damage to a permanent), life (every life change), sba (a state-based-actions pass began).
+// A spell dealing damage wrongly and a separate scripted life change "fixing" the total shows up as the wrong events.
+export function record(g) {
+  const ev = [];
+  const nm = iid => g.objects.get(iid)?.card.name;
+  g.on('move', d => ev.push({ t: 'move', name: nm(d.iid), iid: d.iid, from: d.from, to: d.to }));
+  g.on('life', d => ev.push({ t: 'life', p: d.p, d: d.d }));
+  g.on('cast', d => ev.push({ t: 'cast', name: d.o.card.name, p: d.p.idx }));
+  g.on('enter', o => ev.push({ t: 'enter', name: o.card.name }));
+  g.on('hit', d => ev.push({ t: 'hit', name: nm(d.iid), n: d.n }));
+  const dp = g.damagePlayer.bind(g);
+  g.damagePlayer = (q, n, src, combat) => { ev.push({ t: 'damage', to: q.idx, n, src: src?.card?.name, combat: !!combat }); return dp(q, n, src, combat); };
+  const sba = g.sba.bind(g);
+  g.sba = (...a) => { ev.push({ t: 'sba' }); return sba(...a); };
+  const st = g.stack;
+  const label = it => it?.name || it?.o?.card?.name || '?';
+  st.push = (...items) => { for (const it of items) ev.push({ t: 'push', name: label(it), depth: st.length }); return Array.prototype.push.apply(st, items); };
+  st.splice = (i, n, ...add) => {
+    const before = st.length;
+    const gone = Array.prototype.splice.call(st, i, n, ...add);
+    gone.forEach((it, k) => ev.push({ t: 'pop', name: label(it), top: i + k === before - 1 }));
+    return gone;
+  };
+  return ev;
+}
+// The events as short lines, for failure messages
+export const evText = ev => ev.filter(e => e.t !== 'sba').map(e => (e.t === 'move' ? `move ${e.name} ${e.from}→${e.to}` : e.t === 'damage' ? `damage ${e.n} to P${e.to + 1} from ${e.src}${e.combat ? ' (combat)' : ''}` : e.t === 'life' ? `life P${e.p + 1} ${e.d > 0 ? '+' : ''}${e.d}` : e.t === 'hit' ? `hit ${e.name} ${e.n}` : e.t === 'pop' ? `pop ${e.name}${e.top ? '' : ' (not top)'}` : `${e.t} ${e.name ?? ''}`)).join('; ');
+// Do events matching these tests happen in this order (others may come between)? Returns the index of the first
+// test not found, or -1 when they all were.
+export function inOrder(ev, ...tests) {
+  let k = 0;
+  for (const e of ev) if (k < tests.length && tests[k](e)) k++;
+  return k === tests.length ? -1 : k;
+}

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Commander Table · Card coverage</title>
+  <link rel="icon" href="favicon.ico">
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    body { overflow: auto; }
+    .cv { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
+    .cv h1 { font-size: 22px; margin: 0 0 6px; }
+    .cv .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 14px 0; }
+    .cv .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; text-align: left; color: var(--text); font: inherit; cursor: pointer; }
+    .cv .tile[aria-pressed="true"] { border-color: var(--accent); }
+    .cv .tile b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+    .cv .tile span { color: var(--muted); font-size: 12px; }
+    .cv .bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; gap: 2px; margin: 4px 0 16px; }
+    .cv .bar i { display: block; height: 100%; }
+    .cv .k-full { background: var(--good); } .cv .k-test { background: var(--accent); } .cv .k-part { background: var(--warn); }
+    .cv .k-bad { background: var(--bad); } .cv .k-none { background: var(--line-2); }
+    .cv .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+    .cv .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px 12px; margin: 10px 0; }
+    .cv .filters label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--muted); }
+    .cv .filters input, .cv .filters select { font: inherit; font-size: 14px; color: var(--text); background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; min-width: 0; }
+    .cv .colors { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+    .cv .colors label { flex-direction: row; align-items: center; gap: 4px; color: var(--text); font-size: 13px; }
+    .cv .count { margin: 8px 0; color: var(--muted); }
+    .cv .wrap { overflow-x: auto; }
+    .cv table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .cv td, .cv th { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    .cv th { color: var(--muted); font-weight: 600; position: sticky; top: 0; background: var(--bg); }
+    .cv td.num { font-variant-numeric: tabular-nums; color: var(--muted); }
+    .cv .ab { font-family: ui-monospace, Consolas, monospace; font-size: 12px; white-space: nowrap; }
+    .cv .ab .ok { color: var(--good); } .cv .ab .half { color: var(--warn); } .cv .ab .no { color: var(--bad); }
+    .cv .miss { color: var(--muted); max-width: 460px; }
+    .cv .pager { display: flex; gap: 8px; align-items: center; margin: 12px 0; flex-wrap: wrap; }
+    .cv .note { color: var(--muted); font-size: 13px; }
+    @media (max-width: 640px) { .cv .hide-sm { display: none; } }
+  </style>
+</head>
+<body>
+  <main class="cv">
+    <h1>Card coverage</h1>
+    <p class="muted">How well the game plays each of the most-played Commander cards, read by the game's own card reader and checked against its rules engine and tests. Made by <code>node tests/coverage.mjs --json public/data/coverage.json</code>; nothing here is estimated.</p>
+    <p><a class="btn ghost" href="/">Back to the game</a></p>
+    <div class="tiles" id="cvTiles"></div>
+    <div class="bar" id="cvBar" aria-hidden="true"></div>
+    <div class="filters">
+      <label>Card name or text it's missing<input id="cvSearch" type="search" placeholder="e.g. Sign in Blood"></label>
+      <label>Class<select id="cvClass"></select></label>
+      <label>Card type<select id="cvType"></select></label>
+      <label>Keyword or mechanic<select id="cvKeyword"></select></label>
+      <label>Ability not fully read<select id="cvAbility"></select></label>
+      <label>Rarity<select id="cvRarity"></select></label>
+      <label>Sort<select id="cvSort"><option value="rank">Most played first</option><option value="name">Name</option><option value="cmc">Mana value</option></select></label>
+      <label>Colors (identity)<span class="colors" id="cvColors"></span></label>
+    </div>
+    <p class="note">Set is not in the card snapshot the audit reads, so cards can't be filtered by set yet. Abilities: K keyword, T triggered, A activated, M mana, L loyalty, S static, P spell, R replacement, V prevention; <span class="ok">+</span> read, <span class="half">~</span> partly read, <span class="no">−</span> not read.</p>
+    <div class="count" id="cvCount" aria-live="polite"></div>
+    <div class="wrap">
+      <table>
+        <thead><tr><th>#</th><th>Card</th><th class="hide-sm">Type</th><th>Class</th><th class="hide-sm">Abilities</th><th>What is missing</th></tr></thead>
+        <tbody id="cvRows"></tbody>
+      </table>
+    </div>
+    <div class="pager"><button class="btn ghost" id="cvPrev">Previous</button><span id="cvPage"></span><button class="btn ghost" id="cvNext">Next</button></div>
+  </main>
+  <script type="module" src="js/coverage.js"></script>
+</body>
+</html>

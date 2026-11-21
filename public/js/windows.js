@@ -1,6 +1,7 @@
 // Help, What's new, Storage and card images windows (split out of main.js, Round 5 item 176)
-import { esc, store, storeSize, storeWhere, storeIsBig } from './util.js';
+import { esc, store, storeSize, storeWhere, storeIsBig, whenText, dayText, numText } from './util.js';
 import { prefs } from './prefs.js';
+import { askUser, notice } from './dialogs.js';
 import { loadDeck } from './decks.js';
 import { listDecks, commandersOf } from './library.js';
 import { bulkInfo, printsInfo } from './bulk.js';
@@ -70,6 +71,8 @@ async function showWhatsNew(auto = false) {
     const seen = prefs.seenVersion;
     prefs.seenVersion = whatsNew.version; store('ct.prefs', prefs);
     if (!seen || seen === whatsNew.version) return;
+    notice(`Updated to version ${whatsNew.version}: ${whatsNew.items.length} improvements in ${whatsNew.round}.`, { ms: 20000, action: { label: "What's new", run: () => showWhatsNew() } });
+    return;
   }
   $('whatsNewTitle').textContent = `What's new in ${whatsNew.version}`;
   $('whatsNewIntro').textContent = `${whatsNew.round}: ${whatsNew.items.length} improvements. The full list with every detail is in ROADMAP.md in the game folder.`;
@@ -106,11 +109,11 @@ export async function showStorage() {
     ${DBS.map(d => `<tr><td>${esc(d.label)}</td><td class="num">${esc((d.name === 'ct-bulk' ? bulkInfo() : printsInfo())?.count ? 'saved' : '–')}</td><td></td></tr>`).join('')}</tbody></table>
     <p class="muted">Small saved data: ${kb(total)} of the browser's roughly 5 MB for it${storeWhere() === 'IndexedDB' ? `; the larger records (history, deck learning, the unfinished game, card caches) are in IndexedDB, which has far more room: ${kb(big)}` : ''}.${est ? ` Everything this game's pages keep (with the card files and images the browser holds): ${kb(est.usage || 0)}.` : ''}</p>`;
 }
-$('storageBody').addEventListener('click', e => {
+$('storageBody').addEventListener('click', async e => {
   const b = e.target.closest('[data-clear]');
   if (!b) return;
   const g = STORAGE_GROUPS[+b.dataset.clear];
-  if (!g.cache && !confirm(`Clear "${g.label}"? This can't be undone.`)) return;
+  if (!g.cache && !await askUser(`Clear "${g.label}"? This can't be undone.`, { title: 'Clear saved records', confirm: 'Clear', danger: true })) return;
   for (const k of g.keys) store(k, null);
   try { for (const k of g.keys) localStorage.removeItem(k); } catch { /* blocked */ }
   showStorage();
@@ -119,7 +122,7 @@ $('storageBody').addEventListener('click', e => {
 export async function showImages(msg = '') {
   try {
     const r = await (await fetch('/api/imgcache')).json();
-    $('imgBody').textContent = `${r.files.toLocaleString()} images, ${(r.bytes / 1048576).toFixed(0)} MB of ${r.capMB >= 1000 ? `${(r.capMB / 1000).toFixed(1)} GB` : `${r.capMB} MB`}.${msg ? ` ${msg}` : ''}`;
+    $('imgBody').textContent = `${numText(r.files)} images, ${(r.bytes / 1048576).toFixed(0)} MB of ${r.capMB >= 1000 ? `${(r.capMB / 1000).toFixed(1)} GB` : `${r.capMB} MB`}.${msg ? ` ${msg}` : ''}`;
     $('imgCap').value = String(r.capMB);
     if (!$('imgCap').value) $('imgCap').insertAdjacentHTML('beforeend', `<option value="${r.capMB}" selected>${r.capMB} MB</option>`);
   } catch { $('imgBody').textContent = 'Restart Commander Table to see the image folder here.'; }

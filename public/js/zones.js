@@ -67,6 +67,16 @@ export function move(g, o, to, opts = {}) {
   if (from === 'battlefield' && (to === 'graveyard' || to === 'exile') && o.fx.godEternal && !o.token && !o.isCommander) { to = 'library'; opts = { ...opts, third: true }; g.log(`${g.cn(o)} is put into its owner's library third from the top`, { kind: 'minor' }); }
   }
   const died = from === 'battlefield' && to === 'graveyard' && o.fx.type.creature;
+  // (Phase 2D-1) The object as it last existed on the battlefield (608.2h, 603.10a): counters, power and toughness,
+  // types and keywords, kept on the card for "if it had counters on it", "its toughness was less than 1"; and every
+  // zone change made while a spell or ability resolves or its costs are paid (g.trail) for "if … this way"
+  if (from !== to && (g.trail || from === 'battlefield')) {
+    const lki = from === 'battlefield'
+      ? { counters: o.counters, named: { ...(o.named || {}) }, minus: !!o.hadMinus, power: g.power(o), toughness: g.toughness(o), types: { ...o.fx.type }, subtypes: [...o.fx.subtypes], kws: ['decayed', 'flying', 'deathtouch', 'lifelink', 'trample', 'haste'].filter(k => g.has(o, k)), controller: o.controller, token: !!o.token }
+      : { types: { ...o.fx.type }, subtypes: [...o.fx.subtypes], power: o.fx.type.creature ? g.power(o) : 0, toughness: o.fx.type.creature ? g.toughness(o) : 0 };
+    if (from === 'battlefield') o.lki = lki;
+    if (g.trail) g.trail.push({ o, from, to, ctl: from === 'battlefield' ? o.controller : o.owner, lki });
+  }
   // (item 206: "if you cast it" is about this stay on the stack and the battlefield only)
   if (to !== 'battlefield' && to !== 'stack') o.wasCast = false;
   // (the table animates draws, discards, deaths and exiles; it reads the card's spot before it moves)
@@ -85,6 +95,8 @@ export function move(g, o, to, opts = {}) {
     snap = { counters: o.counters, minus: !!o.hadMinus, controller: o.controller, blitzed: !!o.blitzed, granted };
     ctl.leftTurn = g.turn;
     for (const w of [...(o.fx.watch || []), ...(g.rules >= 7 ? o.fx.watch7 || [] : [])]) if (w.ev === 'ltb' || (w.ev === 'selfGy' && to === 'graveyard')) g.queue.push({ o, effects: w.effects, label: w.ev === 'ltb' ? 'leaves the battlefield' : 'put into a graveyard', p: ctl });
+    // (Phase 2E-4, rules 26) a "when this dies" trigger it gained this turn (Not Dead After All)
+    if (died && g.rules >= 26 && o.tempDies26?.turn === g.turn) { g.queue.push({ o, effects: [{ k: 'returnSelf', counters: o.tempDies26.counters || 0, tapped26: o.tempDies26.tapped }], label: 'dies (gained this turn)', p: ctl }); o.tempDies26 = null; }
     if (died) for (const a of g.attachments(o)) for (const w of a.fx.watch || []) if (w.ev === 'attachedDies') g.queue.push({ o: a, effects: w.effects, label: `${o.card.name} died`, p: g.players[a.controller], trig: { o, p: o.controller } });
     g.fire('leaveBf', { o, p: o.controller, ctl: o.controller, to });
     o.lastCounters = o.counters;
@@ -138,6 +150,8 @@ export function move(g, o, to, opts = {}) {
   if (o.bestowed && to !== 'battlefield') { o.bestowed = false; o.fx = o.card.fx; }
   if (o.reconfigured) { o.reconfigured = false; o.fx = o.card.fx; }
   if (o.roomUnlocked && from === 'battlefield') { o.roomUnlocked = false; o.fx = o.card.fx; }
+  // (Phase 2F-5, rules 27: an Enduring card returned as an enchantment is a creature card again elsewhere)
+  if (o.notCreature27 && from === 'battlefield') { o.notCreature27 = false; o.fx = o.card.fx; }
   if (o.mutBase && from === 'battlefield') g.unmerge(o, to);
   // (an adventure or the back of a modal double-faced card is the whole card again anywhere but the stack and battlefield)
   if (o.altFaceOn && to !== 'battlefield' && to !== 'stack') { g.mainFace(o); if (to !== 'exile') o.onAdventure = false; }
@@ -159,6 +173,8 @@ export function move(g, o, to, opts = {}) {
   o.zone = to;
   if (to === 'battlefield') {
     o.controller = opts.under ?? o.owner; g.players[o.controller].battlefield.push(o);
+    // (who it entered under, when that isn't its owner: read when that player leaves the game, 800.4a)
+    o.enteredUnder = o.controller !== o.owner ? o.controller : null;
     o.ts = ++g.tsN;
     // A battle enters with defense counters, and its controller chooses an opponent to protect it (310.4, 310.5)
     if (o.fx.type.battle && g.rules >= 5) g.battleEnters(o);
@@ -178,6 +194,8 @@ export function move(g, o, to, opts = {}) {
   }
   else if (to === 'library' && opts.bottom) p.library.unshift(o);
   else if (to === 'library' && opts.third) p.library.splice(Math.max(0, p.library.length - 2), 0, o);
+  // (Phase 2D-1: "Nth from the top"; with fewer cards it goes to the bottom, 401.7)
+  else if (to === 'library' && opts.fromTop) p.library.splice(Math.max(0, p.library.length - (opts.fromTop - 1)), 0, o);
   else p[to].push(o);
   if (to === 'library' && opts.shuffle) shuffle(p.library, g.rand);
   if (to === 'battlefield' && o.fx.type.land) {
@@ -233,6 +251,8 @@ export function bestType(g, p, cards = p.battlefield.filter(o => o.fx.type.creat
 /** @param {import('./engine.js').Game} g */
 export function entered(g, o) {
   const p = g.players[o.controller];
+  // (Phase 2F-1, rules 27: what an effect put onto the battlefield, for a following "they gain haste")
+  if (g.touched27) g.touched27.push(o);
   o.monstrous = false;
   // (rules 14) Replacement text this card has that the reader didn't read: said once a game, never applied approximately
   if (g.rules >= 14 && !g.sim) for (const x of R.replacementGaps(o.card, [...(o.fx.unread || []), ...droppedSentences(o.card)])) R.gap(g, o.card, x.line, x.why);
@@ -249,6 +269,17 @@ export function entered(g, o) {
     for (const c of [...p.battlefield, ...p.hand, ...p.library, ...p.command]) for (const col of c.card.colors || []) n[col] = (n[col] || 0) + 1;
     o.chosenColor = Object.entries(n).sort((a, b) => b[1] - a[1])[0]?.[0] || 'W';
   }
+  // (Phase 2F-7, rules 27) A land that chooses a color as it enters makes only that color (and its own, for a Thriving
+  // land): the commonest other color among its controller's cards; the land is its printed self again when it leaves
+  if (g.rules >= 27 && o.fx.chooseColor27 && o.fx.mana && !o.colorFx27) {
+    const not = o.fx.chooseColor27.not;
+    const n = {};
+    for (const c of [...p.battlefield, ...p.hand, ...p.library, ...p.command]) for (const col of c.card.colors || []) if (col !== not) n[col] = (n[col] || 0) + 1;
+    const pick = Object.entries(n).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] || ['W', 'U', 'B', 'R', 'G'].find(c => c !== not) || 'W';
+    o.chosenColor = pick; o.colorFx27 = true;
+    o.fx = { ...o.fx, mana: { ...o.fx.mana, colors: not ? [not, pick] : [pick] } };
+    g.log(`${g.cn(o)}: ${g.pn(p)} chooses ${({ W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green' })[pick]}`, { kind: 'minor' });
+  }
   if (o.fx.kwN?.bloodthirst && g.opponents(p).some(q => q.damagedTurn === g.turn)) o.counters += o.fx.kwN.bloodthirst;
   if (o.fx.echo) o.echoDue = true;
   if (o.fx.entersNamed) (o.named ||= {})[o.fx.entersNamed.kind] = o.fx.entersNamed.n === 'X' ? 0 : o.fx.entersNamed.n;
@@ -263,13 +294,20 @@ export function entered(g, o) {
     if (g.basePower(o.card) > g.power(e) || g.baseToughness(o.card) > g.toughness(e)) { e.counters++; g.log(`${g.cn(e)} evolves`, { kind: 'minor', rule: '702.100a' }); }
   }
   g.fire('enter', { o, p: p.idx });
-  if (o.token) g.fire('tokenMade', { o, p: p.idx });
+  if (o.token) {
+    // (item 389, rules 24) tokens created this turn, for "if you created a token this turn" and "X, where X is …"
+    if (p.tokensTurn?.turn !== g.turn) p.tokensTurn = { turn: g.turn, n: 0 };
+    p.tokensTurn.n++;
+    g.fire('tokenMade', { o, p: p.idx });
+  }
 }
 /** @param {import('./engine.js').Game} g */
 export function leaveBattlefield(g, o) {
   // A clone stops being a copy when it leaves (and a crewed vehicle stops being a creature)
   if (o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; }
   if (o.crewed) { o.fx = o.card.fx; o.crewed = false; }
+  // (Phase 2F-7: a land's chosen color is forgotten as it leaves)
+  if (o.colorFx27) { o.fx = o.card.fx; o.colorFx27 = false; }
   Object.assign(o, { tapped: false, damage: 0, deathtouched: false, counters: 0, tempP: 0, tempT: 0, tempKw: null, tempProt: null, attachedTo: null, attacking: null, blocking: null, blockedBy: [], blocked: false, stolenBy: null, stolenFrom: null, hadMinus: false, regen: 0, suspected: false, chosenType: null, permKw: null, animPT: null, goaded: null, dashed: false, blitzed: false, echoDue: false, kicked: false, chosenColor: null, level: null, exerted: false });
   // Whatever this permanent was holding on to goes back to the player it was taken from (or its owner)
   for (const q of g.players) for (const s of [...q.battlefield]) {
@@ -352,6 +390,19 @@ function draw14(g, p, n, quiet) {
     }
     if (count > 1) { for (let k = 0; k < count; k++) queue.unshift({ applied: new Set(ev.applied) }); continue; }
     if (capped && p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= 1) { g.log(`${g.pn(p)} can't draw more than one card this turn (Narset)`, { kind: 'minor' }); break; }
+    // (Phase 2D-8, rules 25) Abundance: the kind the hand lacks (a land when it has none and fewer than eight lands are
+    // out; a person gets nonland, as the choice isn't asked yet)
+    if (ev.instead === 'abundance') {
+      const lands = p.hand.filter(c => c.fx.type.land).length + p.battlefield.filter(c => c.fx.type.land).length;
+      const kind = !p.agent.human && p.hand.filter(c => c.fx.type.land).length === 0 && lands < 8;
+      const revealed = [];
+      let got = null;
+      while (p.library.length) { const c = p.library.pop(); if (!!c.fx.type.land === kind) { got = c; break; } revealed.push(c); }
+      if (got) { got.zone = 'library'; p.library.push(got); g.move(got, 'hand'); }
+      p.library.unshift(...revealed.reverse());
+      g.log(`${g.pn(p)} reveals cards until a ${kind ? 'land' : 'nonland'} card instead of drawing (Abundance)${got ? `: ${g.cn(got)}` : ''}; ${revealed.length} to the bottom`, { kind: 'minor' });
+      continue;
+    }
     if (ev.instead === 'lich' && p.library.length > 3) for (let k = 0; k < 2; k++) g.move(p.library[p.library.length - 2], 'graveyard');
     if (!drawCardNow(g, p, i++)) break;
     drawn++;
@@ -485,9 +536,11 @@ export function createToken(g, p, e, src) {
   if (p.battlefield.some(s => s.fx.tokenAngel)) e = { ...e, p: 4, t: 4, desc: 'white angel', kw: ['flying'] };
   const kw = e.kw || [];
   const sub = (e.desc || '').split(' ').filter(w => w && !['white', 'blue', 'black', 'red', 'green', 'colorless', 'and', 'legendary', 'artifact', 'enchantment'].includes(w));
-  const name = sub.map(w => w[0].toUpperCase() + w.slice(1)).join(' ') || 'Token';
+  const subName = sub.map(w => w[0].toUpperCase() + w.slice(1)).join(' ') || 'Token';
+  // (Phase 2D-4, rules 25: a token "named Lightning Rager" has that name; its creature types stay those in its words)
+  const name = g.rules >= 25 && e.name25 ? e.name25.split(' ').map((/** @type {string} */ w) => w[0].toUpperCase() + w.slice(1)).join(' ') : subName;
   const card = {
-    name, frontName: name, typeLine: `Token Creature — ${name}`, manaCost: '', cmc: 0, text: '',
+    name, frontName: name, typeLine: `Token Creature — ${subName}`, manaCost: '', cmc: 0, text: g.rules >= 26 && e.text26 ? e.text26 : '',
     power: String(e.p), toughness: String(e.t), keywords: kw.map(k => k[0].toUpperCase() + k.slice(1)), produced: [],
     art: src.card.art, colorIdentity: [], colors: [], isToken: true, fullText: kw.join(', '),
   };

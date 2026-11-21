@@ -22,7 +22,7 @@ $AllowedHosts = @(
 # (item 204) An honest client name for every site: the game never poses as a web browser
 $UA = 'CommanderTable/1.0 (local deck viewer; no browser)'
 # (item 201) What the game's pages may load and call: their own files, Scryfall, Commander Spellbook and MTGJSON
-$CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+$CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 # (item 202) The most a friend's page may send in one request (a 200,000-character decklist fits)
 $FriendBodyMax = 262144
 $Mime = @{
@@ -466,7 +466,10 @@ try {
         } elseif ($req.HttpMethod -eq 'POST') {
           $body = (New-Object IO.StreamReader($req.InputStream, [Text.Encoding]::UTF8)).ReadToEnd()
           if (-not (Test-Path $dir)) { New-Item -ItemType Directory $dir | Out-Null }
-          [IO.File]::WriteAllText((Join-Path $dir "$safe.txt"), $body, (New-Object Text.UTF8Encoding($false)))
+          # (Phase 2O) a temporary file swapped in, so a save that fails part way leaves the last saved deck whole
+          $dest = Join-Path $dir "$safe.txt"; $tmp = "$dest.tmp"
+          [IO.File]::WriteAllText($tmp, $body, (New-Object Text.UTF8Encoding($false)))
+          if (Test-Path -LiteralPath $dest) { [IO.File]::Replace($tmp, $dest, [NullString]::Value) } else { [IO.File]::Move($tmp, $dest) }
           Send-Response $ctx 200 'application/json' ([Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{ name = $safe } -Compress)))
         } elseif ($req.HttpMethod -eq 'DELETE') {
           $file = Join-Path $dir "$safe.txt"

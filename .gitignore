@@ -20,3 +20,4 @@ running-url.txt
 
 # Python bytecode
 __pycache__/
+tests/fuzz-failures/

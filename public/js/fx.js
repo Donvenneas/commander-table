@@ -15,7 +15,9 @@ function ensure() {
   addEventListener('resize', size);
   return true;
 }
-const calm = () => document.body.classList.contains('calm') || document.hidden;
+// (1.55.0) also when the system asks for reduced motion: script animations aren't covered by the stylesheet's rule
+export const motionOff = () => document.body.classList.contains('calm') || !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+const calm = () => motionOff() || document.hidden;
 
 function hexRgb(c) {
   const m = /^#?([0-9a-f]{6})$/i.exec((c || '').trim());
@@ -99,7 +101,7 @@ export const Fx = {
   },
   // Slow motes drifting over the table (the "magic in the air" layer)
   ambient(el, on = true) {
-    if (!on || calm()) { ambient = null; return; }
+    if (!on || calm() || document.body.classList.contains('less-motion')) { ambient = null; return; }
     if (!ensure()) return;
     ambient = { el, motes: Array.from({ length: 34 }, () => ({ x: Math.random(), y: Math.random(), s: 0.3 + Math.random() * 0.9, ph: Math.random() * TAU, c: Math.random() < 0.5 ? '150,180,255' : '255,210,140' })) };
     start();

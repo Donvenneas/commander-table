@@ -26,15 +26,14 @@ const spell = async (g, i, name, targets = []) => { const o = find(g, i, name, '
 const onStack = (g, i, name) => { const o = find(g, i, name, 'hand'); const item = { o, p: P(g, i), effects: [], targets: [] }; g.stack.push(item); return item; };
 
 if (arg !== '--scan') {
-  await test(200, 'Game.canCast says no to a sorcery on an opponent\'s turn', ['Divination', 'Island'], async () => {
-    const g = await scenario([{ battlefield: ['Island', 'Island', 'Island'], hand: ['Divination'] }, {}]);
-    g.active = 1; eq(!!g.canCast(P(g, 0), find(g, 0, 'Divination', 'hand')), false, 'castable');
-  });
+  // (200 and 212's Humility probes pass since rules 20, Phase 2O: they are tests/rules.mjs R03 and R22)
 
-  // ---------- 212: layers
-  await test(212, 'Humility + Glorious Anthem: Craterhoof Behemoth is a 2/2 with no abilities', ['Humility', 'Glorious Anthem', 'Craterhoof Behemoth'], async () => {
-    const g = await scenario([{ battlefield: ['Humility', 'Glorious Anthem', 'Craterhoof Behemoth'] }, {}]);
-    const c = find(g, 0, 'Craterhoof Behemoth'); eq([g.power(c), g.toughness(c), g.has(c, 'trample'), g.has(c, 'haste')], [2, 2, false, false], 'power / toughness / trample / haste');
+  // ---------- 212: layers (Humility is done; dependency in layer 4 is not)
+  await test(212, 'Blood Moon + Urborg: Urborg is a Mountain with no abilities, so an Island taps only for blue', ['Blood Moon', 'Urborg, Tomb of Yawgmoth', 'Island'], async () => {
+    const g = await scenario([{ battlefield: ['Blood Moon', 'Urborg, Tomb of Yawgmoth', 'Island'] }, {}]);
+    g.active = 0;
+    ok(g.tapForMana(P(g, 0), find(g, 0, 'Island')), 'Island tapped');
+    eq(P(g, 0).pool.map(u => u.colors.join('')), ['U'], 'mana from the Island');
   });
   console.log(out.join('\n'));
   console.log(`\nAudit probes: ${out.length} run, ${failed} still failing.`);

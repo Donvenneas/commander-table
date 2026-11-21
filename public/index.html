@@ -2,65 +2,103 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Commander Table</title>
   <link rel="icon" href="favicon.ico">
+  <link rel="preload" href="fonts/inter.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="fonts/cinzel.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <header class="topbar">
+  <a class="skip-link" href="#table">Skip to the table</a>
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z"/></symbol>
+    <symbol id="i-resume" viewBox="0 0 24 24"><path d="M5 12a7 7 0 1 0 2.2-5.1M5 4v4h4"/></symbol>
+    <symbol id="i-learn" viewBox="0 0 24 24"><path d="M12 6.5C10 5 7 4.5 4 5v13c3-.5 6 0 8 1.5 2-1.5 5-2 8-1.5V5c-3-.5-6 0-8 1.5zM12 6.5v13"/></symbol>
+    <symbol id="i-story" viewBox="0 0 24 24"><path d="M7 4h10a2 2 0 0 1 2 2v11a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V6a2 2 0 0 1 2-2zM9 9h6M9 13h6"/></symbol>
+    <symbol id="i-expedition" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M15.5 8.5l-2 5-5 2 2-5z"/></symbol>
+    <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M12 3l9 9-9 9-9-9z"/><path d="M12 8l4 4-4 4-4-4z"/></symbol>
+    <symbol id="i-draft" viewBox="0 0 24 24"><rect x="5" y="7" width="10" height="13" rx="1.5"/><path d="M9 4h8.5A1.5 1.5 0 0 1 19 5.5V17"/></symbol>
+    <symbol id="i-tabletop" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="1.5"/><path d="M12 5v14M3.5 12h17"/></symbol>
+    <symbol id="i-kingdoms" viewBox="0 0 24 24"><path d="M4 19h16M4.5 15.5l-1-8.5 5 4 3.5-6 3.5 6 5-4-1 8.5z"/></symbol>
+    <symbol id="i-builder" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="M12 8.5v7M8.5 12h7"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M5 4h3v16H5zM10 4h3v16h-3zM15.2 6l2.9-.8 3.4 13-2.9.8z"/></symbol>
+    <symbol id="i-progress" viewBox="0 0 24 24"><path d="M8 4h8v5a4 4 0 0 1-8 0zM8 6H5a3 3 0 0 0 3 4M16 6h3a3 3 0 0 1-3 4M12 13v4M8.5 20h7M10 17h4"/></symbol>
+    <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M9.6 9.5a2.5 2.5 0 1 1 3.6 2.3c-.8.5-1.2 1-1.2 2M12 17v.2"/></symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 12h3M11 12h9M4 17h12"/><circle cx="16" cy="7" r="2"/><circle cx="9" cy="12" r="2"/><circle cx="18" cy="17" r="2"/></symbol>
+    <symbol id="i-updates" viewBox="0 0 24 24"><path d="M12 4v11M7.5 11l4.5 4.5 4.5-4.5M5 19.5h14"/></symbol>
+    <symbol id="i-full" viewBox="0 0 24 24"><path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></symbol>
+    <symbol id="i-look" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></symbol>
+  </svg>
+    <header class="topbar">
     <div class="brand">
-      <svg viewBox="0 0 24 24" class="logo" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="currentColor" stroke-width="1.4"/></svg>
+      <svg viewBox="0 0 24 24" class="logo" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="none" stroke="currentColor" stroke-width=".8"/><path d="M12 5l6.66 4.84-2.55 7.82H7.89L5.34 9.84z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/><path d="M12 5v7M18.66 9.84 12 12M16.11 17.66 12 12M7.89 17.66 12 12M5.34 9.84 12 12" stroke="currentColor" stroke-width=".6" opacity=".6"/><circle class="pw" cx="12" cy="5" r="1.7"/><circle class="pu" cx="18.66" cy="9.84" r="1.7"/><circle class="pb" cx="16.11" cy="17.66" r="1.7"/><circle class="pr" cx="7.89" cy="17.66" r="1.7"/><circle class="pg" cx="5.34" cy="9.84" r="1.7"/></svg>
       <span>Commander Table</span>
       <span class="tag">AI playtester</span>
+      <span id="netChip" class="net-chip" role="status" hidden title="Scryfall can't be reached: saved cards, decks and pictures still work">Offline</span>
     </div>
     <div class="turninfo">
       <span id="turnLabel" class="turn-label">Not started</span>
       <div id="phaseTrack" class="phase-track"></div>
     </div>
-    <div class="controls">
-      <button id="btnMenu" class="btn ghost" title="The start menu">Menu</button>
-      <button id="btnDecks" class="btn ghost">Decks</button>
-      <button id="btnBatch" class="btn ghost" title="Run many games at full speed and compare the decks">Batch</button>
-      <button id="btnTourney" class="btn ghost" title="Pit more than four decks against each other in pods">Tournament</button>
-      <button id="btnCup" class="btn ghost" title="A tournament for you and friends (Swiss or single elimination), with AI players to fill the field">Friend tournament</button>
-      <button id="btnTheme" class="btn ghost" title="Switch between dark and light">☀</button>
+    <span class="ctl-group ctl-sys" role="group" aria-label="Settings">
+      <button id="btnTheme" class="btn ghost" title="Switch between dark and light" aria-label="Switch between dark and light">☀</button>
+      <button id="btnFull" class="btn ghost" title="Full screen" aria-label="Full screen" aria-pressed="false"><svg class="ico" aria-hidden="true"><use href="#i-full"/></svg></button>
       <button id="btnDisplay" class="btn ghost" title="Board background, colors for color blindness, larger text">Display</button>
-      <button id="btnHistory" class="btn ghost" title="Results of every game you've played">History</button>
-      <button id="btnProgress" class="btn ghost" title="Ranked ladder, daily and weekly challenges, rival decks and badges">Progress</button>
-      <button id="btnPlay" class="btn primary" disabled>Start</button>
-      <button id="btnStep" class="btn" disabled title="Advance one action while paused">Step</button>
-      <label class="speed" title="Game speed">
-        <span>Speed</span>
-        <input id="speed" type="range" min="0" max="4" step="1" value="2">
-      </label>
-      <label class="switch" title="Show every player's hand">
-        <input type="checkbox" id="revealHands"><span>Reveal hands</span>
-      </label>
-      <label class="switch" title="The log explains why each AI made its plays (this can reveal cards in their hands and what they tutored for)">
-        <input type="checkbox" id="explainMode"><span>Explain</span>
-      </label>
-      <label class="switch" title="Enlarge the active player's board and keep it in view">
-        <input type="checkbox" id="followMode"><span>Follow</span>
-      </label>
-      <button id="btnStops" class="btn ghost small" title="Where the game stops for you when you play a seat: steps to stop at, Full control, trigger order">⏸ Stops</button>
-      <label class="switch" title="Sound effects and background music (the music swells into a battle theme during combat)">
-        <input type="checkbox" id="soundOn"><span>Sound</span>
-      </label>
       <button id="btnExit" class="btn ghost danger" title="Stop the game and shut down the local server">Exit</button>
+    </span>
+    <div class="controls" role="toolbar" aria-label="Game controls">
+      <span class="ctl-group" role="group" aria-label="Windows">
+        <button id="btnMenu" class="btn ghost" title="The start menu">Menu</button>
+        <button id="btnDecks" class="btn ghost">Decks</button>
+        <button id="btnBatch" class="btn ghost" title="Run many games at full speed and compare the decks">Batch</button>
+        <span class="menu">
+          <button class="btn ghost menu-btn" id="menuTools" aria-haspopup="menu" aria-expanded="false" title="Tournaments and your game history">More</button>
+          <div class="menu-list" role="menu" aria-labelledby="menuTools" hidden>
+          <button id="btnTourney" class="btn ghost" title="Pit more than four decks against each other in pods">Tournament</button>
+          <button id="btnCup" class="btn ghost" title="A tournament for you and friends (Swiss or single elimination), with AI players to fill the field">Friend tournament</button>
+          <button id="btnHistory" class="btn ghost" title="Results of every game you've played">History</button>
+          </div>
+        </span>
+        <button id="btnProgress" class="btn ghost" title="Ranked ladder, daily and weekly challenges, rival decks and badges">Progress</button>
+      </span>
+      <span class="ctl-group" role="group" aria-label="Game">
+        <button id="btnPlay" class="btn primary" disabled>Start</button>
+        <button id="btnStep" class="btn" disabled title="Advance one action while paused">Step</button>
+        <label class="speed" title="Game speed">
+          <span>Speed</span>
+          <input id="speed" type="range" min="0" max="4" step="1" value="2">
+        </label>
+      </span>
+      <span class="ctl-group" role="group" aria-label="View">
+        <label class="switch" title="Show every player's hand">
+          <input type="checkbox" role="switch" id="revealHands"><span>Reveal hands</span>
+        </label>
+        <label class="switch" title="The log explains why each AI made its plays (this can reveal cards in their hands and what they tutored for)">
+          <input type="checkbox" role="switch" id="explainMode"><span>Explain</span>
+        </label>
+        <label class="switch" title="Enlarge the active player's board and keep it in view">
+          <input type="checkbox" role="switch" id="followMode"><span>Follow</span>
+        </label>
+        <button id="btnStops" class="btn ghost small" title="Where the game stops for you when you play a seat: steps to stop at, Full control, trigger order"><span aria-hidden="true">⏸ </span>Stops</button>
+        <label class="switch" title="Sound effects and background music (the music swells into a battle theme during combat)">
+          <input type="checkbox" role="switch" id="soundOn"><span>Sound</span>
+        </label>
+      </span>
     </div>
   </header>
 
-  <div id="timeline" class="timeline" hidden>
-    <button id="tlStart" class="btn small" title="Back to the start of the game">⏮</button>
-    <button id="tlPrev" class="btn small" title="Previous turn">◀ Turn</button>
+  <div id="timeline" class="timeline" role="toolbar" aria-label="Game timeline" hidden>
+    <button id="tlStart" class="btn small" title="Back to the start of the game" aria-label="Back to the start of the game">⏮</button>
+    <button id="tlPrev" class="btn small" title="Previous turn" aria-label="Previous turn">◀ Turn</button>
     <input id="tlRange" type="range" min="0" max="0" value="0" aria-label="Game timeline">
-    <button id="tlNext" class="btn small" title="Skip to the next turn">Turn ▶</button>
-    <button id="tlEnd" class="btn small" title="Skip to the end of the game">⏭</button>
+    <button id="tlNext" class="btn small" title="Skip to the next turn" aria-label="Next turn">Turn ▶</button>
+    <button id="tlEnd" class="btn small" title="Skip to the end of the game" aria-label="Skip to the end of the game">⏭</button>
     <button id="tlTakeover" class="btn small" title="What if: take over an AI seat from this point and play on (Save replay first to keep the original game)">Take over…</button>
     <span id="tlTakeoverMenu" class="takeover-menu" hidden></span>
     <span id="tlLabel" class="tl-label muted"></span>
-    <button id="tlUndo" class="btn small" title="Undo your last decision (U)" hidden>↶ Undo</button>
+    <button id="tlUndo" class="btn small" title="Undo your last decision (U)" aria-label="Undo your last decision" hidden>↶ Undo</button>
+    <button id="tlConcede" class="btn small ghost" title="Concede: your seat leaves the game and the others play on" hidden>Concede</button>
     <button id="tlInvite" class="btn small primary" title="Links for friends to join or watch this game">Invite</button>
     <button id="btnSaveReplay" class="btn small ghost" title="Download this game as a replay file">Save replay</button>
     <button id="btnReport" class="btn small ghost" title="Save a problem report (this game's replay, the log, the version and recent errors) to share by hand">Report a problem</button>
@@ -70,41 +108,46 @@
     <button id="btnExportLog" class="btn small ghost" title="Download the game log as text">Export log</button>
   </div>
 
+  <button type="button" id="btnLogDrawer" class="log-fab" aria-expanded="false" aria-controls="sidebar" title="Show the game log and the rules"><svg class="ico" aria-hidden="true"><use href="#i-look"/></svg><span>Log</span><i class="dot" aria-hidden="true"></i></button>
+  <div id="logScrim" class="log-scrim"></div>
+
   <main class="layout">
-    <section class="table-wrap">
-      <div id="table" class="table"></div>
+    <section class="table-wrap" aria-label="The table">
+      <div id="table" class="table" tabindex="-1"></div>
       <div id="spotlight" class="spotlight"></div>
     </section>
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar" aria-label="Game log and rules">
       <nav class="tabs">
         <button data-tab="log" class="active">Game log</button>
         <button data-tab="rules">Rules</button>
+        <button type="button" id="btnLogShut" class="drawer-x" aria-label="Close the log">×</button>
       </nav>
       <div id="tab-log" class="tab active">
         <div class="log-filter">
-          <select id="logFilter" class="sbracket" title="Show only some of the log">
+          <select id="logFilter" class="sbracket" title="Show only some of the log" aria-label="Show only some of the log">
             <option value="">Everything</option><option value="spells">Spells and abilities</option><option value="combat">Combat and damage</option>
             <option value="removal">Removal and deaths</option><option value="combo">Combos</option><option value="politics">Politics and chat</option><option value="why">AI explanations</option>
           </select>
-          <select id="logSeat" class="sbracket" title="Show only lines about one player"><option value="">All players</option></select>
-          <input id="logSearch" class="input small" placeholder="Search the log…" title="Show only log lines with this text (card or player names, words)" autocomplete="off">
+          <select id="logSeat" class="sbracket" title="Show only lines about one player" aria-label="Show only lines about one player"><option value="">All players</option></select>
+          <button id="logFold" class="btn small ghost" aria-pressed="false" title="Fold finished turns to one line each (click a turn's heading to open or fold it)">Fold turns</button>
+          <input id="logSearch" class="input small" aria-label="Search the log" placeholder="Search the log…" title="Show only log lines with this text (card or player names, words)" autocomplete="off">
         </div>
         <div id="srLog" class="sr-only" aria-live="polite"></div>
-        <div id="log" class="log"><div class="log-empty">Load four decks to begin.</div></div>
+        <div id="log" class="log" lang="en"><div class="log-empty">Load four decks to begin.</div></div>
         <div id="chatBox" class="chatbox" hidden>
-          <div class="emotes"><button data-say="👍">👍</button><button data-say="😮">😮</button><button data-say="😂">😂</button><button data-say="🤔">🤔</button><button data-say="Nice!">Nice!</button><button data-say="GG">GG</button><button id="btnDealOpen" title="Offer another player a deal">🤝 Deal</button></div>
+          <div class="emotes"><button data-say="👍" aria-label="Thumbs up">👍</button><button data-say="😮" aria-label="Surprised">😮</button><button data-say="😂" aria-label="Laughing">😂</button><button data-say="🤔" aria-label="Thinking">🤔</button><button data-say="Nice!">Nice!</button><button data-say="GG">GG</button><button id="btnDealOpen" title="Offer another player a deal"><span aria-hidden="true">🤝 </span>Deal</button></div>
           <div class="deal-form" id="dealForm" hidden>
-            <select id="dealTo" class="sbracket"></select>
-            <select id="dealKind" class="sbracket"><option value="truce">Truce: neither attacks the other</option><option value="gangUp">Gang up on the archenemy</option><option value="noCounter">No attacks, no counterspells</option><option value="tribute">Tribute: they draw a card, you're left alone</option></select><select id="dealRounds" class="sbracket" title="How long the deal lasts"><option value="0">Rest of this round</option><option value="1">1 more round</option><option value="2" selected>2 more rounds</option><option value="3">3 more rounds</option><option value="5">5 more rounds</option></select>
+            <select id="dealTo" aria-label="Offer the deal to" class="sbracket"></select>
+            <select id="dealKind" aria-label="Kind of deal" class="sbracket"><option value="truce">Truce: neither attacks the other</option><option value="gangUp">Gang up on the archenemy</option><option value="noCounter">No attacks, no counterspells</option><option value="tribute">Tribute: they draw a card, you're left alone</option><option value="noWin">No-win: let my spells resolve this turn, I won't try to win until next round ends</option><option value="draw">Offer the whole table a draw</option></select><select id="dealRounds" class="sbracket" title="How long the deal lasts"><option value="0">Rest of this round</option><option value="1">1 more round</option><option value="2" selected>2 more rounds</option><option value="3">3 more rounds</option><option value="5">5 more rounds</option></select>
             <button class="btn small primary" id="btnDealSend">Offer</button>
           </div>
-          <input id="chatInput" class="input" maxlength="200" placeholder="Say something to the table…" autocomplete="off">
+          <input id="chatInput" class="input" maxlength="200" aria-label="Say something to the table" placeholder="Say something to the table…" autocomplete="off">
         </div>
       </div>
       <div id="tab-rules" class="tab">
-        <input id="rulesSearch" class="input" placeholder="Search the rules: 903.9, trample, commander damage…" autocomplete="off">
+        <input id="rulesSearch" class="input" aria-label="Search the rules" placeholder="Search the rules: 903.9, trample, commander damage…" autocomplete="off">
         <div id="rulesMeta" class="rules-meta">Loading the Comprehensive Rules…</div>
-        <div id="rulesResults" class="rules-results"></div>
+        <div id="rulesResults" class="rules-results" lang="en"></div>
       </div>
     </aside>
   </main>
@@ -112,36 +155,74 @@
   <div id="preview" class="preview" hidden></div>
 
   <div id="actionBar" class="action-bar" hidden role="region" aria-label="Your decision">
+    <button type="button" id="abGrip" class="ab-grip" title="Drag to move this bar off your cards. Double-click to put it back." aria-label="Move this bar (arrow keys move it, Home puts it back)">⠿</button>
     <div id="abText" class="ab-text" aria-live="polite"></div>
     <div id="abButtons" class="ab-buttons"></div>
   </div>
 
-  <div id="startMenu" class="start-menu">
+  <div id="startMenu" class="start-menu" role="region" aria-label="Start menu">
     <div class="sm-inner">
-      <div class="sm-title">
-        <svg viewBox="0 0 24 24" class="sm-logo" aria-hidden="true"><path d="M12 2 3 7v10l9 5 9-5V7z" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="currentColor" stroke-width="1.1"/></svg>
+      <header class="sm-title">
+        <svg viewBox="0 0 24 24" class="sm-logo" aria-hidden="true"><circle cx="12" cy="12" r="10.6" fill="none" stroke="currentColor" stroke-width=".8"/><path d="M12 5l6.66 4.84-2.55 7.82H7.89L5.34 9.84z" fill="none" stroke="currentColor" stroke-width="1" stroke-linejoin="round"/><path d="M12 5v7M18.66 9.84 12 12M16.11 17.66 12 12M7.89 17.66 12 12M5.34 9.84 12 12" stroke="currentColor" stroke-width=".6" opacity=".6"/><circle class="pw" cx="12" cy="5" r="1.7"/><circle class="pu" cx="18.66" cy="9.84" r="1.7"/><circle class="pb" cx="16.11" cy="17.66" r="1.7"/><circle class="pr" cx="7.89" cy="17.66" r="1.7"/><circle class="pg" cx="5.34" cy="9.84" r="1.7"/></svg>
         <h1>Commander Table</h1>
         <p class="muted" id="smTagline">Play Magic against AI pilots, with friends, or on your own.</p>
-      </div>
-      <div class="sm-grid">
-        <button class="sm-btn sm-main" data-go="resume" id="smResume" hidden><b>Resume</b><small id="smResumeWhat">Your unfinished game</small></button>
-        <button class="sm-btn sm-main" data-go="play"><b>Play</b><small>Seat decks and start a game</small></button>
-        <button class="sm-btn" data-go="learn"><b>Learn to play</b><small>Seven short lessons</small></button>
-        <button class="sm-btn" data-go="story"><b>Story</b><small>The Lantern Road</small></button>
-        <button class="sm-btn" data-go="expedition"><b>Expedition</b><small id="smExpedition">A solo roguelike</small></button>
-        <button class="sm-btn" data-go="draft"><b>Draft / Sealed</b><small>Sets and cubes</small></button>
-        <button class="sm-btn" data-go="puzzles"><b>Puzzles</b><small>Win this turn</small></button>
-        <button class="sm-btn" data-go="tabletop"><b>Manual tabletop</b><small>2–9 players, nothing automated</small></button>
-        <button class="sm-btn" data-go="kingdoms"><b>Kingdoms</b><small>5–9 players, secret roles</small></button>
-        <button class="sm-btn" data-go="builder"><b>Deck builder</b><small>Every card on Scryfall</small></button>
-        <button class="sm-btn" data-go="library"><b>Deck library</b><small>Your saved decks</small></button>
-        <button class="sm-btn" data-go="progress"><b>Progress</b><small id="smProgress">Ladder, challenges, badges</small></button>
-        <button class="sm-btn" data-go="help"><b>Help</b><small>How everything works, with search</small></button>
-        <button class="sm-btn" data-go="display"><b>Settings</b><small>Display, language, avatars</small></button>
-        <button class="sm-btn" data-go="updates"><b>Updates</b><small id="smUpdates">New card sets, game updates</small></button>
+        <div class="orn" aria-hidden="true"><i></i></div>
+      </header>
+      <div class="sm-layout">
+        <div class="sm-col">
+          <div class="sm-cta">
+            <button class="sm-btn sm-main" data-go="resume" id="smResume" hidden><svg class="ico" aria-hidden="true"><use href="#i-resume"/></svg><b>Resume</b><small id="smResumeWhat">Your unfinished game</small></button>
+            <button class="sm-btn sm-main" data-go="play"><svg class="ico" aria-hidden="true"><use href="#i-play"/></svg><b>Play</b><small>Seat decks and start a game</small></button>
+          </div>
+          <div id="smContinue" class="sm-continue" hidden></div>
+          <section class="sm-panel" aria-labelledby="smRecordH">
+            <h2 id="smRecordH">Your record</h2>
+            <div id="smStats" class="stat-row"></div>
+            <div id="smRanks" class="sm-ranks"></div>
+          </section>
+          <section class="sm-panel" aria-labelledby="smDecksH">
+            <h2 id="smDecksH">Recent decks</h2>
+            <div id="smDecks" class="sm-decks"></div>
+          </section>
+        </div>
+        <nav class="sm-col" aria-label="Modes and tools">
+          <section class="sm-panel" aria-labelledby="smSoloH">
+            <h2 id="smSoloH">Solo adventures</h2>
+            <div class="sm-grid">
+              <button class="sm-btn" data-go="learn"><svg class="ico" aria-hidden="true"><use href="#i-learn"/></svg><b>Learn to play</b><small>Seven short lessons</small></button>
+              <button class="sm-btn" data-go="story"><svg class="ico" aria-hidden="true"><use href="#i-story"/></svg><b>Story</b><small>The Lantern Road</small></button>
+              <button class="sm-btn" data-go="expedition"><svg class="ico" aria-hidden="true"><use href="#i-expedition"/></svg><b>Expedition</b><small id="smExpedition">A solo roguelike</small></button>
+              <button class="sm-btn" data-go="puzzles"><svg class="ico" aria-hidden="true"><use href="#i-puzzle"/></svg><b>Puzzles</b><small>Win this turn</small></button>
+            </div>
+          </section>
+          <section class="sm-panel" aria-labelledby="smTablesH">
+            <h2 id="smTablesH">Other tables</h2>
+            <div class="sm-grid">
+              <button class="sm-btn" data-go="draft"><svg class="ico" aria-hidden="true"><use href="#i-draft"/></svg><b>Draft / Sealed</b><small>Sets and cubes</small></button>
+              <button class="sm-btn" data-go="tabletop"><svg class="ico" aria-hidden="true"><use href="#i-tabletop"/></svg><b>Manual tabletop</b><small>2–9 players, nothing automated</small></button>
+              <button class="sm-btn" data-go="kingdoms"><svg class="ico" aria-hidden="true"><use href="#i-kingdoms"/></svg><b>Kingdoms</b><small>5–9 players, secret roles</small></button>
+            </div>
+          </section>
+          <section class="sm-panel" aria-labelledby="smLibH">
+            <h2 id="smLibH">Decks and progress</h2>
+            <div class="sm-grid">
+              <button class="sm-btn" data-go="builder"><svg class="ico" aria-hidden="true"><use href="#i-builder"/></svg><b>Deck builder</b><small>Every card on Scryfall</small></button>
+              <button class="sm-btn" data-go="library"><svg class="ico" aria-hidden="true"><use href="#i-library"/></svg><b>Deck library</b><small>Your saved decks</small></button>
+              <button class="sm-btn" data-go="progress"><svg class="ico" aria-hidden="true"><use href="#i-progress"/></svg><b>Progress</b><small id="smProgress">Ladder, challenges, badges</small></button>
+            </div>
+          </section>
+          <section class="sm-panel" aria-labelledby="smCodexH">
+            <h2 id="smCodexH">Codex</h2>
+            <div class="sm-grid">
+              <button class="sm-btn" data-go="help"><svg class="ico" aria-hidden="true"><use href="#i-help"/></svg><b>Help</b><small>How everything works, with search</small></button>
+              <button class="sm-btn" data-go="display"><svg class="ico" aria-hidden="true"><use href="#i-settings"/></svg><b>Settings</b><small>Display, language, avatars</small></button>
+              <button class="sm-btn" data-go="updates"><svg class="ico" aria-hidden="true"><use href="#i-updates"/></svg><b>Updates</b><small id="smUpdates">New card sets, game updates</small></button>
+            </div>
+          </section>
+        </nav>
       </div>
       <div class="sm-news" id="smNews"></div>
-      <div class="sm-foot"><span class="muted" id="smVersion"></span><button class="btn ghost small" data-go="report" title="Save a problem report to share by hand">Report a problem</button><button class="btn ghost small" data-go="tour">Tour</button><button class="btn ghost small" data-go="selftest">Self-test</button><button class="btn ghost small" data-go="exit">Exit</button></div>
+      <div class="sm-foot"><span class="muted" id="smVersion"></span><button class="btn ghost small" data-go="report" title="Save a problem report to share by hand">Report a problem</button><button class="btn ghost small" data-go="keys" title="Every keyboard shortcut (press ? at the table)">Keyboard shortcuts</button><button class="btn ghost small" data-go="tour">Tour</button><button class="btn ghost small" data-go="selftest">Self-test</button><button class="btn ghost small" data-go="exit">Exit</button></div>
     </div>
   </div>
 
@@ -167,29 +248,44 @@
         <div class="setup-actions">
           <button class="btn ghost" id="btnAllRandom">Fill empty seats with random decks</button>
           <button class="btn ghost" id="btnCedh" title="Kinnan, Kess, Thrasios + Tymna and Heliod: fast mana, tutors, free counterspells and compact combos">Seat a cEDH table</button>
-          <button class="btn ghost" id="btnCollection" title="The cards you own: import a ManaBox or Deckbox export, then see what each deck is missing">Collection…</button>
-          <button class="btn ghost" id="btnPrecons" title="The official preconstructed Commander decks, from MTGJSON">Commander precons…</button>
-          <button class="btn ghost" id="btnMeta" title="Real tournament decks from EDHTop16 and archetypes from the cEDH Decklist Database">Browse the cEDH meta…</button>
           <label class="table-bracket">Bracket for every seat <select id="tableBracket" class="sbracket"></select></label>
           <label class="table-bracket" title="What random decks may use (by rarity and the Reserved List; no prices)">Random decks <select id="budgetMode" class="sbracket"><option value="any">Any cards</option><option value="noRL">No Reserved List</option><option value="pauper">Commons and uncommons</option></select></label>
           <button class="btn ghost" id="btnBracketTable" title="Replace every seat's deck with a random deck of the chosen bracket (bracket 3 if none is chosen) and shuffle up">Deal a matched table</button>
           <button class="btn ghost" id="btnLibrary" title="Decks you saved in this game folder">Deck library…</button>
+          <button class="btn ghost" id="btnBuilder" title="Build a deck from every card on Scryfall, with search, filters and a live mana curve">Deck builder</button>
           <button class="btn ghost" id="btnLobby" title="Let friends join before the game and choose their own decks">Open lobby…</button>
           <button class="btn ghost" id="btnPuzzles" title="Win-this-turn puzzles, and boards saved as puzzle files">Puzzles…</button>
           <input type="file" id="puzzleFile" accept=".json,application/json" hidden>
-          <button class="btn ghost" id="btnLimited" title="Open packs from a real set, build a deck and play it against AI decks from the same packs">Draft / Sealed…</button>
-          <button class="btn ghost" id="btnLearn" title="Short guided lessons for people new to Magic">Learn to play</button>
-          <button class="btn ghost" id="btnStory" title="An original story in eight chapters, each a game from a special board">Story</button>
-          <button class="btn ghost" id="btnExpedition" title="A solo roguelike: three acts of duels, events and bosses, building your deck as you go">Expedition</button>
-          <button class="btn ghost" id="btnTabletop" title="A manual table: nothing automated, for house rules (with friends online too)">Tabletop</button>
-          <button class="btn ghost" id="btnTabletopLoad" title="Carry on a tabletop saved with Save table">Load table…</button>
+          <span class="menu">
+            <button class="btn ghost menu-btn" id="menuDecks" aria-haspopup="menu" aria-expanded="false" title="Your collection, precons, the cEDH meta, challenge links and replays">More decks</button>
+            <div class="menu-list" role="menu" aria-labelledby="menuDecks" hidden>
+            <button class="btn ghost" id="btnCollection" title="The cards you own: import a ManaBox or Deckbox export, then see what each deck is missing">Collection…</button>
+            <button class="btn ghost" id="btnPrecons" title="The official preconstructed Commander decks, from MTGJSON">Commander precons…</button>
+            <button class="btn ghost" id="btnMeta" title="Real tournament decks from EDHTop16 and archetypes from the cEDH Decklist Database">Browse the cEDH meta…</button>
+            <button class="btn ghost" id="btnChallenge" title="Share this table setup as a link or code, or open one">Challenge link…</button>
+            <button class="btn ghost" id="btnLoadReplay" title="Open a replay file saved from Commander Table">Load replay…</button>
+            </div>
+          </span>
+          <span class="menu">
+            <button class="btn ghost menu-btn" id="menuModes" aria-haspopup="menu" aria-expanded="false" title="Draft and sealed, lessons, the story, the expedition and the manual tabletop">Other modes</button>
+            <div class="menu-list" role="menu" aria-labelledby="menuModes" hidden>
+            <button class="btn ghost" id="btnLimited" title="Open packs from a real set, build a deck and play it against AI decks from the same packs">Draft / Sealed…</button>
+            <button class="btn ghost" id="btnLearn" title="Short guided lessons for people new to Magic">Learn to play</button>
+            <button class="btn ghost" id="btnStory" title="An original story in eight chapters, each a game from a special board">Story</button>
+            <button class="btn ghost" id="btnExpedition" title="A solo roguelike: three acts of duels, events and bosses, building your deck as you go">Expedition</button>
+            <button class="btn ghost" id="btnTabletop" title="A manual table: nothing automated, for house rules (with friends online too)">Tabletop</button>
+            <button class="btn ghost" id="btnTabletopLoad" title="Carry on a tabletop saved with Save table">Load table…</button>
+            </div>
+          </span>
+          <span class="menu">
+            <button class="btn ghost menu-btn" id="menuHelp" aria-haspopup="menu" aria-expanded="false" title="The guided tour, the self-test and updates">Tour and updates</button>
+            <div class="menu-list" role="menu" aria-labelledby="menuHelp" hidden>
+            <button class="btn ghost" id="btnTour" title="A short guided look at the main controls">Tour</button>
+            <a class="btn ghost" href="selftest.html" target="_blank" title="Check the server, the online services and 50 fast games">Self-test</a>
+            <button class="btn ghost" id="btnUpdates" title="Install a newer version of the game files from an address you choose">Updates…</button>
+            </div>
+          </span>
           <input type="file" id="tabletopFile" accept=".json,application/json" hidden>
-          <button class="btn ghost" id="btnBuilder" title="Build a deck from every card on Scryfall, with search, filters and a live mana curve">Deck builder</button>
-          <button class="btn ghost" id="btnChallenge" title="Share this table setup as a link or code, or open one">Challenge link…</button>
-          <button class="btn ghost" id="btnTour" title="A short guided look at the main controls">Tour</button>
-          <a class="btn ghost" href="selftest.html" target="_blank" title="Check the server, the online services and 50 fast games">Self-test</a>
-          <button class="btn ghost" id="btnUpdates" title="Install a newer version of the game files from an address you choose">Updates…</button>
-          <button class="btn ghost" id="btnLoadReplay" title="Open a replay file saved from Commander Table">Load replay…</button>
           <input type="file" id="replayFile" accept=".json,application/json" hidden>
         </div>
       </div>
@@ -211,6 +307,8 @@
   <div id="zoneModal" class="modal" hidden>
     <div class="modal-card zone-card">
       <div class="modal-head"><h2 id="zoneTitle"></h2><button class="btn ghost" id="btnCloseZone">Close</button></div>
+      <div class="meta-tools" id="zoneTools"><input id="zoneFilter" class="input" placeholder="Filter by name or type…" aria-label="Filter the cards by name or type" autocomplete="off" spellcheck="false">
+        <select id="zoneSort" class="sbracket" aria-label="Order of the cards"><option value="">Newest first</option><option value="name">By name</option><option value="type">By type</option><option value="mv">By mana value</option></select></div>
       <div id="zoneCards" class="zone-grid"></div>
     </div>
   </div>
@@ -271,15 +369,15 @@
   <div id="helpModal" class="modal" hidden>
     <div class="modal-card batch-card help-card">
       <div class="modal-head"><div><h2>Help</h2><p class="muted">The game's manual (README.md in the game folder), in English. Search, or pick a section.</p></div><button class="btn ghost" id="btnHelpClose">Close</button></div>
-      <input id="helpSearch" class="input" placeholder="Search the help, e.g. friends, brackets, replay, deck library…" autocomplete="off">
-      <div class="help-cols"><nav id="helpToc" class="help-toc"></nav><div id="helpBody" class="help-body"></div></div>
+      <input id="helpSearch" aria-label="Search the help" class="input" placeholder="Search the help, e.g. friends, brackets, replay, deck library…" autocomplete="off">
+      <div class="help-cols"><nav id="helpToc" class="help-toc" lang="en"></nav><div id="helpBody" class="help-body" lang="en"></div></div>
     </div>
   </div>
 
   <div id="whatsNewModal" class="modal" hidden>
     <div class="modal-card batch-card">
       <div class="modal-head"><div><h2 id="whatsNewTitle">What's new</h2><p class="muted" id="whatsNewIntro"></p></div><button class="btn ghost" id="btnWhatsNewClose">Close</button></div>
-      <input id="whatsNewSearch" class="input" placeholder="Filter…" autocomplete="off">
+      <input id="whatsNewSearch" aria-label="Filter what's new" class="input" placeholder="Filter…" autocomplete="off">
       <div id="whatsNewBody" class="batch-results"></div>
     </div>
   </div>
@@ -294,7 +392,7 @@
         <button class="btn ghost" id="btnCollectionClose">Close</button>
       </div>
       <p id="collectionSummary"></p>
-      <textarea id="collectionText" class="input" rows="8" spellcheck="false" placeholder="Paste an export here, or choose a file"></textarea>
+      <textarea id="collectionText" aria-label="Collection export" class="input" rows="8" spellcheck="false" placeholder="Paste an export here, or choose a file"></textarea>
       <div class="batch-controls"><input type="file" id="collectionFile" accept=".csv,.txt,text/csv,text/plain">
         <label class="muted"><input type="checkbox" id="collectionAdd"> Add to the collection (instead of replacing it)</label>
         <button class="btn primary" id="btnCollectionImport">Import</button><button class="btn ghost" id="btnCollectionClear">Forget the collection</button></div>
@@ -310,7 +408,7 @@
         </div>
         <button class="btn ghost" id="btnPreconClose">Close</button>
       </div>
-      <div class="meta-tools"><input id="preconSearch" class="input" placeholder="Filter by deck name, set code or year…" autocomplete="off"> <span id="preconStatus" class="muted"></span></div>
+      <div class="meta-tools"><input id="preconSearch" aria-label="Filter the precons" class="input" placeholder="Filter by deck name, set code or year…" autocomplete="off"> <span id="preconStatus" class="muted"></span></div>
       <div id="preconBody" class="batch-results"></div>
     </div>
   </div>
@@ -326,7 +424,7 @@
       </div>
       <nav class="tabs meta-tabs"><button data-mt="top" class="active">EDHTop16: top commanders</button><button data-mt="ddb">cEDH Decklist Database</button><button data-mt="trend">Trends</button></nav>
       <div class="meta-tools">
-        <input id="metaSearch" class="input" placeholder="Filter by commander, archetype or colors…" autocomplete="off">
+        <input id="metaSearch" aria-label="Filter the meta" class="input" placeholder="Filter by commander, archetype or colors…" autocomplete="off">
         <span class="meta-filters" id="metaFilters">
           <select id="metaPeriod" class="sbracket" title="Tournaments from this period"><option value="ONE_MONTH">Last month</option><option value="THREE_MONTHS" selected>Last 3 months</option><option value="SIX_MONTHS">Last 6 months</option><option value="ONE_YEAR">Last year</option><option value="POST_BAN">Since the last ban</option><option value="ALL_TIME">All time</option></select>
           <select id="metaSize" class="sbracket" title="Only events with at least this many players"><option value="16">16+ players</option><option value="32" selected>32+ players</option><option value="64">64+ players</option><option value="128">128+ players</option></select>
@@ -367,16 +465,16 @@
       </div>
       <div class="edit-body">
         <div class="edit-add">
-          <input id="editSearch" class="input" list="editSuggest" placeholder="Add a card: start typing its name…" autocomplete="off">
+          <input id="editSearch" aria-label="Add a card by name" class="input" list="editSuggest" placeholder="Add a card: start typing its name…" autocomplete="off">
           <datalist id="editSuggest"></datalist>
           <button class="btn small" id="btnEditAdd">Add</button>
           <span class="muted">To remove a card, delete its line.</span>
         </div>
-        <textarea id="editText" class="input edit-text" spellcheck="false"></textarea>
+        <textarea id="editText" aria-label="Decklist" class="input edit-text" spellcheck="false"></textarea>
       </div>
       <div class="modal-foot">
         <span id="editStatus" class="muted"></span>
-        <input id="editName" class="input edit-name" maxlength="80" placeholder="Name in your library">
+        <input id="editName" aria-label="Name in your library" class="input edit-name" maxlength="80" placeholder="Name in your library">
         <button class="btn" id="btnEditSave">Save to library</button>
         <button class="btn" id="btnEditApply">Apply to seat</button>
         <button class="btn primary" id="btnEditTest">Apply and test 10 games</button>
@@ -413,8 +511,7 @@
         <button class="btn ghost" id="btnLimitedClose">Close</button>
       </div>
       <div class="limited-start" id="limitedStart">
-        <label><input type="radio" name="limSource" value="set" checked> A set</label>
-        <label><input type="radio" name="limSource" value="cube"> A cube</label>
+        <span class="seg" role="radiogroup" aria-label="Where the packs come from"><label><input type="radio" name="limSource" value="set" checked> A set</label><label><input type="radio" name="limSource" value="cube"> A cube</label></span>
         <span id="limSetWrap">
           <label>Set <select id="limSet" class="input"></select></label>
           <label>or set code <input id="limCode" class="input" maxlength="6" placeholder="e.g. cmr" style="width:90px"></label>
@@ -432,11 +529,8 @@
         <button class="btn" id="btnCubeSave">Save cube</button>
       </div>
       <div class="limited-start">
-        <label><input type="radio" name="limMode" value="sealed" checked> Sealed (6 packs each)</label>
-        <label><input type="radio" name="limMode" value="draft"> Draft (3 packs, 4 players)</label>
-        <span class="muted">·</span>
-        <label><input type="radio" name="limPlay" value="duel" checked> One on one, best of three</label>
-        <label><input type="radio" name="limPlay" value="pod"> Commander pod (4 players)</label>
+        <span class="seg" role="radiogroup" aria-label="Sealed or draft"><label><input type="radio" name="limMode" value="sealed" checked> Sealed (6 packs each)</label><label><input type="radio" name="limMode" value="draft"> Draft (3 packs, 4 players)</label></span>
+        <span class="seg" role="radiogroup" aria-label="How the decks are played"><label><input type="radio" name="limPlay" value="duel" checked> One on one, best of three</label><label><input type="radio" name="limPlay" value="pod"> Commander pod (4 players)</label></span>
         <button class="btn primary" id="btnLimitedGo">Open packs</button>
         <span id="limStatus" class="muted"></span>
       </div>
@@ -465,16 +559,26 @@
       <label class="disp-row">Language
         <select id="dispLang" class="input no-i18n"></select>
         <span class="muted">(the interface; card previews show the card's name and image in your language when Scryfall has them; the game log and rules text stay in English)</span></label>
+      <label class="disp-row">Theme
+        <select id="dispTheme" class="input" data-seg="Theme"><option value="">Match the system</option><option value="dark">Dark</option><option value="light">Light</option></select></label>
+      <label class="disp-row">Card size on the table <input type="range" id="dispCard" min="70" max="150" step="10" value="100"> <span id="dispCardSay" class="muted mono">100%</span></label>
+      <label class="disp-row">Card preview
+        <select id="dispPreview" class="input"><option value="pointer">Beside the pointer</option><option value="dock">Docked in the bottom right corner</option><option value="off">Off (right-click a card for its details)</option></select></label>
       <label class="disp-row">Board background
         <select id="dispBg" class="input">
           <option value="art">Commander art (faint)</option><option value="artbold">Commander art (bold)</option>
           <option value="felt">Green felt</option><option value="wood">Wood</option><option value="stone">Stone</option><option value="plain">Plain</option>
         </select></label>
+      <label class="disp-row">Screen reader: read out
+        <select id="dispReader" class="input"><option value="">Main events (casts, combat, removal, wins)</option><option value="all">Everything in the log</option><option value="mine">Main events on my turns only</option><option value="combat">Combat and wins only</option></select></label>
+      <label class="disp-row"><input type="checkbox" id="dispLogArt"> Card art in the game log <span class="muted">(a small picture beside the lines where a card is cast, dies or is removed)</span></label>
       <label class="disp-row"><input type="checkbox" id="dispCb"> Colors for color blindness <span class="muted">(seat colors that stay distinct with red-green or blue-yellow color blindness, and seat numbers on every board)</span></label>
       <label class="disp-row"><input type="checkbox" id="dispBig"> Larger text and cards</label>
+      <label class="disp-row"><input type="checkbox" id="dispLessMotion"> Less background motion <span class="muted">(no drifting lights, glows that breathe or floating cards; moves and arrows still animate)</span></label>
+      <label class="disp-row"><input type="checkbox" id="dispReadable"> Easier reading <span class="muted">(wider letter and line spacing, plain headings without capitals)</span></label>
       <label class="disp-row"><input type="checkbox" id="dispCalm"> Fewer animations <span class="muted">(on by default when your system asks for reduced motion)</span></label>
       <label class="disp-row"><input type="checkbox" id="dispContrast"> High contrast</label>
-      <label class="disp-row">Text size <select id="dispText" class="input"><option value="">Normal</option><option value="1.12">Large</option><option value="1.25">Larger</option></select></label>
+      <label class="disp-row">Text size <select id="dispText" class="input" data-seg="Text size"><option value="">Normal</option><option value="1.12">Large</option><option value="1.25">Larger</option></select></label>
       <label class="disp-row">Music volume <input type="range" id="volMusic" min="0" max="100" step="5"></label>
       <label class="disp-row">Effects volume <input type="range" id="volFx" min="0" max="100" step="5"></label>
       <div class="disp-row disp-block"><b>Your avatar</b> <span class="muted">(on the seats you play; earn more by playing)</span><div id="dispAvatars" class="cosm-grid"></div></div>
@@ -488,7 +592,7 @@
       <h2>Updates</h2>
       <p>This version: <b id="updVersion">…</b></p>
       <p class="muted">Paste the address of a .zip with a newer Commander Table (for example a GitHub release download link). Nothing is checked or installed automatically; only use an address you trust, because its files replace the game's code. Your data folder (decks, history, settings) is never touched, and every replaced file is backed up to data\update first.</p>
-      <input id="updUrl" class="input" placeholder="https://github.com/…/releases/latest/download/Commander-Table.zip" autocomplete="off" spellcheck="false">
+      <input id="updUrl" aria-label="Update address" class="input" placeholder="https://github.com/…/releases/latest/download/Commander-Table.zip" autocomplete="off" spellcheck="false">
       <p id="updStatus" class="muted"></p>
       <h3>Card sets</h3>
       <p class="muted">Checks Scryfall for new and upcoming Magic sets (once a day when the game starts, and whenever you click). When a new set is out, saved card data is fetched again as decks need it (legalities and Standard rotation change), and the newest sets show up in Draft / Sealed and the Expedition.</p>
@@ -614,8 +718,8 @@
         <div><h2>Deck library</h2><p class="muted">Decks saved in this game folder (data\decks), so they come along when the folder is copied to another PC.</p></div>
         <button class="btn ghost" id="btnLibraryClose">Close</button>
       </div>
-      <div class="meta-tools"><input id="librarySearch" class="input" placeholder="Search name, commander, tags, notes, colors (wub), bracket (b3) or a card…" autocomplete="off">
-        <select id="libFolder" class="sbracket"><option value="">All folders</option></select>
+      <div class="meta-tools"><input id="librarySearch" aria-label="Search the deck library" class="input" placeholder="Search name, commander, tags, notes, colors (wub), bracket (b3) or a card…" autocomplete="off">
+        <select id="libFolder" aria-label="Folder" class="sbracket"><option value="">All folders</option></select>
         <label class="muted">Games per pairing <select id="gridGames" class="sbracket"><option>2</option><option selected>4</option><option>10</option></select></label>
         <button class="btn" id="btnArchFolder" title="Copy the decks of a public Archidekt folder into your library">Import an Archidekt folder…</button>
         <button class="btn" id="btnGrid" title="Every deck shown plays every other one head to head (up to 8 decks)">Matchup grid</button>
@@ -634,7 +738,7 @@
         <button class="btn ghost" id="btnTourneyClose">Close</button>
       </div>
       <div class="tourney-form">
-        <textarea id="tourneyDecks" class="input" spellcheck="false" placeholder="https://archidekt.com/decks/…&#10;https://www.mtggoldfish.com/deck/…&#10;random&#10;random&#10;random"></textarea>
+        <textarea id="tourneyDecks" aria-label="Tournament decks" class="input" spellcheck="false" placeholder="https://archidekt.com/decks/…&#10;https://www.mtggoldfish.com/deck/…&#10;random&#10;random&#10;random"></textarea>
         <div class="batch-controls">
           <label>Rounds <select id="tourneyRounds"><option>3</option><option selected>5</option><option>10</option><option>20</option></select></label>
           <label>Games per pod <select id="tourneyGames"><option>1</option><option selected>3</option><option>5</option></select></label>
@@ -677,7 +781,7 @@
     <p class="muted" id="goodbyeMsg">To play again, open Commander Table (or run start.bat).</p>
   </div>
 
-  <footer class="credit">Card images and data © Wizards of the Coast, provided by Scryfall. Comprehensive Rules © Wizards of the Coast. This fan-made tool isn't affiliated with or endorsed by Wizards of the Coast.</footer>
+  <footer class="credit" aria-label="Credits">Card images and data © Wizards of the Coast, provided by Scryfall. Comprehensive Rules © Wizards of the Coast. This fan-made tool isn't affiliated with or endorsed by Wizards of the Coast.</footer>
   <script type="module" src="js/main.js"></script>
 </body>
 </html>

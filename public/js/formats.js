@@ -114,6 +114,13 @@ export function checkDeck(deck, key) {
       || (has(a, /^friends forever\b/m) && has(b, /^friends forever\b/m)) || bg(a, b) || bg(b, a) || doc(a, b) || doc(b, a);
     if (!ok) out.push(`${a.name} and ${b.name} can't be commanders together (no partner, background or companion pairing).`);
   } else if (f.commander && !f.signature && deck.commanders.length > 2) out.push(`${deck.commanders.length} commanders: a deck can have at most two.`);
+  // (Phase 2J) Color identity (903.4): every card's color identity must be within the commanders' together. Cards saved
+  // without a color identity (very old saves) are left alone rather than guessed at.
+  if (f.commander && deck.commanders.length) {
+    const ci = new Set(deck.commanders.flatMap(c => c.colorIdentity || []));
+    const outside = [...new Set(deck.cards.map(c => c.card).filter(c => (c.colorIdentity || []).some(x => !ci.has(x))).map(c => c.name))];
+    if (outside.length) out.push(`Outside the commander's color identity (${[...ci].join('') || 'colorless'}): ${outside.slice(0, 5).join(', ')}${outside.length > 5 ? `, and ${outside.length - 5} more` : ''}.`);
+  }
   if (deck.companion) out.push(...companionCheck(deck, f));
   const side = (deck.sideboard || []).reduce((a, c) => a + c.qty, 0);
   if (side > f.sideboard) out.push(f.sideboard ? `Sideboard has ${side} cards (at most ${f.sideboard}).` : `${f.name} has no sideboard; its ${side} cards are left out.`);

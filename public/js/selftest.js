@@ -13,7 +13,7 @@ import { searchCards } from './bulk.js';
 /** @type {(id: string) => any} */
 const $ = id => document.getElementById(id);
 const prefs = store('ct.prefs') || {};
-document.documentElement.dataset.theme = prefs.theme || 'dark';
+document.documentElement.dataset.theme = prefs.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 
 const results = [];
 function row(table, name) {

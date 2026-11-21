@@ -1,0 +1,118 @@
+Card readings: 3500 cards, 2823 fully read (80.7%), 146 changed, 0 new.
+
+Fabled Passage
+
+  + not read: Then if you control four or more lands, untap that land.
+
+Boseiju, Who Endures
+  - channel {1}{G}: destroy target artifact
+  - not read: That player may search their library for a land card with a basic land type, put it onto the battlefield, then shuffle.
+  - not read: This ability costs {1} less to activate for each legendary creature you control.
+  + channel {1}{G} ({1} less for each legendary creature you control): destroy target artifact, its controller may get a land with a basic land type
+
+Otawara, Soaring City
+  - channel {3}{U}: 
+  - not read: This ability costs {1} less to activate for each legendary creature you control.
+  + channel {3}{U} ({1} less for each legendary creature you control): bounce target permanent
+
+Idol of Oblivion
+
+  + not read: Activate only if you created a token this turn.
+
+Takenuma, Abandoned Mire
+  - channel {3}{B}: you mills 3
+  - not read: This ability costs {1} less to activate for each legendary creature you control.
+  + channel {3}{B} ({1} less for each legendary creature you control): you mills 3
+
+Inventors' Fair
+
+  + not read: Activate only if you control three or more artifacts.
+
+Force of Negation
+  - counter target noncreature spell
+  - not read: If that spell is countered this way, exile it instead of putting it into its owner's graveyard.
+  + counter target noncreature spell (exiled)
+
+Shifting Woodland
+
+  + not read: Activate only if there are four or more card types among cards in your graveyard.
+
+Eiganjo, Seat of the Empire
+  - channel {2}{W}: 4 damage to target creature
+  - not read: This ability costs {1} less to activate for each legendary creature you control.
+  + channel {2}{W} ({1} less for each legendary creature you control): 4 damage to target creature
+
+Minas Tirith
+
+  + not read: Activate only if you attacked with two or more creatures this turn.
+
+Enduring Vitality
+  - not read: It's an enchantment.
+
+
+Felidar Retreat
+  - landfall, choose one: create 1 2/2 token / 1 +1/+1 counter(s)
+  - not read: Those creatures gain vigilance until end of turn.
+  + landfall, choose one: create 1 2/2 token / 1 +1/+1 counter(s), then they gain vigilance
+
+Wishclaw Talisman
+
+  + not read: An opponent gains control of this artifact.
+  + not read: Activate only during your turn.
+
+Bonders' Enclave
+
+  + not read: Activate only if you control a creature with power 4 or greater.
+
+Elspeth, Storm Slayer
+
+  + not read: Those creatures gain flying until your next turn.
+
+Incubation Druid
+  - not read: If this creature has a +1/+1 counter on it, add three mana of that type instead.
+
+
+Distant Melody
+  - draw 1
+  - not read: Choose a creature type.
+  + draw 1, choose a creature type, draw # undefineds you control
+
+Kindred Dominance
+  - destroy all creatures
+  - not read: Choose a creature type.
+  + destroy all creatures, choose a creature type, destroy all creatures
+
+Whip of Erebos
+  - ability {2}{B}{B}, {T}: reanimate a creature
+  + ability {2}{B}{B}, {T}: reanimate a creature, then they gain haste, then they are exiled at the next end step
+  + not read: If it would leave the battlefield, exile it instead of putting it anywhere else.
+
+Castle Garenbrig
+
+  + not read: Spend this mana only to cast creature spells or activate abilities of creatures.
+
+Enduring Innocence
+  - not read: It's an enchantment.
+
+
+Loyal Apprentice
+  - your beginning of combat: if you control your commander: create 1 1/1 token
+  - not read: That token gains haste until end of turn.
+  + your beginning of combat: if you control your commander: create 1 1/1 token, then they gain haste
+
+Valley Floodcaller
+  - whenever you cast a noncreature spell: team +1/+1
+  - not read: Untap them.
+  + whenever you cast a noncreature spell: team +1/+1, then they untap
+
+Enduring Tenacity
+  - not read: It's an enchantment.
+
+
+Urza, Lord High Artificer
+
+  + not read: Until end of turn, you may play that card without paying its mana cost.
+
+…and 121 more.
+
+If these changes are intended, run: node tests/cards.mjs --update

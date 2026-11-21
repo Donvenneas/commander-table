@@ -184,7 +184,7 @@ async function resolve(parsed, onStatus, format = 'commander') {
   const { entries } = parsed;
   if (!entries.length) throw new Error('No cards found in that deck.');
   onStatus?.(`Fetching ${entries.length} cards from Scryfall…`);
-  let { cards, missing, key } = await fetchCollection(entries.map(e => e.ident), (a, b) => onStatus?.(`Fetching card data ${a}/${b}…`));
+  let { cards, missing, key, rejected } = await fetchCollection(entries.map(e => e.ident), (a, b) => onStatus?.(`Fetching card data ${a}/${b}…`));
   // Retry printings Scryfall didn't know by name only
   // (and double-faced cards written "Front // Back" by their front face, which Scryfall finds reliably)
   const retryName = e => (e.ident.name || e.name || '').split(' // ')[0];
@@ -200,6 +200,8 @@ async function resolve(parsed, onStatus, format = 'commander') {
     }
   }
   const warnings = [];
+  // (1.56.0) cards Scryfall sent with damaged data are left out and named, never used
+  for (const r of rejected || []) warnings.push(`Scryfall sent damaged data for ${r}: left out`);
   let commanders = [];
   const main = [], sideboard = [];
   let companion = null;

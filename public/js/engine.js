@@ -46,7 +46,38 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // … pays", mana value and color conditions; targets keep their restrictions (nonblack, mana value, power …) and are
 // checked by the engine; creatures that die together see each other die; "until this leaves the battlefield" exile
 // comes back; Chrome Mox needs its imprinted card; replays at 4–16 keep the old handling)
-export const RULES = 17;
+// (rules 20, Phase 2O: the engine keeps casting timing itself (mana.js castTimingOk: no sorcery-speed spell outside its
+// controller's main phase with an empty stack, item 200); Humility-style "all creatures lose all abilities and have base
+// power and toughness N/N" is read and applied in layers 6 and 7b (Game.humility, item 212); replays at 4–19 keep the old
+// handling)
+// (rules 21: a person's mana loops reach unbounded mana like the AI's (727.1c): a ready mana combo is offered even with
+// nothing yet to spend the mana on, and a loop played by hand twice offers "Repeat as many times as needed" (human.js);
+// both add buttons, and a person's answers are recorded by button position, so replays at 4–20 keep the old lists)
+// (rules 22: unbounded mana is of the colors its loop made (Player.infiniteColors): Basalt Monolith's pays generic costs
+// and {C}, never a {G}; other colored symbols are paid from real sources (mana.js planPayment); replays at 4–21 pay
+// everything from it, as before)
+// (rules 23: table politics as cEDH pods play them: "no-win next turn" deals, a targeted player asking for a better
+// target, a draw by agreement at a stalemate (every player holding interaction and wins stopped on the stack), and
+// attacks by level: casual pilots go after open players and the biggest threat, cEDH pilots keep their board unless a
+// player is open or pays life to win (Ad Nauseam, Necropotence); ai.js, combatai.js. Replays at 4–22 play as before)
+// (rules 24, item 389: card coverage. More "if" conditions (effects.js cond24, triggers.js evalCond), more "X, where X
+// is …" amounts (whereX24, mana.js dynValue 'r24'), "target player draws N and loses N life" (drawLose), a person
+// picking what a copy spell copies (copyToken tr24) and choosing no target for "up to one target"; replays at 4–23
+// play as before)
+// (rules 25, Phase 2D: reusable mechanics from the Phase 2C audit. An unread condition is not met anywhere (before, it
+// was met outside resolution); conditions on what the ability did ("this way"), on the object as it last existed, on
+// the costs paid and on how a spell was cast; intervening-if conditions checked when the ability triggers (603.4);
+// target words on graveyard and stack targets; spend restrictions on mana; permissions to play from other zones.
+// Replays at 4-24 play as before)
+// (rules 26, Phase 2E: repairs of the Phase 2C defects. "Activate only once each turn" is enforced; Gilded Drake
+// exchanges control; punishers let the opponent choose; Chandra's Ignition targets; and the further repairs listed in
+// audit/phase-2e. Replays at 4-25 play as before)
+// (rules 27, Phase 2F: completions of partly simulated cards. Sentences about what the sentence before just did ("those
+// creatures gain …", "untap it", "sacrifice that token at the beginning of the next end step"), a card's second "whenever
+// you cast" trigger, channel costs that shrink per legendary creature, counterspells that exile or tuck, the Enduring
+// cycle returning as enchantments, colors and creature types chosen as a card enters or resolves, and the further
+// completions listed in audit/phase-2f. Replays at 4-26 play as before)
+export const RULES = 27;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -90,6 +121,7 @@ export class Game {
     /** @type {{ turn: number, seen: Set<string> } | undefined} (rules 7: game states seen while triggers repeat, triggers.loopRepeats) */ this.loopStates = undefined;
     /** @type {any} (the read-only cache while the AI plans combat: withEvalCache) */ this._ev = null;
     /** @type {any} (while state-based actions are checked: whether anything is attached or an anthem exists, triggers.sbaPass) */ this._sbaFacts = null;
+    /** @type {{ place: number } | null} (rules 18: players losing in the same check, triggers.loseTogether) */ this._loseBatch = null;
     /** @type {any} (rules 10: the loop being watched in the current chain of triggers, triggers.loopWatch) */ this.loop10 = undefined;
     /** (a recognised loop is played without the clock's waits; the steps stay the same) */ this.loopFast = false;
     /** (how many flushTriggers calls are running, nested: the chain of triggers is over when the outermost ends) */ this._flushDepth = 0;
@@ -98,6 +130,12 @@ export class Game {
     /** @type {Set<any> | undefined} (rules 16: attackers and blockers with first or double strike as the first combat damage step began: combat.js) */ this.firstStruck = undefined;
     /** @type {any[]} (what the loop watcher found and decided, one entry per loop: triggers.loopWatch) */ this.loopLog = [];
     /** @type {any[] | undefined} */ this.endSac = undefined;
+    /** @type {any[] | null | undefined} (Phase 2F-1: permanents the effect resolving now changed, resolve.js runEffects0) */ this.touched27 = undefined;
+    /** @type {any} (Phase 2F-1: the target of the effect resolving now) */ this.lastTgt27 = undefined;
+    /** @type {{ o: any, ts: any, act: string, mine: number | null }[] | undefined} (Phase 2F-1: "… at the beginning of the next end step") */ this.endLater27 = undefined;
+    /** @type {any[] | undefined} (Phase 2D-5: cards exiled "until the next end step" back to their graveyards) */ this.endReturn25 = undefined;
+    /** @type {any[] | undefined} (Phase 2E-4: tokens exiled at end of combat) */ this.endCombat26 = undefined;
+    /** @type {any[] | null | undefined} (Phase 2D-1: zone changes while a spell or ability resolves or its costs are paid) */ this.trail = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
     this.explain = false;
     /** a look-ahead copy (lookahead.js) */ this.sim = false;
@@ -206,6 +244,8 @@ export class Game {
     // Every combo attempt (for batch statistics)
     this.comboLog = [];
     this.deals = [];
+    /** (rules 23) wins stopped on the stack or just before: { round, p, name, how } (a stalemate is judged from these) */
+    this.winStops = [];
     // Deals offered from the chat, waiting for the next turn
     this.pendingDeals = [];
     this.archenemy = null;
@@ -255,6 +295,8 @@ export class Game {
   mk(card, p, x = {}) {
     // (rules 8) multi-faced cards use their corrected reading (scryfall.js normalize)
     if (this.rules >= 8 && card.v8) card = card.v8;
+    // (Phase 2E-2, rules 26) a non-legendary card read without its first word taken for its name (scryfall.js)
+    if (this.rules >= 26 && card.v26) card = card.v26;
     /** @type {any} (an object in play: its fields are filled in as it moves between zones) */
     const o = {
       iid: this.nextId++, card, fx: card.fx, owner: p.idx, controller: p.idx, zone: null, tapped: false, sick: false,
@@ -295,7 +337,8 @@ export class Game {
   /** @param {any} p */ teammate(p) { return this.teams ? this.players.find(q => q !== p && q.team === p.team && !q.lost) || null : null; }
   order(from) { const n = this.players.length; return Array.from({ length: n }, (_, k) => this.players[(from + k) % n]); }
   // Mana empties between steps (Leyline Tyrant, Ashling: red mana stays)
-  setPhase(ph) { this.phase = ph; for (const p of this.players) p.pool = (p.pool || []).length && p.battlefield.some(o => o.fx.keepRed) ? p.pool.filter(u => u.colors.length === 1 && u.colors[0] === 'R') : []; this.emit('update'); }
+  // (Phase 2D-2, rules 25: mana added "until end of turn, you don't lose this mana" stays in the pool this turn)
+  setPhase(ph) { this.phase = ph; for (const p of this.players) p.pool = (p.pool || []).length && (p.battlefield.some(o => o.fx.keepRed) || (this.rules >= 25 && p.pool.some(u => u.keepTurn === this.turn))) ? p.pool.filter(u => (this.rules >= 25 && u.keepTurn === this.turn) || (p.battlefield.some(o => o.fx.keepRed) && u.colors.length === 1 && u.colors[0] === 'R')) : []; this.emit('update'); }
 
   // ---------- characteristics
   attachments(o) {
@@ -342,7 +385,7 @@ export class Game {
     if (o.zone !== 'battlefield') return { p, t };
     // (state-based actions skip the scans when the board has no anthem of that kind: triggers.sbaPass)
     const sf = this._sbaFacts;
-    if (!sf || sf.anthem.has(o.controller)) for (const s of this.players[o.controller].battlefield) if (s.fx.anthem && this.anthemApplies(s, o)) {
+    if (!sf || sf.anthem.has(o.controller)) for (const s of this.players[o.controller].battlefield) if (s.fx.anthem && !this.abilitiesOff(s) && this.anthemApplies(s, o)) {
       // Door of Destinies, Chitterspitter: +1/+1 for each counter of a kind on the source
       const an = s.fx.anthem;
       const k = an.perCounter ? s.named?.[an.perCounter] || 0 : an.perOther ? this.players[o.controller].battlefield.filter(x => x !== o && x.fx.type.creature && this.isA(x, an.perOther)).length : 0;
@@ -388,8 +431,37 @@ export class Game {
     if (o.zone !== 'battlefield') return null;
     let best = anim, ts = anim ? anim.ts ?? 0 : -1;
     for (const a of this.attachments(o)) if (a.fx.attachSet && (a.ts ?? 0) > ts) { best = a.fx.attachSet; ts = a.ts ?? 0; }
+    // (rules 20) Humility: base power and toughness N/N in layer 7b, by timestamp with the other setting effects; the
+    // anthems (7c) and counters (7d) still apply on top of it
+    const h = this.humility(o);
+    if (h && (h.ts ?? 0) > ts) best = h.fx.allLoseAbilities;
     return best;
   }
+  // (rules 20, item 212) The newest Humility-style permanent on the battlefield when o is a creature there: o has no
+  // abilities (613.1f layer 6) and its base power and toughness are set (layer 7b). Read in one place: keywords
+  // (hasNow), activated abilities (abilitiesOf), its own and watched triggers (triggers.js) and its anthems (bonus).
+  // Not covered: other static abilities a creature has (they still apply) and the few triggers queued directly by
+  // combat and special events; see tests/phase-2o-report.md.
+  humility(o) {
+    if (this.rules < 20 || !o?.fx?.type.creature || o.zone !== 'battlefield') return null;
+    return this.humilitySource();
+  }
+  // The newest Humility-style permanent on the battlefield, worked out again only when the battlefield changes (a
+  // permanent enters: tsN; or leaves: the count). Asked for every trigger and watcher, so a scan each time made long
+  // trigger chains with thousands of tokens quadratic (tests/loops.mjs 10). Not seen until the battlefield next
+  // changes: a permanent that becomes a copy of Humility without entering (Mirage Mirror); see the Phase 2O report.
+  humilitySource() {
+    let n = 0;
+    for (const q of this.players) n += q.battlefield.length;
+    const key = `${this.tsN}:${n}`;
+    if (this._humKey !== key || (this._hum && this._hum.game !== this)) {
+      let best = null;
+      for (const q of this.players) for (const s of q.battlefield) if (s.fx.allLoseAbilities && (!best || (s.ts ?? 0) > (best.ts ?? 0))) best = s;
+      this._humKey = key; this._hum = best;
+    }
+    return this._hum;
+  }
+  abilitiesOff(o) { return !!this.humility(o); }
   // (while the AI plans combat, power, toughness and keywords are worked out once per object: item 171)
   power(o) { const ev = this._ev; if (!ev) return this.powerNow(o); let v = ev.p.get(o); if (v === undefined) { v = this.powerNow(o); ev.p.set(o, v); } return v; }
   toughness(o) { const ev = this._ev; if (!ev) return this.toughnessNow(o); let v = ev.t.get(o); if (v === undefined) { v = this.toughnessNow(o); ev.t.set(o, v); } return v; }
@@ -415,7 +487,7 @@ export class Game {
     // Stinkweed Imp: creatures it deals combat damage to are destroyed (deathtouch does the same in combat)
     if (kw === 'deathtouch' && o.fx.combatKill && o.zone === 'battlefield') return true;
     // (an aura that makes it lose all abilities leaves only what's granted)
-    if (o.fx.kw.has(kw) && !(o.zone === 'battlefield' && this.setPT(o))) return true;
+    if (o.fx.kw.has(kw) && !(o.zone === 'battlefield' && this.setPT(o)) && !this.abilitiesOff(o)) return true;
     if (o.zone === 'battlefield') {
       // Concordant Crossroads: all creatures have haste
       if (kw === 'haste' && o.fx.type.creature && this.alive().some(q => q.battlefield.some(s => s.fx.hasteAll))) return true;
@@ -434,6 +506,7 @@ export class Game {
   pacified(o) { return this.attachments(o).some(a => a.fx.pacify); }
   // Its own activated abilities, plus any it borrows (Marvin, Murderous Mimic; Necrotic Ooze)
   abilitiesOf(o) {
+    if (this.abilitiesOff(o)) return [];
     // (rules 7) abilities read in the combo audit (Isochron Scepter, Grand Architect, fx.abilities7) and ones an Aura
     // grants its creature (Splinter Twin). Kept apart so older games, and the AI's card values, see the old reading.
     if (this.rules >= 7) {
@@ -787,6 +860,8 @@ export class Game {
   async commanderChoices() { return triggers.commanderChoices(this); }
   cantLose(q) { return triggers.cantLose(this, q); }
   lose(q, reason, rule) { return triggers.lose(this, q, reason, rule); }
+  /** A player concedes (104.3a): they leave at the next state-based check. @param {any} q */
+  concede(q) { return triggers.concede(this, q); }
   /** @param {any} winner @param {string} why @param {any[] | null} [team] */
   finish(winner, why, team = null) { return triggers.finish(this, winner, why, team); }
 
@@ -829,8 +904,12 @@ export class Game {
   damageObj(o, n, src) { return resolve.damageObj(this, o, n, src); }
 
   // ---------- actions the agents take
+  // (Phase 2D-2, rules 25) Crucible of Worlds, Ramunap Excavator: a land card in your graveyard may be played as your
+  // land drop (305.1: it uses one of your land plays)
+  // (Phase 2D-5: or a land card in a graveyard its player "may play this turn")
+  gyLandOk(p, o) { return this.rules >= 25 && o.zone === 'graveyard' && o.fx.type.land && ((o.owner === p.idx && p.battlefield.some(s => s.fx.gyLands)) || (o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn && !o.mayPlay.castOnly)); }
   async playLand(p, o) {
-    if (p.landsPlayed >= this.landDrops(p) ||!(p.hand.includes(o) || (o.zone === 'library' && this.topPlayable(p, o)) || (o.zone === 'exile' && o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn))) return false;
+    if (p.landsPlayed >= this.landDrops(p) ||!(p.hand.includes(o) || (o.zone === 'library' && this.topPlayable(p, o)) || (o.zone === 'exile' && o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn && !(this.rules >= 25 && o.mayPlay.castOnly)) || this.gyLandOk(p, o))) return false;
     // (a modal double-faced card with a land back is played as that land)
     if (!o.fx.type.land) { if (!this.canPlayBackLand(p, o)) return false; this.useFace(o, o.card.altFace); }
     p.landsPlayed++;
@@ -868,6 +947,8 @@ export class Game {
     if (o.zone === 'hand') { if (o.bestowed) this.unbestow(o); o.mutateOnto = null; }
     const mode = choice.mode || this.castMode(p, o);
     if (!mode) return false;
+    // (rules 20) timing, unless an effect is casting it (choice.mode: cascade, rebound, suspend, "cast it now")
+    if (!choice.mode && mana.timingRefuses(this, p, o, mode)) return false;
     this.payingFor = { o, ability: false };
     o.castFrom = o.zone;
     // (item 206: "if you cast it"; cleared when the card goes anywhere but the stack and the battlefield, zones.js)
@@ -875,7 +956,7 @@ export class Game {
     // (a foretold or plotted card is cast now)
     if (o.foretold != null && o.zone === 'exile' && mode.alt !== 'foretell' && mode.alt !== 'plot') { o.foretold = null; o.mayPlay = null; }
     // (Kess and friends: their once-a-turn permission is used up)
-    if (o.zone === 'graveyard' && !mode.alt) { const s = this.gyOnceSource(p, o); if (s) { s.gyOnceTurn = this.turn; if (s.fx.gyCastOnce.exile) o.gyOnceExile = true; } }
+    if (o.zone === 'graveyard' && !mode.alt) { const s = this.gyOnceSource(p, o); if (s) { s.gyOnceTurn = this.turn; if (s.fx.gyCastOnce.exile) o.gyOnceExile = true; } else if (this.rules >= 25 && p.gyCast?.turn === this.turn && p.gyCast.n != null) p.gyCast.n--; }
     let { c, extra } = this.costOf(p, o);
     let help = this.helpUnits(p, o);
     // Alternative costs replace the mana cost (and commander tax doesn't apply to flashback from a graveyard)
@@ -952,6 +1033,20 @@ export class Game {
       }
       if (!spreeEffects.length) return false;
     }
+    // (Phase 2D-8, rules 25) Escalate (702.120): the most useful mode, then each further useful mode while its escalate
+    // cost can be paid on top
+    let escEffects = null;
+    if (this.rules >= 25 && o.fx.escalateCost25 && o.fx.modes && !choice.effects && mode.alt !== 'free') {
+      const ranked = o.fx.modes.modes.map((/** @type {any[]} */ ms) => ({ ms, v: ms.reduce((s, e) => s + p.agent.effectValue(this, p, o, e, true), 0) })).filter((/** @type {any} */ r) => r.v > 0).sort((/** @type {any} */ a, /** @type {any} */ b) => b.v - a.v);
+      if (ranked.length) {
+        escEffects = [...ranked[0].ms];
+        for (const r of ranked.slice(1)) {
+          const more = this.addCost(c, parseCost(o.fx.escalateCost25));
+          if (this.planPayment(p, more, extra, null, choice.avoid, help)) { c = more; escEffects.push(...r.ms); }
+        }
+        if (escEffects.length > ranked[0].ms.length) this.log(`${this.pn(p)} escalates ${this.cn(o)}`, { kind: 'minor', rule: '702.120a' });
+      }
+    }
     let x = 0;
     if (c.x) {
       const maxX = Math.max(0, Math.floor((this.availableMana(p) + help.length - (c.generic + c.pips.length + extra)) / c.x));
@@ -964,7 +1059,7 @@ export class Game {
     const plan = await this.withPhyrexianChoice(p, o, c, extra + x * c.x, choice.phyLife, help, null, () => this.planPayment(p, c, extra + x * c.x, null, choice.avoid, help));
     if (!plan) return false;
     // (rules 13: the spells read in full since, fx.spell13; older games keep fx.spell)
-    let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : (this.rules >= 13 && o.fx.spell13) || o.fx.spell);
+    let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || escEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : (this.rules >= 13 && o.fx.spell13) || o.fx.spell);
     // (rules 13) Cavern of Souls: its colored mana paid for this creature spell of the chosen type, so it can't be
     // countered (mana.js units marks that mana: only such a spell can use it)
     const cavernPaid = this.rules >= 13 && !plan.free && [...(plan.used || [])].some(i => plan.units[i]?.cavern);
@@ -973,7 +1068,15 @@ export class Game {
     const spent = c.generic + c.pips.length + extra + x * (c.x || 0);
     // Overloaded: "target" becomes "each" (the opponents' permanents for removal, bounce and damage)
     if (mode.alt === 'overload') effects = effects.map(e => ({ remove: { k: 'wipeOpp', mode: e.mode, what: e.what }, bounce: { k: 'wipeOpp', mode: 'bounce', what: e.what }, damage: { k: 'wipeOpp', mode: 'damage', n: e.n, what: 'creature' }, tap: { k: 'tapAll', what: 'creatures' }, pump: { k: 'teamPump', p: e.p, t: e.t, kw: e.kw }, counters: { ...e, on: 'each creature you control' } }[e.k] || e));
-    const targets = choice.targets || effects.map(e => (needsTargetIn(e, this.rules) ? p.agent.chooseTarget(this, p, e, o) : null));
+    // (item 389: the targets picked so far, so "up to two target …" picks two different ones: Game.pickedTargets)
+    let targets = choice.targets ? [...choice.targets] : null;
+    if (!targets) {
+      targets = [];
+      this.pickedTargets = targets;
+      try { for (const e of effects) targets.push(needsTargetIn(e, this.rules) ? p.agent.chooseTarget(this, p, e, o) : null); } finally { this.pickedTargets = null; }
+    }
+    // (rules 23) A player whose permanent is about to be removed may point at a better target; the caster decides
+    if (this.rules >= 23 && !this.sim && !choice.combo) await this.redirectTalk(p, o, effects, targets);
     let auraTarget = null;
     if (o.fx.type.aura) { auraTarget = choice.auraTarget || p.agent.chooseAuraTarget(this, p, o); if (!auraTarget) return false; }
     // (rules 15) 601.2c: targets given by the caster must be legal, and a spell that needs a target can't be cast
@@ -982,7 +1085,14 @@ export class Game {
       const why = S.targetsBad(this, p, o, effects, targets, !!choice.targets);
       if (why) { if (choice.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '601.2c' }); return false; }
     }
+    // (Phase 2D-1) what was paid, for "if the sacrificed creature was legendary", "if the {1}{B} cost was paid", "if
+    // you cast this spell during your main phase" (triggers.js evalCond 'cost', 'altPaid', 'castMain')
+    const costTrail = [], prevTrail = this.trail;
+    this.trail = costTrail;
+    o.castAlt = mode.alt || null; o.castPhase = this.phase; o.castActive = this.active;
     p.casting = o;   // (Lion's Eye Diamond discards the hand, but not the spell it pays for)
+    // (Phase 2D-3, rules 25: converge, the number of colors of mana spent: mana.js convergeOf)
+    o.convergeN = this.rules >= 25 ? mana.convergeOf(plan) : 0;
     this.commitPayment(p, plan);
     p.casting = null;
     if (o.fx.lifeCost) {
@@ -991,7 +1101,8 @@ export class Game {
       this.log(`${this.pn(p)} pays ${o.fx.lifeCost} life to cast ${this.cn(o)}`, { kind: 'minor' });
     }
     // Additional costs (601.2f): sacrifice a creature, discard a card… and flashback's own non-mana costs
-    if (o.fx.addCost) await this.payCosts(p, o, o.fx.addCost, o);
+    // (Phase 2D-6, rules 25: Mox Diamond's land is discarded as it enters, a replacement; not as it is cast)
+    if (o.fx.addCost && !(this.rules >= 25 && o.fx.moxDiamond25)) await this.payCosts(p, o, o.fx.addCost, o);
     if (mode.alt === 'flashback' && o.fx.flashbackCosts && !mode.granted) await this.payCosts(p, o, o.fx.flashbackCosts, o);
     if (mode.alt === 'life') await this.payCosts(p, o, { life: o.fx.altLife.n }, o);
     if (mode.alt === 'escape') {
@@ -1024,14 +1135,16 @@ export class Game {
       if (d) this.discard(p, [d], null);
       this.log(`${this.pn(p)} casts ${this.cn(o)} from their graveyard with jump-start${d ? `, discarding ${this.cn(d)}` : ''}`, { kind: 'minor', rule: '702.133a' });
     }
+    this.trail = prevTrail;
+    o.costMoves = costTrail;
     // (how it was cast goes into the cast line below: "casts X with flashback")
     const altText = { flashback: ' with flashback', evoke: ' for its evoke cost', evokePitch: ' for its evoke cost', miracle: ' for its miracle cost', free: ' without paying its mana cost', dash: ' for its dash cost', blitz: ' for its blitz cost', spectacle: ' for its spectacle cost', bestow: ` bestowed on ${auraTarget ? this.cn(auraTarget) : 'a creature'}`, mutate: ` to mutate onto ${o.mutateOnto ? this.cn(o.mutateOnto) : 'a creature'}`, morph: ' face down', madness: ' for its madness cost', cleave: ' with cleave', fuse: ' fused (both halves)', aftermath: ' from their graveyard (aftermath)' }[mode.alt] || '';
     if (o.kicked) this.log(`${this.pn(p)} pays the kicker for ${this.cn(o)}`, { kind: 'minor', rule: '702.33a' });
     if (buyback) this.log(`${this.pn(p)} pays buyback for ${this.cn(o)}`, { kind: 'minor', rule: '702.27a' });
     // Ward (702.21): targeting an opponent's warded permanent costs extra, or the spell is countered
     if (!this.payWard(p, [...targets, auraTarget && { obj: auraTarget }], o)) {
-      const zoneArr0 = p[o.zone];
-      if (Array.isArray(zoneArr0)) zoneArr0.splice(zoneArr0.indexOf(o), 1);
+      const zoneArr0 = (this.rules >= 25 ? this.players[o.owner] : p)[o.zone];
+      if (Array.isArray(zoneArr0) && (this.rules < 25 || zoneArr0.includes(o))) zoneArr0.splice(zoneArr0.indexOf(o), 1);
       o.zone = 'stack';
       this.move(o, 'graveyard');
       return true;
@@ -1043,8 +1156,10 @@ export class Game {
       if (n) this.log(`Commander tax: ${this.cn(o)} costs {${2 * n}} more`, { rule: '903.8', kind: 'minor' });
       p.castCount[o.iid] = n + 1;
     }
-    const zoneArr = p[o.zone];
-    if (Array.isArray(zoneArr)) zoneArr.splice(zoneArr.indexOf(o), 1);
+    // (Phase 2D-5, rules 25: a card cast from another player's zone, such as their exile, leaves its owner's zone; before,
+    // the caster's own zone was searched and, not finding it, lost its last card)
+    const zoneArr = (this.rules >= 25 ? this.players[o.owner] : p)[o.zone];
+    if (Array.isArray(zoneArr) && (this.rules < 25 || zoneArr.includes(o))) zoneArr.splice(zoneArr.indexOf(o), 1);
     o.zone = 'stack';
     // (rules 8) A split card's first half is on the stack alone, with its own mana value (709.3b); fused, both (709.4d)
     if (this.rules >= 8 && o.card.frontHalf && mode.alt !== 'fuse') this.useFace(o, o.card.frontHalf);
@@ -1065,6 +1180,11 @@ export class Game {
     p.castNames.add(o.card.name);
     if (p.castList?.turn !== this.turn) p.castList = { turn: this.turn, list: [] };
     p.castList.list.push(o);
+    // (Phase 2D-1: spells cast this game by name, for Approach of the Second Sun)
+    (p.castCounts ||= {})[o.card.name] = (p.castCounts[o.card.name] || 0) + 1;
+    // (Phase 2D-1: the X paid, for "with mana value X or less" targets chosen later: Thieving Skydiver's kicker,
+    // Kozilek's Command)
+    o.castX = x || 0;
     // Spells cast this turn (Mindbreak Trap counts them)
     if (p.turnSpells?.turn !== this.turn) p.turnSpells = { turn: this.turn, n: 0 };
     p.turnSpells.n++;
@@ -1080,7 +1200,7 @@ export class Game {
       // Countering a partner in a no-counter deal breaks it
       for (const t of targets) if (t?.spell && this.dealBetween(p.idx, t.spell.p.idx)?.kind === 'noCounter') this.breakDeal(p, t.spell.p);
     }
-    const tgtText = [...targets, auraTarget && { obj: auraTarget }].filter(Boolean).map(t => this.tname(t)).join(', ');
+    const tgtText = [...targets, auraTarget && { obj: auraTarget }].filter(t => t && !t.none).map(t => this.tname(t)).join(', ');
     this.emit('cast', { o, p });
     this.log(`${this.pn(p)} ${choice.response ? 'responds with' : 'casts'} ${this.cn(o)}${fromCommand ? ' from the command zone' : ''}${altText}${x ? ` (X=${x})` : ''}${tgtText ? ` targeting ${tgtText}` : ''}`, { kind: 'cast', p: p.idx, rule: choice.response ? '117.7' : { flashback: '702.34a', evoke: '702.74a', dash: '702.109a', blitz: '702.152a', spectacle: '702.137a', free: '118.9' }[mode.alt] || null });
     await this.beat(1.3);
@@ -1095,7 +1215,13 @@ export class Game {
 
     await this.priority(item);
     this.stack.splice(this.stack.indexOf(item), 1);
-    item.status = item.countered ? 'countered' : 'resolved';
+    item.status = item.left ? 'removed' : item.countered ? 'countered' : 'resolved';
+    // (rules 18) Its controller or owner left the game while it was on the stack: it leaves with them (800.4a). A
+    // card someone else owns goes to its owner's exile.
+    if (item.left) {
+      if (o.spellCopy || this.players[o.owner]?.lost) { o.zone = 'gone'; if (o.spellCopy) this.objects.delete(o.iid); } else this.move(o, 'exile');
+      return true;
+    }
     // A flashback (or jump-start) spell is exiled instead of going anywhere else (702.34a); buyback returns it to hand
     // (Yawgmoth's Will: a card cast from the graveyard this way is exiled instead of returning there)
     const gone = mode.alt === 'flashback' || mode.alt === 'jumpstart' || o.castAftermath || (o.castFrom === 'graveyard' && (p.gyCast?.turn === this.turn || o.gyOnceExile)) ? 'exile' : buyback ? 'hand' : 'graveyard';
@@ -1103,9 +1229,11 @@ export class Game {
     // (a copy of a card cast from Isochron Scepter ceases to exist as it leaves the stack: 707.10a)
     const cease = () => { o.zone = 'gone'; this.objects.delete(o.iid); };
     if (o.spellCopy && item.countered) { cease(); return true; }
+    // (Phase 2F-5, rules 27) Memory Lapse: on top of its owner's library instead (a flashback spell is still exiled, 702.34a)
+    if (item.countered && item.toTop27 && gone !== 'exile' && !item.toExile) { this.move(o, 'library'); this.log(`${this.cn(o)} is put on top of its owner's library`, { kind: 'minor' }); await this.beat(0.4); return true; }
     if (item.countered) { this.move(o, item.toExile ? 'exile' : item.toHand ? 'hand' : gone === 'hand' ? 'graveyard' : gone); await this.beat(0.4); return true; }
     // A spell whose every target has become illegal doesn't resolve
-    const chosen = targets.filter(Boolean);
+    const chosen = targets.filter(t => t && !t.none);
     if (!o.fx.type.permanent && chosen.length && chosen.every(t => !this.validTarget(t, p, o))) {
       this.log(`${this.cn(o)} fizzles: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
       item.status = 'fizzled';
@@ -1127,9 +1255,21 @@ export class Game {
     // Bestow: with its target gone it resolves as an enchantment creature spell (702.103e)
     if (o.bestowed && !(auraTarget?.zone === 'battlefield')) { this.unbestow(o); auraTarget = null; }
     if (o.fx.type.permanent) {
+      // (Phase 2D-6, rules 25) Mox Diamond (614.1c, 614.12): as it would enter, its controller may discard a land card; if
+      // they don't, it goes to its owner's graveyard instead and never enters
+      if (this.rules >= 25 && o.fx.moxDiamond25) {
+        const lands = p.hand.filter(c => c.fx.type.land);
+        // (a person picks; the AI discards its least useful land)
+        const [d] = !lands.length ? [] : p.agent.human ? await this.pickCards(p, lands, 1, `${this.cn(o)}: discard a land card to put it onto the battlefield (or it goes to the graveyard)`) : [[...lands].sort((a, b) => p.agent.value(this, a) - p.agent.value(this, b))[0]];
+        if (!d) { this.log(`${this.pn(p)} discards no land: ${this.cn(o)} is put into its owner's graveyard`, { kind: 'minor', rule: '614.12' }); this.move(o, 'graveyard'); await this.sba(); return true; }
+        this.discard(p, [d]);
+        this.log(`${this.pn(p)} discards ${this.cn(d)} as ${this.cn(o)} enters`, { kind: 'minor', rule: '614.1c' });
+      }
       this.move(o, 'battlefield', { tapped: o.fx.entersTapped && !o.fx.type.creature });
       // (rules 6: "enters with X counters" is counters put on it, so Hardened Scales and Doubling Season apply, 614.1c)
       if (o.fx.entersCounters === 'X') o.counters = this.rules >= 6 ? this.moreCounters(o, x) : x;
+      // (Phase 2D-3, rules 25) "enters with X +1/+1 counters, where X is …" with no X paid (Prime Speaker Zegana)
+      if (o.fx.entersCounters === 'X' && o.fx.entersX25 && !x && this.rules >= 25) { const n = Math.max(0, this.dynValue(p, o.fx.entersX25, { src: o })); o.counters += this.moreCounters(o, n); }
       if (o.kicked && o.fx.kickCounters) o.counters += this.moreCounters(o, o.fx.kickCounters);
       // (item 211, rules 17: Chrome Mox takes a colored nonartifact, nonland card; before, the Isochron Scepter choice)
       const imprint = choice.imprint || (o.fx.imprint && (this.rules >= 17 && o.fx.mana?.imprintColors ? p.agent.chooseMoxImprint(this, p, o) : p.agent.chooseImprint(this, p, o)));
@@ -1181,6 +1321,8 @@ export class Game {
         o.reboundGrant = false; this.move(o, 'exile'); (p.rebounds ||= []).push(o); this.log(`${this.cn(o)} is exiled with rebound`, { kind: 'minor', rule: '702.88a' }); }
       // (rules 13) "Exile Teferi's Protection": a spell that exiles itself goes to exile as it finishes resolving
       const selfExile = this.rules >= 13 && effects.some(e => e.k === 'exileSelf') && gone === 'graveyard';
+      // (Phase 2D-1, rules 25) "put ~ into its owner's library seventh from the top" (Approach of the Second Sun)
+      if (o.zone === 'stack' && this.rules >= 25 && o.toLibraryPos && !o.spellCopy) { const n = o.toLibraryPos; o.toLibraryPos = 0; this.move(o, 'library', { fromTop: n }); this.log(`${this.cn(o)} is put into its owner's library ${n === 1 ? 'on top' : `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'} from the top`}`, { kind: 'minor' }); }
       if (o.zone === 'stack') { if (o.spellCopy) cease(); else this.move(o, selfExile ? 'exile' : gone); }
     }
     await this.sba();
@@ -1206,7 +1348,8 @@ export class Game {
       // to; prowess granted by another permanent counts too
       if (this.rules >= 16) { if (!t.creature && s.fx.type.creature && this.has(s, 'prowess')) this.queue.push({ o: s, effects: [{ k: 'pumpSelf', p: 1, t: 1, kw: [] }], label: 'prowess', p, trig: { o, p: p.idx } }); }
       else if (s.fx.kw.has('prowess') && !t.creature) { s.tempP++; s.tempT++; this.log(`${this.cn(s)} gets +1/+1 (prowess)`, { kind: 'minor', rule: '702.108a' }); }
-      if (s.fx.onCast && (!s.fx.onCast.notHand || o.castFrom !== 'hand') && (!s.fx.onCast.fromHand || o.castFrom === 'hand') && (!s.fx.onCast.minPower || this.basePower(o.card) >= s.fx.onCast.minPower) && (s.fx.onCast.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[s.fx.onCast.what] ?? this.spellIs(o, s.fx.onCast.what)) && s !== o && (!s.fx.onCast.turnOnce9 || this.onceOk(s, 'cast'))) this.queue.push({ o: s, effects: s.fx.onCast.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
+      // (Phase 2F-1, rules 27: a card's earlier 'whenever you cast' lines too, fx.onCast27, in printed order)
+      for (const oc of [...(this.rules >= 27 ? s.fx.onCast27 || [] : []), s.fx.onCast]) if (oc && (!oc.notHand || o.castFrom !== 'hand') && (!oc.fromHand || o.castFrom === 'hand') && (!oc.minPower || this.basePower(o.card) >= oc.minPower) && (oc.what === 'chosen' ? !!s.chosenType && this.isA(o, s.chosenType) : matches[oc.what] ?? this.spellIs(o, oc.what)) && s !== o && (!oc.turnOnce9 || this.onceOk(s, 'cast'))) this.queue.push({ o: s, effects: oc.effects, label: `${o.card.name} was cast`, p, trig: { o, p: p.idx } });
       if (s.fx.kw.has('extort')) extort++;
     }
     // Extort (702.101): pay {1} per extort permanent to drain each opponent for 1, while there's spare mana
@@ -1310,7 +1453,11 @@ export class Game {
     }
     if (so.tap) outlet.tapped = true;
     this.log(`${this.pn(p)} sacrifices ${this.cn(victim)} to ${this.cn(outlet)}${esc(why)}`, { kind: 'removal', p: p.idx });
-    this.move(victim, 'graveyard');
+    // (Phase 2D-1: the sacrificed creature as it was, for "if the sacrificed creature's toughness was 4 or greater")
+    const prevTrail = this.trail, costTrail = [];
+    this.trail = costTrail;
+    try { this.move(victim, 'graveyard'); } finally { this.trail = prevTrail; }
+    outlet.costMoves = costTrail;
     await this.beat(0.6);
     if (so.effects.length) await this.stackAbility(p, outlet, so.effects, so.text);
     await this.sba();
@@ -1323,6 +1470,8 @@ export class Game {
   async goOff(p, combo) {
     const st = comboState(this, p, combo);
     if (this.over || !st.ready) return false;
+    // (rules 23) going for a win while promising not to ("no-win" deal) breaks the deal
+    if (this.rules >= 23) for (const d of this.deals) if (!d.broken && d.kind === 'noWin' && d.a === p.idx && d.until >= this.round) this.breakDeal(p, this.players[d.b]);
     // Pieces that have to tap are on the battlefield, untapped, without summoning sickness; the board has
     // what the combo needs (Commander Spellbook's prerequisites too)
     const blocked = comboBlocked(this, p, combo, st);
@@ -1671,7 +1820,10 @@ export class Game {
     this.log(`${this.pn(p)} ${eq.reconfigured ? 'reconfigures' : 'equips'} ${this.cn(eq)} ${eq.reconfigured ? 'onto' : 'to'} ${this.cn(target)}`, { kind: 'minor' });
   }
 
+  // (Phase 2D-7, rules 25) The Immortal Sun: no player may activate planeswalkers' loyalty abilities
+  loyaltyLocked() { return this.rules >= 25 && this.alive().some(q => q.battlefield.some(s => s.fx.noLoyalty25)); }
   async activatePW(p, pw, ab) {
+    if (this.loyaltyLocked()) { this.log(`${this.cn(pw)}'s loyalty abilities can't be activated`, { kind: 'minor' }); return false; }
     pw.loyalty += ab.cost;
     pw.usedPW = true;
     this.log(`${this.pn(p)} activates ${this.cn(pw)} [${ab.cost > 0 ? '+' : ''}${ab.cost}]`, { kind: 'cast', p: p.idx });
@@ -1728,6 +1880,8 @@ export class Game {
   canActivateRaw(p, o, ab) {
     // (abilities read for a later rules version don't exist in older games)
     if (ab.minRules && this.rules < ab.minRules) return false;
+    // (Phase 2E-2, rules 26) "Activate only once each turn" (602.5b): Beledros Witherbloom, Quirion Ranger, Chainer
+    if (this.rules >= 26 && /activate (?:this ability )?only once each turn/.test(ab.text || '') && o.onceUsed26?.turn === this.turn && o.onceUsed26.keys.includes(ab.text)) return false;
     if (ab.tap && (o.tapped || !this.canTapNow(p, o))) return false;
     // (rules 6) Deathrite Shaman: the card it exiles from a graveyard is a target, so one must be there (602.2b)
     if (this.rules >= 6 && !this.gyTargetOk(ab)) return false;
@@ -2234,11 +2388,14 @@ export class Game {
       else {
         this.xNow = x || null;
         pre = [];
-        try { for (const e of effs0) pre.push(needsTargetIn(e, this.rules) ? await (p.agent.chooseTargetAsync?.(this, p, e, o) ?? p.agent.chooseTarget(this, p, e, o)) : null); } finally { this.xNow = null; }
+        this.pickedTargets = pre;
+        try { for (const e of effs0) pre.push(needsTargetIn(e, this.rules) ? await (p.agent.chooseTargetAsync?.(this, p, e, o) ?? p.agent.chooseTarget(this, p, e, o)) : null); } finally { this.xNow = null; this.pickedTargets = null; }
       }
       const why = S.targetsBad(this, p, o, effs0, pre, !!opts.targets);
       if (why) { if (opts.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '602.2b' }); return false; }
     }
+    // (Phase 2E-2, rules 26: the activation is counted for "activate only once each turn" as it is announced, 602.2)
+    if (this.rules >= 26 && /activate (?:this ability )?only once each turn/.test(ab.text || '')) { if (o.onceUsed26?.turn !== this.turn) o.onceUsed26 = { turn: this.turn, keys: [] }; o.onceUsed26.keys.push(ab.text); }
     this.payingFor = { o, ability: true };
     // (rules 12) Phyrexian symbols in an ability's cost (Birthing Pod's {G/P}): the same choice as for spells
     const plan = await this.withPhyrexianChoice(p, o, this.abilityCost(p, o, ab), x * (cost0.x || 0), opts.phyLife, [], ab.tap ? o : null, () => this.planPayment(p, this.abilityCost(p, o, ab), x * (cost0.x || 0), ab.tap ? o : null));
@@ -2299,14 +2456,22 @@ export class Game {
 
   // ---------- costs and abilities used from other zones
   // Cycling (702.29) and landcycling, and channel: pay, discard it, then draw (or search, or the channel effect)
+  // (Phase 2F-3, rules 27) A channel ability that costs {1} less for each legendary creature you control (generic only)
+  cycleCost(p, o) {
+    const c = o.fx.cycling || o.fx.channel;
+    const cost = parseCost(c.cost);
+    const less = !o.fx.cycling && this.rules >= 27 ? o.fx.channel?.less27 : null;
+    if (less) cost.generic = Math.max(0, cost.generic - less.n * p.battlefield.filter((/** @type {any} */ x) => x.fx.type.creature && x.fx.type.legendary).length);
+    return cost;
+  }
   canCycle(p, o) {
     const c = o.fx.cycling || o.fx.channel;
-    return !!c && o.zone === 'hand' && !!this.planPayment(p, parseCost(c.cost), 0);
+    return !!c && o.zone === 'hand' && !!this.planPayment(p, this.cycleCost(p, o), 0);
   }
   async cycle(p, o) {
     const ch = !o.fx.cycling && o.fx.channel;
     const c = ch || o.fx.cycling;
-    const plan = this.planPayment(p, parseCost(c.cost), 0);
+    const plan = this.planPayment(p, this.cycleCost(p, o), 0);
     if (!plan || o.zone !== 'hand') return false;
     this.commitPayment(p, plan);
     this.discard(p, [o], null);
@@ -2519,10 +2684,15 @@ export class Game {
     // Deals people offered from the chat since the last turn began (handled here, between decisions)
     for (const d of this.pendingDeals.splice(0)) {
       const from = this.players[d.from], to = this.players[d.to];
+      // (rules 23) a draw offered from the chat goes to the whole table; a no-win deal like any other
+      if (d.kind === 'draw') { if (this.rules >= 23 && from && !from.lost && (await this.offerTableDraw(from, true))) return; continue; }
+      if (d.kind === 'noWin' && this.rules < 23) continue;
       if (!from || !to || from.lost || to.lost || from === to || this.dealBetween(from.idx, to.idx)) continue;
       if (d.kind === 'gangUp' && (this.archenemy == null || [from.idx, to.idx].includes(this.archenemy))) continue;
       await this.offerDeal(from, to, d.kind, d.rounds);
     }
+    // (rules 23) A table that can't get anywhere may agree to a draw
+    if (this.rules >= 23 && (await this.stalemateDraw(p))) return;
     // The active player may offer someone a deal. Every deal includes "neither attacks the other";
     // the kinds add a trade on top (see dealText)
     const offer = p.agent.proposeDeal(this, p);
@@ -2535,7 +2705,7 @@ export class Game {
     const target = kind === 'gangUp' ? this.players[this.archenemy] : null;
     this.log(`${this.pn(p)} offers ${this.pn(q)} a deal: ${this.dealText(kind, p, q, target, rounds)}`, { kind: 'politics', p: p.idx });
     if (await q.agent.considerDeal(this, q, p, kind, rounds)) {
-      this.deals.push({ a: p.idx, b: q.idx, kind, target: target?.idx ?? null, until: this.round + rounds, rounds, broken: false });
+      this.deals.push({ a: p.idx, b: q.idx, kind, target: target?.idx ?? null, until: this.round + rounds, rounds, broken: false, madeTurn: this.turn });
       this.log(`${this.pn(q)} accepts`, { kind: 'politics', p: q.idx });
       // Tribute: the one asking for peace pays up front
       if (kind === 'tribute') { this.draw(q, 1); this.log(`${this.pn(q)} draws a card as tribute from ${this.pn(p)}`, { kind: 'politics' }); }
@@ -2551,7 +2721,52 @@ export class Game {
       gangUp: `neither attacks the other, and both go after ${target ? this.pn(target) : 'the leader'} ${len}`,
       noCounter: `neither attacks nor counters the other's spells ${len}`,
       tribute: `${this.pn(q)} draws a card now and doesn't attack ${this.pn(p)} ${len}`,
+      noWin: `${this.pn(q)} lets ${this.pn(p)}'s spells resolve this turn (no counterspells or removal on them), and ${this.pn(p)} won't try to win and neither attacks the other ${len}`,
     }[kind];
+  }
+  // (rules 23) A draw by agreement, as cEDH tournament pods do when nobody can win through the interaction held up:
+  // offered by the active player at the start of a turn when a win was stopped on the stack (or a combo piece removed)
+  // in the last two rounds and the agent judges the table locked; everyone still in must accept.
+  async stalemateDraw(p) {
+    if (this.sim || this.puzzle || this.kingdoms || this.round < 6) return false;
+    if (!this.winStops.some(w => w.round >= this.round - 2)) return false;
+    if (!p.agent.offerDraw?.(this, p)) return false;
+    return this.offerTableDraw(p, false);
+  }
+  async offerTableDraw(p, fromChat) {
+    this.log(`${this.pn(p)} offers the table a draw${fromChat ? '' : ': every player is holding up interaction, and wins keep being stopped on the stack'}`, { kind: 'politics', p: p.idx });
+    for (const q of this.alive()) {
+      if (q === p) continue;
+      const yes = await q.agent.considerDraw(this, q, p);
+      this.log(`${this.pn(q)} ${yes ? 'agrees to the draw' : 'declines the draw'}`, { kind: 'politics', p: q.idx });
+      if (!yes) return false;
+    }
+    this.log('Everyone agrees: the game is a draw by agreement', { kind: 'politics' });
+    this.finish(null, 'a draw by agreement');
+    return true;
+  }
+  // (rules 23) A win stopped on the stack (a combo piece or winning spell countered) or just before (a combo piece removed)
+  noteWinStopped(owner, o, how) {
+    if (this.rules < 23 || !owner || !o) return;
+    const danger = owner.agent?.comboDanger?.(this, o) || 0;
+    const piece = (owner.combos || []).some(c => c.pieces.includes(o.card.name));
+    if (danger >= 5 || piece) this.winStops.push({ round: this.round, p: owner.idx, name: o.card.name, how });
+  }
+  // (rules 23) "Hit that instead": for each removal target, its controller (an AI) may point at a better target that
+  // isn't theirs; the caster accepts or declines (an AI by its own reckoning, a person when asked). Nothing is paid yet.
+  async redirectTalk(p, o, effects, targets) {
+    for (let i = 0; i < effects.length; i++) {
+      const e = effects[i], t = targets[i];
+      if (!t?.obj || !['remove', 'bounce', 'tuck'].includes(e.k)) continue;
+      const q = this.players[t.obj.controller];
+      if (!q || q === p || q.lost || !q.agent.redirectOffer) continue;
+      const alt = q.agent.redirectOffer(this, q, p, e, o, t.obj);
+      if (!alt || alt === t.obj) continue;
+      this.log(`${this.pn(q)} asks ${this.pn(p)} to aim ${this.cn(o)} at ${this.cn(alt)} instead of ${this.cn(t.obj)}: the bigger threat`, { kind: 'politics', p: q.idx });
+      const yes = await p.agent.considerRedirect(this, p, q, e, o, t.obj, alt);
+      this.log(`${this.pn(p)} ${yes ? 'agrees' : 'keeps the target'}`, { kind: 'politics', p: p.idx });
+      if (yes) targets[i] = { obj: alt };
+    }
   }
 
   // ---------- game flow
@@ -2830,6 +3045,21 @@ export class Game {
     // Mobilize tokens are sacrificed at the end step
     // (and token copies "exiled at the beginning of the next end step", rules 6: Twinflame, Heat Shimmer)
     for (const o of (this.endSac || []).splice(0)) if (o.zone === 'battlefield') { if (o.endExile) this.move(o, 'exile'); else this.sacrifice(this.players[o.controller], o); }
+    // (Phase 2F-1, rules 27) "Sacrifice that token / exile it / return it to your hand at the beginning of the next end step"
+    // (them27): the same permanent only (o.ts: it hasn't left and come back), and "your next end step" only on yours
+    if (this.endLater27?.length) {
+      const due = this.endLater27.splice(0);
+      for (const d of due) {
+        if (d.mine != null && d.mine !== p.idx) { this.endLater27.push(d); continue; }
+        const o = d.o;
+        if (o.zone !== 'battlefield' || o.ts !== d.ts) continue;
+        if (d.act === 'sac') this.sacrifice(this.players[o.controller], o);
+        else { this.move(o, d.act === 'hand' ? 'hand' : 'exile'); this.log(`${this.cn(o)} ${d.act === 'hand' ? "returns to its owner's hand" : 'is exiled'} at the beginning of the end step`, { kind: 'minor', rule: '603.7' }); }
+      }
+    }
+    // (Phase 2D-5, rules 25) "At the beginning of the next end step, if any of those cards remain exiled, return them to
+    // their owners' graveyards" (Mnemonic Betrayal)
+    for (const o of (this.endReturn25 || []).splice(0)) if (o.zone === 'exile') { o.mayPlay = null; this.move(o, 'graveyard'); }
     // Cards exiled "until the next end step" come back
     for (const o of this.delayed.splice(0)) {
       if (o.zone !== 'exile') continue;
@@ -2878,13 +3108,17 @@ export class Game {
       this.discard(p, disc, null);
       this.log(`${this.pn(p)} discards ${disc.map(o => this.cn(o)).join(', ')} down to seven cards`, { rule: '514.1', kind: 'minor' });
     }
-    for (const q of this.players) for (const o of q.battlefield) {
-      Object.assign(o, { damage: 0, deathtouched: false, tempP: 0, tempT: 0, tempKw: null, regen: 0 });
-      // "Becomes a copy … until end of turn" ends (Mirage Mirror, Shifting Woodland, Cursed Mirror)
-      if (o.copyUntil != null && o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; o.copyUntil = null; }
-      // A crewed vehicle stops being a creature at end of turn
-      if (o.crewed) { o.crewed = false; o.fx = o.card.fx; }
-    }
+    // 514.2: damage wears off and "until end of turn" effects end, all at once
+    const wearOff = () => {
+      for (const q of this.players) for (const o of q.battlefield) {
+        Object.assign(o, { damage: 0, deathtouched: false, tempP: 0, tempT: 0, tempKw: null, regen: 0 });
+        // "Becomes a copy … until end of turn" ends (Mirage Mirror, Shifting Woodland, Cursed Mirror)
+        if (o.copyUntil != null && o.baseCard) { o.card = o.baseCard; o.fx = o.baseCard.fx; o.baseCard = null; o.copyUntil = null; }
+        // A crewed vehicle stops being a creature at end of turn
+        if (o.crewed) { o.crewed = false; o.fx = o.card.fx; }
+      }
+    };
+    wearOff();
     // "Until end of turn" control changes end
     for (const { o, back } of this.tempSteals.splice(0)) {
       const now = this.players[o.controller];
@@ -2893,6 +3127,16 @@ export class Game {
       o.controller = back;
       this.players[back].battlefield.push(o);
       this.log(`${this.cn(o)} returns to ${this.pn(this.players[back])}`, { kind: 'minor' });
+    }
+    // (Phase 2J, rules 18) 514.3a: if a state-based action happens or a trigger is waiting during cleanup (a card
+    // discarded to hand size with a trigger, a creature that dies as a pump wears off), it is dealt with now, with
+    // priority, and another cleanup step follows. Before, such triggers waited for the next turn's upkeep.
+    if (this.rules >= 18) for (let k = 0; k < 4 && !this.over; k++) {
+      const acted = this.sbaPass();
+      if (!acted && !this.queue.length) break;
+      this.log('Something happened during cleanup: players get priority, then another cleanup step', { rule: '514.3a', kind: 'minor' });
+      await this.sba();
+      wearOff();
     }
     await this.beat(0.4);
   }

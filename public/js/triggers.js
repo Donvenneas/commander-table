@@ -14,6 +14,9 @@ import { DUNGEONS, roomEffects, ventureChoices } from './dungeons.js';
 export function trigger(g, o, kind) {
   // (a card stopped on its way in, by Grafdigger's Cage, never entered)
   if (kind === 'etb' && (o.zone !== 'battlefield' || g.etbSuppressed(g.players[o.controller]) || creatureTriggersStopped(g, o, 'noEtbCreature'))) return;
+  // (rules 20) a creature with no abilities (Humility) has no triggered abilities either; a dying creature is looked at
+  // as it last was on the battlefield (603.10a), with the Humility that was there
+  if (g.rules >= 20 && o.fx.type.creature) { const h = g.humilitySource(); if (h && h !== o) return; }
   if (o.fx[kind]?.length || (kind === 'etb' && o.fx.etbModes)) g.queue.push({ o, kind, p: g.players[o.controller] });
 }
 // Elesh Norn, Mother of Machines (and Torpor Orb-style effects): entering doesn't trigger this player's abilities
@@ -81,6 +84,9 @@ async function flushTriggers15(g) {
       if (p.lost || g.over) continue;
       const label = t.label || { etb: 'enters', attack: 'attack trigger', upkeep: 'upkeep trigger', endstep: 'end step trigger', dies: 'dies trigger', cast: 'cast trigger', saga: 'chapter' }[kind];
       const effects = kind === 'etb' && o.fx.etbModes ? p.agent.chooseModes(g, p, o, o.fx.etbModes) : t.effects || o.fx[kind];
+      // (Phase 2D-1, rules 25) An intervening "if" ("When …, if …, …") is checked as the ability triggers too: false
+      // then, the ability doesn't go on the stack at all (603.4); it is checked again as it resolves
+      if (g.rules >= 25 && interveningFails(g, p, o, effects, t.trig)) { g.log(`${g.cn(o)}: ${esc(condText(effects[0].cond))} is not true, so the ability doesn't trigger`, { kind: 'minor', rule: '603.4' }); continue; }
       // Panharmonicon, Yarok: the ability triggers additional times (the extra ones resolve after the first)
       for (let k = g.extraTriggers(t); k > 0 && !g.over && !p.lost; k--) {
         const it = await g.putAbility(p, o, kind === 'etb' && o.fx.etbModes ? p.agent.chooseModes(g, p, o, o.fx.etbModes) : effects, `${label} (again)`, 'trigger', t.trig);
@@ -259,16 +265,23 @@ export function fire(g, ev, info = {}) {
   const board = ev === 'leaveBf' ? g.batch?.board : null;
   const pairs = board ? board.filter(b => b.s !== info.o && !g.players[b.q].lost).map(b => [g.players[b.q], b.s, b.fx.watch]) : null;
   if (pairs) { for (const [q, s, ws] of pairs) if (ws?.length && one(q, s, ws) === false) return; return; }
-  for (const q of g.alive()) for (const s of q.battlefield) if (s.fx.watch?.length && one(q, s, s.fx.watch) === false) return;
+  // (Phase 2D-4, rules 25: triggers a permanent gained until end of turn, s.tempWatch, resolve.js grantWatch)
+  for (const q of g.alive()) for (const s of q.battlefield) {
+    const ws = g.rules >= 25 && s.tempWatch?.turn === g.turn ? [...(s.fx.watch || []), ...s.tempWatch.list.filter((/** @type {any} */ w) => !(w.playerOnly && info.target == null))] : s.fx.watch;
+    if (ws?.length && one(q, s, ws) === false) return;
+  }
   /** @returns {boolean | void} */
   function one(q, s, ws) {
     if (ev === 'enter' && g.etbSuppressed(q)) return;
+    if (g.abilitiesOff(s)) return;
     for (const w of ws) {
       if (w.ev !== ev || (w.gate && !g.gateOk(s, w.gate))) continue;
       const r = g.watchMatches(w, s, q, info);
       if (!r) continue;
       // "Whenever one or more …" triggers once for a batch of events still waiting to resolve
-      if (w.once && g.queue.some(it => it.w === w && it.o === s)) continue;
+      // (Phase 2D-3, rules 25: combat damage from the whole batch to that player adds up: "the amount of damage those
+      // creatures dealt to that player", Quartzwood Crasher)
+      if (w.once) { const it = g.queue.find(x => x.w === w && x.o === s); if (it) { if (g.rules >= 25 && ev === 'allyCombat' && it.trig && it.trig.target === info.target && it.trig !== info) it.trig = { ...it.trig, n: (it.trig.n || 0) + (info.n || 0) }; continue; } }
       // (rules 9) "This ability triggers only once each turn"
       if (w.turnOnce9 && !g.onceOk(s, `w${ws.indexOf(w)}`)) continue;
       // (rules 7: no fixed cap on legitimate loops; flushTriggers tells an endless mandatory loop from a long chain)
@@ -449,10 +462,19 @@ export function evalCond(g, p, src, c, ctx = {}) {
     case '?':
       if (g.rules < 17) return true;
       if (c.r) return evalCond(g, p, src, c.r, ctx);
-      return !ctx.resolving;
+      // (item 389) conditions read at rules 24
+      if (c.r24 && g.rules >= 24) return evalCond(g, p, src, c.r24, ctx);
+      // (Phase 2D-1) conditions read at rules 25. From rules 25 a condition that can't be read is never met, also
+      // outside resolution: a cost reduction, a permission to cast from the graveyard (Not of This World, The Indomitable)
+      if (c.r25 && g.rules >= 25) return evalCond(g, p, src, c.r25, ctx);
+      return g.rules >= 25 ? false : !ctx.resolving;
     // A seeded flip as the effect resolves; a look ahead of time (the AI valuing the card) never flips
     case 'coin': return ctx.resolving ? (g.rand() < 0.5) === !!c.win : !!c.win;
-    case 'trigIs': return !!ctx.trig?.o && c.types.some(t => ctx.trig.o.fx.type[t]);
+    // (Phase 2F-5, rules 27) "When ~ dies, if it was a creature" (the Enduring cycle): "it" is the source as it last existed
+    // on the battlefield (src.lki, 608.2h) when no other object triggered the ability; before, this was never met
+    case 'trigIs':
+      if (!ctx.trig?.o && g.rules >= 27 && src && src.zone !== 'battlefield' && src.lki?.types) return c.types.some((/** @type {string} */ t) => src.lki.types[t]);
+      return !!ctx.trig?.o && c.types.some(t => ctx.trig.o.fx.type[t]);
     case 'wasCast': return !!src?.wasCast;
     case 'gainedN': return p.gainedTurn === g.turn && (p.gainedAmt || 0) >= c.n;
     case 'lostN': return (c.any ? g.alive() : g.opponents(p)).some(q => q.lostLifeTurn === g.turn && (q.lostAmt || 0) >= c.n);
@@ -472,6 +494,57 @@ export function evalCond(g, p, src, c, ctx = {}) {
       const r = src.resolvedTurn?.turn === g.turn ? src.resolvedTurn : (src.resolvedTurn = { turn: g.turn, n: 0 });
       return ++r.n === c.n;
     }
+    // (item 389, rules 24: reached only through c.r24)
+    case 'castFromZ': return !!src?.wasCast && src.castFrom === c.zone;
+    case 'anyGy': return g.alive().some(q => q.graveyard.length >= c.n);
+    case 'tokenTurn': return p.tokensTurn?.turn === g.turn && p.tokensTurn.n > 0;
+    case 'drewN': return p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= c.n;
+    case 'gainedAndLost': return p.gainedTurn === g.turn && p.lostLifeTurn === g.turn;
+    case 'handEq': return p.hand.length === c.n;
+    case 'oppNoBasic': return g.opponents(p).some(q => !q.battlefield.some(o => o.fx.type.land && o.fx.type.basic));
+    case 'notOwned': return bf.filter(o => o.owner !== p.idx).length >= c.n;
+    case 'totalTough': return bf.filter(o => o.fx.type.creature).reduce((s, o) => s + g.toughness(o), 0) >= c.n;
+    case 'attachedIs': return !!src?.attachedTo && src.attachedTo.zone === 'battlefield' && g.isA(src.attachedTo, c.what);
+    case 'selfZones': return !!src && c.zones.includes(src.zone);
+    case 'castKind': {
+      const list = p.castList?.turn === g.turn ? p.castList.list : [];
+      const fits = (/** @type {any} */ o) => c.what === 'noncreature' ? !o.fx.type.creature : c.what === 'creature' ? !!o.fx.type.creature : !!(o.fx.type.instant || o.fx.type.sorcery);
+      return list.filter(fits).length >= c.n;
+    }
+    case 'noneWithKw': return !bf.some(o => o.fx.type.creature && g.has(o, c.kw));
+    case 'dungeonDone': return (p.dungeonsDone || 0) > 0;
+    case 'noGift': return true;
+    // (Phase 2D-1, rules 25: reached only through c.r25) What this ability has done so far (ctx.trail: the zone changes
+    // since it began to resolve, each with the object as it was), the object as it last existed (o.lki), its costs
+    // (src.costMoves) and the way it was cast
+    case 'way': return !!wayMatch(g, p, c, ctx) !== !!c.neg;
+    case 'lki': {
+      const o = ctx.trig?.o || src;
+      const k = o?.zone !== 'battlefield' && o?.lki ? o.lki : o && { counters: o.counters, named: o.named, toughness: g.toughness(o), minus: o.hadMinus, kws: null };
+      if (!k) return false;
+      const named = k.named || {};
+      if (c.test === 'noCounters') return !k.counters && !Object.values(named).some(n => n > 0);
+      if (c.test === 'counter') return c.kind === '+1/+1' ? (k.counters || 0) > 0 : c.kind === '-1/-1' ? (k.counters || 0) < 0 || !!k.minus || (named['-1/-1'] || 0) > 0 : (named[c.kind] || 0) > 0;
+      if (c.test === 'toughLT') return (k.toughness ?? 0) < c.n;
+      if (c.test === 'kw') return (k.kws ? k.kws.includes(c.kw) : g.has(o, c.kw)) !== !!c.neg;
+      return false;
+    }
+    case 'cost': {
+      const m = (src?.costMoves || []).find((/** @type {any} */ x) => (!c.from || x.from === c.from) && x.to === 'graveyard');
+      if (!m) return false;
+      const k = m.lki || {};
+      if (c.test === 'toughness') return (k.toughness ?? 0) >= c.n;
+      if (c.test === 'power') return (k.power ?? 0) >= c.n;
+      if (c.test === 'is') return lkiIs(m, c.what) !== !!c.neg;
+      return false;
+    }
+    case 'libEmpty': return p.library.length === 0;
+    case 'attackedN': return p.attackCount25?.turn === g.turn && p.attackCount25.n >= c.n;
+    case 'oppDealtN': return g.opponents(p).some(q => q.damageTurn25?.turn === g.turn && q.damageTurn25.n >= c.n);
+    case 'enteredTurn': return !!src && src.zone === 'battlefield' && src.enteredTurn === g.turn;
+    case 'altPaid': return !!src?.castAlt && src.castAlt !== 'free';
+    case 'castMain': return !!src?.wasCast && /^main/.test(src.castPhase || '') && src.castActive === p.idx;
+    case 'castAgain': return !!src?.wasCast && src.castFrom === c.from && (p.castCounts?.[src.card.name] || 0) >= 2;
     // A condition the simulator can't read (it depends on a revealed card, say) counts as met
     default: return true;
   }
@@ -496,8 +569,9 @@ export async function putAbility(g, p, src, effects, label, kind = 'ability', tr
     // (the X already paid, for players choosing targets for "X damage")
     g.xNow = x || null;
     try {
+      g.pickedTargets = targets;
       for (const e of effects) targets.push(needsTargetIn(e, g.rules) ? await (p.agent.chooseTargetAsync?.(g, p, e, src) ?? p.agent.chooseTarget(g, p, e, src)) : null);
-    } finally { g.xNow = null; }
+    } finally { g.xNow = null; g.pickedTargets = null; }
   }
   if (!g.payWard(p, targets, src)) return null;
   for (const t of targets) if (t?.obj) g.fire('targeted', { o: t.obj, p: p.idx });
@@ -505,7 +579,7 @@ export async function putAbility(g, p, src, effects, label, kind = 'ability', tr
   const item = stamp(g, { o: src, p, x, targets, effects, ability: true, label, countered: false, kind, trig }, kind, { x });
 
   g.stack.push(item);
-  const tgtText = targets.filter(Boolean).map(t => g.tname(t)).join(', ');
+  const tgtText = targets.filter(t => t && !t.none).map(t => g.tname(t)).join(', ');
   g.log(`${g.cn(src)} — ${esc(label)}${tgtText ? ` targeting ${tgtText}` : ''}`, { kind: kind === 'trigger' ? 'trigger' : 'minor', rule: kind === 'trigger' ? '603.3' : null });
   await g.beat(0.5);
   return item;
@@ -518,8 +592,9 @@ export async function resolveAbility(g, item) {
   const at = g.stack.indexOf(item);
   if (at >= 0 || g.rules < 15) g.stack.splice(at, 1);
   if (item.countered) { item.status = 'countered'; return; }
-  const chosen = targets.filter(Boolean);
-  if (chosen.length && chosen.every(t => !g.validTarget(t, p, src))) {
+  const chosen = targets.filter(t => t && !t.none);
+  // (Phase 2E-3, rules 26: "This ability still resolves if its target becomes illegal", Gilded Drake)
+  if (chosen.length && chosen.every(t => !g.validTarget(t, p, src)) && !(g.rules >= 26 && (effects || []).some((/** @type {any} */ e) => e.resolvesAnyway26))) {
     item.status = 'fizzled';
     g.log(`${g.cn(src)}'s ability does nothing: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
     return;
@@ -572,10 +647,18 @@ function sbaOnce(g) {
   const snap = { m: null };
   const before = () => { if (g.rules >= 17 && !snap.m) snap.m = new Map(g.alive().flatMap(q => q.battlefield.filter(o => o.fx.type.creature).map(o => [o, { t: g.toughness(o), ind: g.has(o, 'indestructible') }]))); };
   {
+    // (Phase 2J, rules 18) Players who lose in the same check lose at the same time (704.3, 104.4a): they are gathered
+    // here and leave together below, so the last two players reaching 0 life at once is a draw, not a win for the
+    // seat that happened to be checked second. Before rules 18 each left as it was found.
+    /** @type {any[][]} */
+    const out = [];
+    const lose = (q, reason, rule) => { if (g.rules >= 18) out.push([q, reason, rule]); else g.lose(q, reason, rule); };
     for (const q of g.alive()) {
+      // A player who conceded leaves the game whatever else is true (104.3a: nothing can stop a concession)
+      if (q.conceded) { lose(q, 'conceded', '104.3a'); again = true; continue; }
       // Platinum Angel, Angel's Grace: this player can't lose right now
       if (g.cantLose(q)) continue;
-      if (q.life <= 0) { g.lose(q, 'life total reached 0', '704.5a'); again = true; continue; }
+      if (q.life <= 0) { lose(q, 'life total reached 0', '704.5a'); again = true; continue; }
       if (q.drewFromEmpty && q.battlefield.some(o => o.fx.labMan)) {
         // Laboratory Maniac, Jace: drawing from an empty library wins instead
         q.drewFromEmpty = false;
@@ -583,13 +666,14 @@ function sbaOnce(g) {
         for (const r of g.opponents(q)) g.lose(r, `${q.name} drew from an empty library and won`, '104.2b');
         continue;
       }
-      if (q.drewFromEmpty) { g.lose(q, 'drew from an empty library', '704.5b'); again = true; continue; }
-      if (q.poison >= (g.format.poison || 10)) { g.lose(q, `${g.format.poison || 'ten'} poison counters`, '704.5c'); again = true; continue; }
+      if (q.drewFromEmpty) { lose(q, 'drew from an empty library', '704.5b'); again = true; continue; }
+      if (q.poison >= (g.format.poison || 10)) { lose(q, `${g.format.poison || 'ten'} poison counters`, '704.5c'); again = true; continue; }
       if (g.format.cmdDamage) for (const [iid, n] of Object.entries(q.cmdDamage)) if (n >= g.format.cmdDamage) {
         const src = g.objects.get(+iid);
-        g.lose(q, `${g.format.cmdDamage} combat damage from ${src.card.name}`, '903.10a'); again = true; break;
+        lose(q, `${g.format.cmdDamage} combat damage from ${src?.card.name || 'a commander'}`, '903.10a'); again = true; break;
       }
     }
+    if (out.length) loseTogether(g, out);
     for (const q of g.alive()) {
       for (const o of [...q.battlefield]) {
         const pre = snap.m;
@@ -678,17 +762,48 @@ export async function commanderChoices(g) {
 /** @param {import('./engine.js').Game} g */
 export function cantLose(g, q) { return q.cantLoseTurn === g.turn || q.battlefield.some(s => s.fx.cantLose); }
 /** @param {import('./engine.js').Game} g */
+// (Phase 2J, rules 18) Several players losing in one state-based check leave at the same time: they share a place, and
+// the game is checked for its end once, after all of them have left. Nobody left is a draw (104.4a). Kingdoms and team
+// games keep their own order (roles and teams decide who wins there).
+/** @param {import('./engine.js').Game} g @param {any[][]} list */
+export function loseTogether(g, list) {
+  list = list.filter(([q]) => !q.lost && !g.over);
+  if (list.length < 2 || g.kingdoms || g.teams) { for (const [q, reason, rule] of list) g.lose(q, reason, rule); return; }
+  g._loseBatch = { place: g.alive().length - list.length + 1 };
+  try { for (const [q, reason, rule] of list) g.lose(q, reason, rule); } finally { g._loseBatch = null; }
+  if (g.over) return;
+  const left = g.alive();
+  if (!left.length) { g.log('Every player still in the game lost at the same time', { rule: '104.4a', kind: 'loss' }); g.finish(null, 'all remaining players lost at the same time'); }
+  else if (left.length === 1) g.finish(left[0], g.winNote || 'last player standing');
+}
+// 104.3a: a player may concede at any time. The request is kept on the player and they leave the game at the next
+// state-based check (the next moment the game can change hands safely), even with a "can't lose" effect.
+/** @param {import('./engine.js').Game} g */
+export function concede(g, q) {
+  if (!q || q.lost || q.conceded || g.over) return false;
+  q.conceded = true;
+  g.log(`${g.pn(q)} concedes`, { rule: '104.3a', kind: 'loss' });
+  g.emit('update');
+  return true;
+}
+/** @param {import('./engine.js').Game} g */
 export function lose(g, q, reason, rule) {
-  if (q.lost || g.cantLose(q)) return;
-  if (g.kingdoms && K.preventLoss(g, q)) return;
+  if (q.lost || (!q.conceded && g.cantLose(q))) return;
+  if (g.kingdoms && !q.conceded && K.preventLoss(g, q)) return;
   q.lost = true;
   q.lossReason = reason;
-  q.place = g.alive().length + 1;
+  q.place = g._loseBatch?.place ?? g.alive().length + 1;
   g.log(`${g.pn(q)} is eliminated — ${esc(reason)}`, { rule, kind: 'loss' });
   g.log(`All of ${g.pn(q)}'s permanents leave the game`, { rule: '800.4a', kind: 'minor' });
   // (all of them leave at once: an aura of theirs on a creature of theirs leaves the game with it,
   // rather than being put into a graveyard as "no longer attached")
   // Cards they controlled but someone else owns go back to their owners (800.4a: control effects end)
+  // (rules 18) A card someone else owns that entered the battlefield under this player's control (reanimated from
+  // another graveyard, not taken with a control effect) has no control effect to end: it is exiled (800.4a)
+  if (g.rules >= 18) for (const o of q.battlefield.filter(x => x.owner !== q.idx && !x.token && x.enteredUnder === q.idx && !g.players[x.owner]?.lost)) {
+    g.log(`${g.cn(o)} is exiled: it entered under ${g.pn(q)}'s control`, { kind: 'minor', rule: '800.4a' });
+    g.move(o, 'exile');
+  }
   const borrowed = q.battlefield.filter(o => o.owner !== q.idx && !g.players[o.owner]?.lost);
   const leaving = q.battlefield.filter(o => !borrowed.includes(o));
   for (const o of leaving) o.zone = 'gone';
@@ -703,6 +818,7 @@ export function lose(g, q, reason, rule) {
   for (const o of leaving) g.leaveBattlefield(o);
   // Their cards that someone else controls leave too
   for (const r of g.players) for (const o of [...r.battlefield]) if (o.owner === q.idx) { r.battlefield.splice(r.battlefield.indexOf(o), 1); g.leaveBattlefield(o); o.zone = 'gone'; }
+  if (g.rules >= 18) leaveGame18(g, q);
   g.emit('loss', q);
   // A monarch who leaves the game passes the title to the active player (or the next one) (724.4)
   if (g.monarch === q.idx) { const n = g.players[g.active].lost ? g.players[g.nextAlive(g.active)] : g.players[g.active]; g.monarch = null; if (!n.lost) g.setMonarch(n, `${q.name} left the game`); }
@@ -718,7 +834,29 @@ export function lose(g, q, reason, rule) {
     }
     return;
   }
+  // (several players leaving together: loseTogether checks for the end of the game once all have left)
+  if (g._loseBatch) return;
   if (g.alive().length <= 1) g.finish(g.alive()[0], g.winNote || 'last player standing');
+}
+// (Phase 2J, rules 18) The rest of 800.4a: everything the player owns leaves the game, in every zone, and so do the
+// spells and abilities they control on the stack and their triggers still waiting to go on it. Nothing of theirs
+// resolves afterwards. Their command zone is kept for the table to show who they were; nothing can reach it.
+/** @param {import('./engine.js').Game} g */
+function leaveGame18(g, q) {
+  let n = 0;
+  for (const it of g.stack) {
+    if (it.left || (it.p !== q && it.o?.owner !== q.idx)) continue;
+    it.left = it.countered = true; n++;
+  }
+  for (let i = g.queue.length - 1; i >= 0; i--) if (g.queue[i].p === q) { g.queue.splice(i, 1); n++; }
+  if (n) g.log(`${g.pn(q)}'s spells and abilities leave the stack`, { rule: '800.4a', kind: 'minor' });
+  for (const zone of ['hand', 'library', 'graveyard', 'exile']) {
+    for (const o of q[zone]) { if (o.owner === q.idx) o.zone = 'gone'; }
+    // (a card someone else owns that sits in this player's zone stays in the game: it goes to its owner's zone)
+    const others = q[zone].filter(o => o.owner !== q.idx && !g.players[o.owner]?.lost);
+    q[zone] = [];
+    for (const o of others) g.players[o.owner][zone].push(o);
+  }
 }
 /** @param {import('./engine.js').Game} g @param {any} winner @param {string} why @param {any[] | null} [team] */
 export function finish(g, winner, why, team = null) {
@@ -733,4 +871,44 @@ export function finish(g, winner, why, team = null) {
   g.log(winner ? `🏆 ${g.pn(winner)} wins — ${esc(why)}` : 'The game is a draw', { kind: 'win' });
   g.emit('over', winner);
   g.emit('update');
+}
+
+// (Phase 2D-1) Was the moved object (with the facts kept as it moved: m.lki) a "what": land, nonland, creature, a
+// Desert, legendary…
+/** @param {any} m @param {string} what @returns {boolean} */
+export function lkiIs(m, what) {
+  const k = m.lki, o = m.o;
+  const types = k?.types || o.fx.type, subs = k?.subtypes || o.fx.subtypes || [];
+  if (/^non-?/.test(what)) return !lkiIs(m, what.replace(/^non-?/, ''));
+  if (what === 'permanent') return !!(types.artifact || types.creature || types.enchantment || types.land || types.planeswalker || types.battle);
+  if (what === 'card') return true;
+  if (['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'instant', 'sorcery', 'battle', 'legendary', 'basic'].includes(what)) return !!types[what];
+  return subs.includes(what) || subs.includes(what.replace(/s$/, ''));
+}
+// (Phase 2D-1) The zone change this ability made that a "this way" condition asks about (or null): the first one from
+// the zone and to the zone it names, of the kind it names (and of the ability's controller's for "if you can't")
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} c @param {any} ctx */
+export function wayMatch(g, p, c, ctx) {
+  for (const m of ctx.trail || []) {
+    if (c.from && m.from !== c.from) continue;
+    if (c.to && !(Array.isArray(c.to) ? c.to.includes(m.to) : m.to === c.to)) continue;
+    if (c.mine && m.ctl !== p.idx) continue;
+    if (!lkiIs(m, c.what)) continue;
+    return m;
+  }
+  return null;
+}
+// (Phase 2D-1, rules 25) An ability that is one "if" with no "otherwise" is an intervening-if ability (603.4). Its
+// condition is checked when it triggers when the condition can be read and is about the game as it is (not about
+// what the ability itself will do: "this way", the costs paid, a coin flip, X).
+const NOT_AT_TRIGGER = new Set(['way', 'cost', 'coin', 'x', 'altPaid', 'castMain', 'castAgain']);
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} o @param {any[]} effects @param {any} trig */
+function interveningFails(g, p, o, effects, trig) {
+  if (!Array.isArray(effects) || effects.length !== 1) return false;
+  const e = effects[0];
+  if (e.k !== 'if' || e.else || e.instead || !e.cond) return false;
+  const c = e.cond;
+  const inner = c.c === '?' ? c.r || (g.rules >= 24 && c.r24) || (g.rules >= 25 && c.r25) : c;
+  if (!inner || NOT_AT_TRIGGER.has(inner.c)) return false;
+  return !g.evalCond(p, o, c, { trig, resolving: true });
 }

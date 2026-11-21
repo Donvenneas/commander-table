@@ -49,7 +49,7 @@ DATA = os.path.join(HERE, 'data')
 UA = 'CommanderTable/1.0 (local deck viewer; no browser)'
 # (item 201) What the game's pages may load and call: their own files, Scryfall (cards, images), Commander Spellbook
 # and MTGJSON. A script that got into a page through a name or a card text can't run or send anything elsewhere.
-CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 # (item 202) The most a friend's page may send in one request (a 200,000-character decklist fits)
 FRIEND_BODY_MAX = 262144
 ALLOWED_HOSTS = {
@@ -643,7 +643,14 @@ class Handler(BaseHTTPRequestHandler):
             if len(body) > 200000:
                 return self.text(400, 'That decklist is too long.')
             os.makedirs(folder, exist_ok=True)
-            open(path, 'w', encoding='utf-8').write(body)
+            # (Phase 2O) Written to a temporary file first and then swapped in, so a save that fails part way (disk full,
+            # the program stopped) leaves the deck as it was saved last time
+            tmp = path + '.tmp'
+            with open(tmp, 'w', encoding='utf-8') as f:
+                f.write(body)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, path)
             return self.send(200, 'application/json', json.dumps({'name': name}))
         if self.command == 'DELETE':
             if os.path.exists(path):

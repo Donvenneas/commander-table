@@ -1338,6 +1338,306 @@ await test('The One Ring under rules 16 (old replays): one card and one life, as
   eq(await ringTurns(16), { drawn: [1, 1, 1], lost: [1, 1, 1, 1] }, 'cards drawn / life lost');
 });
 
+// ---------- Zirda + a Monolith played by a person (rules 21): the same unbounded mana the AI gets (727.1c)
+// A person's seat answering by script: `pick(text, buttons, objs)` returns the answer; every question is kept
+const personSeat = (g, i, pick) => {
+  const asked = [];
+  const ui = { seat: i, view: null, game: g, waiting: false, replaying: false, key: () => null,
+    async ask(html, o = {}) { const text = String(html).replace(/<[^>]+>/g, ''); asked.push({ text, buttons: (o.buttons || []).map(b => b.label) }); return pick(text, o.buttons || [], o.objs || []) || { button: 'pass' }; } };
+  P(g, i).agent = new HumanAgent('balanced', ui);
+  return asked;
+};
+for (const [mono, gain] of [['Basalt Monolith', 2], ['Grim Monolith', 1]]) {
+  await test(`Zirda + ${mono}, a person with nothing to spend the mana on: the Combo button is offered and gives unbounded mana (rules 21; not at rules 20)`, async () => {
+    for (const rules of [21, 20]) {
+      const g = await scenario([{ battlefield: ['Zirda, the Dawnwaker', mono, 'Wastes'] }, {}], { rules });
+      g.active = 0; g.phase = 'main1';
+      let first = true;
+      const asked = personSeat(g, 0, (text, buttons) => {
+        const combo = buttons.find(b => b.value?.combo);
+        if (combo && first) { first = false; return { button: combo.value }; }
+        return { button: 'pass' };
+      });
+      await P(g, 0).agent.mainPhase(g, P(g, 0), 'main1');
+      const offered = asked[0].buttons.some(l => l === `Combo: Zirda, the Dawnwaker + ${mono}`);
+      if (rules === 21) {
+        ok(offered, `offered: ${asked[0].buttons.join(' / ')}`);
+        eq(g.infinite(P(g, 0)), true, 'unbounded mana this turn');
+        ok(/727\.1c|as often as needed/.test(logText(g)), 'the shortcut is logged');
+      } else ok(!offered, `rules 20 (old replays): the AI's hold-back applied to people too (${asked[0].buttons.join(' / ')})`);
+      noErrors(g);
+    }
+  });
+  await test(`Zirda + ${mono} played by hand twice: "Repeat as many times as needed" plays it three more times for real (+${gain} each), then gives unbounded mana`, async () => {
+    const g = await scenario([{ battlefield: ['Zirda, the Dawnwaker', mono, 'Wastes'] }, {}]);
+    g.active = 0; g.phase = 'main1';
+    const m = find(g, 0, mono);
+    let loops = 0;
+    const asked = personSeat(g, 0, (text, buttons, objs) => {
+      const inf = buttons.find(b => b.value?.repeat === 'unbounded');
+      if (inf) return { button: inf.value };
+      if (g.infinite(P(g, 0))) return { button: 'pass' };
+      // tap the Monolith for mana; when it's tapped, use its untap ability (twice: then the shortcut appears)
+      if (/tap it for mana, or use another ability/.test(text)) return { button: 'mana' };
+      if (/use its ability, or untap it and take its mana back/.test(text)) { loops++; return { button: 'ab' }; }
+      if (objs.includes(m) && loops < 3) return { obj: m };
+      return { button: 'pass' };
+    });
+    await P(g, 0).agent.mainPhase(g, P(g, 0), 'main1');
+    ok(asked.some(a => a.buttons.includes('Repeat as many times as needed (unbounded mana)')), 'offered after two loops');
+    eq(g.infinite(P(g, 0)), true, 'unbounded mana');
+    ok(new RegExp(`making ${gain} more mana each time`).test(logText(g)), `three real repetitions, +${gain} each (${logText(g).split('\n').filter(l => /loop/.test(l)).slice(-2).join(' | ')})`);
+    ok(/Unbounded mana this turn/.test(asked.at(-1).text), 'the prompt says so');
+    noErrors(g);
+  });
+}
+await test('A hand-played loop that doesn\'t make more mana each time is not made unbounded (Grim Monolith without Zirda)', async () => {
+  const g = await scenario([{ battlefield: ['Grim Monolith', 'Wastes', 'Wastes', 'Wastes', 'Wastes', 'Wastes', 'Wastes', 'Wastes', 'Wastes'] }, {}]);
+  g.active = 0; g.phase = 'main1';
+  const m = find(g, 0, 'Grim Monolith');
+  personSeat(g, 0, () => ({ button: 'pass' }));
+  const h = P(g, 0).agent;
+  const block = [{ k: 'mana', iid: m.iid }, { k: 'ab', iid: m.iid, i: m.fx.abilities.findIndex(a => a.effects.some(e => e.k === 'untapSelf')) }];
+  await h.repeatLoop(g, P(g, 0), block, 'unbounded');
+  eq(g.infinite(P(g, 0)), false, 'not unbounded');
+  ok(/doesn't make more mana each time/.test(logText(g)), 'the reason is logged');
+});
+
+// ---------- (rules 22) unbounded mana is of the colors its loop made: Basalt Monolith's is colorless
+const goInfinite = async (extra = [], hand = [], rules) => {
+  const g = await scenario([{ battlefield: ['Zirda, the Dawnwaker', 'Basalt Monolith', 'Wastes', ...extra], hand }, {}], { rules });
+  g.active = 0; g.phase = 'main1';
+  // (the hand-played loop and its "as many times as needed" shortcut: it spends nothing by itself, unlike the Combo
+  // button, whose play-out casts a finisher)
+  const m = find(g, 0, 'Basalt Monolith');
+  let loops = 0;
+  personSeat(g, 0, (text, buttons, objs) => {
+    const inf = buttons.find(b => b.value?.repeat === 'unbounded');
+    if (inf) return { button: inf.value };
+    if (g.infinite(P(g, 0))) return { button: 'pass' };
+    if (/tap it for mana, or use another ability/.test(text)) return { button: 'mana' };
+    if (/use its ability, or untap it and take its mana back/.test(text)) { loops++; return { button: 'ab' }; }
+    if (objs.includes(m) && loops < 3) return { obj: m };
+    return { button: 'pass' };
+  });
+  await P(g, 0).agent.mainPhase(g, P(g, 0), 'main1');
+  return g;
+};
+await test('Unbounded colorless mana (Zirda + Basalt Monolith) pays generic and {C}, never {G}: Colossal Dreadmaw needs two green sources (rules 22)', async () => {
+  const g = await goInfinite([], ['Colossal Dreadmaw', 'Walking Ballista']);
+  eq([g.infinite(P(g, 0)), P(g, 0).infiniteColors], [true, ['C']], 'unbounded colorless mana');
+  eq(g.canCast(P(g, 0), find(g, 0, 'Colossal Dreadmaw', 'hand')), false, '{4}{G}{G} with no green source');
+  ok(g.canCast(P(g, 0), find(g, 0, 'Walking Ballista', 'hand')), 'a colorless spell is still free');
+  const h = await goInfinite(['Forest', 'Forest'], ['Colossal Dreadmaw']);
+  const forests = P(h, 0).battlefield.filter(o => o.card.name === 'Forest');
+  ok(await h.cast(P(h, 0), find(h, 0, 'Colossal Dreadmaw', 'hand')), 'cast with two Forests');
+  await settle(h);
+  eq([forests.every(f => f.tapped), find(h, 0, 'Wastes').tapped], [true, false], 'the Forests paid {G}{G}; the generic part came from the unbounded mana');
+  ok(find(h, 0, 'Colossal Dreadmaw'), 'on the battlefield');
+  noErrors(h);
+});
+await test('Unbounded mana colors: the AI\'s play-out records them too, and rules 21 (old replays) still pays everything', async () => {
+  const g = await scenario([{ battlefield: ['Zirda, the Dawnwaker', 'Basalt Monolith', 'Wastes'], hand: ['Walking Ballista'] }, {}]);
+  g.active = 0; g.phase = 'main1';
+  await P(g, 0).agent.mainPhase(g, P(g, 0), 'main1'); await settle(g);
+  eq(P(g, 0).infiniteColors, ['C'], 'the AI\'s loop: colorless');
+  const old = await goInfinite([], ['Colossal Dreadmaw'], 21);
+  ok(old.infinite(P(old, 0)) && old.canCast(P(old, 0), find(old, 0, 'Colossal Dreadmaw', 'hand')), 'rules 21: {G}{G} paid by the unbounded mana, as before');
+});
+
+// ---------- Item 389 (rules 24): card coverage. Each test also checks that rules 23 (old replays) plays as before.
+await test('Sign in Blood: the target player draws two and loses 2 life; it can finish an opponent (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Sign in Blood'] }, {}]);
+  const hand = P(g, 0).hand.length;
+  await spell(g, 0, 'Sign in Blood', [null, tgtPlayer(0)]);
+  eq([P(g, 0).hand.length, P(g, 0).life], [hand + 2, 38], 'the caster drew 2 and lost 2');
+  const h = await scenario([{ hand: ['Sign in Blood'] }, {}]);
+  P(h, 1).life = 2;
+  const src = find(h, 0, 'Sign in Blood', 'hand');
+  const e = src.fx.spell.find(x => x.k === 'drawLose');
+  eq(P(h, 0).agent.chooseTarget(h, P(h, 0), e, src), { player: 1 }, 'the AI aims it at the opponent it kills');
+  await spell(h, 0, 'Sign in Blood', [null, tgtPlayer(1)]);
+  ok(P(h, 1).lost, 'the opponent at 2 life lost'); noErrors(g); noErrors(h);
+});
+await test('Sign in Blood under rules 23 (old replays): the caster draws two, no life lost, as before', async () => {
+  const g = await scenario([{ hand: ['Sign in Blood'] }, {}], { rules: 23 });
+  const hand = P(g, 0).hand.length;
+  await spell(g, 0, 'Sign in Blood', [null, tgtPlayer(1)]);
+  eq([P(g, 0).hand.length, P(g, 0).life, P(g, 1).life], [hand + 2, 40, 40], 'old reading');
+});
+await test('Damnable Pact: X cards and X life for the target player (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Damnable Pact'] }, {}]);
+  const hand = P(g, 1).hand.length;
+  const o = find(g, 0, 'Damnable Pact', 'hand');
+  await resolveEffects(g, 0, o, o.fx.spell, [null, tgtPlayer(1)], { x: 3 });
+  eq([P(g, 1).hand.length, P(g, 1).life, P(g, 0).life], [hand + 3, 37, 40], 'the opponent drew 3 and lost 3');
+});
+await test('Stormfist Crusader: each player draws a card and loses 1 life at your upkeep (rules 24; rules 23 only draws)', async () => {
+  for (const [rules, life] of [[24, 39], [23, 40]]) {
+    const g = await scenario([{ battlefield: ['Stormfist Crusader'] }, {}], { rules });
+    const s = find(g, 0, 'Stormfist Crusader'), hands = [0, 1].map(i => P(g, i).hand.length);
+    await resolveEffects(g, 0, s, s.fx.upkeep);
+    eq([0, 1].map(i => [P(g, i).hand.length - hands[i], P(g, i).life]), [[1, life], [1, life]], `rules ${rules}`);
+  }
+});
+await test('Visions of Beyond: three cards when a graveyard has twenty or more cards (rules 24; one card at rules 23)', async () => {
+  for (const [rules, gy, n] of [[24, 20, 3], [23, 20, 1], [24, 19, 1]]) {
+    const g = await scenario([{ hand: ['Visions of Beyond'] }, { graveyard: Array(gy).fill('Wastes') }], { rules });
+    const hand = P(g, 0).hand.length;
+    await spell(g, 0, 'Visions of Beyond');
+    eq(P(g, 0).hand.length - hand, n, `cards drawn at rules ${rules} with ${gy} in a graveyard`);
+  }
+});
+await test('Oversold Cemetery: returns a creature card only with four or more in the graveyard (rules 24)', async () => {
+  for (const [n, back] of [[4, true], [3, false]]) {
+    const g = await scenario([{ battlefield: ['Oversold Cemetery'], graveyard: Array(n).fill('Grizzly Bears') }, {}]);
+    const s = find(g, 0, 'Oversold Cemetery');
+    await resolveEffects(g, 0, s, s.fx.upkeep);
+    eq(P(g, 0).hand.some(o => o.card.name === 'Grizzly Bears'), back, `${n} creature cards`);
+  }
+});
+await test('Simic Ascendancy and Triskaidekaphile: their win conditions are checked, not assumed (rules 24)', async () => {
+  const g = await scenario([{ battlefield: ['Simic Ascendancy'] }, {}]);
+  const s = find(g, 0, 'Simic Ascendancy');
+  s.named = { growth: 19 };
+  await resolveEffects(g, 0, s, s.fx.upkeep);
+  ok(!g.over, '19 growth counters: no win');
+  s.named.growth = 20;
+  await resolveEffects(g, 0, s, s.fx.upkeep);
+  ok(g.over && g.winner === P(g, 0), '20 growth counters: P1 wins');
+  const h = await scenario([{ battlefield: ['Triskaidekaphile'], hand: Array(13).fill('Wastes') }, {}]);
+  const t = find(h, 0, 'Triskaidekaphile');
+  eq(P(h, 0).hand.length, 13, 'thirteen cards');
+  await resolveEffects(h, 0, t, t.fx.upkeep);
+  ok(h.over && h.winner === P(h, 0), 'exactly thirteen: P1 wins');
+  const k = await scenario([{ battlefield: ['Triskaidekaphile'], hand: Array(12).fill('Wastes') }, {}]);
+  await resolveEffects(k, 0, find(k, 0, 'Triskaidekaphile'), find(k, 0, 'Triskaidekaphile').fx.upkeep);
+  ok(!k.over, 'twelve cards: no win');
+});
+await test('Artifact Mutation: X Saprolings, X the destroyed artifact\'s mana value (rules 24; none at rules 23)', async () => {
+  for (const [rules, n] of [[24, 6], [23, 0]]) {
+    const g = await scenario([{ hand: ['Artifact Mutation'] }, { battlefield: ['Sol Ring', 'Craterhoof Behemoth'] }], { rules });
+    const v = find(g, 1, 'Sol Ring');
+    v.card = { ...v.card, cmc: 6 };
+    const o = find(g, 0, 'Artifact Mutation', 'hand');
+    await resolveEffects(g, 0, o, o.fx.spell, [tgtObj(v)]);
+    eq(P(g, 0).battlefield.filter(x => x.token).length, n, `Saprolings at rules ${rules}`);
+  }
+});
+await test('Stinging Study: X is the mana value of your commander (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Stinging Study'], commander: 'Edgar Markov' }, {}]);
+  const hand = P(g, 0).hand.length;
+  await spell(g, 0, 'Stinging Study');
+  eq([P(g, 0).hand.length - hand, P(g, 0).life], [6, 34], 'Edgar Markov: 6 cards, 6 life');
+});
+await test('Arachnogenesis: one Spider for each creature attacking you (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Arachnogenesis'] }, { battlefield: ['Grizzly Bears', 'Grizzly Bears', 'Llanowar Elves'] }]);
+  for (const o of P(g, 1).battlefield.filter(x => x.fx.type.creature).slice(0, 2)) o.attacking = 0;
+  await spell(g, 0, 'Arachnogenesis');
+  eq(P(g, 0).battlefield.filter(x => x.token).length, 2, 'two attackers: two Spiders');
+});
+await test('Valley Rotcaller counts squirrels, bats, lizards and rats; Klauth counts attacking power (rules 24)', async () => {
+  const g = await scenario([{ battlefield: ['Valley Rotcaller', 'Klauth, Unrivaled Ancient'] }, {}]);
+  const v = find(g, 0, 'Valley Rotcaller');
+  const xw = JSON.stringify(v.fx).match(/"xw":(\{"dyn":"r24","d":\{[^}]*\}\})/);
+  ok(xw, 'Valley Rotcaller has a rules 24 amount');
+  eq(g.dynValue(P(g, 0), JSON.parse(xw[1]), { src: v }), 0, 'no other squirrels, bats, lizards or rats');
+  const k = find(g, 0, 'Klauth, Unrivaled Ancient');
+  k.attacking = 1; v.attacking = 1;
+  eq(g.dynValue(P(g, 0), { dyn: 'r24', d: { dyn: 'attackPower' } }, {}), g.power(k) + g.power(v), 'total attacking power');
+  const old = await scenario([{ battlefield: ['Klauth, Unrivaled Ancient'] }, {}], { rules: 23 });
+  find(old, 0, 'Klauth, Unrivaled Ancient').attacking = 1;
+  eq(old.dynValue(P(old, 0), { dyn: 'r24', d: { dyn: 'attackPower' } }, {}), 0, 'rules 23: 0, as before');
+});
+await test('Blade of the Bloodchief: two +1/+1 counters on the equipped creature when it is a vampire, else one (rules 24)', async () => {
+  for (const [who, n] of [['Edgar Markov', 2], ['Grizzly Bears', 1]]) {
+    const g = await scenario([{ battlefield: ['Blade of the Bloodchief', who] }, {}]);
+    const b = find(g, 0, 'Blade of the Bloodchief'), c = find(g, 0, who);
+    b.attachedTo = c;
+    await resolveEffects(g, 0, b, b.fx.onDeath.effects);
+    eq((c.counters || 0) + (b.counters || 0), n, `${who}`);
+  }
+});
+await test('Lyse Hext: double strike only after two noncreature spells this turn (rules 24)', async () => {
+  const g = await scenario([{ battlefield: ['Lyse Hext'], hand: ['Sol Ring', 'Mana Vault'] }, {}]);
+  const l = find(g, 0, 'Lyse Hext');
+  ok(!g.has(l, 'double strike'), 'no spells yet');
+  mana(g, 0);
+  await cast(g, 0, 'Sol Ring');
+  ok(!g.has(l, 'double strike'), 'one spell');
+  await cast(g, 0, 'Mana Vault');
+  ok(g.has(l, 'double strike'), 'two noncreature spells');
+});
+await test('Quasiduplicate: a person picks which of their creatures to copy, never an opponent\'s (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Quasiduplicate'], battlefield: ['Grizzly Bears', 'Llanowar Elves'] }, { battlefield: ['Craterhoof Behemoth'] }]);
+  const offered = [];
+  personSeat(g, 0, (text, buttons, objs) => { offered.push(...objs.map(o => o.card.name)); return objs.length ? { obj: objs.find(o => o.card.name === 'Llanowar Elves') } : null; });
+  const o = find(g, 0, 'Quasiduplicate', 'hand');
+  const t = await P(g, 0).agent.chooseTargetAsync(g, P(g, 0), o.fx.spell[0], o);
+  eq([...new Set(offered)].sort(), ['Grizzly Bears', 'Llanowar Elves'], 'offered: only creatures P1 controls');
+  eq(t.obj.card.name, 'Llanowar Elves', 'the picked creature');
+});
+await test('Solitude: a person may choose no target for "up to one other target creature" (rules 24)', async () => {
+  const g = await scenario([{ battlefield: ['Solitude', 'Grizzly Bears'] }, {}]);
+  const asked = personSeat(g, 0, (text, buttons) => (buttons.some(b => b.value === 'none') ? { button: 'none' } : null));
+  const s = find(g, 0, 'Solitude');
+  const t = await P(g, 0).agent.chooseTargetAsync(g, P(g, 0), s.fx.etb[0], s);
+  ok(asked[0]?.buttons.includes('No target'), 'No target offered');
+  await resolveEffects(g, 0, s, s.fx.etb, [t]);
+  ok(find(g, 0, 'Grizzly Bears'), 'own creature not exiled'); noErrors(g);
+});
+
+await test('Force of Vigor: the AI destroys two different artifacts or enchantments (rules 24; one at rules 23)', async () => {
+  for (const [rules, left] of [[24, 1], [23, 2]]) {
+    const g = await scenario([{ hand: ['Force of Vigor'] }, { battlefield: ['Sol Ring', 'Mana Vault', 'Glorious Anthem'] }], { rules });
+    mana(g, 0);
+    ok(await cast(g, 0, 'Force of Vigor'), `cast at rules ${rules}`);
+    eq(P(g, 1).battlefield.filter(o => o.fx.type.artifact || o.fx.type.enchantment).length, left, `left at rules ${rules}`);
+    noErrors(g);
+  }
+});
+await test('Force of Vigor with one target: the second target is simply left out (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Force of Vigor'] }, { battlefield: ['Sol Ring'] }]);
+  mana(g, 0);
+  ok(await cast(g, 0, 'Force of Vigor'), 'cast with one target');
+  eq(names(g, 1), [], 'Sol Ring destroyed'); eq(names(g, 0).filter(n => n !== 'Wastes'), [], 'nothing of ours destroyed'); noErrors(g);
+});
+await test('Force of Vigor, a person: the second choice leaves out the first target, and "No target" is offered (rules 24)', async () => {
+  const g = await scenario([{ hand: ['Force of Vigor'] }, { battlefield: ['Sol Ring', 'Mana Vault'] }]);
+  mana(g, 0);
+  const lists = [];
+  personSeat(g, 0, (text, buttons, objs) => {
+    if (!/choose a target/.test(text)) return null;
+    lists.push({ objs: objs.map(o => o.card.name).sort(), none: buttons.some(b => b.value === 'none') });
+    return { obj: objs[0] };
+  });
+  const o = find(g, 0, 'Force of Vigor', 'hand');
+  ok(await P(g, 0).agent.castWithChoices(g, P(g, 0), o), 'cast');
+  await settle(g);
+  eq(lists.length, 2, 'two target questions');
+  eq([lists[0].objs.length, lists[1].objs.length, lists[1].none], [2, 1, true], 'second list without the first target');
+  eq(names(g, 1), [], 'both destroyed'); noErrors(g);
+});
+await test('Displace: the AI blinks two of its creatures with enter abilities (rules 24; one at rules 23)', async () => {
+  const g = await scenario([{ hand: ['Displace'], battlefield: ['Mulldrifter', 'Wall of Omens'] }, {}]);
+  const o = find(g, 0, 'Displace', 'hand');
+  await resolveEffects(g, 0, o, o.fx.spell);
+  const blinked = logText(g).split('\n').filter(l => /Displace exiles .* and returns it/.test(l));
+  eq([blinked.length, new Set(blinked).size], [2, 2], 'two different creatures exiled and returned'); noErrors(g);
+  const old = await scenario([{ hand: ['Displace'], battlefield: ['Mulldrifter', 'Wall of Omens'] }, {}], { rules: 23 });
+  const d = find(old, 0, 'Displace', 'hand');
+  await resolveEffects(old, 0, d, d.fx.spell);
+  eq(logText(old).split('\n').filter(l => /Displace exiles/.test(l)).length, 1, 'rules 23: one, as before');
+});
+await test('Marang River Regent: two nonland permanents returned, not three (rules 24)', async () => {
+  const g = await scenario([{ battlefield: ['Marang River Regent'] }, { battlefield: ['Sol Ring', 'Mana Vault', 'Glorious Anthem'] }]);
+  const r = find(g, 0, 'Marang River Regent');
+  const e = r.fx.etb.length ? r.fx.etb : r.fx.watch.find(w => w.ev === 'enter')?.effects || [];
+  ok(e.some(x => x.k === 'bounce' && x.more), 'a second bounce copy');
+  await resolveEffects(g, 0, r, e);
+  eq(P(g, 1).hand.length - 0 >= 2 && P(g, 1).battlefield.filter(o => !o.fx.type.land).length, 1, 'one of three left'); noErrors(g);
+});
+
 const failed = results.filter(([, e]) => e);
 for (const [n, e] of failed) console.log(`FAIL ${n}\n     ${e.message.split('\n')[0]}`);
 console.log(`Interactions: ${results.length} tests, ${results.length - failed.length} passed, ${failed.length} failed.`);

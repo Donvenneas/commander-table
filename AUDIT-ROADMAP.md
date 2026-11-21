@@ -70,7 +70,8 @@ one repairs.
   - Fix: accept `ans.obj` only if it is in `objs`; accept `ans.player` only if it is an integer in `players`; `ans.button` only if it is an integer index into `buttons`. Anything else is treated as no answer (`{ button: 'cancel' }` or keep waiting). Check `askSideboard` and the draft pick the same way (they already compare against their own lists).
   - Done when: a new test in `tests/` (Node, with a fake `room`) shows an unoffered object id, an out-of-range player and a string player are all refused, and offered ones still work.
 
-- [ ] **200. The engine trusts its callers on targets and timing.** (M, do after 209)
+- [x] **200. The engine trusts its callers on targets and timing.** (M, do after 209)
+  - Done (targets: rules 17; timing: rules 20, Phase 2O, 1.57.0): `mana.js` `timingRefuses` / `castTimingOk`; `Game.cast` refuses a mistimed cast unless an effect casts it, and `canCast` answers "now". The AI plans with `castMode` (timing-free), so its rules 20 games are identical to rules 19. Tests: `tests/rules.mjs` R03.
   - Problem: `Game.cast` resolves a spell at whatever target it is handed, and `Game.canCast` doesn't look at timing. Legality lives in the AI and in `human.js`, which only offer legal choices. With 199 open this is how a friend could destroy an artifact with Doom Blade; with 199 closed it is defence in depth and it makes scenario tests honest.
   - Evidence: probes `[200]`: Doom Blade cast at Sol Ring destroys it; `canCast` is true for a sorcery on an opponent's turn. `validTarget` in `resolve.js` checks only hexproof, shroud and protection (`g.canTarget`), never the effect's `what`.
   - Where: `public/js/resolve.js` `validTarget` and its callers, `public/js/engine.js` `cast`, `public/js/mana.js` `canCast` / `castMode`.
@@ -168,6 +169,7 @@ one repairs.
   - Evidence: probe `[212]`.
   - Fix: finish item 90 first (copy, control, text, type, color, ability, then power and toughness sublayers, each by timestamp, with dependency for the type-changing pairs), then "loses all abilities" as a layer 6 effect that `g.has`, `abilitiesOf`, triggers and statics all respect.
   - Done when: the probe passes, plus Humility with a creature's enter trigger (doesn't trigger) and Blood Moon with Urborg (Urborg is a Mountain with no ability).
+  - Progress (rules 20, Phase 2O, 1.57.0): Humility is read (`fx.allLoseAbilities`) and applied through `Game.humility`: base P/T in 7b by timestamp, keywords, activated abilities, own and watched triggers and anthems from creatures (`tests/rules.mjs` R22: Humility + Anthem 2/2, Craterhoof's trigger doesn't trigger). Still open: other static abilities of creatures under Humility, the layer order by timestamp and dependency below 7b, and Blood Moon + Urborg (probe `[212]`, still failing).
 
 - [ ] **214. Known approximations to replace or report.** (M, pick by how often the card is played)
   - Necropotence: modelled as "at your end step pay up to 6 life, keep 15, draw that many" (`engine.js` `endSteps`). The card skips the draw step, exiles face down per life paid and discards exile. A person at the table can't choose how much to pay.

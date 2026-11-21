@@ -25,7 +25,7 @@ static class CommanderTable
     // (item 204) An honest client name for every site: the game never poses as a web browser
     const string UA = "CommanderTable/1.0 (local deck viewer; no browser)";
     // (item 201) What the game's pages may load and call: their own files, Scryfall, Commander Spellbook and MTGJSON
-    const string CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'";
+    const string CSP = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://*.scryfall.io; media-src 'self' data: blob:; connect-src 'self' https://api.scryfall.com https://*.scryfall.io https://backend.commanderspellbook.com https://mtgjson.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'";
     // (item 202) The most a friend's page may send in one request (a 200,000-character decklist fits)
     const int FriendBodyMax = 262144;
     static readonly HashSet<string> AllowedHosts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) {
@@ -422,7 +422,10 @@ static class CommanderTable
                 var body = ReadBody(req.InputStream, req.ContentLength64);
                 if (body.Length > 200000) { SendText(ctx, 400, "That decklist is too long."); return; }
                 Directory.CreateDirectory(dir);
-                File.WriteAllText(file, body, new UTF8Encoding(false));
+                // (Phase 2O) a temporary file swapped in, so a save that fails part way leaves the last saved deck whole
+                var tmp = file + ".tmp";
+                File.WriteAllText(tmp, body, new UTF8Encoding(false));
+                if (File.Exists(file)) File.Replace(tmp, file, null); else File.Move(tmp, file);
                 Send(ctx, 200, "application/json", Encoding.UTF8.GetBytes("{\"name\":" + Js(safe) + "}"));
                 return;
             }

@@ -46,10 +46,62 @@ export function esc(s) {
   return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// What a symbol is called when read aloud: {W} "white mana", {2} "2 generic mana", {T} "tap", {W/U} "white or blue mana",
+// {2/W} "2 generic or white mana", {B/P} "black mana or 2 life".
+const SYMBOL_WORDS = { W: 'white', U: 'blue', B: 'black', R: 'red', G: 'green', C: 'colorless', S: 'snow' };
+const SYMBOL_NAMES = { T: 'tap', Q: 'untap', E: 'energy', X: 'X generic mana', Y: 'Y generic mana', Z: 'Z generic mana', P: 'Phyrexian mana', CHAOS: 'chaos', TK: 'ticket', A: 'acorn', '∞': 'infinite mana', '½': 'half a generic mana' };
+export function symbolName(sym) {
+  const s = String(sym).toUpperCase();
+  if (SYMBOL_NAMES[s]) return SYMBOL_NAMES[s];
+  const part = x => SYMBOL_WORDS[x] || (/^\d+$/.test(x) ? `${x} generic` : x === 'P' ? null : x.toLowerCase());
+  const bits = s.split('/');
+  const life = bits.includes('P') && bits.length > 1;
+  const words = bits.map(part).filter(Boolean);
+  return `${words.join(' or ')} mana${life ? ' or 2 life' : ''}`;
+}
 // Replace {W}, {2/U}, {T} etc. with Scryfall's mana symbol SVGs.
 export function symbolize(text) {
   return esc(text).replace(/\{([^}]+)\}/g, (_, s) =>
-    `<img class="sym" alt="{${s}}" src="${esc(imgUrl(`https://svgs.scryfall.io/card-symbols/${encodeURIComponent(s.replace('/', '').toUpperCase())}.svg`))}">`);
+    `<img class="sym" alt="${esc(symbolName(s))}" src="${esc(imgUrl(`https://svgs.scryfall.io/card-symbols/${encodeURIComponent(s.replace('/', '').toUpperCase())}.svg`))}">`);
+}
+
+// A card's face in words (moved here from builder.js in 1.55.0): under a picture while it loads, and instead of it
+// when there is none or it fails to load (installImageFallback). Built only from the card's own data.
+const TYPE_MARK = [['Creature', '◆'], ['Planeswalker', '✪'], ['Instant', '⚡'], ['Sorcery', '✦'], ['Artifact', '⚙'], ['Enchantment', '✧'], ['Battle', '⛨'], ['Land', '▲']];
+const typeMark = c => (TYPE_MARK.find(([t]) => String(c.typeLine || '').includes(t)) || ['', '•'])[1];
+export const ptOf = c => (c.power != null ? `${c.power}/${c.toughness}` : c.loyalty ? `Loyalty ${c.loyalty}` : c.defense ? `Defense ${c.defense}` : c.pt || '');
+export const colorBar = c => {
+  const cs = c.colors?.length ? c.colors : /\bLand\b/.test(c.typeLine || '') ? c.colorIdentity || [] : [];
+  const v = cs.filter(x => 'WUBRG'.includes(x)).map(x => `var(--mana-${x.toLowerCase()})`);
+  return v.length > 1 ? `linear-gradient(90deg, ${v.join(', ')})` : v[0] || 'var(--mana-c)';
+};
+export const cardFace = c => `<div class="cface" style="--cf:${colorBar(c)}"><i class="cface-type" aria-hidden="true">${typeMark(c)}</i><b>${esc(c.name)}</b><small>${esc(c.typeLine || '')}</small>${c.manaCost ? `<span class="cost">${symbolize(c.manaCost)}</span>` : ''}${ptOf(c) ? `<span class="pt">${esc(ptOf(c))}</span>` : ''}</div>`;
+
+// (1.55.0) One listener for every card picture on a page: a picture that fails to load (offline, Scryfall busy) is
+// replaced by the card's face in words, or simply removed where it was only decoration (log thumbnails, stack art).
+// cardFor(el) finds the card for the element holding the picture (by its data-iid), or returns null.
+export function installImageFallback(cardFor) {
+  if (typeof document === 'undefined' || document.documentElement.dataset.imgFallback) return;
+  document.documentElement.dataset.imgFallback = '1';
+  document.addEventListener('error', ev => {
+    const img = ev.target;
+    // (mana symbols keep their alt text; the deck builder's tiles already have a face under the picture)
+    if (!(img instanceof HTMLImageElement) || img.classList.contains('sym') || img.closest('.ctile-img, .insp-img')) return;
+    if (img.closest('.le, .sp-art, .pile, .mt-roleart, .mt-tips') || img.classList.contains('le-thumb')) {
+      if (img.closest('.mt-tips')) img.closest('.mt-tips')?.remove(); else img.remove();
+      return;
+    }
+    const host = /** @type {HTMLElement | null} */ (img.closest('[data-iid]'));
+    const card = cardFor(host, img);
+    if (!card) { img.remove(); return; }
+    const d = document.createElement('div');
+    d.className = `img-fallback${img.classList.contains('big') ? ' big' : ''}`;
+    d.innerHTML = cardFace(card);
+    d.setAttribute('role', 'img');
+    d.setAttribute('aria-label', `${card.name} (picture unavailable)`);
+    img.replaceWith(d);
+    host?.classList.add('noimg-failed');
+  }, true);
 }
 
 // On the host's own page, Scryfall images go through the local server, which keeps them in data\images
@@ -71,7 +123,6 @@ const bigVals = new Map();
 let bigDb = null;
 /** @type {BroadcastChannel | null} */
 let bigChan = null;
-function bigPut(k, v) { try { bigDb?.transaction('kv', 'readwrite').objectStore('kv').put(v, k); } catch { /* saved again on the next write */ } }
 async function loadBig() {
   if (typeof window === 'undefined' || typeof indexedDB === 'undefined') return;
   try {
@@ -106,17 +157,44 @@ export function storeSize(key) {
   try { const v = localStorage.getItem(key); return v ? (v.length + key.length) * 2 : 0; } catch { return 0; }
 }
 
+// (Phase 2O) Saved data that can't be read, and writes that fail, are counted and reported (a "ct-store" event on the
+// page, which main.js turns into one notice), never thrown at the caller. A read of damaged data gives null (the
+// caller's defaults) and leaves the saved text alone; a failed write (storage full, blocked) keeps the last value
+// that was saved. storeProblems() is what happened this session.
+const problems = { damaged: /** @type {string[]} */ ([]), failed: /** @type {string[]} */ ([]), quota: false };
+export const storeProblems = () => ({ damaged: [...problems.damaged], failed: [...problems.failed], quota: problems.quota });
+function storeReport(kind, key, e) {
+  const list = problems[kind];
+  if (!list.includes(key)) list.push(key);
+  if (kind === 'failed' && /quota/i.test(`${e?.name || ''} ${e?.message || ''}`)) problems.quota = true;
+  try { if (typeof dispatchEvent === 'function' && typeof CustomEvent === 'function') dispatchEvent(new CustomEvent('ct-store', { detail: { kind, key, quota: problems.quota } })); } catch { /* no page */ }
+}
+const parseSaved = (key, text) => { if (text == null || text === '') return null; try { return JSON.parse(text); } catch { storeReport('damaged', key); return null; } };
+
 export function store(key, value) {
   if (bigDb && BIG.has(key)) {
-    if (value === undefined) { try { return JSON.parse(bigVals.get(key) || 'null'); } catch { return null; } }
+    if (value === undefined) return parseSaved(key, bigVals.get(key));
     const s = JSON.stringify(value);
     bigVals.set(key, s);
-    bigPut(key, s);
+    try {
+      const req = bigDb.transaction('kv', 'readwrite').objectStore('kv').put(s, key);
+      req.onerror = () => storeReport('failed', key, req.error);
+    } catch (e) { storeReport('failed', key, e); }
     bigChan?.postMessage({ k: key, v: s });
-    return;
+    return true;
   }
-  try {
-    if (value === undefined) return JSON.parse(localStorage.getItem(key) || 'null');
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch { return null; }
+  let text = null;
+  try { if (value === undefined) text = localStorage.getItem(key); } catch { return null; }
+  if (value === undefined) return parseSaved(key, text);
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { storeReport('failed', key, e); return false; }
 }
+
+// Dates and numbers in the language chosen in Display (i18n.js sets it on <html lang>), not the browser's own
+// (design roadmap item 374). The game log stays in English and does not use these.
+const lang = () => (typeof document !== 'undefined' && document.documentElement.lang) || undefined;
+/** A date and time, e.g. for "saved at". */
+export function whenText(at, opts) { try { return new Date(at).toLocaleString(lang(), opts); } catch { return new Date(at).toLocaleString(); } }
+/** A date without the time. */
+export function dayText(at, opts) { try { return new Date(at).toLocaleDateString(lang(), opts); } catch { return new Date(at).toLocaleDateString(); } }
+/** A number with the language's thousands separators. */
+export function numText(n) { try { return Number(n).toLocaleString(lang()); } catch { return String(n); } }

@@ -258,7 +258,7 @@ export function renderTabletop(root, v, { canAct, act, viewers = null, onView = 
     return `<span class="mt-role t-${r.type}" title="${esc(`${r.name}: ${r.text}`)}">${p.role.up ? '' : '🔒 '}${esc(r.name)} · ${ROLE_TYPES[r.type]}</span>`;
   };
   const cardHtml = (c, owner, zone) => `<div class="mt-card ${c.tapped ? 'tapped' : ''} ${c.token ? 'token' : ''} ${c.faceDown ? 'facedown' : ''}" data-id="${c.id}" data-owner="${owner}" data-zone="${zone}" title="${esc(c.name)}${c.type ? ` · ${esc(c.type)}` : ''}">
-    ${c.faceDown && !c.img ? '<span class="back mt-back"></span>' : c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : `<span class="mt-name">${esc(c.name)}</span>`}${c.counters ? `<b class="mt-ctr">${c.counters > 0 ? '+' : ''}${c.counters}</b>` : ''}${c.faceDown && c.img ? '<b class="mt-fd">face down</b>' : ''}</div>`;
+    ${c.faceDown && !c.img ? '<span class="back mt-back"></span>' : c.img ? `<img decoding="async" src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : `<span class="mt-name">${esc(c.name)}</span>`}${c.counters ? `<b class="mt-ctr">${c.counters > 0 ? '+' : ''}${c.counters}</b>` : ''}${c.faceDown && c.img ? '<b class="mt-fd">face down</b>' : ''}</div>`;
   const pile = (list, owner, zone) => (Array.isArray(list) ? list.map(c => cardHtml(c, owner, zone)).join('') : '<span class="back"></span>'.repeat(Math.min(list, 10)) + (list > 10 ? ` <small>${list}</small>` : ''));
   const can = i => canAct(i);
   const btn = (act, p, label, extra = '') => `<button class="btn small" data-act="${act}" data-p="${p}" ${extra}>${label}</button>`;
@@ -268,14 +268,14 @@ export function renderTabletop(root, v, { canAct, act, viewers = null, onView = 
     if (!me?.role || me.role.hidden) return '';
     const r = roleById(me.role.id);
     return `<div class="mt-myrole t-${r.type}">
-      <img class="mt-roleart" src="${roleArt(r.id)}" alt="" onerror="this.remove()">
+      <img decoding="async" class="mt-roleart" src="${roleArt(r.id)}" alt="">
       <div><b>Your role: ${esc(r.name)}</b> <span class="muted">${ROLE_TYPES[r.type]} · ${me.role.up ? 'face up' : 'face down (secret)'}</span>
         <div><b>Victory</b>: ${esc(r.victory)}</div>${r.defeat ? `<div><b>Defeat</b>: ${esc(r.defeat)}</div>` : '<div class="muted">Defeat: you are eliminated.</div>'}
         <div class="mt-roletext">${esc(r.text)}</div>
         <div class="mt-tools">${!me.role.up && can(me.idx) ? btn('announce', me.idx, 'Announce (turn your role face up)', 'data-primary="1"') : ''}
           ${can(me.idx) ? `<select class="input mt-rolechange" data-p="${me.idx}" title="When a role ability gives you another role card (the King role, a Cultist copy…)"><option value="">Change role card…</option>${ROLES.map(x => `<option value="${x.id}">${esc(x.name)} (${ROLE_TYPES[x.type]})</option>`).join('')}</select>` : ''}
           ${can(me.idx) ? btn('win', me.idx, '🏆 Declare victory') : ''}
-          <details class="mt-tips"><summary>Role tips</summary><img src="${roleTips(r.id)}" alt="" onerror="this.parentElement.remove()"></details></div></div></div>`;
+          <details class="mt-tips"><summary>Role tips</summary><img decoding="async" src="${roleTips(r.id)}" alt=""></details></div></div></div>`;
   };
   root.innerHTML = `<div class="mt-top">
       <b>${v.kingdoms ? 'Kingdoms · ' : ''}Turn ${v.turn} · ${esc(v.players[v.active]?.name || '')}</b>

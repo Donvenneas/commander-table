@@ -1,4 +1,5 @@
-"""Runs the game's self-test page (public/selftest.html) in a headless browser and fails on broken rows.
+"""Runs the game's self-test page (public/selftest.html), or with --page uitest.html the interface test, in a headless
+browser and fails on broken rows.
 
 Used by .github/workflows/selftest.yml, and can be run locally:
     pip install playwright==1.49.1 && python -m playwright install chromium
@@ -22,6 +23,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--url', default='http://localhost:8777')
     ap.add_argument('--timeout', type=int, default=600, help='seconds to wait for the self-test to finish')
+    ap.add_argument('--page', default='selftest.html', help='selftest.html, or uitest.html for the interface test (1.55.0)')
     args = ap.parse_args()
     gh = '::warning::', '::error::'
     errors, warnings, console = [], [], []
@@ -31,7 +33,8 @@ def main():
         page = browser.new_page()
         page.on('console', lambda m: m.type == 'error' and console.append(m.text))
         page.on('pageerror', lambda e: console.append(str(e)))
-        page.goto(args.url.rstrip('/') + '/selftest.html?run')
+        page.set_viewport_size({'width': 1500, 'height': 1000})
+        page.goto(args.url.rstrip('/') + '/' + args.page + '?run')
         deadline = time.time() + args.timeout
         while time.time() < deadline:
             summary = page.inner_text('#summary')
@@ -47,6 +50,9 @@ def main():
     for name, status, detail in rows:
         print(f'{status:8} {name}  {detail}')
         if status == 'pass':
+            continue
+        if status == 'not run':
+            warnings.append(f'{name}: {detail}')
             continue
         msg = f'{name}: {status} {detail}'
         (warnings if any(name.startswith(o) or o in name for o in OUTSIDE) else errors).append(msg)

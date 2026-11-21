@@ -45,6 +45,19 @@ export function snapshotDecks(decks) {
   };
 }
 
+// (Phase 2O) Is this a replay file at all, with the fields a restore reads in the right shape? A damaged or foreign file
+// is refused here with a plain reason, before anything about the current table changes. seats: how many the format has.
+export function replayShapeProblem(data, seats) {
+  const foreign = "That isn't a Commander Table replay file";
+  if (!data || typeof data !== 'object' || Array.isArray(data) || data.app !== 'commander-table') return foreign;
+  if (!Array.isArray(data.seats) || data.seats.length !== seats) return foreign;
+  if (data.seats.some(s => !s || typeof s !== 'object' || typeof s.deck !== 'string')) return 'The replay file is damaged: a seat has no deck';
+  if (typeof data.seed !== 'number' || !Number.isFinite(data.seed)) return 'The replay file is damaged: it has no game seed';
+  if (data.decisions != null && !Array.isArray(data.decisions)) return 'The replay file is damaged: its recorded answers are not a list';
+  if (data.cards != null && (typeof data.cards !== 'object' || Array.isArray(data.cards))) return 'The replay file is damaged: its card data is not readable';
+  return '';
+}
+
 // Before a replay is loaded: whether it can be restored exactly, with plain-language notes.
 // problems: reasons it can't be loaded at all (damaged card data, rules newer than this app); notes: what may differ.
 export function checkReplay(data) {

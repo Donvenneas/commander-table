@@ -746,6 +746,205 @@ on top of the ones above:
     suites. Still open: spell timing is checked by the callers, not Game.cast; a person isn't asked which protection
     color; "target player draws … and loses N life" (Sign in Blood) reads as you drawing; Giver of Runes is still
     hexproof; mutate has no card in the test data.
+- [x] 381. Multiplayer and Commander (asked 2026-11-15, Phase 2J of the engine audit): players leaving the game,
+  conceding, losing at the same time, cleanup, what online seats are sent, and the Commander deck checks.
+  - Done (rules 18, version 1.53.0; rules 4–17 golden games unchanged): players who lose in the same state-based check
+    leave together (104.4a: the last two at once is a draw; before, the seat checked second "won"), and share a place.
+    A player who leaves takes everything with them (800.4a): their spells and abilities on the stack and their waiting
+    triggers no longer resolve, their cards in every zone leave the game, and a card that entered under their control
+    (reanimated from another graveyard) is exiled instead of going back. Concede (104.3a): a button for your seat and
+    on a friend's page; it works through "can't lose" effects and is recorded in place of an answer, so replays concede
+    at the same decision. Cleanup (514.3a): a trigger or state-based action during cleanup is dealt with at once and
+    another cleanup step follows (before, a discard trigger waited for the next turn). Online seats: every view has a
+    revision number and a friend's page drops an older one; views are sent one after another per seat; they now hold
+    who has priority, who is disconnected or conceding, poison, and the public graveyard and exile lists (face-down
+    exiled cards hidden). "If a friend disconnects" in the Invite panel: the AI plays (as before), wait for them, or
+    concede after 5 or 15 minutes away; a dropped connection is never a concession by itself. Deck checks: color
+    identity (903.4) is checked for every commander format. Commander damage shows the format's own limit. Tests: new
+    tests/multiplayer.mjs (36), golden 90, all other suites; report in tests/phase-2j-report.md. Still open: no
+    separate end-of-combat step with priority; Kingdoms and team games keep the one-at-a-time order for losses; a
+    concession takes effect at the seat's next decision, not instantly; the host's own window still shows every hand
+    it could before.
+- [x] 382. AI decisions (asked 2026-11-17, Phase 2K of the engine audit): an audit of how the AI pilots choose plays,
+  targets, attacks, blocks and responses, with the weaknesses found fixed through the real engine.
+  - Done (rules 19, version 1.54.0; rules 4–18 golden games unchanged): counterspells are never cast at a spell that
+    can't be countered (Cavern of Souls, "your next spell", Veil of Summer, Grand Abolisher-style effects; one test,
+    resolve.js cantBeCountered, shared with the counter itself). Removal targets the creature that makes an opponent's
+    next attack lethal (nextAttackOn, lethalKey: public information, Game.canBlock for flying, reach, menace), never a
+    permanent already being removed on the stack, and in response only a target the card's words allow (Doom Blade on
+    a black creature was tried and refused). Generic costs are paid with mana the other spells in hand don't need
+    (Sol Ring then Llanowar Elves from a Forest and a Mountain). Instant-speed spells in main 1 keep the counterspell
+    mana too. A play the engine refuses no longer ends the main phase: it is left out and the pilot picks again (three
+    refusals end it). threatKind sorts a permanent as lethal, combo, engine, untouchable or minor. Explain mode's 🧠
+    and a garbled dash fixed. Tests: new tests/ai.mjs (30, each decision recorded with its board, legal plays,
+    expected and actual play, in tests/ai-decisions.md), golden 96, all other suites; report in
+    tests/phase-2k-report.md. Not done: no measured strength gain; the AI difficulty setting was already there and
+    is unchanged; no new interface.
+- [x] 383. Interface and gameplay presentation (asked 2026-11-17, Phase 2L): an audit of the table, menus, previews,
+  targeting, stack, combat, log, settings and small screens against the engine, with what it found fixed and an
+  interface test that drives the real page.
+  - Done (version 1.55.0; no engine or rules change, golden games unchanged): a card picture that fails to load is
+    replaced by the card's face in words (name, cost, type, power and toughness) on the table, the stack, the preview
+    and the battle panel; decorative pictures (log thumbnails, stack art) are dropped; the manual tabletop's role
+    pictures had inline onerror handlers the page's security policy blocked. A transformed double-faced card shows its
+    back face on the table (it kept the front's small picture), and the preview labels the card's other face. Touch:
+    a tap on a card shows its preview docked at the bottom; a long press previews a card you could pick. While a
+    question asks for particular cards or players (a target), everything else is faded and greyed. Calm mode and the
+    system's reduced-motion setting now also stop the script animations (card glides, move copies, the turn banner,
+    smooth scrolling); move copies are removed after 1.5 s even when the window is hidden. Phones: Resume, Step and
+    speed come first in the control row, and the stack panel sits at the bottom instead of over the first board. All
+    three servers allow the game's own pages to frame it (frame-ancestors 'self'; other sites still can't). Tests:
+    new public/uitest.html (17 checks run, online seats not: menu, deck selection, builder search and restore, land
+    play, tapping, preview, double-faced cards, legal and illegal targets, stack and priority, life and log,
+    picture fallback, calm mode, listeners, combat and simultaneous deaths, four players, six screen sizes, results,
+    AI turns), CI runs it; tests/servers.mjs checks the framing rule; report in tests/phase-2l-report.md. Not done:
+    the main menu, deck builder and table were already redesigned (items 219 to 300) and are unchanged in layout;
+    no drag-to-block, no targeting lines while choosing, no new results screen, no printing picker (a Universes
+    Beyond printing can still be the default picture).
+- [x] 384. Card database reliability, Scryfall and offline play (asked 2026-11-17, Phase 2N): an audit of how card
+  data is fetched, checked, cached, updated and shown, with what it found fixed.
+  - Done (version 1.56.0; no rules change, golden games unchanged): new public/js/carddata.js checks every card from
+    Scryfall (ids, name, mana value, colors, faces, legalities, picture addresses) before it is used or saved, checks
+    whole lists (duplicate ids and oracle ids) and says which face layouts the engine plays (meld and reversible
+    cards: data only). scryfall.js: a 15 s time limit on every request, Retry-After and 5xx retries, a clear "busy"
+    error after three 429s, answers that aren't card data refused, identical requests in flight sent once (searches
+    and card loads), 500 ms between heavy requests, and an offline state (30 s, growing to 2 min) that fails requests
+    at once and shows an Offline chip. fetchCollection: oracle-id lookups, cards fetched before a failure are saved,
+    a refresh that fails or comes back damaged keeps the saved copy, damaged cards are named in the deck warnings.
+    cardcache.js: records carry a schema version, damaged records are skipped, and each card is also saved under its
+    id, name, front face, oracle id and printing (never over another card). bulk.js: the file's details are checked
+    (Scryfall's data host only), an unchanged file isn't downloaded, cut-off files are refused, every card is checked,
+    the whole file must pass before it is saved (in one transaction), and the details (schema, source, date, damaged,
+    duplicates, import time, last error) are recorded and shown in Updates. Cards keep their oracle id; a modal card's
+    back face shows its own small picture and art. Local search caches lowercased text (o:"draw a card" over 35,000
+    cards: 21.9 ms to 12.0 ms). The builder drops answers to older searches. Tests: new tests/carddata.mjs (30, CI),
+    tests/card-data.md diagnostics; report in tests/phase-2n-report.md. Not done: saved decks are still name lists
+    (no printing ids), no Web Worker for the bulk import, no printing picker, meld and reversible cards not played.
+- [x] 386. Unbounded mana for a person's mana loops (asked 2026-11-17: "Zirda and Basalt Monolith or Grim Monolith
+  should combo while on the field to make infinite mana").
+  - Done (rules 21, version 1.58.0; rules 4–20 golden games unchanged, rules 21 AI games identical to rules 20): the
+    AI already went infinite with both pairs, but a person got only "Repeat ×10 / ×99", and the Combo button was hidden
+    while there was nothing to spend the mana on (the AI's hold-back, ai.js comboAssembled). Now a person is offered
+    the ready mana combo anyway, and a hand-played mana loop offers "Repeat as many times as needed": three more real
+    repetitions, then unbounded mana for the turn when each made more (727.1c), or the reason it didn't. Gated by rules
+    21 because a person's answers are recorded by button position. Tests: interactions.mjs (5: both Monoliths, rules
+    20 unchanged, a loop that doesn't net mana). Unbounded mana paying colored costs: fixed in item 387.
+- [x] 388. AI table talk and attacks by level (asked 2026-11-18): better deals, no-win next-turn deals, "target this
+  instead" when targeted, draws at stalemates, casual bots attacking open players and the biggest threat, cEDH bots
+  keeping their board unless a player's shields are down or they use life as a resource (Ad Nauseam).
+  - Done (rules 23, version 1.60.0; rules 4–22 golden games unchanged): engine.js redirectTalk (at cast time, before
+    payment: the targeted AI points at a clearly better target that isn't its own or a deal partner's; the caster
+    accepts by its own valuation, a person is asked), stalemateDraw / offerTableDraw (draw by agreement; everyone must
+    accept), winStops (wins countered or combo pieces removed), the noWin deal kind (the proposer's combos are held,
+    the partner lets its spells resolve that turn, going off anyway breaks it); ai.js noWinOffer, tableLocked,
+    offerDraw, considerDraw, redirectOffer, considerRedirect; combatai.js attacks by level (casual: open players ×1.6,
+    the biggest threat ×1.35; cEDH: damage ×0.55, backswing ×1.35, engines and combo pieces stay home, ×2.4 against
+    a player paying life, ×2 against shields down). The chat deal menus (host and friends) gained no-win and draw.
+    Measured over 24 games with the built-in cEDH decks (rules 23 against 22, same seeds): cEDH pilots' combat damage
+    lines 148 against 283, casual pilots' 303 against 268; about 2 no-win offers a game, 0 simulator errors, 0 broken
+    rules. Tests: ai.mjs 31–35 (attacks by level, redirect with a person casting and rules 22 unchanged, no-win deal,
+    draw judgement), hidden.mjs now also re-asks deal, draw and redirect decisions with hands scrambled (0 changed).
+    Not done: no draw was agreed in the 24 measured games (bots accept only a fully locked table); "real tournament
+    examples" were taken from common cEDH table talk, not from specific event records.
+- [x] 387. Unbounded mana has the colors its loop made (asked 2026-11-18, after item 386).
+  - Done (rules 22, version 1.59.0; rules 4–21 golden games unchanged, rules 22 games identical to rules 21): a mana
+    loop records the colors it added to the pool (Player.infiniteColors: comboplay.js for the AI, human.js for a
+    person), and mana.js planPayment lets unbounded mana pay generic mana, two-brid symbols and symbols of those colors
+    only; any other colored symbol is paid from real sources, or the cost can't be paid (Zirda + Basalt Monolith: Walking
+    Ballista for X=40, but Colossal Dreadmaw needs two green sources and taps only them). The rules watcher counts such
+    a payment as unbounded. The old combo shortcut (rules 10 and earlier) records no colors and pays everything, as
+    before. Tests: interactions.mjs (2).
+- [x] 389. Card simulation coverage (asked 2026-11-18: audit every card, implement what's missing with reusable
+  mechanics, test it, and a coverage dashboard that reflects real results).
+  - Done (rules 24, version 1.61.0; rules 4–23 golden games unchanged): effects.js cond24 (20 more "if" conditions:
+    cast from exile or a graveyard, N creature cards in your graveyard, a graveyard with 20+ cards, tokens created and
+    cards drawn this turn, gained and lost life, exactly N cards in hand, growth counters and the like, permanents you
+    don't own, total toughness, the equipped creature's type, noncreature spells cast this turn, a completed dungeon…;
+    triggers.js evalCond via cond.r24), whereX24 (12 more "X, where X is …" amounts: creatures attacking you, total
+    attacking power, the exiled card's or the target's mana value, tokens created and cards drawn this turn, player
+    counters, your commander's mana value, several creature types; mana.js dynValue 'r24', 0 before rules 24), drawLose
+    ("target player / each player draws N and loses N life": Sign in Blood, Damnable Pact, Stormfist Crusader,
+    Insatiable Avarice; the old "you draw" reading kept with until: 24), copyToken tr24 (a person picks which creature
+    a copy spell copies; "you control" kept), upTo ("up to one target": a person may choose no target; "up to two
+    or more": one more copy of the effect per target, marked more and since: 24, each a different target: Force of
+    Vigor, Angel of the Ruins, Displace, Tamiyo, Marang River Regent; Game.pickedTargets keeps the AI and a person off
+    what another copy took). New `until`
+    gate beside `since` (resolve.js doEffect, effects.js needsTargetIn, ai.js effectValue). The audit (tests/coverage.mjs)
+    lost false alarms (mana value limits read as maxMv, "play an additional land", fights whose own creature the
+    engine picks), gained a real one ("up to two or more targets": only one is used), five simulation classes and
+    `--json public/data/coverage.json` for the new page public/coverage.html (filters by class, type, color, keyword,
+    effect kind, ability type and rarity). Coverage of the 3,500 snapshot cards: full 2,677 → 2,743 (48 from the new
+    engine work, the rest audit corrections), misread 188 → 110. Tests: interactions.mjs 20 (each with its rules 23
+    check), 24 targeted AI games with every changed card under the rules watcher (0 errors, 0 broken rules).
+    Not done: amounts divided among several targets (Shatterskull Smashing, Court of Garenbrig), "up to X", converge ("colors of mana spent"), "this way" conditions
+    that need the result of an earlier effect, set filter on the page (the snapshot has no set field).
+- [x] 390. Phase 2C audit and Phase 2D reusable mechanics (asked 2026-11-20: audit the 197 incorrectly simulated
+  cards, then implement the missing mechanics as reusable engine work, with tests and documentation).
+  - Done (rules 25, version 1.62.0; rules 4–24 golden games unchanged, including the 1.61.0 rules 24 games): audit in
+    audit/phase-2c (197 cards: 133 confirmed defects, 57 incomplete, 1 suspected, 6 false positives); mechanics in
+    audit/phase-2d: unread conditions never met (Not of This World, The Indomitable), "this way" conditions from the
+    zone changes an ability made, last-known information, costs paid and cast history (Approach of the Second Sun can
+    win again), "then if" conditions (Jace, Wielder of Mysteries no longer wins unconditionally), intervening-if checked
+    as abilities trigger (603.4), target words on graveyard and stack targets and counted mana value limits (Persist,
+    Drown in the Loch), spend restrictions and activation conditions on mana lines (Delighted Halfling, Mox Jasper),
+    mana kept all turn (Birgi), the "play from the top of your library" misreading fixed (Crucible of Worlds plays
+    lands from the graveyard; Omniscience, Yeva), graveyard-casting limits (Chainer), converge and more X values,
+    optional non-mana costs ("you may sacrifice …; when you do": Grist, Springbloom Druid), tokens for "that player"
+    (Rite of the Raging Storm), granted triggers (Hunter's Insight), play permissions from dig, mill and discard
+    (Expressive Iteration, Mnemonic Betrayal), Benevolent Hydra, Mox Diamond as a replacement, Giver of Runes'
+    protection, The Immortal Sun, Port Razer, hideaway, mana escalate, Twinning Staff, Abundance; and a fix for casting
+    from another player's exile. Coverage: full 2,743 → 2,809, incorrect + restriction 197 → 125. Tests: new
+    tests/mechanics.mjs (75, CI), golden 132/0 differ, fuzz 72 games 0 errors, self-test 19/19, interface 17/17.
+    Not done (audit/phase-2d/PHASE_2D_REMAINING_GAPS.md): multiple and divided targets, a per-ability mana model,
+    moving counters, end-of-combat delayed triggers (Delina), Gilded Drake's exchange, opponents' choices for punishers,
+    type-changing statics, strive, non-mana escalate.
+- [x] 391. Phase 2E: repairs of the Phase 2C defects (asked 2026-11-20: repair every verified incorrect simulation,
+  shared mechanics first, with regression tests and documentation).
+  - Done (rules 26, version 1.63.0; rules 4–25 golden games unchanged): "activate only once each turn" enforced
+    (Beledros Witherbloom, Quirion Ranger, Wirewood Symbiote, Ramos, Chainer); Gilded Drake exchanges control and its
+    ability resolves with an illegal target; punishers let the targeted opponent choose (Combustible Gearhulk,
+    Palantír of Orthanc); Tataru Taru's opponent draws; Chandra's Ignition targets; searches keep their words (Natural
+    Order and Green Sun's Zenith find only green creatures, Maelstrom of the Spirit Dragon a Dragon: 26 tutors); mana
+    of any type (Mnemonic Betrayal); a second reading for non-legendary cards whose first word was taken for their
+    name (Artifact Mutation destroys, Spell Swindle counters); Delay suspends, Render Silent silences; copies of a chosen
+    target (Court of Vantress, Yenna); mode text read in full (Charming Scoundrel); token abilities in quotes belong to
+    the token (Eldrazi Spawn makers no longer add mana themselves); Delina's attacking copies exiled at end of combat;
+    granted dies triggers (Not Dead After All, Undying Malice, Feign Death); Terastodon; The Eternal Wanderer's attack
+    limit; Lightning Ragers can't attack the Rite player. Coverage now judges the current rules' reading and keeps
+    verified defects as incorrect (tests/known-defects.json). Tests: new tests/repairs.mjs (37, CI). Report set in
+    audit/phase-2e. Not done: see audit/phase-2e/PHASE_2E_REMAINING_DEFECTS.md.
+- [ ] 392. Phase 2F: complete the partly simulated cards (asked 2026-11-20: reassess the 421 cards the 1.61.0 coverage
+  report called partial and complete them by shared mechanic, 2F-1 to 2F-8). Partly done; left open.
+  - Done so far (rules 27, version 1.64.0; rules 4–26 golden games unchanged): sentences about what the sentence before
+    did ("those creatures gain vigilance", "untap it", "that token attacks this combat if able", "sacrifice/exile it at
+    the beginning of the next end step", "they phase out", indestructible counters on each of them: 24 cards, and
+    Sneak Attack, which never gave haste or sacrificed); a card's second "whenever you cast" trigger (Jeskai Ascendancy);
+    Ilharg's creature enters tapped and attacking; channel costs {1} less per legendary creature (Boseiju, Otawara,
+    Takenuma, Eiganjo, Sokenzan) with Boseiju's land search and Otawara's bounce; Force of Negation exiles and Memory
+    Lapse tucks; the Enduring cycle returns as enchantments (before, it never returned); Thriving and chosen-color
+    lands make only their colors; "choose a creature type" spells (Distant Melody, Kindred Dominance, Pact of the
+    Serpent; a person picks the type); Urza lands, Ilysian Caryatid and Incubation Druid make more when their condition
+    holds; kicked Rite of Replication and Consult the Star Charts; a person picks Snapcaster Mage's card. The coverage
+    check now also finds activated and channel abilities whose effect isn't read, which moved some cards out of "full".
+    Of the 421: 55 fully simulated (3 before), 6 known incorrect, 358 still partial. Tests: new tests/completions.mjs
+    (58, CI). Report set in audit/phase-2f; the rest is listed in audit/phase-2f/PHASE_2F_REMAINING_GAPS.md.
+- [x] 385. Quality, rules validation, security and release readiness (asked 2026-11-17, Phase 2O): a baseline audit
+  (tests/phase-2o-audit.md), the defects it found fixed, event-sequence rules tests, saved-data tests, fuzz failure
+  capture, measurements and other browsers.
+  - Done (rules 20, version 1.57.0; rules 4–19 golden games unchanged, and the rules 20 games are identical to rules
+    19): the engine itself refuses a mistimed cast (a sorcery on an opponent's turn or with something on the stack;
+    AUDIT-ROADMAP item 200 done) while the AI keeps planning as before; Humility is read and applied (base P/T in
+    layer 7b by timestamp, no keywords, activated abilities, triggers or creature anthems; item 212 progress, Blood
+    Moon + Urborg still open); Leyline of the Void's replacement is read. The deck library is written to a temporary
+    file and swapped in on all three servers (the .exe rebuilt), so a failed save keeps the last one; browser storage
+    that is full, blocked or damaged is reported once, keeps the last saved value, and settings of the wrong type are
+    ignored; replay files are checked for shape before anything changes. Tests: new tests/rules.mjs (27: 26 pass, 1
+    known deviation: additional costs are paid before the card is on the stack), tests/storage.mjs (8), an event
+    recorder in tests/scenario.mjs, fuzz failures saved and replayable with every run replaying its first game,
+    tests/browsers.mjs (Chrome 157 and Firefox 160: self-test 19/19 and interface test 17/0 in each),
+    tests/perf.mjs, servers.mjs deck library check; report in tests/phase-2o-report.md. Not done: the layer system
+    below 7b (dependency, Blood Moon + Urborg), the AI's slow blocks on very large boards (about 1 s against 40
+    attackers), Edge and Safari not tested.
 
 ### AI
 - [x] 101. Look-ahead for instant-speed decisions: counter or not, removal in response, end-of-turn plays, on the same
@@ -1314,6 +1513,192 @@ on top of the ones above:
 The audit of version 1.31.0 and its fix list are in `AUDIT-ROADMAP.md` (items 197 to 218, self-contained so another
 chat or model can take any item). Reproductions: `node tests/audit-probes.mjs` (16 boards that fail today) and
 `node tests/audit-probes.mjs --scan` (cards counted as fully read whose text is not all used). Tick the items there.
+
+## Round 7 (asked for 2026-11-14: a complete redesign of the look, with every feature kept)
+
+### Look and feel
+- [x] 219. One design system for the whole game ("Grimoire"): obsidian and antique gold with parchment text, a parchment light theme, bundled fonts, and shared buttons, fields, windows, tabs, tables, section headers and charts; the start menu becomes a dashboard, and the deck builder and deck viewer are rebuilt on it.
+  - Done: 1.32.0. Design tokens at the top of `public/css/style.css` (colors, the five mana colors, card-type colors, type, spacing, radius, shadow, motion); the old one-off start menu, builder, deck-chart and button styles were removed rather than overridden. Fonts are bundled in `public/fonts` (Cinzel, Inter, JetBrains Mono, SIL Open Font License, licenses beside them): nothing is loaded from a font service and the security policy is unchanged. Start menu: a dashboard with Play/Resume, your record (counted from the game history), the four newest library decks, and the modes in four groups, with icons drawn for the game. Top bar: the same controls in groups (windows, game, view, settings). Deck builder: card gallery with name and cost under each card, sharper pictures on dense screens, a words-only card face while a picture loads or when it fails, copies-in-deck badges, a docked card inspector (opens over the page from the magnifier on narrow screens), sort order, filters that search as they change, a commander banner with its color identity, live mana curve, color pips and card types (`public/js/deckcharts.js`, shared with the deck viewer), format checks (size, commander, copies, color identity, sideboard), foldable type sections, and Search / Deck tabs on phones. Deck viewer: stat tiles and the same charts. Reduced motion is respected from the system setting as well as Display. No game rule, endpoint, saved data or replay format changed; every element id the code and the tour use is kept. New English strings on the dashboard and in the builder are not yet in the other six languages.
+
+## Round 8 (from `DESIGN-ROADMAP.md`: design, interface and accessibility)
+
+### Windows and keyboard
+- [x] 234. Every window is a proper dialog: focus moves into it and back out, Tab stays inside, Escape and a click beside it close it.
+  - Done: 1.33.0. One controller in `public/js/dialogs.js` watches every window, so each still closes its own way. The table's shortcuts wait while a window is open.
+- [x] 233. The game's own question window replaces the browser's confirm and prompt boxes.
+  - Done: 1.33.0. Thirteen confirmations and three text prompts; deleting and clearing get a red button, and Cancel is the default.
+- [x] 232. Notices: short messages at the bottom left that go away by themselves.
+  - Done: 1.33.0. Used for saving a deck from the builder, putting it in a seat, the problem report and link errors.
+- [x] 236. Tab rows work as tabs for the keyboard and screen readers.
+  - Done: 1.33.0. Arrow keys, Home and End move between tabs in the sidebar, Progress, the cEDH meta and the deck builder.
+- [x] 245. Buttons that show only a symbol, and search boxes without a label, have names a screen reader can say.
+  - Done: 1.33.0. Timeline buttons, theme, emotes, close buttons and 19 fields.
+
+### Reaching things without a mouse
+- [x] 238. Hints show for the keyboard and on touch screens, not only under a resting mouse.
+  - Done: 1.34.0. The game's own tooltip appears on keyboard focus and on a long press.
+- [x] 250. Cards on the table say what they are and what state they are in.
+  - Done: 1.34.0. Name, power and toughness, tapped, attacking, blocking, counters and more for screen readers; face-down cards keep their secret.
+- [x] 249. Mana symbols are read as words.
+  - Done: 1.34.0. "White mana", "2 generic mana", "tap", "white or blue mana" in place of "{W}".
+- [x] 257. A "Skip to the table" link, and names for the page's regions.
+  - Done: 1.34.0. The table, the sidebar, the timeline and the controls are labelled for screen readers.
+- [x] 256. The focus ring shows everywhere, including on card art.
+  - Done: 1.34.0. A ring with a dark edge on cards, piles and gallery tiles.
+
+### Start menu
+- [x] 264. Play, Edit and View on each recent deck.
+  - Done: 1.41.0. Play seats it and opens the setup screen; Edit opens it in the deck builder; View opens its charts and checks.
+- [x] 265. A Continue row for what you have begun.
+  - Done: 1.41.0. An Expedition in progress, the next lesson, the next story chapter.
+- [x] 270. Your ranks on the start menu.
+  - Done: 1.41.0. A chip for each format you have ranked games in.
+- [x] 268. The start menu fits a laptop screen without scrolling.
+  - Done: 1.41.0. At 1366×768 and 1440×900.
+
+### Deck analysis
+- [x] 334. Draw odds as a chart.
+  - Done: 1.52.0. A line by turn, on the draw and on the play, with the table beneath.
+- [x] 335. Solo-play results as a chart.
+  - Done: 1.52.0. How often the commander was cast, a combo started and the deck won, by each turn.
+- [x] 338. A legend for the matchup grid.
+  - Done: 1.52.0. And each cell says how many games it stands on.
+- [x] 331. Color sources beside color needs.
+  - Done: 1.39.0. Under each color's bar, a thinner one counts the cards that can make that color; a color nothing makes is pointed out.
+- [x] 333. The mana curve marks its average and gives the median.
+  - Done: 1.39.0. In the deck builder and the deck viewer.
+- [x] 337. The bracket estimate on a five-step scale.
+  - Done: 1.39.0. With Commander Spellbook's estimate marked on the same scale.
+- [x] 339. Print the deck viewer.
+  - Done: 1.39.0. A Print button; the page prints black on white with its charts.
+
+### Phones and small screens
+- [x] 364. The log slides over the table on small screens.
+  - Done: 1.49.0. A Log button with a dot for new lines, instead of the log sitting under every board.
+- [x] 365. Windows fill the screen on phones.
+  - Done: 1.49.0. Their buttons stay in reach at the bottom.
+- [x] 366. Notches, home bars and the on-screen keyboard.
+  - Done: 1.49.0. Bars keep clear of them, and the field you type in scrolls into view.
+
+### Comfort
+- [x] 374. Dates and numbers follow the chosen language.
+  - Done: 1.48.0. Not the browser's own language.
+- [x] 370. Card pictures decode without holding up the page.
+  - Done: 1.48.0.
+- [x] 248. Choose how much a screen reader reads out.
+  - Done: 1.46.0. Main events, everything, your turns only, or combat and wins; mana symbols are said by name.
+- [x] 258. Less background motion.
+  - Done: 1.42.0. A Display switch that stops drifting lights, breathing glows and floating cards, while moves still animate.
+- [x] 260. Easier reading.
+  - Done: 1.42.0. A Display switch for wider spacing and plain headings.
+- [x] 261. A friend's turn clock is announced at 30 and 10 seconds.
+  - Done: 1.42.0. For screen readers, on the host's page.
+
+### The table
+- [x] 288. Turns of the game log fold.
+  - Done: 1.46.0. Click a turn's heading to fold it; Fold turns keeps only the current turn open; each finished turn has a one-line summary.
+- [x] 286. The stack as cards.
+  - Done: 1.45.0. Each item shows its art, the next to resolve stands out, and pointing at one rings its targets.
+- [x] 289. Card art in the game log.
+  - Done: 1.45.0. A Display switch for a small picture beside cast, death and removal lines.
+- [x] 287. A phase track you can read at a glance.
+  - Done: 1.44.0. The current step is larger; click Upkeep, Draw, Combat or End to set a stop there; dots show the stops.
+- [x] 290. Click a life total for its history.
+  - Done: 1.42.0. The changes turn by turn, and commander damage taken.
+- [x] 281. One-on-one games use the whole table.
+  - Done: 1.40.0. The two boards face each other, yours below, with larger cards.
+- [x] 294. The action bar can be moved off your cards.
+  - Done: 1.40.0. Drag the grip at its left; double-click the grip to put it back.
+- [x] 299. The timeline marks where each turn starts.
+  - Done: 1.40.0. Dragging it says which turn you are jumping to.
+- [x] 291. Graveyard, exile and hand windows can be filtered and put in order.
+  - Done: 1.40.0. By name or type; newest first, by name, by type or by mana value.
+- [x] 282. Your own board is at the bottom of the table.
+  - Done: 1.38.0. Whatever seat you take; on a phone it comes first.
+- [x] 295. A clear signal when the game is waiting for you.
+  - Done: 1.38.0. Your board's edge lights, the action bar rises into view, and the tab's title says "Your move".
+- [x] 283. Card size on the table.
+  - Done: 1.38.0. A slider in Display, 70% to 150%.
+- [x] 292. The card preview waits a moment, and can be docked or turned off.
+  - Done: 1.38.0. Display → Card preview: beside the pointer, in the bottom right corner, or off.
+- [x] 300. A full screen button.
+  - Done: 1.38.0. Beside Display in the top bar.
+
+- [x] 293. Touch preview, and the table's pictures and motion (Phase 2L).
+  - Done: 1.55.0. A tap on a card shows its preview docked at the bottom; a card whose picture can't load shows its name, type and power instead; a transformed card shows its back; while you choose a target the rest of the table is faded; Fewer animations stops every animation on the table.
+
+### Deck builder
+- [x] 315. Fill in basic lands.
+  - Done: 1.51.0. A suggested split by the deck's colors, shown before it is added.
+- [x] 323. Search history and kept searches in the deck builder.
+  - Done: 1.51.0. The last ten searches under the field, and a star to keep one.
+- [x] 307. Cards without a picture still look like cards.
+  - Done: 1.50.0. A bar in the card's colors and a mark for its type.
+- [x] 308. Legality marks on cards in the deck builder.
+  - Done: 1.50.0. Banned, not legal, restricted and Game Changer.
+- [x] 309. Rulings and keyword help in the deck builder's inspector.
+  - Done: 1.50.0. A Rulings button, a Flip button for double-faced cards, and keyword help in the rules text.
+- [x] 314. Add a whole list of cards at once.
+  - Done: 1.43.0. Paste names, one a line; names that aren't found are reported.
+- [x] 321. Draw a test hand in the deck builder.
+  - Done: 1.43.0. Draw seven, mulligan and draw, with the land count.
+- [x] 328. Export from the deck builder.
+  - Done: 1.43.0. MTGO file, Arena text, checklist and decklist file.
+- [x] 310. The deck you are building is kept if you close the builder or the game.
+  - Done: 1.37.0. Open the builder again and choose Restore it; it comes back without the internet.
+- [x] 311. Undo and redo in the deck builder.
+  - Done: 1.37.0. Buttons above the list, or Ctrl+Z and Ctrl+Y.
+- [x] 313. Filter and order the deck list.
+  - Done: 1.37.0. Type part of a name or a type; order by mana value or by name.
+- [x] 324. Keys in the card gallery.
+  - Done: 1.37.0. Arrow keys move, Enter adds, C makes the commander, I opens the inspector.
+- [x] 326. More results load as you scroll.
+  - Done: 1.37.0. The gallery reads on by itself near its end.
+
+### Menus
+- [x] 273. The setup screen shows its everyday actions and keeps the rest in three menus.
+  - Done: 1.36.0. More decks, Other modes, and Tour and updates hold fourteen of the twenty-five buttons.
+- [x] 301. The top bar is shorter: tournaments and history are under More.
+  - Done: 1.36.0. Menu, Decks, Batch and Progress stay in the bar.
+- [x] 247. A list of every keyboard shortcut.
+  - Done: 1.36.0. Press ? at the table, or choose Keyboard shortcuts at the foot of the start menu.
+- [x] 237. Menus that work with the keyboard.
+  - Done: 1.36.0. Arrow keys move through a menu and Escape closes it.
+
+### Controls
+- [x] 235. A close button in the same place in every window.
+  - Done: 1.44.0. An × in the top right corner.
+- [x] 243. Segmented controls.
+  - Done: 1.44.0. For Draft / Sealed's choices and Display's Theme and Text size.
+- [x] 231. The theme follows your system until you choose one.
+  - Done: 1.35.0. Display has Theme: Match the system, Dark or Light; the friend's page follows the system too.
+- [x] 242. On/off settings in the top bar are switches.
+  - Done: 1.35.0. Reveal hands, Explain, Follow and Sound.
+- [x] 244. Sliders share one look and say their value.
+  - Done: 1.35.0. Speed reads "Slowest" to "Fastest", the timeline "Step N of M".
+- [x] 255. Bigger touch targets on touch screens.
+  - Done: 1.35.0. Buttons, tabs, fields, piles, switches and sliders grow when the main pointer is a finger.
+- [x] 262. English-only parts are marked as English for screen readers.
+  - Done: 1.35.0. The game log, rules results and Help.
+
+### Stylesheet
+- [x] 378. A check that every element the scripts ask for exists.
+  - Done: 1.47.0. tests/ids.mjs, in CI.
+- [x] 379. A stylesheet lint.
+  - Done: 1.47.0. tests/csslint.mjs keeps literal colors, !important and unused classes from growing; in CI.
+- [x] 369. The fonts load sooner.
+  - Done: 1.47.0. The two faces on the first screen are preloaded.
+- [x] 375. Japanese headings use a matching serif face.
+  - Done: 1.47.0.
+- [x] 221. A named scale for what sits on top of what.
+  - Done: 1.33.0. Layer tokens in the stylesheet replace 24 separate numbers.
+
+## Next: the design work list (asked for 2026-11-14: "the next 100+ improvements to the design, UI, functionality and accessibility")
+
+The work list is in `DESIGN-ROADMAP.md` (items 220 to 380, self-contained so another chat or model can take any
+item; its "Rules for every session" and "Suggested order" come first). Tick the items there. When the first one is
+finished, start a "## Round 8" section above this one and add each finished item to it with its "Done:" note: the
+What's new window lists the newest "## Round" section, so an empty one would leave that window blank.
 
 ## Notes from sessions
 

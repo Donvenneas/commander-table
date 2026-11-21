@@ -1,8 +1,9 @@
 // The page a friend opens to play one seat of a game hosted on someone else's PC.
 // It polls the host for this seat's view of the table and any question waiting for this player,
 // draws the table with the same look as the host, and sends answers back.
-import { esc, symbolize, store } from './util.js';
+import { esc, symbolize, store, installImageFallback } from './util.js';
 import { startI18n } from './i18n.js';
+import { startModals, askUser } from './dialogs.js';
 import { renderTabletop } from './manual.js';
 
 /** @type {(id: string) => any} */
@@ -19,6 +20,7 @@ function parseJoin(s) {
 }
 const api = (action, opts) => fetch(`/api/room/${action}?code=${encodeURIComponent(code || '')}&seat=${seat}`, opts);
 
+let lastRev = 0;
 let snap = null, question = null, answered = null, seenAt = 0, lastLog = '';
 const boardHtml = new Map();
 const cardData = new Map();
@@ -26,7 +28,7 @@ const cardData = new Map();
 // ---------- theme
 const prefs = store('ct.prefs') || {};
 function applyTheme(t) { document.documentElement.dataset.theme = t; $('btnTheme').textContent = t === 'dark' ? '☀' : '☾'; }
-applyTheme(prefs.theme || 'dark');
+applyTheme(prefs.theme || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'));
 // The friend page follows a language chosen on this device, else the browser's own language
 startI18n(prefs.lang || (navigator.language || 'en').slice(0, 2));
 $('btnTheme').addEventListener('click', () => { prefs.theme = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'; store('ct.prefs', prefs); applyTheme(prefs.theme); });
@@ -80,9 +82,11 @@ function cardHtml(c, extra = '') {
   if (c.pt) badges += `<span class="bdg pt">${c.pt}</span>`;
   if (c.counters) badges += `<span class="bdg ctr">+${c.counters}</span>`;
   if (c.loyalty != null) badges += `<span class="bdg loy">${c.loyalty}</span>`;
-  const face = c.faceDown ? `<div class="tkn fd"><b>Face down${c.peek ? `<br><small>${esc(c.peek)}</small>` : ''}</b></div>` : c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
+  const face = c.faceDown ? `<div class="tkn fd"><b>Face down${c.peek ? `<br><small>${esc(c.peek)}</small>` : ''}</b></div>` : c.img ? `<img decoding="async" src="${esc(c.img)}" alt="${esc(c.name)}" draggable="false">` : `<div class="tkn" style="background-image:url('${esc(c.art)}')"><b>${esc(c.name)}</b></div>`;
   return `<div class="${cls}${c.img ? '' : ' noimg'}" data-iid="${c.iid}">${face}<div class="badges">${badges}</div></div>`;
 }
+// A public zone's cards as a tooltip (a face-down card is listed without its name)
+const zoneTitle = (zone, names) => (names?.length ? `${zone}: ${names.map(n => n ?? 'a face-down card').join(', ')}` : zone);
 function rowHtml(cards, stack) {
   let prev = null;
   return cards.map(c => { const h = cardHtml(c, stack && prev === c.name ? 'stacked' : ''); prev = c.name; return h; }).join('');
@@ -146,7 +150,8 @@ function render() {
   if (snap.manual) { renderManual(); pumpManual(); return; }
   if ($('table').dataset.lobby === '1') { $('table').dataset.lobby = ''; $('table').innerHTML = ''; boardHtml.clear(); }
   const me = snap.players[seat];
-  $('turnLabel').textContent = snap.over ? (snap.winners?.length > 1 ? `${snap.winners.map(i => snap.players[i].name).join(', ')} win` : snap.winner != null ? `${snap.players[snap.winner].name} wins` : 'Game over')
+  $('btnConcede').hidden = watching || snap.over || !me || me.lost || me.conceded;
+  $('turnLabel').textContent = snap.over ? (snap.draw ? 'The game is a draw' : snap.winners?.length > 1 ? `${snap.winners.map(i => snap.players[i].name).join(', ')} win` : snap.winner != null ? `${snap.players[snap.winner].name} wins` : 'Game over')
     : snap.turn ? `Turn ${snap.turn} · Round ${snap.round} · ${snap.players[snap.active].name} · ${PHASES[snap.phase] || ''}` : 'Shuffling up…';
   const table = $('table');
   if (table.children.length !== snap.players.length) {
@@ -164,14 +169,18 @@ function render() {
     const hand = Array.isArray(p.hand)
       ? `<span class="zlabel">${p.idx === seat ? 'Your hand' : 'Hand'}</span>${rowHtml(p.hand)}`
       : `<span class="zlabel">Hand · ${p.hand}</span>${'<span class="back"></span>'.repeat(Math.min(p.hand, 15))}`;
-    const chips = (p.roleChip || '') + (snap.archenemy === p.idx && !p.lost ? '<span class="polchip arch">🎯 Archenemy</span>' : '')
+    const chips = (snap.priority === p.idx && !p.lost && !snap.over ? '<span class="polchip prio" title="This player has priority: they may respond, or pass">◆ Priority</span>' : '')
+      + (p.conceded && !p.lost ? '<span class="polchip">🏳 Conceding</span>' : '')
+      + (p.offline && !p.lost ? '<span class="polchip" title="This player\'s page has stopped checking in">⚠ Disconnected</span>' : '')
+      + (p.poison ? `<span class="polchip poison">☠ Poison ${p.poison}</span>` : '')
+      + (p.roleChip || '') + (snap.archenemy === p.idx && !p.lost ? '<span class="polchip arch">🎯 Archenemy</span>' : '')
       + p.cmdDamage.map(c => `<span class="cmdchip ${c.n >= (snap.cmdLimit || 21) - 6 ? 'hot' : ''}" style="--cc:var(--bad)">⚔ ${esc(c.name.split(',')[0])} ${c.n}/${snap.cmdLimit || 21}</span>`).join('');
     const html = `<div class="board ${snap.active === p.idx && !snap.over ? 'active' : ''} ${p.idx === seat ? 'you' : ''} ${p.waiting ? 'thinking' : ''}" data-player="${p.idx}" style="--pc:${p.color};--cw:${cw};--art:url('${esc(p.art)}')">
       <div class="bhead">
         <div class="avatar" style="background-image:url('${esc(p.art)}')"></div>
         <div class="who" title="${esc(p.deckName)}"><div class="pname">${esc(p.name)}</div>${p.bank != null ? `<span class="tclock ${p.bank < 30 ? 'low' : ''}" title="Time bank (turn clock)">⏱ ${Math.floor(p.bank / 60)}:${String(p.bank % 60).padStart(2, '0')}</span>` : ''}</div>
         <div class="mana" title="Untapped mana available">${p.mana ? `<span class="pip">⚡${p.mana}</span>` : ''}</div>
-        <div class="stats"><span class="zbtn" title="Library">📚 Library <b>${p.library}</b></span><span class="zbtn" title="Graveyard">🪦 Graveyard <b>${p.graveyard}</b></span><span class="zbtn" title="Exile">⊘ Exile <b>${p.exile}</b></span></div>
+        <div class="stats"><span class="zbtn" title="Library">📚 Library <b>${p.library}</b></span><span class="zbtn" title="${esc(zoneTitle('Graveyard', p.graveyardCards))}">🪦 Graveyard <b>${p.graveyard}</b></span><span class="zbtn" title="${esc(zoneTitle('Exile', p.exileCards))}">⊘ Exile <b>${p.exile}</b></span></div>
         <div class="life ${p.life <= 10 ? 'low' : ''}"><small>LIFE</small><span class="lv">${p.life}</span></div>
       </div>
       <div class="cmdchips">${chips}</div>
@@ -189,7 +198,7 @@ function render() {
     if (boardHtml.get(p.idx) !== html) { table.querySelector(`[data-slot="${p.idx}"]`).innerHTML = html; boardHtml.set(p.idx, html); }
   }
   // The stack, shown in the middle of the table
-  const spot = snap.stack.map(s => `<div class="spot" style="--pc:${s.color}"><img src="${esc(s.img)}" alt="${esc(s.name)}"><div class="cap">${s.ability ? `${esc(s.name)}: ${esc(s.label.slice(0, 48))}` : `${esc(s.who)} casts ${esc(s.name)}`}</div></div>`).join('');
+  const spot = snap.stack.map(s => `<div class="spot" style="--pc:${s.color}"><img decoding="async" src="${esc(s.img)}" alt="${esc(s.name)}"><div class="cap">${s.ability ? `${esc(s.name)}: ${esc(s.label.slice(0, 48))}` : `${esc(s.who)} casts ${esc(s.name)}`}</div></div>`).join('');
   if ($('spotlight').dataset.v !== spot) { $('spotlight').innerHTML = spot; $('spotlight').dataset.v = spot; }
   // Log
   const logKey = snap.log.map(e => e.text).join('\n');
@@ -252,6 +261,13 @@ function undoReply(r) {
   setTimeout(() => { $('btnAskUndo').textContent = 'Undo my last decision'; }, 4000);
 }
 
+// ---------- conceding (104.3a): the host's game takes your seat out at your next decision
+$('btnConcede').addEventListener('click', async () => {
+  if (!(await askUser('Your seat leaves the game and the others play on.', { title: 'Concede this game?', confirm: 'Concede', danger: true }))) return;
+  await sendChat('/concede');
+  $('btnConcede').hidden = true;
+});
+
 // ---------- chat
 async function sendChat(text) {
   text = text.trim().slice(0, 200);
@@ -306,7 +322,7 @@ function renderDraftPick() {
   const d = question.draft;
   draftShown = question.id;
   $('abText').innerHTML = `${question.text.replace(/<(?!\/?b>)[^>]*>/g, '')} <span class="muted">(${d.picks.length} picked so far)</span>
-    <div class="lim-grid draft-pack">${d.pack.map(c => `<div class="lim-card" data-pick="${esc(c.name)}" title="${esc(c.name)}">${c.img ? `<img src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
+    <div class="lim-grid draft-pack">${d.pack.map(c => `<div class="lim-card" data-pick="${esc(c.name)}" title="${esc(c.name)}">${c.img ? `<img decoding="async" src="${esc(c.img)}" alt="${esc(c.name)}" loading="lazy">` : ''}<span class="lim-name">${esc(c.name)}</span></div>`).join('')}</div>
     ${d.picks.length ? `<p class="muted">Your picks: ${d.picks.map(esc).join(', ')}</p>` : ''}`;
   $('abButtons').innerHTML = ''; $('abButtons').dataset.v = '';
   $('actionBar').hidden = false;
@@ -364,7 +380,7 @@ document.addEventListener('mouseover', e => {
   const t = e.target.closest('[data-iid]');
   const c = t && cardData.get(+t.dataset.iid);
   if (!c) { pv.hidden = true; return; }
-  pv.innerHTML = `<div class="imgs">${c.img ? `<img class="big" src="${esc(c.img)}" alt="">` : ''}</div>
+  pv.innerHTML = `<div class="imgs">${c.img ? `<img decoding="async" class="big" src="${esc(c.img)}" alt="">` : ''}</div>
     <div class="ptext"><h3><span>${esc(c.name)}</span><span>${symbolize(c.cost || '')}</span></h3><div class="ptype">${esc(c.type || '')}${c.pt ? ` · ${esc(c.pt)}` : ''}</div><div class="oracle">${symbolize(c.text || '')}</div></div>`;
   pv.hidden = false;
   const r = pv.getBoundingClientRect();
@@ -374,6 +390,9 @@ document.addEventListener('mouseover', e => {
   pv.style.top = `${Math.max(8, Math.min(e.clientY - r.height / 2, innerHeight - r.height - 8))}px`;
 });
 
+// (1.55.0) a card picture that fails to load shows the card's face in words
+installImageFallback(host => { const c = host && cardData.get(+(host.dataset.iid || 0)); return c ? { name: c.name, manaCost: c.cost, typeLine: c.type, pt: c.pt, colors: [] } : null; });
+
 // ---------- polling the host
 async function poll() {
   try {
@@ -382,7 +401,8 @@ async function poll() {
     if (!r.ok) throw new Error(data.error || r.status);
     $('connLabel').textContent = '● connected';
     $('connLabel').style.color = 'var(--good)';
-    if (data.state) snap = data.state;
+    // (Phase 2J) A view older than the one on screen is dropped: views carry a revision number that only goes up
+    if (data.state && !(data.state.rev && lastRev && data.state.rev < lastRev)) { snap = data.state; lastRev = data.state.rev || 0; }
     undoReply(data.undoReply);
     if (!data.question || data.question.id !== question?.id) seenAt = 0;
     question = data.question;
@@ -395,3 +415,5 @@ async function poll() {
 }
 poll();
 setInterval(() => { if (question && question.id !== answered) renderQuestion(); }, 1000);
+
+startModals();
