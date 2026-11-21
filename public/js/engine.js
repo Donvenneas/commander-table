@@ -64,7 +64,15 @@ export const COLORS = ['W', 'U', 'B', 'R', 'G'];
 // is …" amounts (whereX24, mana.js dynValue 'r24'), "target player draws N and loses N life" (drawLose), a person
 // picking what a copy spell copies (copyToken tr24) and choosing no target for "up to one target"; replays at 4–23
 // play as before)
-export const RULES = 24;
+// (rules 25, Phase 2D: reusable mechanics from the Phase 2C audit. An unread condition is not met anywhere (before, it
+// was met outside resolution); conditions on what the ability did ("this way"), on the object as it last existed, on
+// the costs paid and on how a spell was cast; intervening-if conditions checked when the ability triggers (603.4);
+// target words on graveyard and stack targets; spend restrictions on mana; permissions to play from other zones.
+// Replays at 4-24 play as before)
+// (rules 26, Phase 2E: repairs of the Phase 2C defects. "Activate only once each turn" is enforced; Gilded Drake
+// exchanges control; punishers let the opponent choose; Chandra's Ignition targets; and the further repairs listed in
+// audit/phase-2e. Replays at 4-25 play as before)
+export const RULES = 26;
 
 export class Abort extends Error { constructor() { super('aborted'); this.name = 'Abort'; } }
 
@@ -117,6 +125,9 @@ export class Game {
     /** @type {Set<any> | undefined} (rules 16: attackers and blockers with first or double strike as the first combat damage step began: combat.js) */ this.firstStruck = undefined;
     /** @type {any[]} (what the loop watcher found and decided, one entry per loop: triggers.loopWatch) */ this.loopLog = [];
     /** @type {any[] | undefined} */ this.endSac = undefined;
+    /** @type {any[] | undefined} (Phase 2D-5: cards exiled "until the next end step" back to their graveyards) */ this.endReturn25 = undefined;
+    /** @type {any[] | undefined} (Phase 2E-4: tokens exiled at end of combat) */ this.endCombat26 = undefined;
+    /** @type {any[] | null | undefined} (Phase 2D-1: zone changes while a spell or ability resolves or its costs are paid) */ this.trail = undefined;
     /** @type {any[] | undefined} */ this.chat = undefined;
     this.explain = false;
     /** a look-ahead copy (lookahead.js) */ this.sim = false;
@@ -276,6 +287,8 @@ export class Game {
   mk(card, p, x = {}) {
     // (rules 8) multi-faced cards use their corrected reading (scryfall.js normalize)
     if (this.rules >= 8 && card.v8) card = card.v8;
+    // (Phase 2E-2, rules 26) a non-legendary card read without its first word taken for its name (scryfall.js)
+    if (this.rules >= 26 && card.v26) card = card.v26;
     /** @type {any} (an object in play: its fields are filled in as it moves between zones) */
     const o = {
       iid: this.nextId++, card, fx: card.fx, owner: p.idx, controller: p.idx, zone: null, tapped: false, sick: false,
@@ -316,7 +329,8 @@ export class Game {
   /** @param {any} p */ teammate(p) { return this.teams ? this.players.find(q => q !== p && q.team === p.team && !q.lost) || null : null; }
   order(from) { const n = this.players.length; return Array.from({ length: n }, (_, k) => this.players[(from + k) % n]); }
   // Mana empties between steps (Leyline Tyrant, Ashling: red mana stays)
-  setPhase(ph) { this.phase = ph; for (const p of this.players) p.pool = (p.pool || []).length && p.battlefield.some(o => o.fx.keepRed) ? p.pool.filter(u => u.colors.length === 1 && u.colors[0] === 'R') : []; this.emit('update'); }
+  // (Phase 2D-2, rules 25: mana added "until end of turn, you don't lose this mana" stays in the pool this turn)
+  setPhase(ph) { this.phase = ph; for (const p of this.players) p.pool = (p.pool || []).length && (p.battlefield.some(o => o.fx.keepRed) || (this.rules >= 25 && p.pool.some(u => u.keepTurn === this.turn))) ? p.pool.filter(u => (this.rules >= 25 && u.keepTurn === this.turn) || (p.battlefield.some(o => o.fx.keepRed) && u.colors.length === 1 && u.colors[0] === 'R')) : []; this.emit('update'); }
 
   // ---------- characteristics
   attachments(o) {
@@ -882,8 +896,12 @@ export class Game {
   damageObj(o, n, src) { return resolve.damageObj(this, o, n, src); }
 
   // ---------- actions the agents take
+  // (Phase 2D-2, rules 25) Crucible of Worlds, Ramunap Excavator: a land card in your graveyard may be played as your
+  // land drop (305.1: it uses one of your land plays)
+  // (Phase 2D-5: or a land card in a graveyard its player "may play this turn")
+  gyLandOk(p, o) { return this.rules >= 25 && o.zone === 'graveyard' && o.fx.type.land && ((o.owner === p.idx && p.battlefield.some(s => s.fx.gyLands)) || (o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn && !o.mayPlay.castOnly)); }
   async playLand(p, o) {
-    if (p.landsPlayed >= this.landDrops(p) ||!(p.hand.includes(o) || (o.zone === 'library' && this.topPlayable(p, o)) || (o.zone === 'exile' && o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn))) return false;
+    if (p.landsPlayed >= this.landDrops(p) ||!(p.hand.includes(o) || (o.zone === 'library' && this.topPlayable(p, o)) || (o.zone === 'exile' && o.mayPlay?.p === p.idx && o.mayPlay.until >= this.turn && !(this.rules >= 25 && o.mayPlay.castOnly)) || this.gyLandOk(p, o))) return false;
     // (a modal double-faced card with a land back is played as that land)
     if (!o.fx.type.land) { if (!this.canPlayBackLand(p, o)) return false; this.useFace(o, o.card.altFace); }
     p.landsPlayed++;
@@ -930,7 +948,7 @@ export class Game {
     // (a foretold or plotted card is cast now)
     if (o.foretold != null && o.zone === 'exile' && mode.alt !== 'foretell' && mode.alt !== 'plot') { o.foretold = null; o.mayPlay = null; }
     // (Kess and friends: their once-a-turn permission is used up)
-    if (o.zone === 'graveyard' && !mode.alt) { const s = this.gyOnceSource(p, o); if (s) { s.gyOnceTurn = this.turn; if (s.fx.gyCastOnce.exile) o.gyOnceExile = true; } }
+    if (o.zone === 'graveyard' && !mode.alt) { const s = this.gyOnceSource(p, o); if (s) { s.gyOnceTurn = this.turn; if (s.fx.gyCastOnce.exile) o.gyOnceExile = true; } else if (this.rules >= 25 && p.gyCast?.turn === this.turn && p.gyCast.n != null) p.gyCast.n--; }
     let { c, extra } = this.costOf(p, o);
     let help = this.helpUnits(p, o);
     // Alternative costs replace the mana cost (and commander tax doesn't apply to flashback from a graveyard)
@@ -1007,6 +1025,20 @@ export class Game {
       }
       if (!spreeEffects.length) return false;
     }
+    // (Phase 2D-8, rules 25) Escalate (702.120): the most useful mode, then each further useful mode while its escalate
+    // cost can be paid on top
+    let escEffects = null;
+    if (this.rules >= 25 && o.fx.escalateCost25 && o.fx.modes && !choice.effects && mode.alt !== 'free') {
+      const ranked = o.fx.modes.modes.map((/** @type {any[]} */ ms) => ({ ms, v: ms.reduce((s, e) => s + p.agent.effectValue(this, p, o, e, true), 0) })).filter((/** @type {any} */ r) => r.v > 0).sort((/** @type {any} */ a, /** @type {any} */ b) => b.v - a.v);
+      if (ranked.length) {
+        escEffects = [...ranked[0].ms];
+        for (const r of ranked.slice(1)) {
+          const more = this.addCost(c, parseCost(o.fx.escalateCost25));
+          if (this.planPayment(p, more, extra, null, choice.avoid, help)) { c = more; escEffects.push(...r.ms); }
+        }
+        if (escEffects.length > ranked[0].ms.length) this.log(`${this.pn(p)} escalates ${this.cn(o)}`, { kind: 'minor', rule: '702.120a' });
+      }
+    }
     let x = 0;
     if (c.x) {
       const maxX = Math.max(0, Math.floor((this.availableMana(p) + help.length - (c.generic + c.pips.length + extra)) / c.x));
@@ -1019,7 +1051,7 @@ export class Game {
     const plan = await this.withPhyrexianChoice(p, o, c, extra + x * c.x, choice.phyLife, help, null, () => this.planPayment(p, c, extra + x * c.x, null, choice.avoid, help));
     if (!plan) return false;
     // (rules 13: the spells read in full since, fx.spell13; older games keep fx.spell)
-    let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : (this.rules >= 13 && o.fx.spell13) || o.fx.spell);
+    let effects = o.fx.type.permanent ? [] : choice.effects || spreeEffects || escEffects || (entwined ? o.fx.modes.modes.flat() : o.fx.modes ? p.agent.chooseModes(this, p, o, o.fx.modes) : (this.rules >= 13 && o.fx.spell13) || o.fx.spell);
     // (rules 13) Cavern of Souls: its colored mana paid for this creature spell of the chosen type, so it can't be
     // countered (mana.js units marks that mana: only such a spell can use it)
     const cavernPaid = this.rules >= 13 && !plan.free && [...(plan.used || [])].some(i => plan.units[i]?.cavern);
@@ -1045,7 +1077,14 @@ export class Game {
       const why = S.targetsBad(this, p, o, effects, targets, !!choice.targets);
       if (why) { if (choice.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '601.2c' }); return false; }
     }
+    // (Phase 2D-1) what was paid, for "if the sacrificed creature was legendary", "if the {1}{B} cost was paid", "if
+    // you cast this spell during your main phase" (triggers.js evalCond 'cost', 'altPaid', 'castMain')
+    const costTrail = [], prevTrail = this.trail;
+    this.trail = costTrail;
+    o.castAlt = mode.alt || null; o.castPhase = this.phase; o.castActive = this.active;
     p.casting = o;   // (Lion's Eye Diamond discards the hand, but not the spell it pays for)
+    // (Phase 2D-3, rules 25: converge, the number of colors of mana spent: mana.js convergeOf)
+    o.convergeN = this.rules >= 25 ? mana.convergeOf(plan) : 0;
     this.commitPayment(p, plan);
     p.casting = null;
     if (o.fx.lifeCost) {
@@ -1054,7 +1093,8 @@ export class Game {
       this.log(`${this.pn(p)} pays ${o.fx.lifeCost} life to cast ${this.cn(o)}`, { kind: 'minor' });
     }
     // Additional costs (601.2f): sacrifice a creature, discard a card… and flashback's own non-mana costs
-    if (o.fx.addCost) await this.payCosts(p, o, o.fx.addCost, o);
+    // (Phase 2D-6, rules 25: Mox Diamond's land is discarded as it enters, a replacement; not as it is cast)
+    if (o.fx.addCost && !(this.rules >= 25 && o.fx.moxDiamond25)) await this.payCosts(p, o, o.fx.addCost, o);
     if (mode.alt === 'flashback' && o.fx.flashbackCosts && !mode.granted) await this.payCosts(p, o, o.fx.flashbackCosts, o);
     if (mode.alt === 'life') await this.payCosts(p, o, { life: o.fx.altLife.n }, o);
     if (mode.alt === 'escape') {
@@ -1087,14 +1127,16 @@ export class Game {
       if (d) this.discard(p, [d], null);
       this.log(`${this.pn(p)} casts ${this.cn(o)} from their graveyard with jump-start${d ? `, discarding ${this.cn(d)}` : ''}`, { kind: 'minor', rule: '702.133a' });
     }
+    this.trail = prevTrail;
+    o.costMoves = costTrail;
     // (how it was cast goes into the cast line below: "casts X with flashback")
     const altText = { flashback: ' with flashback', evoke: ' for its evoke cost', evokePitch: ' for its evoke cost', miracle: ' for its miracle cost', free: ' without paying its mana cost', dash: ' for its dash cost', blitz: ' for its blitz cost', spectacle: ' for its spectacle cost', bestow: ` bestowed on ${auraTarget ? this.cn(auraTarget) : 'a creature'}`, mutate: ` to mutate onto ${o.mutateOnto ? this.cn(o.mutateOnto) : 'a creature'}`, morph: ' face down', madness: ' for its madness cost', cleave: ' with cleave', fuse: ' fused (both halves)', aftermath: ' from their graveyard (aftermath)' }[mode.alt] || '';
     if (o.kicked) this.log(`${this.pn(p)} pays the kicker for ${this.cn(o)}`, { kind: 'minor', rule: '702.33a' });
     if (buyback) this.log(`${this.pn(p)} pays buyback for ${this.cn(o)}`, { kind: 'minor', rule: '702.27a' });
     // Ward (702.21): targeting an opponent's warded permanent costs extra, or the spell is countered
     if (!this.payWard(p, [...targets, auraTarget && { obj: auraTarget }], o)) {
-      const zoneArr0 = p[o.zone];
-      if (Array.isArray(zoneArr0)) zoneArr0.splice(zoneArr0.indexOf(o), 1);
+      const zoneArr0 = (this.rules >= 25 ? this.players[o.owner] : p)[o.zone];
+      if (Array.isArray(zoneArr0) && (this.rules < 25 || zoneArr0.includes(o))) zoneArr0.splice(zoneArr0.indexOf(o), 1);
       o.zone = 'stack';
       this.move(o, 'graveyard');
       return true;
@@ -1106,8 +1148,10 @@ export class Game {
       if (n) this.log(`Commander tax: ${this.cn(o)} costs {${2 * n}} more`, { rule: '903.8', kind: 'minor' });
       p.castCount[o.iid] = n + 1;
     }
-    const zoneArr = p[o.zone];
-    if (Array.isArray(zoneArr)) zoneArr.splice(zoneArr.indexOf(o), 1);
+    // (Phase 2D-5, rules 25: a card cast from another player's zone, such as their exile, leaves its owner's zone; before,
+    // the caster's own zone was searched and, not finding it, lost its last card)
+    const zoneArr = (this.rules >= 25 ? this.players[o.owner] : p)[o.zone];
+    if (Array.isArray(zoneArr) && (this.rules < 25 || zoneArr.includes(o))) zoneArr.splice(zoneArr.indexOf(o), 1);
     o.zone = 'stack';
     // (rules 8) A split card's first half is on the stack alone, with its own mana value (709.3b); fused, both (709.4d)
     if (this.rules >= 8 && o.card.frontHalf && mode.alt !== 'fuse') this.useFace(o, o.card.frontHalf);
@@ -1128,6 +1172,11 @@ export class Game {
     p.castNames.add(o.card.name);
     if (p.castList?.turn !== this.turn) p.castList = { turn: this.turn, list: [] };
     p.castList.list.push(o);
+    // (Phase 2D-1: spells cast this game by name, for Approach of the Second Sun)
+    (p.castCounts ||= {})[o.card.name] = (p.castCounts[o.card.name] || 0) + 1;
+    // (Phase 2D-1: the X paid, for "with mana value X or less" targets chosen later: Thieving Skydiver's kicker,
+    // Kozilek's Command)
+    o.castX = x || 0;
     // Spells cast this turn (Mindbreak Trap counts them)
     if (p.turnSpells?.turn !== this.turn) p.turnSpells = { turn: this.turn, n: 0 };
     p.turnSpells.n++;
@@ -1196,9 +1245,21 @@ export class Game {
     // Bestow: with its target gone it resolves as an enchantment creature spell (702.103e)
     if (o.bestowed && !(auraTarget?.zone === 'battlefield')) { this.unbestow(o); auraTarget = null; }
     if (o.fx.type.permanent) {
+      // (Phase 2D-6, rules 25) Mox Diamond (614.1c, 614.12): as it would enter, its controller may discard a land card; if
+      // they don't, it goes to its owner's graveyard instead and never enters
+      if (this.rules >= 25 && o.fx.moxDiamond25) {
+        const lands = p.hand.filter(c => c.fx.type.land);
+        // (a person picks; the AI discards its least useful land)
+        const [d] = !lands.length ? [] : p.agent.human ? await this.pickCards(p, lands, 1, `${this.cn(o)}: discard a land card to put it onto the battlefield (or it goes to the graveyard)`) : [[...lands].sort((a, b) => p.agent.value(this, a) - p.agent.value(this, b))[0]];
+        if (!d) { this.log(`${this.pn(p)} discards no land: ${this.cn(o)} is put into its owner's graveyard`, { kind: 'minor', rule: '614.12' }); this.move(o, 'graveyard'); await this.sba(); return true; }
+        this.discard(p, [d]);
+        this.log(`${this.pn(p)} discards ${this.cn(d)} as ${this.cn(o)} enters`, { kind: 'minor', rule: '614.1c' });
+      }
       this.move(o, 'battlefield', { tapped: o.fx.entersTapped && !o.fx.type.creature });
       // (rules 6: "enters with X counters" is counters put on it, so Hardened Scales and Doubling Season apply, 614.1c)
       if (o.fx.entersCounters === 'X') o.counters = this.rules >= 6 ? this.moreCounters(o, x) : x;
+      // (Phase 2D-3, rules 25) "enters with X +1/+1 counters, where X is …" with no X paid (Prime Speaker Zegana)
+      if (o.fx.entersCounters === 'X' && o.fx.entersX25 && !x && this.rules >= 25) { const n = Math.max(0, this.dynValue(p, o.fx.entersX25, { src: o })); o.counters += this.moreCounters(o, n); }
       if (o.kicked && o.fx.kickCounters) o.counters += this.moreCounters(o, o.fx.kickCounters);
       // (item 211, rules 17: Chrome Mox takes a colored nonartifact, nonland card; before, the Isochron Scepter choice)
       const imprint = choice.imprint || (o.fx.imprint && (this.rules >= 17 && o.fx.mana?.imprintColors ? p.agent.chooseMoxImprint(this, p, o) : p.agent.chooseImprint(this, p, o)));
@@ -1250,6 +1311,8 @@ export class Game {
         o.reboundGrant = false; this.move(o, 'exile'); (p.rebounds ||= []).push(o); this.log(`${this.cn(o)} is exiled with rebound`, { kind: 'minor', rule: '702.88a' }); }
       // (rules 13) "Exile Teferi's Protection": a spell that exiles itself goes to exile as it finishes resolving
       const selfExile = this.rules >= 13 && effects.some(e => e.k === 'exileSelf') && gone === 'graveyard';
+      // (Phase 2D-1, rules 25) "put ~ into its owner's library seventh from the top" (Approach of the Second Sun)
+      if (o.zone === 'stack' && this.rules >= 25 && o.toLibraryPos && !o.spellCopy) { const n = o.toLibraryPos; o.toLibraryPos = 0; this.move(o, 'library', { fromTop: n }); this.log(`${this.cn(o)} is put into its owner's library ${n === 1 ? 'on top' : `${n}${n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'} from the top`}`, { kind: 'minor' }); }
       if (o.zone === 'stack') { if (o.spellCopy) cease(); else this.move(o, selfExile ? 'exile' : gone); }
     }
     await this.sba();
@@ -1379,7 +1442,11 @@ export class Game {
     }
     if (so.tap) outlet.tapped = true;
     this.log(`${this.pn(p)} sacrifices ${this.cn(victim)} to ${this.cn(outlet)}${esc(why)}`, { kind: 'removal', p: p.idx });
-    this.move(victim, 'graveyard');
+    // (Phase 2D-1: the sacrificed creature as it was, for "if the sacrificed creature's toughness was 4 or greater")
+    const prevTrail = this.trail, costTrail = [];
+    this.trail = costTrail;
+    try { this.move(victim, 'graveyard'); } finally { this.trail = prevTrail; }
+    outlet.costMoves = costTrail;
     await this.beat(0.6);
     if (so.effects.length) await this.stackAbility(p, outlet, so.effects, so.text);
     await this.sba();
@@ -1742,7 +1809,10 @@ export class Game {
     this.log(`${this.pn(p)} ${eq.reconfigured ? 'reconfigures' : 'equips'} ${this.cn(eq)} ${eq.reconfigured ? 'onto' : 'to'} ${this.cn(target)}`, { kind: 'minor' });
   }
 
+  // (Phase 2D-7, rules 25) The Immortal Sun: no player may activate planeswalkers' loyalty abilities
+  loyaltyLocked() { return this.rules >= 25 && this.alive().some(q => q.battlefield.some(s => s.fx.noLoyalty25)); }
   async activatePW(p, pw, ab) {
+    if (this.loyaltyLocked()) { this.log(`${this.cn(pw)}'s loyalty abilities can't be activated`, { kind: 'minor' }); return false; }
     pw.loyalty += ab.cost;
     pw.usedPW = true;
     this.log(`${this.pn(p)} activates ${this.cn(pw)} [${ab.cost > 0 ? '+' : ''}${ab.cost}]`, { kind: 'cast', p: p.idx });
@@ -1799,6 +1869,8 @@ export class Game {
   canActivateRaw(p, o, ab) {
     // (abilities read for a later rules version don't exist in older games)
     if (ab.minRules && this.rules < ab.minRules) return false;
+    // (Phase 2E-2, rules 26) "Activate only once each turn" (602.5b): Beledros Witherbloom, Quirion Ranger, Chainer
+    if (this.rules >= 26 && /activate (?:this ability )?only once each turn/.test(ab.text || '') && o.onceUsed26?.turn === this.turn && o.onceUsed26.keys.includes(ab.text)) return false;
     if (ab.tap && (o.tapped || !this.canTapNow(p, o))) return false;
     // (rules 6) Deathrite Shaman: the card it exiles from a graveyard is a target, so one must be there (602.2b)
     if (this.rules >= 6 && !this.gyTargetOk(ab)) return false;
@@ -2311,6 +2383,8 @@ export class Game {
       const why = S.targetsBad(this, p, o, effs0, pre, !!opts.targets);
       if (why) { if (opts.targets || p.agent.human) this.log(S.reasonText(this, o, why), { kind: 'minor', rule: '602.2b' }); return false; }
     }
+    // (Phase 2E-2, rules 26: the activation is counted for "activate only once each turn" as it is announced, 602.2)
+    if (this.rules >= 26 && /activate (?:this ability )?only once each turn/.test(ab.text || '')) { if (o.onceUsed26?.turn !== this.turn) o.onceUsed26 = { turn: this.turn, keys: [] }; o.onceUsed26.keys.push(ab.text); }
     this.payingFor = { o, ability: true };
     // (rules 12) Phyrexian symbols in an ability's cost (Birthing Pod's {G/P}): the same choice as for spells
     const plan = await this.withPhyrexianChoice(p, o, this.abilityCost(p, o, ab), x * (cost0.x || 0), opts.phyLife, [], ab.tap ? o : null, () => this.planPayment(p, this.abilityCost(p, o, ab), x * (cost0.x || 0), ab.tap ? o : null));
@@ -2952,6 +3026,9 @@ export class Game {
     // Mobilize tokens are sacrificed at the end step
     // (and token copies "exiled at the beginning of the next end step", rules 6: Twinflame, Heat Shimmer)
     for (const o of (this.endSac || []).splice(0)) if (o.zone === 'battlefield') { if (o.endExile) this.move(o, 'exile'); else this.sacrifice(this.players[o.controller], o); }
+    // (Phase 2D-5, rules 25) "At the beginning of the next end step, if any of those cards remain exiled, return them to
+    // their owners' graveyards" (Mnemonic Betrayal)
+    for (const o of (this.endReturn25 || []).splice(0)) if (o.zone === 'exile') { o.mayPlay = null; this.move(o, 'graveyard'); }
     // Cards exiled "until the next end step" come back
     for (const o of this.delayed.splice(0)) {
       if (o.zone !== 'exile') continue;

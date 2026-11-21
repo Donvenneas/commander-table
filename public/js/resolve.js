@@ -6,6 +6,7 @@ import { needsTarget, needsTargetIn, condText } from './effects.js';
 import { shuffle, esc } from './util.js';
 import * as K from './kingdomsPlay.js';
 import * as R from './replacements.js';
+import { wayMatch } from './triggers.js';
 
 /** @param {import('./engine.js').Game} g */
 export function validTarget(g, t, p, src) {
@@ -66,9 +67,21 @@ const SPELL_TYPES = ['creature', 'artifact', 'enchantment', 'instant', 'sorcery'
 /** (item 208, rules 17) Is this spell on the stack a legal target for the counter effect e, and would e do anything
  * to it: every card type its words list (Swan Song: enchantment, instant or sorcery), the mana value limit (Mental
  * Misstep, Disdainful Stroke; X counts, 202.3e) and the color (Red Elemental Blast, Pyroblast).
- * @param {import('./engine.js').Game} g @param {any} e @param {any} item */
-export function counterFits(g, e, item) {
+ * Phase 2D-1: p is the counterspell's controller ("that targets a permanent you control").
+ * @param {import('./engine.js').Game} g @param {any} e @param {any} item @param {any} [p] */
+export function counterFits(g, e, item, p = null) {
+  // (Phase 2D-1, rules 25) "counter target spell or ability that targets a permanent you control" (Not of This World):
+  // a spell or ability that targets none of the counterspell's controller's permanents is not a legal target
+  if (g.rules >= 25 && e.targetsMine && item && p) {
+    const mine = (item.targets || []).some((/** @type {any} */ t) => t?.obj && t.obj.zone === 'battlefield' && t.obj.controller === p.idx && (e.targetsMine === 'permanent' || g.isA(t.obj, e.targetsMine)));
+    if (!mine) return false;
+  }
   if (!item || item.ability) return true;
+  // (Phase 2D-1, rules 25) "with mana value less than or equal to the number of cards in its controller's graveyard"
+  if (g.rules >= 25 && e.mv25) {
+    const mv25 = (item.o.card.cmc || 0) + (item.x || 0) * (parseCost(item.o.card.manaCost).x || 0);
+    if (mv25 > (g.players[item.p?.idx ?? item.o.owner]?.graveyard.length ?? 0)) return false;
+  }
   const o = item.o, t = o.fx.type, w = e.what || 'any';
   if (w.includes('noncreature')) { if (t.creature) return false; } else {
     const listed = SPELL_TYPES.filter(x => w.includes(x));
@@ -124,6 +137,12 @@ export function legalTargets(g, p, e, src) {
     case 'copyToken': return g.rules >= 24 ? { objs: all.filter(o => matchesWhat(o, (g.rules >= 7 && e.what7) || e.what, g) && g.canTarget(p, o)) } : {};
     case 'fight': case 'shrink': case 'minus': case 'goad': return { objs: all.filter(o => o.fx.type.creature && o.controller !== p.idx && g.canTarget(p, o)) };
     case 'tap': return { objs: all.filter(o => matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
+    case 'grantWatch': return { objs: all.filter(o => o.fx.type.creature && g.canTarget(p, o)) };
+    // (Phase 2E-1, rules 26) Chandra's Ignition: a creature you control; Gilded Drake: an opponent's creature; a punisher:
+    // an opponent
+    case 'ignition': return { objs: p.battlefield.filter(o => o.fx.type.creature && g.canTarget(p, o)) };
+    case 'exchange': return { objs: all.filter(o => o.controller !== p.idx && matchesWhat(o, e.what, g) && g.canTarget(p, o)) };
+    case 'offer': return { players: g.opponents(p).map(q => q.idx) };
     case 'regen': return { objs: p.battlefield.filter(o => o.fx.type.creature) };
     case 'damage': {
       const objs = /any|creature/.test(e.to) ? all.filter(o => (o.fx.type.creature || (/any/.test(e.to) && o.fx.type.planeswalker)) && g.canTarget(p, o)) : [];
@@ -155,7 +174,18 @@ export function cantBeCountered(g, item) {
 export function targetFits(g, p, e, o, src) {
   // (item 389: a copy's restrictions are read from rules 24, e.tr24)
   const r = e.tr || (g.rules >= 24 ? e.tr24 : null);
-  if (!r || g.rules < 17) return true;
+  if (r && g.rules >= 17 && !wordsFit(g, p, r, o, src)) return false;
+  // (Phase 2D-1, rules 25) words read since: graveyard targets (Persist's "nonlegendary creature card"), the creature an
+  // Equipment attaches to (Mithril Coat's "legendary creature you control") and mana value limits counted on the board
+  // or from X (Drown in the Loch, Kozilek's Command, Thieving Skydiver)
+  if (e.tr25 && g.rules >= 25 && !wordsFit(g, p, e.tr25, o, src)) return false;
+  return true;
+}
+// (a bound that is counted: the number of cards in the target's controller's graveyard, or the X paid for the source)
+/** @param {import('./engine.js').Game} g @param {any} v @param {any} o @param {any} src */
+const boundOf = (g, v, o, src) => (v && typeof v === 'object' ? (v.dyn === 'ctlGy' ? g.players[o.zone === 'battlefield' ? o.controller : o.owner]?.graveyard.length ?? 0 : v.dyn === 'castX' ? src?.castX || 0 : 0) : v);
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} r @param {any} o @param {any} [src] */
+function wordsFit(g, p, r, o, src) {
   const t = o.fx.type, cols = g.colorsOf(o);
   for (const w of r.not || []) {
     if (w in TR_COLOR ? cols.includes(TR_COLOR[w]) : w === 'token' ? o.token : w in t ? t[w] : o.fx.subtypes.includes(w)) return false;
@@ -164,7 +194,7 @@ export function targetFits(g, p, e, o, src) {
   if (r.multi && cols.length < 2) return false;
   if (r.mono && cols.length !== 1) return false;
   if (r.colorless && cols.length) return false;
-  const between = (/** @type {number} */ v, /** @type {any} */ lim) => !lim || ((lim.min == null || v >= lim.min) && (lim.max == null || v <= lim.max));
+  const between = (/** @type {number} */ v, /** @type {any} */ lim) => !lim || ((lim.min == null || v >= boundOf(g, lim.min, o, src)) && (lim.max == null || v <= boundOf(g, lim.max, o, src)));
   if (!between(o.card.cmc || 0, r.mv)) return false;
   if ((r.power || r.tough) && !t.creature) return false;
   if (!between(g.power(o), r.power) || !between(g.toughness(o), r.tough)) return false;
@@ -192,12 +222,36 @@ export function targetLegal(g, p, e, t, src) {
   g.targetSrc = src;
   try { const l = legalTargets(g, p, e, src); return !l.objs || l.objs.includes(t.obj); } finally { g.targetSrc = prev; }
 }
+// (Phase 2E-2, rules 26) Can a search find this card: its card types (e.types) and its other words (e.subs26: "a Dragon
+// card", "a legendary card", "an Aura or Equipment card")?
+/** @param {import('./engine.js').Game} g @param {any} e @param {any} o */
+export function tutorFits(g, e, o) {
+  if (e.types?.length && !e.types.some((/** @type {string} */ t) => o.fx.type[t])) return false;
+  if (g.rules < 26 || !e.subs26) return true;
+  const COL = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
+  /** @param {string} w @returns {boolean} */
+  const has = w => {
+    if (/^non-?/.test(w)) return !has(w.replace(/^non-?/, ''));
+    if (w in COL) return (o.card.colors || []).includes(COL[w]);
+    if (w === 'colorless') return !(o.card.colors || []).length;
+    if (w === 'multicolored') return (o.card.colors || []).length > 1;
+    if (w === 'legendary') return !!o.fx.type.legendary;
+    if (w === 'basic') return !!o.fx.type.basic;
+    return o.fx.subtypes.includes(w) || o.fx.subtypes.includes(w.replace(/s$/, '')) || (!!o.fx.kw?.has?.('changeling') && !!o.fx.type.creature);
+  };
+  return e.subs26.some((/** @type {string[]} */ alt) => alt.every(has));
+}
 // (who controls the effect resolving now: life they make others lose counts as eliminating them, for Kingdoms)
 /** @param {import('./engine.js').Game} g */
 export async function runEffects(g, p, src, effects, ctx = {}) {
   const prev = g.effectP;
   g.effectP = p?.idx ?? null;
-  try { return await g.runEffects0(p, src, effects, ctx); } finally { g.effectP = prev; }
+  // (Phase 2D-1) The zone changes this spell or ability makes are kept while it resolves (ctx.trail, zones.js move), for
+  // "if … this way"; an "if" branch or a nested run adds to the same list
+  const prevTrail = g.trail;
+  if (!ctx.trail) ctx = { ...ctx, trail: [] };
+  g.trail = ctx.trail;
+  try { return await g.runEffects0(p, src, effects, ctx); } finally { g.effectP = prev; g.trail = prevTrail; }
 }
 /** @param {import('./engine.js').Game} g */
 export async function runEffects0(g, p, src, effects, ctx = {}) {
@@ -288,8 +342,11 @@ export async function doEffect(g, p, src, e, ctx, i) {
           g.log(`${g.pn(q)} mills ${k} card${k === 1 ? '' : 's'}${q.library.length ? '' : ', emptying their library'} (${S}, repeating while the pair shares a color)`, { kind: k >= 20 ? 'removal' : 'minor', rule: '701.13a' });
           continue;
         }
-        for (let j = 0; j < k; j++) g.move(q.library[q.library.length - 1], e.exile ? 'exile' : 'graveyard');
+        const milled = [];
+        for (let j = 0; j < k; j++) { const c = q.library[q.library.length - 1]; g.move(c, e.exile ? 'exile' : 'graveyard'); milled.push(c); }
         g.log(`${g.pn(q)} mills ${k} card${k === 1 ? '' : 's'}${q.library.length ? '' : ', emptying their library'} (${S})`, { kind: k >= 20 ? 'removal' : 'minor', rule: '701.13a' });
+        // (Phase 2D-5, rules 25) "Mill a card. You may play that card this turn" (Tablet of Discovery)
+        if (e.play25 && g.rules >= 25) for (const c of milled) if (c.zone === 'graveyard' || c.zone === 'exile') { c.mayPlay = { p: p.idx, until: g.turn }; g.log(`${g.pn(p)} may play ${g.cn(c)} this turn`, { kind: 'minor' }); }
       }
       break;
     }
@@ -358,7 +415,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // (item 208, rules 17) A spell the counterspell's words don't fit isn't a legal target (608.2b), and
       // "unless its controller pays {N}": that player is asked and, paying, keeps the spell (118.12)
       if (g.rules >= 17 && tgt?.spell && !tgt.spell.ability) {
-        if (!counterFits(g, e, tgt.spell)) { g.log(`${S}: ${g.cn(tgt.spell.o)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); break; }
+        if (!counterFits(g, e, tgt.spell, p)) { g.log(`${S}: ${g.cn(tgt.spell.o)} is not a legal target`, { kind: 'minor', rule: '608.2b' }); break; }
         const payer = tgt.spell.p, cost = { generic: e.unless || 0, pips: [], x: 0 };
         if (e.unless && payer && !payer.lost) {
           const pays = g.planPayment(payer, cost) && (await (payer.agent.payUnlessAsync ? payer.agent.payUnlessAsync(g, payer, src, e, tgt.spell) : payer.agent.payUnless(g, payer, src, e, tgt.spell)));
@@ -373,6 +430,14 @@ export async function doEffect(g, p, src, e, ctx, i) {
       }
       if (tgt?.spell) {
         tgt.spell.countered = true;
+        // (Phase 2E-3, rules 26) Delay: exiled with time counters and suspended (its owner casts it when the last comes off,
+        // 702.62); Render Silent: the spell's controller can't cast spells this turn
+        if (g.rules >= 26 && e.suspend26 && !tgt.spell.ability && !tgt.spell.o.spellCopy) {
+          const so = tgt.spell.o, owner = g.players[so.owner];
+          tgt.spell.toExile = true; so.timeCounters = e.suspend26; (owner.suspended ||= []).push(so);
+          g.log(`${g.cn(so)} is exiled with ${e.suspend26} time counters and suspended (${S})`, { kind: 'minor', rule: '702.62a' });
+        }
+        if (g.rules >= 26 && e.silenceCtl26 && tgt.spell.p) { g.silenced[tgt.spell.p.idx] = g.turn; g.log(`${g.pn(tgt.spell.p)} can't cast spells this turn (${S})`, { kind: 'removal' }); }
         if (!tgt.spell.ability) g.noteWinStopped(tgt.spell.p, tgt.spell.o, 'countered');
         // (Baral: "whenever a spell or ability you control counters a spell")
         if (!tgt.spell.ability) g.fire('countered', { p: p.idx, o: tgt.spell.o });
@@ -387,10 +452,14 @@ export async function doEffect(g, p, src, e, ctx, i) {
     case 'copySpell': {
       if (!tgt?.spell) break;
       const orig = tgt.spell;
+      // (Phase 2D-8, rules 25) Twinning Staff: "copy it that many times plus an additional time"
+      const extraCopies = g.rules >= 25 ? p.battlefield.filter(s => s.fx.copyPlus).length : 0;
+      for (let k = 0; k < extraCopies; k++) { g.log(`${g.pn(p)} copies ${g.cn(orig.o)} an additional time`, { kind: 'cast', p: p.idx, rule: '707.10' }); await g.runEffects(p, orig.o, orig.o.fx.spell.filter(x => x.k !== 'copySpell'), { x: orig.x, copy: true }); }
       g.log(`${g.pn(p)} copies ${g.cn(orig.o)}`, { kind: 'cast', p: p.idx, rule: '707.10' });
       await g.beat(0.8);
       const copyEffects = orig.o.fx.spell.filter(x => x.k !== 'copySpell');
-      await g.runEffects(p, orig.o, copyEffects, { x: orig.x });
+      // (Phase 2D-3, rules 25: a copy wasn't cast, so no mana was spent on it: converge counts 0, 707.10)
+      await g.runEffects(p, orig.o, copyEffects, { x: orig.x, ...(g.rules >= 25 ? { copy: true } : {}) });
       break;
     }
     case 'steal': {
@@ -413,6 +482,35 @@ export async function doEffect(g, p, src, e, ctx, i) {
         if (src && src !== o && (src.fx.controlAura || e.whileSrc)) Object.assign(o, { stolenBy: src.iid, stolenFrom: from.idx });
       }
       g.log(`${g.pn(p)} gains control of ${g.cn(o)}${e.temp ? ' until end of turn' : ''}`, { kind: 'removal' });
+      break;
+    }
+    // (Phase 2E-1, rules 26) "Exchange control of ~ and up to one target creature an opponent controls" (Gilded Drake,
+    // 701.12): both must still be on the battlefield and under different controllers, or nothing is exchanged
+    case 'exchange': {
+      const o = tgt?.obj;
+      if (!o || o.zone !== 'battlefield' || src.zone !== 'battlefield' || o.controller === src.controller) { g.log(`${S}: no exchange`, { kind: 'minor', rule: '701.12b' }); break; }
+      const a = g.players[src.controller], b = g.players[o.controller];
+      a.battlefield.splice(a.battlefield.indexOf(src), 1); b.battlefield.splice(b.battlefield.indexOf(o), 1);
+      src.controller = b.idx; o.controller = a.idx;
+      b.battlefield.push(src); a.battlefield.push(o);
+      src.sick = true; o.sick = true;
+      b.grudge[a.idx] += 5;
+      ctx.exchanged = true;
+      g.log(`${g.pn(a)} exchanges control of ${S} and ${g.cn(o)} with ${g.pn(b)}`, { kind: 'removal', rule: '701.12a' });
+      break;
+    }
+    case 'sacUnlessExchanged':
+      if (!ctx.exchanged && src.zone === 'battlefield' && src.controller === p.idx) { g.log(`${S}: no exchange was made, so it is sacrificed`, { kind: 'minor' }); g.sacrifice(p, src); }
+      break;
+    // (Phase 2E-1, rules 26) A punisher (Combustible Gearhulk, Palantír of Orthanc): the target opponent chooses whether
+    // the controller draws N cards; if they refuse, the rest happens, aimed at them ("that player")
+    case 'offer': {
+      const q = tgt?.player != null ? g.players[tgt.player] : null;
+      if (!q || q.lost) break;
+      const yes = q.agent.chooseOfferAsync ? await q.agent.chooseOfferAsync(g, q, p, src, e) : q.agent.chooseOffer ? q.agent.chooseOffer(g, q, p, src, e) : true;
+      if (yes) { g.log(`${g.pn(q)} lets ${g.pn(p)} draw ${e.n} (${S})`, { kind: 'minor' }); g.draw(p, X(e.n)); break; }
+      g.log(`${g.pn(q)} refuses: ${g.pn(p)} doesn't draw (${S})`, { kind: 'minor' });
+      await g.runEffects(p, src, e.refuse, { ...ctx, targets: undefined, strict: false, trig: { ...(ctx.trig || {}), target: q.idx } });
       break;
     }
     case 'discard': {
@@ -439,6 +537,20 @@ export async function doEffect(g, p, src, e, ctx, i) {
     case 'copyToken':
       // "A token that's a copy of equipped creature / it" has no target
       if (e.of) tgt = { obj: e.of === '~' ? src : e.of === 'equipped creature' || e.of === 'enchanted creature' ? src.attachedTo : ctx.trig?.o || src };
+      // (Phase 2E-4, rules 26) Delina's "one of those tokens": a copy of the creature chosen for the first one
+      if (g.rules >= 26 && e.sameAs26 && ctx.share26) { if (ctx.share26.copyOf?.zone === 'battlefield') tgt = { obj: ctx.share26.copyOf }; else if (tgt?.obj) ctx.share26.copyOf = tgt.obj; }
+      if (g.rules >= 26 && (e.attacking26 || e.endCombat26) && tgt?.obj?.zone === 'battlefield') {
+        // (a tapped and attacking copy, attacking the same player as the source; exiled at end of combat)
+        const copy = g.createCopy(p, tgt.obj, false);
+        if (e.notLegend) copy.card = { ...copy.card, typeLine: copy.card.typeLine.replace(/^Legendary /, '') };
+        if (e.notLegend && copy.fx.type.legendary) copy.fx = { ...copy.fx, type: { ...copy.fx.type, legendary: false } };
+        copy.tapped = true;
+        if (e.attacking26 && src.attacking != null) Object.assign(copy, { attacking: src.attacking, blockedBy: [], blocked: false });
+        if (e.endCombat26) (g.endCombat26 ||= []).push(copy);
+        g.log(`${g.pn(p)} creates a tapped${copy.attacking != null ? ' and attacking' : ''} token copy of ${g.cn(tgt.obj)} (${S})`, { kind: 'minor', rule: '707.2' });
+        g.trigger(copy, 'etb');
+        break;
+      }
       // (Skyclave Relic: two tapped copies of itself)
       for (let k = 1; k < (e.n || 1) && tgt?.obj?.zone === 'battlefield'; k++) { const c2 = g.createCopy(p, tgt.obj, false); if (e.tapped) c2.tapped = true; if (g.rules >= 6) tokenCopyRiders(g, c2, e); g.trigger(c2, 'etb'); }
       if (tgt?.obj && tgt.obj.zone === 'battlefield') {
@@ -453,7 +565,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     case 'addMana':
       // ("RG": one mana of either color, Orcish Lumberjack)
-      for (const c of e.syms) p.pool.push({ colors: c === '*' ? [...COLORS] : c.split(''), ...(g.rules >= 7 && e.only ? { only: e.only } : {}) });
+      // (Phase 2D-2, rules 25: "until end of turn, you don't lose this mana as steps and phases end": keepTurn)
+      for (const c of e.syms) p.pool.push({ colors: c === '*' ? [...COLORS] : c.split(''), ...(g.rules >= 7 && e.only ? { only: e.only } : {}), ...(g.rules >= 25 && e.keep25 ? { keepTurn: g.turn } : {}) });
       g.log(`${g.pn(p)} adds ${e.syms.map(c => (c === '*' ? '{any}' : `{${c}}`)).join('')}`, { kind: 'minor' });
       break;
     case 'sacSelf':
@@ -486,6 +599,14 @@ export async function doEffect(g, p, src, e, ctx, i) {
     case 'protect': {
       const objs = e.scope === 'one' ? (tgt?.obj ? [tgt.obj] : []) : e.scope === 'self' ? [src] : e.scope === 'tokens' ? p.battlefield.filter(o => o.token && o.fx.type.creature) : p.battlefield.filter(o => !o.fx.type.land);
       // (rules 16) protection is protection (Game.protectedFrom), not hexproof; "the color of your choice" is chosen now
+      // (Phase 2D-7, rules 25) "protection from colorless or from the color of your choice" (Giver of Runes): protection
+      // from the color the AI fears most (or colorless when no color is a threat), not hexproof
+      if (g.rules >= 25 && e.prot25) {
+        const q = [protColorChoice(g, p, objs[0]) || 'colorless'];
+        for (const o of objs) o.tempProt = { turn: g.turn, q: [...(o.tempProt?.turn === g.turn ? o.tempProt.q : []), ...q] };
+        if (objs.length) g.log(`${g.cn(objs[0])} gains protection from ${q.map(protName).join(' and ')} until end of turn`, { kind: 'minor', rule: '702.16' });
+        break;
+      }
       if (g.rules >= 16 && e.prot) {
         const q = e.prot.includes('choice') ? [...e.prot.filter(x => x !== 'choice'), protColorChoice(g, p, objs[0])] : e.prot;
         for (const o of objs) { o.tempProt = { turn: g.turn, q: [...(o.tempProt?.turn === g.turn ? o.tempProt.q : []), ...q] }; if (e.kw16.length) o.tempKw = new Set([...(o.tempKw || []), ...e.kw16]); }
@@ -563,7 +684,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
           if (e.untilLeaves === 'cast') v.mayPlay = { p: p.idx, until: Infinity };
         }
       }
-      else if (g.destroy(v, g.rules >= 9 && !!e.noRegen9)) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
+      else if (g.destroy(v, g.rules >= 9 && (!!e.noRegen9 || (g.rules >= 25 && !!e.noRegen25)))) g.log(`${S} destroys ${tName(tgt)}`, { kind: 'removal' });
       else g.log(`${tName(tgt)} is indestructible`, { rule: '702.12' });
       if (g.rules >= 6) {
         if (e.comp) await compensate(g, q, src, e.comp, pow);
@@ -596,7 +717,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
           'nontoken creatures': t.creature && !o.token, 'nonartifact creatures': t.creature && !t.artifact, "creatures you don't control": t.creature && theirs, 'creatures your opponents control': t.creature && theirs,
           "nonland permanents you don't control": !t.land && theirs, planeswalkers: t.planeswalker, lands: t.land }[e.what];
         if (!hit) continue;
-        if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o, g.rules >= 9 && !!e.noRegen9)) n++;
+        if (e.mode === 'exile') { g.move(o, 'exile'); n++; } else if (g.destroy(o, g.rules >= 9 && (!!e.noRegen9 || (g.rules >= 25 && !!e.noRegen25)))) n++;
       }
       });
       g.log(`${S} ${e.mode === 'exile' ? 'exiles' : 'destroys'} all ${e.what} — ${n} permanent${n === 1 ? '' : 's'} gone`, { kind: 'removal' });
@@ -613,10 +734,15 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // (rules 14) Through the replacement-effect loop: doublers, Chatterfang's Squirrels and the like apply in the order
       // the player chooses (616.1), and the extra tokens are doubled or not depending on it
       if (g.rules >= 14) {
-        const made = await tokens14(g, p, [{ kind: 'creature', n: X(e.n), spec: { ...e, p: X(e.p), t: X(e.t) } }], src);
-        for (const m of made) {
-          if (e.attacking && src.attacking != null) Object.assign(m, { tapped: true, attacking: src.attacking, blockedBy: [], blocked: false });
-          if (e.temp) (g.endSac ||= []).push(m);
+        // (Phase 2D-4, rules 25) "that player creates …" (the player the trigger is about, Rite of the Raging Storm) and
+        // "each player creates …"; "it has … 'At the beginning of the end step, sacrifice this token'" (temp25)
+        const makers = g.rules >= 25 && e.forWho25 === 'each' ? g.alive() : g.rules >= 25 && e.forWho25 === 'that' ? [ctx.trig?.p != null ? g.players[ctx.trig.p] : p].filter(q => q && !q.lost) : [p];
+        for (const q of makers) {
+          const made = await tokens14(g, q, [{ kind: 'creature', n: X(e.n), spec: { ...e, p: X(e.p), t: X(e.t) } }], src);
+          for (const m of made) {
+            if (e.attacking && src.attacking != null) Object.assign(m, { tapped: true, attacking: src.attacking, blockedBy: [], blocked: false });
+            if (e.temp || (e.temp25 && g.rules >= 25)) (g.endSac ||= []).push(m);
+          }
         }
         break;
       }
@@ -641,6 +767,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       // Transmute: a card with the same mana value
       let c = e.sameMv ? (await g.pickCards(p, p.library.filter(x => (x.card.cmc || 0) === (src.card.cmc || 0)), 1, `${S}: choose a card with mana value ${src.card.cmc || 0}`))[0]
         : p.agent.pickTutorAsync ? await p.agent.pickTutorAsync(g, p, e) : p.agent.pickTutor(g, p, e);
+      // (Phase 2E-2, rules 26) only a card the search words allow ("a Dragon card"); otherwise nothing is found (701.19b)
+      if (c && !tutorFits(g, e, c)) { g.log(`${S}: ${g.cn(c)} isn't a card this search can find`, { kind: 'minor' }); c = null; }
       // Aven Mindcensor: only the top four cards can be found
       if (c && g.opponents(p).some(q => q.battlefield.some(s => s.fx.searchTop4)) && !p.library.slice(-4).includes(c)) {
         c = p.agent.pickBest(g, p.library.slice(-4).filter(x => !e.types?.length || e.types.some(t => x.fx.type[t])));
@@ -679,6 +807,8 @@ export async function doEffect(g, p, src, e, ctx, i) {
       else objs = p.battlefield.filter(o => o.fx.type.creature && (e.on.includes('other') ? o !== src : true));
       for (const o of objs) { const k = g.moreCounters(o, n); o.counters += k; g.fire('counterPut', { o, p: o.controller, by: p.idx, n: k }); }
       if (objs.length) g.log(`${S} puts ${n} +1/+1 counter${n === 1 ? '' : 's'} on ${objs.length === 1 ? g.cn(objs[0]) : objs.length + ' creatures'}`, { kind: 'minor' });
+      // (Phase 2D-7, rules 25) "It can't be blocked this turn" (Kappa Cannoneer)
+      if (e.unblock25 && g.rules >= 25) for (const o of objs) { o.tempKw = new Set([...(o.tempKw || []), 'unblockable']); g.log(`${g.cn(o)} can't be blocked this turn`, { kind: 'minor' }); }
       break;
     }
     case 'reanimate': {
@@ -690,12 +820,15 @@ export async function doEffect(g, p, src, e, ctx, i) {
       for (const ys of yards) {
       // (Carmen, Alesha: mana value up to its power)
       const maxMv = e.maxMvPower ? Math.max(0, src.zone === 'battlefield' ? g.power(src) : 0) : e.maxMv;
-      const pool = ys.flatMap(q => q.graveyard).filter(o => types.some(t => o.fx.type[t]) && o !== src && (maxMv == null || (o.card.cmc || 0) <= maxMv));
+      // (Phase 2D-1, rules 25: the target words, such as Persist's "nonlegendary creature card")
+      const pool = ys.flatMap(q => q.graveyard).filter(o => types.some(t => o.fx.type[t]) && o !== src && (maxMv == null || (o.card.cmc || 0) <= maxMv) && (g.rules < 25 || !e.tr25 || targetFits(g, p, e, o, src)));
       const [c] = await g.pickCards(p, pool, 1, `${S}: choose a card to put onto the battlefield`);
       if (c) {
         const theirs = c.owner !== p.idx;
         g.move(c, 'battlefield', { under: p.idx });
         g.log(`${S} puts ${g.cn(c)} onto the battlefield from ${theirs ? `${g.pn(g.players[c.owner])}'s` : 'the'} graveyard`);
+        // (Phase 2D-1, rules 25) "with a -1/-1 counter on it" (Persist): put on as it enters, before its enter abilities
+        if (e.minus25 && g.rules >= 25 && c.zone === 'battlefield') { c.counters -= 1; c.hadMinus = true; }
         g.trigger(c, 'etb');
         // (rules 6) Reanimate: you lose life equal to its mana value
         if (e.loseMv && g.rules >= 6 && c.card.cmc) { p.life -= c.card.cmc; g.emit('life', { p: p.idx, d: -c.card.cmc }); g.log(`${g.pn(p)} loses ${c.card.cmc} life (${S})`, { kind: 'minor' }); }
@@ -704,7 +837,7 @@ export async function doEffect(g, p, src, e, ctx, i) {
       break;
     }
     case 'regrow': {
-      const pool = p.graveyard.filter(o => o !== src && (e.types?.length ? e.types.some(t => o.fx.type[t]) : !o.fx.type.land) && (e.maxMv == null || (o.card.cmc || 0) <= e.maxMv));
+      const pool = p.graveyard.filter(o => o !== src && (e.types?.length ? e.types.some(t => o.fx.type[t]) : !o.fx.type.land) && (e.maxMv == null || (o.card.cmc || 0) <= e.maxMv) && (g.rules < 25 || !e.tr25 || targetFits(g, p, e, o, src)));
       // ("at random": Exalted Flamer of Tzeentch)
       const got = e.random ? (pool.length ? [pool[Math.floor(g.rand() * pool.length)]] : []) : await g.pickCards(p, pool, e.n || 1, `${S}: choose ${e.n > 1 ? `up to ${e.n} cards` : 'a card'} to return to your hand`);
       for (const c of got) g.move(c, e.top ? 'library' : 'hand');
@@ -878,6 +1011,8 @@ export function moreCounters(g, o, n) {
   const putter = g.effectP ?? o.controller;
   if (g.alive().some(q => q.idx !== putter && q.battlefield.some(s => s.fx.counterHalfOpp) && g.opponents(q).some(x => x.idx === putter))) ops.push({ half: true });
   for (const s of g.players[o.controller].battlefield) {
+    // (Phase 2D-6, rules 25) Benevolent Hydra: one more on another creature you control
+    if (g.rules >= 25 && s.fx.counterBonus25 && o.fx.type.creature && (!s.fx.counterBonus25.other || s !== o)) ops.push({ plus: s.fx.counterBonus25.plus });
     if (s.fx.counterBonus === 'plus') ops.push({ plus: 1 });
     else if (s.fx.counterBonus === 'double') ops.push({ mul: 2 });
   }
@@ -944,13 +1079,15 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       // (item 206, rules 17) resolving: coin flips are flipped now, and a condition that can't be read is not met
       let ok = g.evalCond(p, src, e.cond, g.rules >= 17 ? { ...ctx, resolving: true } : ctx);
       // (unread: no reading at all, or a game from before the reading existed)
-      const unread = e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && !(g.rules >= 24 && e.cond.r24);
+      const unread = e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && !(g.rules >= 24 && e.cond.r24) && !(g.rules >= 25 && e.cond.r25);
       // An unreadable condition on an "instead" upgrade keeps the plain version, and never wins the game
       if (unread && (e.else || e.effects.some(x => x.k === 'win'))) ok = false;
       if (unread && g.rules >= 17 && !e.else) g.noteUnread(src, `"if ${e.cond.text}" can't be checked, so that part does nothing`);
       const branch = ok ? e.effects : e.else || [];
       if (!unread && branch.length) g.log(`${S}: ${ok ? '' : 'not '}${esc(condText(e.cond))}`, { kind: 'minor' });
-      await g.runEffects(p, src, branch, { ...ctx, targets: undefined, strict: false });
+      // (Phase 2D-1) "If a creature is destroyed this way, you gain life equal to its toughness": "it" is that creature
+      const way = ok && g.rules >= 25 && e.cond.r25?.c === 'way' && !e.cond.r25.neg ? wayMatch(g, p, e.cond.r25, ctx) : null;
+      await g.runEffects(p, src, branch, { ...ctx, targets: undefined, strict: false, ...(way ? { trig: { ...(ctx.trig || {}), o: way.o } } : {}) });
       break;
     }
     case 'scry': case 'surveil': {
@@ -980,6 +1117,12 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       for (const o of take) g.move(o, e.bf && o.fx.type.permanent ? 'battlefield' : 'hand');
       for (const o of take) if (o.zone === 'battlefield') g.trigger(o, 'etb');
       const rest = seen.filter(o => !take.includes(o));
+      // (Phase 2D-5, rules 25) "… and exile one of them. You may play the exiled card this turn" (Expressive Iteration):
+      // one of the rest is exiled with a permission; the others go where they were going
+      if (e.exileOne25 && g.rules >= 25 && rest.length) {
+        const [x] = await g.pickCards(p, rest, 1, `${S}: choose a card to exile (you may play it this turn)`);
+        if (x) { rest.splice(rest.indexOf(x), 1); p.library.push(x); g.move(x, 'exile'); x.mayPlay = { p: p.idx, until: g.turn }; g.log(`${g.pn(p)} exiles ${g.cn(x)} and may play it this turn (${S})`, { kind: 'minor' }); }
+      }
       if (e.gy) { p.library.push(...rest); for (const o of rest) g.move(o, 'graveyard'); } else p.library.unshift(...rest);
       g.log(`${g.pn(p)} looks at the top ${n} cards and takes ${take.length ? take.map(o => g.cn(o)).join(', ') : 'nothing'} (${S})`, { kind: 'minor' });
       break;
@@ -989,7 +1132,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       for (let k = 0; k < X(e.n) && p.library.length > 1; k++) {
         const o = p.library[p.library.length - 1];
         g.move(o, 'exile');
-        o.mayPlay = { p: p.idx, until: g.turn + (e.next ? g.alive().length : 0), free: !!e.free };
+        o.mayPlay = { p: p.idx, until: g.rules >= 25 && e.forever25 ? Infinity : g.turn + (e.next ? g.alive().length : 0), free: !!e.free };
         got.push(o);
       }
       if (got.length) g.log(`${g.pn(p)} exiles ${got.map(o => g.cn(o)).join(', ')} and may play ${got.length === 1 ? 'it' : 'them'} ${e.next ? 'until their next turn' : 'this turn'}`, { kind: 'minor' });
@@ -1094,7 +1237,19 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       if (o) { o.regen = (o.regen || 0) + 1; g.log(`${g.cn(o)} gets a regeneration shield`, { kind: 'minor', rule: '701.15a' }); }
       break;
     }
-    case 'tap': if (tgt?.obj) { tgt.obj.tapped = true; g.log(`${S} taps ${g.tname(tgt)}`, { kind: 'minor' }); } break;
+    case 'tap': if (tgt?.obj) {
+      tgt.obj.tapped = true; g.log(`${S} taps ${g.tname(tgt)}`, { kind: 'minor' });
+      // (Phase 2D-4, rules 25: "it doesn't untap during its controller's next untap step", kept like exert)
+      if (e.frozen25 && g.rules >= 25) { tgt.obj.exerted = true; g.log(`${g.tname(tgt)} doesn't untap during its controller's next untap step`, { kind: 'minor' }); }
+    } break;
+    // (Phase 2D-4, rules 25) The target gains a triggered ability until end of turn (Hunter's Insight: "whenever that
+    // creature deals combat damage to a player this turn, draw that many cards"); its controller is the spell's
+    case 'grantWatch': if (tgt?.obj?.zone === 'battlefield') {
+      const o = tgt.obj;
+      if (o.tempWatch?.turn !== g.turn) o.tempWatch = { turn: g.turn, list: [] };
+      o.tempWatch.list.push({ ev: e.ev, effects: e.effects, owner: p.idx, playerOnly: e.ev === 'selfCombat' });
+      g.log(`${g.cn(o)} gains a triggered ability until end of turn (${S})`, { kind: 'minor' });
+    } break;
     case 'tapAll': {
       let n = 0;
       for (const q of g.opponents(p)) for (const o of q.battlefield) if (g.isA(o, e.what.replace(/s$/, '').replace('nonland permanent', 'nonland'))) { o.tapped = true; n++; }
@@ -1104,7 +1259,10 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
     case 'drawEach': for (const q of g.alive()) g.draw(q, X(e.n)); break;
     // (item 389, rules 24) Sign in Blood, Damnable Pact, Stormfist Crusader: the player draws, then loses the life
     case 'drawLose': {
-      const who = /^each/.test(e.who) ? g.alive().filter(q => e.who === 'each player' || q !== p) : tgt?.player != null ? [g.players[tgt.player]] : [];
+      // (Phase 2D-1, rules 25) "an opponent draws": an opponent its controller chooses, not a target (the one with the
+      // fewest cards in hand, then the next in turn order: the same choice every time)
+      const pickOpp = () => [...g.opponents(p)].sort((a, b) => a.hand.length - b.hand.length || ((a.idx - p.idx + g.players.length) % g.players.length) - ((b.idx - p.idx + g.players.length) % g.players.length))[0];
+      const who = e.who === 'an opponent' ? [pickOpp()].filter(Boolean) : /^each/.test(e.who) ? g.alive().filter(q => e.who === 'each player' || q !== p) : tgt?.player != null ? [g.players[tgt.player]] : [];
       const n = X(e.n), life = e.life === 'X' ? n : X(e.life);
       for (const q of who) {
         if (!q || q.lost) continue;
@@ -1146,7 +1304,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       // and the mana is for creature spells only
       const r7 = g.rules >= 7 && e.exiledMv;
       const n = r7 ? p.lastExiledMv || 0 : Math.min(X(e.n), 30);
-      for (let k = 0; k < n; k++) p.pool.push({ colors: e.color ? [e.color] : [...COLORS], ...(r7 && e.only ? { only: e.only } : {}) });
+      for (let k = 0; k < n; k++) p.pool.push({ colors: e.color ? [e.color] : [...COLORS], ...(r7 && e.only ? { only: e.only } : {}), ...(g.rules >= 25 && e.keep25 ? { keepTurn: g.turn } : {}) });
       if (n) g.log(`${g.pn(p)} adds ${n} mana (${S})`, { kind: 'minor' });
       break;
     }
@@ -1195,6 +1353,20 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
         g.log(`${g.pn(p)} pays ${esc(e.cost)} (${S})`, { kind: 'minor' });
         await g.runEffects(p, src, e.effects, { ...ctx, targets: undefined, strict: false });
       }
+      break;
+    }
+    // (Phase 2D-3, rules 25) "You may discard a card / sacrifice a creature / pay {E}{E}{E}. When you do, …": the cost is
+    // paid only if it can be paid in full (118.3), then the rest happens. The AI pays when what follows is worth more
+    // than what it gives up; a person is asked. ("When you do" is a reflexive trigger, 603.12: it is resolved here at
+    // once, with no chance to respond between paying and its effect.)
+    case 'mayCost': {
+      if (!g.canPayCosts(p, src, e.cost)) break;
+      const gain = e.effects.reduce((s, x) => s + p.agent.effectValue(g, p, src, x, false), 0);
+      const yes = p.agent.confirmPayAsync ? await p.agent.confirmPayAsync(g, p, src, e.text, 'do the rest') : gain > p.agent.costWorth(g, p, src, e.cost);
+      if (!yes) { g.log(`${g.pn(p)} doesn't ${esc(e.text)} (${S})`, { kind: 'minor' }); break; }
+      await g.payCosts(p, src, e.cost);
+      g.log(`${g.pn(p)} chooses to ${esc(e.text)} (${S})`, { kind: 'minor' });
+      await g.runEffects(p, src, e.effects, { ...ctx, targets: undefined, strict: false });
       break;
     }
     case 'modal': {
@@ -1307,6 +1479,51 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       g.log(`🏆 ${S}: ${g.pn(p)} wins the game`, { kind: 'win', rule: '104.2b' });
       for (const q of g.opponents(p)) g.lose(q, `${src.card.name}`, '104.3');
       break;
+    // (Phase 2D-1, rules 25) the spell goes into its owner's library this far from the top as it finishes resolving
+    case 'libraryPos': if (src.zone === 'stack') src.toLibraryPos = e.n; break;
+    // (Phase 2E-4, rules 26) "You may roll again" (Delina): the AI always does
+    case 'rollAgain26': if (ctx.share26) ctx.share26.again = true; break;
+    // (Phase 2E-5, rules 26) "For each permanent put into a graveyard this way, its controller creates …" (Terastodon):
+    // a token for the player who controlled each permanent this ability destroyed (ctx.trail, the object as it was)
+    case 'tokenPerWay26': {
+      for (const m of (ctx.trail || []).filter((/** @type {any} */ x) => x.from === 'battlefield' && x.to === 'graveyard')) {
+        const q = g.players[m.ctl];
+        if (!q || q.lost) continue;
+        if (g.rules >= 14) await tokens14(g, q, [{ kind: 'creature', n: 1, spec: { k: 'token', n: 1, p: e.p, t: e.t, desc: e.desc, kw: [] } }], src);
+        else g.createToken(q, { p: e.p, t: e.t, desc: e.desc, kw: [] }, src);
+        g.log(`${g.pn(q)} creates a ${e.p}/${e.t} ${e.desc} token (${S})`, { kind: 'minor' });
+      }
+      break;
+    }
+    // (Phase 2E-4, rules 26) Not Dead After All: the target gains "when this creature dies, return it …" this turn
+    case 'grantDies26': if (tgt?.obj?.zone === 'battlefield') { tgt.obj.tempDies26 = { turn: g.turn, tapped: !!e.tapped, counters: e.counters || 0 }; g.log(`${g.cn(tgt.obj)} gains "when this dies, return it to the battlefield" until end of turn (${S})`, { kind: 'minor' }); } break;
+    // (Phase 2D-8, rules 25) Hideaway (702.75): look at the top N, exile one face down (its owner may look at it), put the
+    // rest on the bottom in a random order; the card is linked to this permanent (src.hidden25)
+    case 'hideaway': {
+      const n = Math.min(e.n, p.library.length);
+      if (!n) break;
+      const seen = p.library.slice(-n).reverse();
+      const [h] = await g.pickCards(p, seen, 1, `${S}: choose a card to exile face down (hideaway)`);
+      if (h) { g.move(h, 'exile'); h.hiddenExile = true; src.hidden25 = h.iid; }
+      const rest = seen.filter(c => c !== h && c.zone === 'library');
+      for (const c of rest) p.library.splice(p.library.indexOf(c), 1);
+      for (let k = rest.length - 1; k > 0; k--) { const j = Math.floor(g.rand() * (k + 1)); [rest[k], rest[j]] = [rest[j], rest[k]]; }
+      p.library.unshift(...rest);
+      g.log(`${g.pn(p)} exiles a card face down with ${S} and puts ${rest.length} on the bottom`, { kind: 'minor', rule: '702.75a' });
+      break;
+    }
+    // (Phase 2D-8, rules 25) "You may play the exiled card without paying its mana cost if …": the hidden card, if the
+    // condition holds now; a land uses a land play (305.2)
+    case 'playHidden': {
+      const h = src.hidden25 != null ? g.objects.get(src.hidden25) : null;
+      if (!h || h.zone !== 'exile') { g.log(`${S}: no hidden card`, { kind: 'minor' }); break; }
+      if (!g.evalCond(p, src, e.cond, { ...ctx, resolving: true })) { g.log(`${S}: the condition is not met (${esc(condText(e.cond))})`, { kind: 'minor' }); break; }
+      h.hiddenExile = false; src.hidden25 = null;
+      h.mayPlay = { p: p.idx, until: g.turn, free: true };
+      if (h.fx.type.land) { if (p.landsPlayed < g.landDrops(p)) await g.playLand(p, h); else g.log(`${g.pn(p)} has no land play left for ${g.cn(h)}`, { kind: 'minor' }); }
+      else await g.cast(p, h, { mode: { alt: 'free' } });
+      break;
+    }
     case 'exileSelf':
       if (src.zone === 'battlefield') { g.move(src, 'exile'); g.log(`${S} is exiled`, { kind: 'minor' }); }
       break;
@@ -1430,7 +1647,9 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'attachSelf': {
-      const o = ctx.made?.zone === 'battlefield' ? ctx.made : p.agent.bestOwn(g, p, x => x.fx.type.creature && x !== src);
+      // (Phase 2D-1, rules 25) "attach it to target legendary creature you control" (Mithril Coat, Mjölnir): only a creature
+      // the words allow; with none, the Equipment stays unattached
+      const o = ctx.made?.zone === 'battlefield' ? ctx.made : p.agent.bestOwn(g, p, x => x.fx.type.creature && x !== src && (g.rules < 25 || !e.tr25 || (targetFits(g, p, e, x, src) && g.canTarget(p, x, src))));
       if (o && src.zone === 'battlefield') { src.attachedTo = o; g.log(`${S} is attached to ${g.cn(o)}`, { kind: 'minor' }); }
       break;
     }
@@ -1499,7 +1718,12 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
     case 'exileGy': {
       if (e.all) {
         let n = 0;
-        for (const q of g.opponents(p)) for (const o of [...q.graveyard]) { g.move(o, 'exile'); n++; }
+        const gone = [];
+        for (const q of g.opponents(p)) for (const o of [...q.graveyard]) { g.move(o, 'exile'); n++; gone.push(o); }
+        // (Phase 2D-5, rules 25) "You may cast spells from among those cards this turn … At the beginning of the next end
+        // step, if any of those cards remain exiled, return them to their owners' graveyards" (Mnemonic Betrayal)
+        if (g.rules >= 25 && e.castFrom25) for (const o of gone) if (o.zone === 'exile') o.mayPlay = { p: p.idx, until: g.turn, castOnly: true, ...(g.rules >= 26 && e.anyMana26 ? { anyMana: true } : {}) };
+        if (g.rules >= 25 && e.returnEnd25) (g.endReturn25 ||= []).push(...gone);
         g.log(`${S} exiles ${n} card${n === 1 ? '' : 's'} from the opponents' graveyards`, { kind: 'removal' });
       } else {
         const c = p.agent.pickBest(g, g.opponents(p).flatMap(q => q.graveyard));
@@ -1533,6 +1757,8 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
     case 'returnSelf':
       if (src.zone === 'graveyard') {
         g.move(src, 'battlefield', { under: src.owner });
+        // (Phase 2E-4, rules 26: "return it to the battlefield tapped")
+        if (e.tapped26 && g.rules >= 26) src.tapped = true;
         src.counters += e.counters;
         if (e.counters < 0) src.hadMinus = true;
         g.log(`${S} returns to the battlefield with a ${e.counters > 0 ? '+1/+1' : '-1/-1'} counter`, { kind: 'minor', rule: e.counters > 0 ? '702.93a' : '702.79a' });
@@ -1567,7 +1793,8 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'ignition': {
-      const mine = g.bestOwnCreature(p);
+      // (Phase 2E-1, rules 26: the creature the caster targeted; before, the engine picked one)
+      const mine = g.rules >= 26 ? (tgt?.obj?.zone === 'battlefield' && tgt.obj.controller === p.idx ? tgt.obj : null) : g.bestOwnCreature(p);
       if (!mine) break;
       const n = Math.max(0, g.power(mine));
       for (const q of g.alive()) for (const o of [...q.battlefield]) if (o.fx.type.creature && o !== mine) g.damageObj(o, n, mine);
@@ -1575,7 +1802,13 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       g.log(`${g.cn(mine)} deals ${n} damage to each other creature and each opponent (${S})`, { kind: 'removal' });
       break;
     }
-    case 'exileTrigCard': { const o = ctx.trig?.o; if (o?.zone === 'graveyard') g.move(o, 'exile'); break; }
+    case 'exileTrigCard': {
+      const o = ctx.trig?.o;
+      if (o?.zone === 'graveyard') g.move(o, 'exile');
+      // (Phase 2D-5, rules 25) "If you do, you may play that card this turn" (Containment Construct)
+      if (e.play25 && g.rules >= 25 && o?.zone === 'exile') { o.mayPlay = { p: p.idx, until: g.turn }; g.log(`${g.pn(p)} may play ${g.cn(o)} this turn (${S})`, { kind: 'minor' }); }
+      break;
+    }
     case 'peek': g.log(`${g.pn(p)} looks at an opponent's hand (${S})`, { kind: 'minor' }); break;
     case 'copyAllTokens': {
       const toks = p.battlefield.filter(o => o.token);
@@ -1638,7 +1871,7 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
         if (e.mode === 'bounce') g.move(o, 'hand');
         else if (e.mode === 'damage') g.damageObj(o, X(e.n), src);
         else if (e.mode === 'exile') g.move(o, 'exile');
-        else g.destroy(o, g.rules >= 9 && !!e.noRegen9);
+        else g.destroy(o, g.rules >= 9 && (!!e.noRegen9 || (g.rules >= 25 && !!e.noRegen25)));
       }
       g.log(`${S} (overloaded) hits ${objs.length} of the opponents' ${e.what || 'creature'}s`, { kind: 'removal', rule: '702.96a' });
       break;
@@ -1745,10 +1978,19 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
       break;
     }
     case 'roll': {
-      const r = 1 + Math.floor(g.rand() * e.d);
-      const row = (e.table || []).find(x => r >= x.lo && r <= x.hi);
-      g.log(`${g.pn(p)} rolls a d${e.d}: ${r} (${S})`, { kind: 'minor', rule: '706.2' });
-      if (row) await g.runEffects(p, src, row.effects, { ...ctx, targets: undefined, strict: false, x: r });
+      // (Phase 2E-4, rules 26: "you may roll again" rolls again, up to 20 times; ctx.share26 carries "that creature"
+      // between the rows)
+      if (g.rules >= 26) ctx.share26 ||= {};
+      for (let again = 0; again < 20; again++) {
+        const r = 1 + Math.floor(g.rand() * e.d);
+        // (Phase 2D-3: "where X is the result" later in the same ability)
+        ctx.roll = r;
+        const row = (e.table || []).find(x => r >= x.lo && r <= x.hi);
+        g.log(`${g.pn(p)} rolls a d${e.d}: ${r} (${S})`, { kind: 'minor', rule: '706.2' });
+        if (row) await g.runEffects(p, src, row.effects, { ...ctx, targets: undefined, strict: false, x: r });
+        if (!(g.rules >= 26 && ctx.share26?.again)) break;
+        ctx.share26.again = false;
+      }
       break;
     }
     case 'flashTurn': p.flashNow = true; g.log(`${g.pn(p)} may cast spells as though they had flash this turn`, { kind: 'minor' }); break;
@@ -1908,7 +2150,23 @@ export async function doEffectMore(g, p, src, e, ctx, tgt, X) {
         if (n > 0) { q.life -= n; q.grudge[p.idx] += n; g.emit('life', { p: q.idx, d: -n }); g.log(`${S}: ${g.pn(q)} loses ${n} more life`); }
       }
       break;
-    case 'gyCastTurn': p.gyCast =
+    case 'gyCastTurn':
+      // (Phase 2D-2, rules 25) one chosen card ("target … card", Emry, Zul Ashur) or a number of spells of the kinds named
+      // ("a creature spell", Chainer); the cast uses the permission up (engine.js cast)
+      if (g.rules >= 25 && e.types25) {
+        const fits = (/** @type {any} */ o) => !o.fx.type.land && (!e.types25.length || e.types25.some((/** @type {string} */ t) => o.fx.type[t])) && e.subs25.every((/** @type {string} */ s) => o.fx.subtypes.includes(s));
+        if (e.one25) {
+          const [c] = await g.pickCards(p, p.graveyard.filter(fits), 1, `${S}: choose a card you may cast from your graveyard this turn`);
+          if (!c) { g.log(`${S}: no card to choose`, { kind: 'minor' }); break; }
+          p.gyCast = { turn: g.turn, types: e.types25, subs: e.subs25, objs: [c.iid], n: 1 };
+          g.log(`${g.pn(p)} may cast ${g.cn(c)} from their graveyard this turn`, { kind: 'minor' });
+        } else {
+          p.gyCast = { turn: g.turn, types: e.types25, subs: e.subs25, n: e.n25 ?? null };
+          g.log(`${g.pn(p)} may cast ${e.n25 === 1 ? 'one ' : ''}${[...e.subs25, ...e.types25].join(' ') || ''} spell${e.n25 === 1 ? '' : 's'} from their graveyard this turn`, { kind: 'minor' });
+        }
+        break;
+      }
+      p.gyCast =
  { turn: g.turn, types: e.types }; g.log(`${g.pn(p)} may cast ${e.types.join('/') || ''} spells from their graveyard this turn`.replace('cast  spells', 'cast spells'), { kind: 'minor' }); break;
     case 'stealAll': {
       const q = g.thatPlayer(p, ctx);
@@ -2003,6 +2261,8 @@ export function damagePlayer(g, q, n, src, combat) {
   else { q.life -= n; g.emit('life', { p: q.idx, d: -n }); }
   if (combat && src.fx.kwN?.toxic) { q.poison += src.fx.kwN.toxic; g.log(`${g.pn(q)} gets ${src.fx.kwN.toxic} poison (toxic, ${q.poison}/10)`, { kind: 'damage', rule: '702.164b' }); }
   q.damagedTurn = g.turn;
+  // (Phase 2D-8: damage dealt to the player this turn, for Spinerock Knoll's "an opponent was dealt 7 or more damage")
+  if (n > 0) { if (q.damageTurn25?.turn !== g.turn) q.damageTurn25 = { turn: g.turn, n: 0 }; q.damageTurn25.n += n; }
   const sp = g.players[src.controller];
   sp.stats.damage += n;
   q.stats.taken = (q.stats.taken || 0) + n;

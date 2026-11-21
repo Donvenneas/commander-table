@@ -4,7 +4,7 @@
 // combo can win, bait out counterspells, fight counter wars, break opponents' combos, and
 // spend mana they held up on instants at the end of other players' turns.
 import { parseCost } from './engine.js';
-import { spellFits, counterFits, targetFits, matchesWhat, withKinds, cantBeCountered } from './resolve.js';
+import { spellFits, counterFits, targetFits, matchesWhat, withKinds, cantBeCountered, tutorFits } from './resolve.js';
 import { combosIn, comboState, comboBlocked, comboPlay } from './combos.js';
 import { esc } from './util.js';
 import { bestAttacks, bestBlocks } from './combatai.js';
@@ -277,7 +277,7 @@ export class Agent {
   }
   // Tutors finish our own combos first, then look for an answer to an opponent's combo
   pickTutor(g, p, e = {}) {
-    const okType = o => !e.types?.length || e.types.some(t => o.fx.type[t]);
+    const okType = o => tutorFits(g, e, o);
     const lib = p.library.filter(okType);
     if (!lib.length) return null;
     // (finishing an unbounded-mana combo: the finisher it was cast to find; engine.manaFinish)
@@ -573,7 +573,7 @@ export class Agent {
     const prevFit = this.fitNow;
     // (item 389, rules 24) another copy of "up to two target …": not what an earlier copy already took
     const taken = e.more && g.rules >= 24 ? new Set((g.pickedTargets || []).map((/** @type {any} */ x) => x?.obj).filter(Boolean)) : null;
-    const fits = g.rules >= 17 && (e.tr || (g.rules >= 24 && e.tr24)) ? (/** @type {any} */ o) => targetFits(g, p, e, o, src) : null;
+    const fits = g.rules >= 17 && (e.tr || (g.rules >= 24 && e.tr24) || (g.rules >= 25 && e.tr25)) ? (/** @type {any} */ o) => targetFits(g, p, e, o, src) : null;
     this.fitNow = taken ? (/** @type {any} */ o) => !taken.has(o) && (!fits || fits(o)) : fits;
     try { t = this.chooseTarget0(g, p, withKinds(g, e), src); } finally { g.targetSrc = prev; this.fitNow = prevFit; }
     if (t?.obj && !targetFits(g, p, e, t.obj, src)) return null;
@@ -596,6 +596,11 @@ export class Agent {
         // ("nonartifact, nonblack creature")
         && !(e.not || []).some(w => o.fx.type[w] || (o.card.colors || []).includes({ white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[w])));
       case 'bounce': return this.bestEnemy(g, p, o => this.matches(o, e.what, g) && !o.fx.type.land);
+      // (Phase 2E-1, rules 26) Gilded Drake: the opponent's best creature; Chandra's Ignition: its own biggest creature; a
+      // punisher: the opponent most likely to let it draw (the one with the most life, so damage hurts least)
+      case 'exchange': return this.bestEnemy(g, p, o => this.matches(o, e.what, g));
+      case 'ignition': { const o = g.bestOwnCreature(p); return o ? { obj: o } : null; }
+      case 'offer': { const q = [...g.opponents(p)].sort((a, b) => b.life - a.life || a.idx - b.idx)[0]; return q ? { player: q.idx } : null; }
       case 'tuck': return this.bestEnemy(g, p, o => this.matches(o, e.what === 'creature' ? 'creature' : 'nonland permanent', g) && !o.fx.type.land);
       // (an untapped creature that could block, or attack)
       case 'noBlock': return this.bestEnemy(g, p, o => o.fx.type.creature && !o.tapped);
@@ -825,9 +830,32 @@ export class Agent {
     } finally { this.refused = null; }
   }
 
+  // (Phase 2E-1) A punisher aimed at this player: let the opponent draw N, or take what refusing does. Damage or life loss
+  // from milled cards is estimated from the count alone (about two mana value a card: the library is hidden); refusing
+  // is chosen unless the estimate would leave this player at 10 life or less.
+  chooseOffer(g, q, p, src, e) {
+    const mill = e.refuse.find((/** @type {any} */ x) => x.k === 'mill');
+    const k = mill ? (mill.n === 'X' ? (mill.xw ? Math.max(0, g.dynValue(p, mill.xw, { src })) : 0) : mill.n) : 0;
+    const hurt = e.refuse.some((/** @type {any} */ x) => x.k === 'damage' || x.k === 'loseThat') ? 2 * k : 0;
+    const drawCost = 1.6 * (typeof e.n === 'number' ? e.n : 1);
+    const refuseCost = hurt * (q.life - hurt <= 10 ? 1.5 : 0.3);
+    return drawCost <= refuseCost;
+  }
+  // (Phase 2D-3) What paying an optional non-mana cost gives up: cards discarded, the cheapest permanent that can be
+  // sacrificed, life (more when it is low), energy
+  costWorth(g, p, src, c) {
+    let w = 0;
+    if (c.discard) w += 1.6 * c.discard.n;
+    if (c.sac) { const pool = p.battlefield.filter(o => o !== src && g.isA(o, c.sac.what)).map(o => this.value(g, o)).sort((a, b) => a - b); w += pool.slice(0, c.sac.n).reduce((s, v) => s + v, 0) || 99; }
+    if (c.life) w += c.life * (p.life <= 10 ? 1 : 0.25);
+    if (c.energy) w += c.energy * 0.35;
+    if (c.exileGy) w += 0.3 * c.exileGy;
+    return w;
+  }
   chooseLand(g, p) {
     // (lands exiled with "you may play it" and the top of the library with Courser of Kruphix count too; they go first)
-    const extra = [...p.exile.filter(o => o.fx.type.land && o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn), p.library[p.library.length - 1]].filter(o => o && o.fx.type.land && (o.zone === 'exile' || g.topPlayable(p, o)));
+    // (Phase 2D-2, rules 25: land cards in the graveyard with Crucible of Worlds; a fetch land first)
+    const extra = [...p.exile.filter(o => o.fx.type.land && o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn), p.library[p.library.length - 1], ...p.graveyard.filter(o => g.gyLandOk(p, o)).sort((a, b) => +!!b.fx.fetch - +!!a.fx.fetch)].filter(o => o && o.fx.type.land && (o.zone === 'exile' || o.zone === 'graveyard' || g.topPlayable(p, o)));
     if (extra.length) return extra[0];
     const lands = p.hand.filter(o => o.fx.type.land);
     if (!lands.length) {
@@ -948,7 +976,10 @@ export class Agent {
     // (with Underworld Breach out, every nonland card in the graveyard can be cast again with escape)
     const breach = p.battlefield.some(x => x.fx.breach);
     const top = p.library[p.library.length - 1];
-    const fromElsewhere = [...p.exile.filter(c => c.mayPlay?.p === p.idx && !c.fx.type.land), ...(top && !top.fx.type.land && g.topPlayable(p, top) ? [top] : [])];
+    // (Phase 2D-5, rules 25: also cards in the graveyard it may cast now: a permission on the card, Chainer-style turns)
+    const fromElsewhere = [...p.exile.filter(c => c.mayPlay?.p === p.idx && !c.fx.type.land), ...(top && !top.fx.type.land && g.topPlayable(p, top) ? [top] : []), ...(g.rules >= 25 ? p.graveyard.filter(c => !c.fx.type.land && (c.mayPlay?.p === p.idx || p.gyCast?.turn === g.turn)) : []),
+      // (another player's exiled cards it may cast: Mnemonic Betrayal)
+      ...(g.rules >= 25 ? g.opponents(p).flatMap(q => q.exile.filter(c => c.mayPlay?.p === p.idx && !c.fx.type.land)) : [])];
     for (const o of [...p.hand, ...p.command, ...fromElsewhere, ...p.graveyard.filter(c => c.fx.flashback || c.tempFlashback === g.turn || c.fx.escape || c.fx.jumpstart || (breach && !c.fx.type.land) || g.aftermath(c))]) {
       if (o.fx.type.land || held.has(o)) continue;
       // A ritual is worth more next turn when a ready combo is short on mana (planning a turn ahead)
@@ -1045,7 +1076,7 @@ export class Agent {
         const s = this.faceUpValue(g, p, o);
         if (s > 1) opts.push({ s, why: `turns ${o.faceCard.name} face up`, run: () => g.turnFaceUp(p, o) });
       }
-      for (const pw of p.battlefield.filter(o => o.fx.type.planeswalker && !o.usedPW)) {
+      for (const pw of p.battlefield.filter(o => o.fx.type.planeswalker && !o.usedPW && !g.loyaltyLocked())) {
         const ab = this.pickPW(g, p, pw);
         if (ab) opts.push({ s: 6, why: `activates ${pw.card.name}`, run: () => g.activatePW(p, pw, ab).then(() => true) });
       }
@@ -1356,7 +1387,7 @@ export class Agent {
       case 'counter': case 'counterAbility': case 'copySpell': case 'protect': return isSpell ? -100 : 0;
       case 'if': {
         const ok = g.evalCond(p, src, e.cond, { x: e.cond.c === 'x' ? N('X') : 0, kicked: g.availableMana(p) >= (src.card.cmc || 0) + 2 });
-        const branch = ok && !(e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && !(g.rules >= 24 && e.cond.r24) && (g.rules >= 17 || e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
+        const branch = ok && !(e.cond.c === '?' && !(g.rules >= 17 && e.cond.r) && !(g.rules >= 24 && e.cond.r24) && !(g.rules >= 25 && e.cond.r25) && (g.rules >= 17 || e.else || e.effects.some(x => x.k === 'win'))) ? e.effects : e.else || [];
         return branch.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0);
       }
       case 'scry': return N(e.n) * 0.5;
@@ -1406,6 +1437,12 @@ export class Agent {
       // Untapping a mana source just gives back what it costs (combos handle the loops)
       case 'untapSelf': return src.tapped && !src.fx.mana ? 1.5 : 0;
       case 'payFor': return e.effects.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0) * 0.7;
+      // (Phase 2E-1) taking the opponent's best creature for this one; a punisher is worth its cheaper outcome
+      case 'exchange': { const o = this.bestEnemy(g, p, x => this.matches(x, e.what, g)); return o?.obj ? Math.max(0, this.value(g, o.obj) - 2) : 0; }
+      case 'sacUnlessExchanged': return 0;
+      case 'offer': return 1.2 * (typeof e.n === 'number' ? e.n : 1);
+      // (Phase 2D-3) an optional non-mana cost: what it does, less what paying costs (never below nothing: it's optional)
+      case 'mayCost': return Math.max(0, e.effects.reduce((s, x) => s + this.effectValue(g, p, src, x, false), 0) - this.costWorth(g, p, src, e.cost));
       case 'evade': return e.self ? (g.phase === 'main1' ? 1.5 : 0) : (myCreatures.length && g.phase === 'main1' ? 1.5 : 0);
       case 'kwCounter': return 2;
       case 'topLandOrHand': return 2;
@@ -1461,6 +1498,9 @@ export class Agent {
       case 'bounceAll': return e.what === 'attacking' ? 3 : opps.reduce((s, q) => s + q.battlefield.filter(o => o.fx.type.creature).reduce((a, o) => a + this.value(g, o) * 0.5, 0), 0) - myCreatures.reduce((a, o) => a + this.value(g, o) * 0.3, 0);
       case 'roll': return (e.table || []).reduce((s, r) => s + r.effects.reduce((a, x) => a + this.effectValue(g, p, src, x, false), 0) * (r.hi - r.lo + 1) / e.d, 0) || 0.5;
       case 'flashTurn': return 0.5;
+      // (Phase 2D-8) hideaway: a free card later; playing it: what the hidden card is worth, when its condition holds now
+      case 'hideaway': return 1.5;
+      case 'playHidden': { const h = src.hidden25 != null ? g.objects.get(src.hidden25) : null; return h && h.zone === 'exile' && g.evalCond(p, src, e.cond, {}) ? Math.max(1, this.value(g, h)) + 2 : -1; }
       case 'gyCastTurn': return p.graveyard.filter(o => !o.fx.type.land && (!e.types.length || e.types.some(t => o.fx.type[t]))).length * 1.2;
       case 'stealAll': return 6;
       case 'level': return 2.5 + e.n;
@@ -2442,7 +2482,7 @@ export class Agent {
   // (rules 17, item 208: with the game and the stack item, the counterspell's mana value and color limits count too)
   fits(c, spell, g = null, item = null) {
     const e = c.fx.spell.find(x => x.k === 'counter');
-    return g && item && g.rules >= 17 ? counterFits(g, e, item) : this.fitsWhat(e.what, spell);
+    return g && item && g.rules >= 17 ? counterFits(g, e, item, g.players[c.controller ?? c.owner]) : this.fitsWhat(e.what, spell);
   }
   // Can a counter for "what" (any, noncreature, instant or sorcery…) answer this spell?
   fitsWhat(what, spell) { return spellFits(what, spell); }

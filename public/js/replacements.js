@@ -132,6 +132,9 @@ export function drawDefs(g, ev) {
   const p = ev.p, defs = [];
   for (const s of p.battlefield) {
     if (s.fx.drawDouble) defs.push({ id: `double:${s.iid}`, label: s.card.name, applies: e => !e.first && !e.instead, apply: e => { e.count = (e.count || 1) * 2; return e; } });
+    // (Phase 2D-8, rules 25) Abundance: instead of drawing, reveal until a land or a nonland card (zones.js draw); the card
+    // goes to the hand, which is not a draw, and the rest to the bottom
+    if (s.fx.abundance && g.rules >= 25 && p.library.length) defs.push({ id: `abundance:${s.iid}`, label: s.card.name, applies: e => !e.instead && (e.count || 1) === 1, apply: e => { e.instead = 'abundance'; return e; } });
     if (s.fx.lichDraw) defs.push({ id: `lich:${s.iid}`, label: s.card.name, applies: e => !e.instead && p.library.length > 3, apply: e => { e.instead = 'lich'; return e; } });
   }
   if (!g.inThief) for (const q of g.opponents(p)) for (const s of q.battlefield) if (s.fx.notionThief) defs.push({ id: `thief:${s.iid}`, label: s.card.name, applies: e => !e.first && !e.instead, apply: e => { e.instead = 'thief'; e.thief = q.idx; return e; } });

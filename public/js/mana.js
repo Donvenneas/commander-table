@@ -2,12 +2,52 @@
 // Split out of engine.js (Round 5, item 176): each function is one of Game's methods, with the game as `g`; Game keeps
 // a one-line method that calls it, so nothing else changes.
 import { parseCost, COLORS } from './engine.js';
+import { lkiIs } from './triggers.js';
 
 /** @param {import('./engine.js').Game} g */
 export function sources(g, p, exclude) {
   return p.battlefield.filter(o => o !== exclude && !o.tapped && o.fx.mana && g.canTapNow(p, o)
     && (!o.fx.mana.gate || g.gateOk(o, o.fx.mana.gate)) && (o.fx.type.land || !g.abilityLocked(p, o))
-    && g.spendOk(o.fx.mana.only) && landsOk(g, p, o) && (g.rules < 16 || !o.fx.mana.cond16 || manaColors16(g, p, o, o.fx.mana.colors).length > 0));
+    && g.spendOk(o.fx.mana.only) && landsOk(g, p, o) && (g.rules < 16 || !o.fx.mana.cond16 || manaColors16(g, p, o, o.fx.mana.colors).length > 0)
+    && (g.rules < 25 || !(o.fx.mana.spend25 || o.fx.mana.cond25) || manaColors25(g, p, o, o.fx.mana.colors).length > 0));
+}
+// (Phase 2D-2, rules 25) The colors a source may make for what is being paid now: a color only a restricted line adds
+// ("Spend this mana only to cast a legendary spell") only when the spell or ability fits; a color only a line with an
+// activation condition adds ("Activate only if you control a Dragon") only while the condition holds. Tapped by hand
+// (payingFor.all) every color is offered and the restriction travels with the mana in the pool (units: spend25).
+/** @param {import('./engine.js').Game} g */
+export function manaColors25(g, p, o, colors) {
+  const m = o.fx.mana;
+  if (g.rules < 25 || !m) return colors;
+  const bad = new Set();
+  for (const c of m.cond25 || []) if (!g.evalCond(p, o, c.cond, {})) for (const x of c.colors) bad.add(x);
+  if (!g.payingFor?.all) for (const s of m.spend25 || []) if (!spendFits(g, s.only, o.chosenType)) for (const x of s.colors) bad.add(x);
+  return bad.size ? colors.filter((/** @type {string} */ c) => !bad.has(c)) : colors;
+}
+// (Phase 2D-2) Does what is being paid now (g.payingFor) fit a spending restriction (effects.js spendWords)?
+/** @param {import('./engine.js').Game} g @param {any} only @param {string} [chosenType] */
+export function spendFits(g, only, chosenType) {
+  const f = g.payingFor;
+  if (!only || !f) return !only;
+  if (f.all) return true;
+  if (only.unread) return false;
+  const o = f.o;
+  if (!o) return false;
+  const has = (/** @type {string} */ w) => {
+    const t = o.fx.type, base = w.replace(/s$/, '');
+    if (w === 'legendary') return !!t.legendary;
+    if (w === 'colorless') return !g.colorsOf(o).length;
+    if (w === 'monocolored') return g.colorsOf(o).length === 1;
+    if (w === 'multicolored') return g.colorsOf(o).length > 1;
+    const col = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' }[w];
+    if (col) return g.colorsOf(o).includes(col);
+    if (base in t || ['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'instant', 'sorcery', 'battle'].includes(base)) return !!t[base];
+    return o.fx.subtypes.includes(base) || o.fx.subtypes.includes(w) || (!!o.fx.kw?.has?.('changeling') && !!t.creature);
+  };
+  const list = f.ability ? only.abilities : only.spells;
+  if (!list) return false;
+  if (only.chosen && !(chosenType && (o.fx.subtypes.includes(chosenType) || o.fx.kw?.has?.('changeling')))) return false;
+  return list.some((/** @type {string[]} */ alt) => alt.every(has));
 }
 // (rules 13) Temple of the False God: "Activate only if you control five or more lands" (the Temple counts: it is a
 // land you control)
@@ -64,6 +104,11 @@ export function manaAmount(g, p, s) {
 /** @param {import('./engine.js').Game} g */
 export function units(g, p, exclude) {
   const u = p.pool.filter(x => g.spendOk(x.only)).map(x => {
+    // (Phase 2D-2, rules 25) mana tapped by hand from a restricted line: its restricted colors only for what fits
+    if (x.spend25 && g.rules >= 25 && !g.payingFor?.all) {
+      const bad = new Set(x.spend25.filter((/** @type {any} */ s) => !spendFits(g, s.only, x.chosenType)).flatMap((/** @type {any} */ s) => s.colors));
+      return { ref: x, colors: x.colors.filter((/** @type {string} */ c) => !bad.has(c)), pool: true };
+    }
     // (rules 16) Cavern of Souls mana in the pool (tapped by hand): any color for a creature spell of its chosen type,
     // which then can't be countered; {C} for anything else
     if (x.cavernType && g.rules >= 16) { const ok = cavernFor(g, x.cavernType); return { ref: x, colors: ok ? x.colors : ['C'], pool: true, ...(ok ? { cavern: true } : {}) }; }
@@ -95,9 +140,15 @@ export function units(g, p, exclude) {
     const cav = g.rules >= 13 && s.fx.mana.cavern && !moon, cavOk = cav && cavernSpell(g, s);
     // (rules 16) colors behind an unmet "activate only if you control" condition aren't offered
     if (g.rules >= 16 && s.fx.mana.cond16 && !moon) colors = manaColors16(g, p, s, colors);
+    // (Phase 2D-2, rules 25) spending restrictions and activation conditions of the line that adds each color
+    const r25 = g.rules >= 25 && (s.fx.mana.spend25 || s.fx.mana.cond25) && !moon && !(anyColor && s.fx.type.land);
+    if (r25) { colors = manaColors25(g, p, s, colors); if (!colors.length) continue; }
+    const tag25 = r25 && s.fx.mana.spend25 ? { spend25: s.fx.mana.spend25, chosenType: s.chosenType } : {};
+    // (the "that spell can't be countered" rider of a line that fits what is being paid: Delighted Halfling)
+    const unc25 = r25 && !g.payingFor?.all && (s.fx.mana.spend25 || []).some((/** @type {any} */ x) => x.only.uncounter && spendFits(g, x.only, s.chosenType)) ? { cavern: true } : {};
     // (rules 16: tapped by hand, it keeps both choices in the pool until the mana is spent: units() above)
     const cavHand = cav && !cavOk && g.rules >= 16 && g.payingFor?.all && !!s.chosenType;
-    for (let i = 0; i < n; i++) u.push({ src: s, colors: cav ? (cavOk || cavHand ? [...COLORS, 'C'] : ['C']) : colors, land: s.fx.type.land, only: s.fx.mana.only, ...(cavOk ? { cavern: true } : {}), ...(cavHand ? { cavernType: s.chosenType } : {}) });
+    for (let i = 0; i < n; i++) u.push({ src: s, colors: cav ? (cavOk || cavHand ? [...COLORS, 'C'] : ['C']) : colors, land: s.fx.type.land, only: s.fx.mana.only, ...(cavOk ? { cavern: true } : {}), ...(cavHand ? { cavernType: s.chosenType } : {}), ...tag25, ...unc25 });
     // Utopia Sprawl, Wild Growth on this land
     if (s.fx.type.land) for (const a of g.attachments(s)) if (a.fx.auraMana) u.push({ src: s, colors: a.fx.auraMana === '*' ? COLORS : [a.fx.auraMana], land: true });
     // Abundant Growth: the enchanted land taps for any color
@@ -302,7 +353,7 @@ export function commitPayment(g, p, plan) {
   for (const s of plan.srcs) {
     s.tapped = true;
     if (s.fx.watch?.length || p.battlefield.some(x => x.fx.watch?.some(w => w.ev === 'tapped'))) g.fire('tapped', { o: s, p: p.idx });
-    plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only, ...(u.cavernType ? { cavernType: u.cavernType } : {}) }); });
+    plan.units.forEach((u, i) => { if (u.src === s && !plan.used.has(i) && !u.convoke) p.pool.push({ colors: u.colors, only: u.only, ...(u.cavernType ? { cavernType: u.cavernType } : {}), ...(u.spend25 ? { spend25: u.spend25, chosenType: u.chosenType } : {}) }); });
     // (rules 6) Painlands, Talismans: colored mana deals damage to you; Ancient Tomb, Mana Confluence: any mana
     const pain = s.fx.mana?.pain;
     if (pain && g.rules >= 6 && plan.units.some((u, i) => u.src === s && !u.convoke && (!pain.colored || !plan.used.has(i) || (plan.colored?.has(i) && u.colors.some(c => c !== 'C'))))) {
@@ -431,6 +482,19 @@ export function dynValue(g, p, d, ctx = {}) {
   if (d.dyn === 'oppArtEnch') return g.opponents(p).reduce((n, q) => n + q.battlefield.filter(o => o.fx.type.artifact || o.fx.type.enchantment).length, 0);
   // (item 389) "X, where X is …" clauses read at rules 24: 0 in older games, as they were before
   if (d.dyn === 'r24') return g.rules >= 24 ? dynValue(g, p, d.d, ctx) : 0;
+  // (Phase 2D-3, rules 25) amounts read since; 0 in older games
+  if (d.dyn === 'r25') return g.rules >= 25 ? dynValue(g, p, d.d, ctx) : 0;
+  if (d.dyn === 'converge') return ctx.copy ? 0 : ctx.src?.convergeN || 0;
+  if (d.dyn === 'wayCount') return (ctx.trail || []).filter((/** @type {any} */ m) => (!d.from || m.from === d.from) && (!d.to || (Array.isArray(d.to) ? d.to.includes(m.to) : m.to === d.to)) && lkiIs(m, d.what)).length;
+  // (Phase 2E-1: the total mana value of the cards this ability moved, e.g. milled: a punisher's damage)
+  if (d.dyn === 'wayMv') return (ctx.trail || []).filter((/** @type {any} */ m) => (!d.from || m.from === d.from) && (!d.to || m.to === d.to)).reduce((s, m) => s + (m.o.card.cmc || 0), 0);
+  if (d.dyn === 'roll') return ctx.roll || 0;
+  if (d.dyn === 'maxPowerOther') return Math.max(0, ...p.battlefield.filter(o => o.fx.type.creature && o !== ctx.src).map(o => g.power(o)));
+  if (d.dyn === 'chosenCount') {
+    const t = (ctx.targets || []).find((/** @type {any} */ x) => x?.player != null);
+    const q = t ? g.players[t.player] : p, type = ctx.src?.chosenType;
+    return type ? q.battlefield.filter(o => o.fx.type.creature && (o.fx.subtypes.includes(type) || o.fx.kw.has('changeling'))).length : 0;
+  }
   if (d.dyn === 'attackingYou') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking === p.idx).length;
   if (d.dyn === 'attackPower') return g.alive().flatMap(q => q.battlefield).filter(o => o.attacking != null).reduce((s, o) => s + Math.max(0, g.power(o)), 0);
   if (d.dyn === 'exiledMv') return (p.lastExiledMv || 0) + (d.plus || 0);
@@ -446,7 +510,8 @@ export function dynValue(g, p, d, ctx = {}) {
   const t = ctx.trig || {};
   if (d.dyn === 'trigN') return t.n ?? 1;
   if (d.dyn === 'trigP') return t.o ? Math.max(0, g.power(t.o)) : 0;
-  if (d.dyn === 'trigT') return t.o ? Math.max(0, g.toughness(t.o)) : 0;
+  // (Phase 2D-1, rules 25: a creature that has left the battlefield counts as it last existed there)
+  if (d.dyn === 'trigT') return t.o ? Math.max(0, g.rules >= 25 && t.o.zone !== 'battlefield' && t.o.lki ? t.o.lki.toughness : g.toughness(t.o)) : 0;
   if (d.dyn === 'trigMV') return t.o?.card.cmc || 0;
   return 0;
 }
@@ -474,7 +539,18 @@ export function castTimingOk(g, p, o) {
   if (sorceryTime) return true;
   if (p.sorceryLocked) return false;
   return !!(o.fx.type.instant || o.fx.kw.has('flash') || g.has(o, 'flash') || o.fx.castWhen || p.flashNow
-    || p.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature)));
+    || p.battlefield.some(x => x.fx.flashGrant === 'any' || (x.fx.flashGrant === 'noncreature' && !o.fx.type.creature))
+    // (Phase 2D-2, rules 25) "You may cast green creature spells as though they had flash" (Yeva, Liberator, Sigarda's Aid)
+    || (g.rules >= 25 && p.battlefield.some(x => x.fx.flash25 && spellFits(g, x.fx.flash25, o))));
+}
+// (Phase 2D-2) Does the spell o have every word of one of the alternatives (effects.js spendWords: [["green",
+// "creature"]], [["aura"], ["equipment"]])? The same words a spending restriction uses.
+/** @param {import('./engine.js').Game} g @param {any} only @param {any} o */
+export function spellFits(g, only, o) {
+  if (!only || only.unread || !only.spells) return false;
+  const prev = g.payingFor;
+  g.payingFor = { o, ability: false };
+  try { return spendFits(g, only); } finally { g.payingFor = prev; }
 }
 /** @param {import('./engine.js').Game} g */
 export function castModeRaw(g, p, o) {
@@ -494,6 +570,11 @@ export function castModeRaw(g, p, o) {
   if (o.zone !== 'hand' && o.zone !== 'stack' && g.handOnlyAgainst(p)) return null;
   if (g.spellCapped(p, o)) return null;
   if (o.zone === 'graveyard') {
+    // (Phase 2D-5, rules 25) "you may play that card this turn" for a card in a graveyard (Tablet of Discovery's milled card)
+    if (g.rules >= 25 && o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn && !o.fx.type.land) {
+      if (o.mayPlay.free) return { alt: 'free' };
+      if (g.planPayment(p, g.costOf(p, o).c, 0)) return { alt: null };
+    }
     if (o.fx.flashback && g.planPayment(p, parseCost(o.fx.flashback), 0) && g.canPayCosts(p, o, o.fx.flashbackCosts, o)) return { alt: 'flashback' };
     // Past in Flames, Snapcaster Mage: flashback for its mana cost this turn
     if (o.tempFlashback === g.turn && o.card.manaCost && g.planPayment(p, parseCost(o.card.manaCost), 0)) return { alt: 'flashback', granted: true };
@@ -508,7 +589,10 @@ export function castModeRaw(g, p, o) {
     if (o.fx.gyCastSelf && o.owner === p.idx && (!o.fx.gyCastSelf.cond || g.evalCond(p, o, o.fx.gyCastSelf.cond, {})) && g.planPayment(p, g.costOf(p, o).c, 0)) return { alt: null };
     // Yawgmoth's Will, Chainer: cast (some) spells from your graveyard this turn
     const gc = p.gyCast;
-    if (gc?.turn === g.turn && o.owner === p.idx && !o.fx.type.land && (!gc.types.length || gc.types.some(t => o.fx.type[t])) && g.planPayment(p, g.costOf(p, o).c, 0)) return { alt: null };
+    if (gc?.turn === g.turn && o.owner === p.idx && !o.fx.type.land && (!gc.types.length || gc.types.some(t => o.fx.type[t]))
+      // (Phase 2D-2, rules 25: one named card, subtypes, and how many spells the permission still allows)
+      && (g.rules < 25 || ((!gc.objs || gc.objs.includes(o.iid)) && (gc.subs || []).every((/** @type {string} */ s) => o.fx.subtypes.includes(s)) && (gc.n == null || gc.n > 0)))
+      && g.planPayment(p, g.costOf(p, o).c, 0)) return { alt: null };
     // Kess, Serra Paragon, Muldrotha: one such spell each of your turns
     const once = g.gyOnceSource(p, o);
     if (once && g.planPayment(p, g.costOf(p, o).c, 0)) return { alt: null, gyOnce: once.iid };
@@ -530,7 +614,8 @@ export function castModeRaw(g, p, o) {
   if (o.fx.castCond && !g.evalCond(p, o, o.fx.castCond, {})) return null;
   if (o.zone === 'library' && !g.topPlayable(p, o)) return null;
   if (o.fx.lifeCost && p.life <= o.fx.lifeCost) return null;
-  if (o.fx.addCost && !g.canPayCosts(p, o, o.fx.addCost, o)) return null;
+  // (Phase 2D-6, rules 25: Mox Diamond's discard isn't a cost; the AI still casts it only with a land to discard)
+  if (o.fx.addCost && !(g.rules >= 25 && o.fx.moxDiamond25 && (p.agent.human || p.hand.some(c => c !== o && c.fx.type.land))) && !g.canPayCosts(p, o, o.fx.addCost, o)) return null;
   // An AI pilot only casts a pact it can pay for next turn (on top of pacts already owed)
   const pact = o.fx.spell.find(e => e.k === 'pact');
   if (pact && !p.agent.human) {
@@ -543,6 +628,9 @@ export function castModeRaw(g, p, o) {
   if (o.fx.overload && g.planPayment(p, parseCost(o.fx.overload), extra)) return { alt: 'overload' };
   // Miracle: its first draw this turn can be cast for the miracle cost
   if (o.fx.miracle && o.zone === 'hand' && o.miracleTurn === g.turn && g.planPayment(p, parseCost(o.fx.miracle), 0)) return { alt: 'miracle' };
+  // (Phase 2D-2, rules 25) Omniscience: spells from your hand without paying their mana costs; Dracogenesis: Dragons
+  // (chosen over paying: an alternative cost, 118.9; X is 0)
+  if (g.rules >= 25 && o.card.manaCost && !(parseCost(o.card.manaCost).x) && p.battlefield.some(s => s.fx.free25 && (!s.fx.free25.hand || o.zone === 'hand') && spellFits(g, s.fx.free25, o))) return { alt: 'free' };
   if (o.card.manaCost && g.planPayment(p, c, extra, null, null, g.helpUnits(p, o))) return { alt: null };
   if (faceDownOk) return { alt: 'morph' };
   // Suspend (702.62): exiled with time counters for its suspend cost, cast free later (only on its owner's own turn, at sorcery timing)
@@ -615,6 +703,9 @@ export function costOf(g, p, o) {
     }
     c.generic = Math.max(0, c.generic - sr.n * k);
   }
+  // (Phase 2E-2, rules 26) "mana of any type can be spent to cast it" (Mnemonic Betrayal): every mana symbol is paid as
+  // generic mana
+  if (g.rules >= 26 && o.mayPlay?.anyMana && o.mayPlay.p === p.idx && o.zone === 'exile') { c.generic += c.pips.length; c.pips = []; }
   return { c, extra: o.zone === 'command' ? 2 * (p.castCount[o.iid] || 0) : 0 };
 }
 // The top card of p's library, when a permanent lets them play it (Courser of Kruphix, Future Sight)
@@ -624,6 +715,8 @@ export function topPlayable(g, p, o) {
   return p.battlefield.some(s => {
     const k = s.fx.playTop;
     if (!k) return false;
+    // (Phase 2D-2, rules 25: a line that isn't about the top of the library: Crucible of Worlds, Omniscience, Yeva)
+    if (g.rules >= 25 && s.fx.notTop25) return false;
     // The Reality Chip: only while attached; Augur of Autumn: only with coven
     if (s.fx.playTopAttached && !s.attachedTo) return false;
     if (s.fx.playTopCond && !g.evalCond(p, s, s.fx.playTopCond, {})) return false;
@@ -680,3 +773,14 @@ export function wardOf(g, o) {
 // "Damage can't be prevented" (Questing Beast, Sunspine Lynx)
 /** @param {import('./engine.js').Game} g */
 export function noPrevent(g) { return g.alive().some(q => q.battlefield.some(s => s.fx.noPrevent)); }
+// (Phase 2D-3) Converge (702.? "the number of colors of mana spent"): the most different colors the units a payment
+// used can count as. A unit that could be several colors counts as one not yet counted (the payer chooses, 106.4);
+// units with fewer choices are placed first.
+/** @param {any} plan */
+export function convergeOf(plan) {
+  if (!plan?.units || !plan.used) return 0;
+  const us = [...plan.used].map((/** @type {number} */ i) => plan.units[i]).filter(Boolean).map((/** @type {any} */ u) => (u.colors || []).filter((/** @type {string} */ c) => c !== 'C'));
+  const seen = new Set();
+  for (const cs of us.sort((a, b) => a.length - b.length)) { const c = cs.find(x => !seen.has(x)); if (c) seen.add(c); }
+  return seen.size;
+}

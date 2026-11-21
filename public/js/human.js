@@ -8,7 +8,7 @@ import { parseCost } from './engine.js';
 import { loopColors } from './mana.js';
 import { needsTarget, needsTargetIn, costText } from './effects.js';
 import { esc, makeRng } from './util.js';
-import { targetFits, legalTargets } from './resolve.js';
+import { targetFits, legalTargets, tutorFits } from './resolve.js';
 import { canAnnounce, announceLabel, announceHuman } from './kingdomsPlay.js';
 
 // The page says it is waiting for the person: a class on the body (the stylesheet lights their board) and the tab's title
@@ -595,7 +595,7 @@ export class HumanAgent extends Agent {
     for (let guard = 0; guard < 200 && !g.over && !p.lost; guard++) {
       // (also the top of your library with Courser of Kruphix and friends, and cards exiled "you may play")
       const top = p.library[p.library.length - 1];
-      const elsewhere = [...p.exile.filter(o => o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn), ...(top && g.topPlayable(p, top) ? [top] : [])];
+      const elsewhere = [...p.exile.filter(o => o.mayPlay?.p === p.idx && o.mayPlay.until >= g.turn), ...(top && g.topPlayable(p, top) ? [top] : []), ...p.graveyard.filter(o => g.gyLandOk(p, o))];
       const lands = p.landsPlayed < g.landDrops(p) ?[...p.hand, ...elsewhere].filter(o => o.fx.type.land) : [];
       // Counterspells and copy effects need something on the stack, so they're offered in response windows instead
       const reactiveOnly = o => o.fx.spell.length && o.fx.spell.every(e => ['counter', 'counterAbility', 'copySpell'].includes(e.k));
@@ -1053,7 +1053,7 @@ export class HumanAgent extends Agent {
   }
   // Library searches (tutors): you choose from every card the search can find
   async pickTutorAsync(g, p, e) {
-    const okType = o => !e.types?.length || e.types.some(t => o.fx.type[t]);
+    const okType = o => tutorFits(g, e, o);
     const lib = p.library.filter(okType);
     if (!lib.length) return null;
     const r = await this.chooseCardsAsync(g, p, lib, 1, `<b>Search your library</b>${e.types?.length ? ` for a ${e.types.join(' or ')} card` : ''}${e.gy ? ' (it goes to your graveyard)' : e.bf ? ' (onto the battlefield)' : e.top ? ' (it goes on top)' : ''}`);
@@ -1084,6 +1084,11 @@ export class HumanAgent extends Agent {
     return typeof r.button === 'number' ? r.button : null;
   }
   // (rules 7) "You may pay {4}. If you do, …" (Nim Deathmantle)
+  // (Phase 2E-1) A punisher aimed at this seat: let the opponent draw, or refuse and take the rest
+  async chooseOfferAsync(g, q, p, src, e) {
+    const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: let ${esc(p.name)} draw ${e.n} card${e.n === 1 ? '' : 's'}? If you refuse, they mill cards and you take damage or lose life equal to their total mana value.`, { buttons: [{ label: `Let them draw ${e.n}`, value: 'yes', primary: true }, { label: 'Refuse', value: 'no' }] });
+    return r.button !== 'no';
+  }
   async confirmPayAsync(g, p, src, cost, what) {
     const r = await this.ui.ask(`<b>${esc(src.card.name)}</b>: pay ${esc(cost)} to ${esc(what)}?`, { buttons: [{ label: `Pay ${cost}`, value: 'pay', primary: true }, { label: "Don't pay", value: 'no' }] });
     return r.button === 'pay';

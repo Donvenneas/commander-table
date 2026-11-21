@@ -1,0 +1,14 @@
+{
+  "Kozilek's Command": "mode 2 draws for you instead of the target player and skips scry X; mode 4 (exile up to X cards from graveyards) is not read",
+  "Sunfall": "incubate makes a Phyrexian X/X creature at once instead of an Incubator artifact that transforms for {2}",
+  "Springheart Nantuko": "landfall copies itself and the land instead of the enchanted creature, without the {1}{G} payment",
+  "Inti, Seneschal of the Sun": "the +1/+1 counter on the attacking creature is not read; only trample is given",
+  "Delina, Wild Mage": "the creature is chosen when the copy is made, not before the roll; \"you may roll again\" always rolls",
+  "Shatterskull Smashing // Shatterskull, the Hammer Pass": "damage divided among up to two targets goes to one target; the X >= 6 doubling is not read",
+  "Court of Garenbrig": "the two counters can't be divided between two creatures",
+  "Abdel Adrian, Gorion's Ward": "nothing is exiled; one Soldier is made instead of one per exiled permanent",
+  "Marauding Raptor": "the 2 damage to each other creature you control is not read",
+  "Fanatic of Rhonas": "the {G}{G}{G}{G} ability (ferocious) is not read: one mana per card",
+  "Throne of Eldraine": "makes one mana of any color instead of four of the chosen color for monocolored spells of that color",
+  "Great Hall of the Citadel": "{1},{T}: two mana for legendary spells is not read; {T} makes restricted any-color mana instead"
+}

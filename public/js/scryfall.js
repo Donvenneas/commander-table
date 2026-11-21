@@ -1,6 +1,6 @@
 // Scryfall: card data + official card images for every printing.
 import { sleep, imgUrl, hashText, stableJson } from './util.js';
-import { analyzeCard } from './effects.js';
+import { analyzeCard, shortNameMisread } from './effects.js';
 import { getCards, putCards } from './cardcache.js';
 import { check, safeImageUrl } from './carddata.js';
 import { bulkAnswer, bulkCard } from './bulk.js';
@@ -169,6 +169,14 @@ export function normalize(raw) {
   // each face has only its own keywords, a split card's half is cast with its own mana value (709.3b), and the
   // other half's mana value counts hybrid {2/W} as 2. Older games keep the reading above, so replays stay exact.
   if ((raw.card_faces || []).length > 1) Object.defineProperty(card, 'v8', { value: build(raw, true), enumerable: false });
+  // (Phase 2E-2, rules 26) A card that isn't legendary whose first word was taken for its name in its own text
+  // (effects.js shortNameMisread: Artifact Mutation, Urza's Tower, Eldrazi Temple): the corrected reading, used by games at
+  // rules 26 and later (Game.mk); older games keep the reading above
+  if (shortNameMisread(card)) {
+    const v = /** @type {any} */ ({ ...card, noShort26: true });
+    v.fx = analyzeCard(v);
+    Object.defineProperty(card, 'v26', { value: v, enumerable: false });
+  }
   byId.set(id, card);
   return card;
 }

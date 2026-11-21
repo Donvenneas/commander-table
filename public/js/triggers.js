@@ -84,6 +84,9 @@ async function flushTriggers15(g) {
       if (p.lost || g.over) continue;
       const label = t.label || { etb: 'enters', attack: 'attack trigger', upkeep: 'upkeep trigger', endstep: 'end step trigger', dies: 'dies trigger', cast: 'cast trigger', saga: 'chapter' }[kind];
       const effects = kind === 'etb' && o.fx.etbModes ? p.agent.chooseModes(g, p, o, o.fx.etbModes) : t.effects || o.fx[kind];
+      // (Phase 2D-1, rules 25) An intervening "if" ("When …, if …, …") is checked as the ability triggers too: false
+      // then, the ability doesn't go on the stack at all (603.4); it is checked again as it resolves
+      if (g.rules >= 25 && interveningFails(g, p, o, effects, t.trig)) { g.log(`${g.cn(o)}: ${esc(condText(effects[0].cond))} is not true, so the ability doesn't trigger`, { kind: 'minor', rule: '603.4' }); continue; }
       // Panharmonicon, Yarok: the ability triggers additional times (the extra ones resolve after the first)
       for (let k = g.extraTriggers(t); k > 0 && !g.over && !p.lost; k--) {
         const it = await g.putAbility(p, o, kind === 'etb' && o.fx.etbModes ? p.agent.chooseModes(g, p, o, o.fx.etbModes) : effects, `${label} (again)`, 'trigger', t.trig);
@@ -262,7 +265,11 @@ export function fire(g, ev, info = {}) {
   const board = ev === 'leaveBf' ? g.batch?.board : null;
   const pairs = board ? board.filter(b => b.s !== info.o && !g.players[b.q].lost).map(b => [g.players[b.q], b.s, b.fx.watch]) : null;
   if (pairs) { for (const [q, s, ws] of pairs) if (ws?.length && one(q, s, ws) === false) return; return; }
-  for (const q of g.alive()) for (const s of q.battlefield) if (s.fx.watch?.length && one(q, s, s.fx.watch) === false) return;
+  // (Phase 2D-4, rules 25: triggers a permanent gained until end of turn, s.tempWatch, resolve.js grantWatch)
+  for (const q of g.alive()) for (const s of q.battlefield) {
+    const ws = g.rules >= 25 && s.tempWatch?.turn === g.turn ? [...(s.fx.watch || []), ...s.tempWatch.list.filter((/** @type {any} */ w) => !(w.playerOnly && info.target == null))] : s.fx.watch;
+    if (ws?.length && one(q, s, ws) === false) return;
+  }
   /** @returns {boolean | void} */
   function one(q, s, ws) {
     if (ev === 'enter' && g.etbSuppressed(q)) return;
@@ -272,7 +279,9 @@ export function fire(g, ev, info = {}) {
       const r = g.watchMatches(w, s, q, info);
       if (!r) continue;
       // "Whenever one or more …" triggers once for a batch of events still waiting to resolve
-      if (w.once && g.queue.some(it => it.w === w && it.o === s)) continue;
+      // (Phase 2D-3, rules 25: combat damage from the whole batch to that player adds up: "the amount of damage those
+      // creatures dealt to that player", Quartzwood Crasher)
+      if (w.once) { const it = g.queue.find(x => x.w === w && x.o === s); if (it) { if (g.rules >= 25 && ev === 'allyCombat' && it.trig && it.trig.target === info.target && it.trig !== info) it.trig = { ...it.trig, n: (it.trig.n || 0) + (info.n || 0) }; continue; } }
       // (rules 9) "This ability triggers only once each turn"
       if (w.turnOnce9 && !g.onceOk(s, `w${ws.indexOf(w)}`)) continue;
       // (rules 7: no fixed cap on legitimate loops; flushTriggers tells an endless mandatory loop from a long chain)
@@ -455,7 +464,10 @@ export function evalCond(g, p, src, c, ctx = {}) {
       if (c.r) return evalCond(g, p, src, c.r, ctx);
       // (item 389) conditions read at rules 24
       if (c.r24 && g.rules >= 24) return evalCond(g, p, src, c.r24, ctx);
-      return !ctx.resolving;
+      // (Phase 2D-1) conditions read at rules 25. From rules 25 a condition that can't be read is never met, also
+      // outside resolution: a cost reduction, a permission to cast from the graveyard (Not of This World, The Indomitable)
+      if (c.r25 && g.rules >= 25) return evalCond(g, p, src, c.r25, ctx);
+      return g.rules >= 25 ? false : !ctx.resolving;
     // A seeded flip as the effect resolves; a look ahead of time (the AI valuing the card) never flips
     case 'coin': return ctx.resolving ? (g.rand() < 0.5) === !!c.win : !!c.win;
     case 'trigIs': return !!ctx.trig?.o && c.types.some(t => ctx.trig.o.fx.type[t]);
@@ -498,6 +510,37 @@ export function evalCond(g, p, src, c, ctx = {}) {
     case 'noneWithKw': return !bf.some(o => o.fx.type.creature && g.has(o, c.kw));
     case 'dungeonDone': return (p.dungeonsDone || 0) > 0;
     case 'noGift': return true;
+    // (Phase 2D-1, rules 25: reached only through c.r25) What this ability has done so far (ctx.trail: the zone changes
+    // since it began to resolve, each with the object as it was), the object as it last existed (o.lki), its costs
+    // (src.costMoves) and the way it was cast
+    case 'way': return !!wayMatch(g, p, c, ctx) !== !!c.neg;
+    case 'lki': {
+      const o = ctx.trig?.o || src;
+      const k = o?.zone !== 'battlefield' && o?.lki ? o.lki : o && { counters: o.counters, named: o.named, toughness: g.toughness(o), minus: o.hadMinus, kws: null };
+      if (!k) return false;
+      const named = k.named || {};
+      if (c.test === 'noCounters') return !k.counters && !Object.values(named).some(n => n > 0);
+      if (c.test === 'counter') return c.kind === '+1/+1' ? (k.counters || 0) > 0 : c.kind === '-1/-1' ? (k.counters || 0) < 0 || !!k.minus || (named['-1/-1'] || 0) > 0 : (named[c.kind] || 0) > 0;
+      if (c.test === 'toughLT') return (k.toughness ?? 0) < c.n;
+      if (c.test === 'kw') return (k.kws ? k.kws.includes(c.kw) : g.has(o, c.kw)) !== !!c.neg;
+      return false;
+    }
+    case 'cost': {
+      const m = (src?.costMoves || []).find((/** @type {any} */ x) => (!c.from || x.from === c.from) && x.to === 'graveyard');
+      if (!m) return false;
+      const k = m.lki || {};
+      if (c.test === 'toughness') return (k.toughness ?? 0) >= c.n;
+      if (c.test === 'power') return (k.power ?? 0) >= c.n;
+      if (c.test === 'is') return lkiIs(m, c.what) !== !!c.neg;
+      return false;
+    }
+    case 'libEmpty': return p.library.length === 0;
+    case 'attackedN': return p.attackCount25?.turn === g.turn && p.attackCount25.n >= c.n;
+    case 'oppDealtN': return g.opponents(p).some(q => q.damageTurn25?.turn === g.turn && q.damageTurn25.n >= c.n);
+    case 'enteredTurn': return !!src && src.zone === 'battlefield' && src.enteredTurn === g.turn;
+    case 'altPaid': return !!src?.castAlt && src.castAlt !== 'free';
+    case 'castMain': return !!src?.wasCast && /^main/.test(src.castPhase || '') && src.castActive === p.idx;
+    case 'castAgain': return !!src?.wasCast && src.castFrom === c.from && (p.castCounts?.[src.card.name] || 0) >= 2;
     // A condition the simulator can't read (it depends on a revealed card, say) counts as met
     default: return true;
   }
@@ -546,7 +589,8 @@ export async function resolveAbility(g, item) {
   if (at >= 0 || g.rules < 15) g.stack.splice(at, 1);
   if (item.countered) { item.status = 'countered'; return; }
   const chosen = targets.filter(t => t && !t.none);
-  if (chosen.length && chosen.every(t => !g.validTarget(t, p, src))) {
+  // (Phase 2E-3, rules 26: "This ability still resolves if its target becomes illegal", Gilded Drake)
+  if (chosen.length && chosen.every(t => !g.validTarget(t, p, src)) && !(g.rules >= 26 && (effects || []).some((/** @type {any} */ e) => e.resolvesAnyway26))) {
     item.status = 'fizzled';
     g.log(`${g.cn(src)}'s ability does nothing: its target is no longer legal`, { rule: '608.2b', kind: 'minor' });
     return;
@@ -823,4 +867,44 @@ export function finish(g, winner, why, team = null) {
   g.log(winner ? `🏆 ${g.pn(winner)} wins — ${esc(why)}` : 'The game is a draw', { kind: 'win' });
   g.emit('over', winner);
   g.emit('update');
+}
+
+// (Phase 2D-1) Was the moved object (with the facts kept as it moved: m.lki) a "what": land, nonland, creature, a
+// Desert, legendary…
+/** @param {any} m @param {string} what @returns {boolean} */
+export function lkiIs(m, what) {
+  const k = m.lki, o = m.o;
+  const types = k?.types || o.fx.type, subs = k?.subtypes || o.fx.subtypes || [];
+  if (/^non-?/.test(what)) return !lkiIs(m, what.replace(/^non-?/, ''));
+  if (what === 'permanent') return !!(types.artifact || types.creature || types.enchantment || types.land || types.planeswalker || types.battle);
+  if (what === 'card') return true;
+  if (['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'instant', 'sorcery', 'battle', 'legendary', 'basic'].includes(what)) return !!types[what];
+  return subs.includes(what) || subs.includes(what.replace(/s$/, ''));
+}
+// (Phase 2D-1) The zone change this ability made that a "this way" condition asks about (or null): the first one from
+// the zone and to the zone it names, of the kind it names (and of the ability's controller's for "if you can't")
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} c @param {any} ctx */
+export function wayMatch(g, p, c, ctx) {
+  for (const m of ctx.trail || []) {
+    if (c.from && m.from !== c.from) continue;
+    if (c.to && !(Array.isArray(c.to) ? c.to.includes(m.to) : m.to === c.to)) continue;
+    if (c.mine && m.ctl !== p.idx) continue;
+    if (!lkiIs(m, c.what)) continue;
+    return m;
+  }
+  return null;
+}
+// (Phase 2D-1, rules 25) An ability that is one "if" with no "otherwise" is an intervening-if ability (603.4). Its
+// condition is checked when it triggers when the condition can be read and is about the game as it is (not about
+// what the ability itself will do: "this way", the costs paid, a coin flip, X).
+const NOT_AT_TRIGGER = new Set(['way', 'cost', 'coin', 'x', 'altPaid', 'castMain', 'castAgain']);
+/** @param {import('./engine.js').Game} g @param {any} p @param {any} o @param {any[]} effects @param {any} trig */
+function interveningFails(g, p, o, effects, trig) {
+  if (!Array.isArray(effects) || effects.length !== 1) return false;
+  const e = effects[0];
+  if (e.k !== 'if' || e.else || e.instead || !e.cond) return false;
+  const c = e.cond;
+  const inner = c.c === '?' ? c.r || (g.rules >= 24 && c.r24) || (g.rules >= 25 && c.r25) : c;
+  if (!inner || NOT_AT_TRIGGER.has(inner.c)) return false;
+  return !g.evalCond(p, o, c, { trig, resolving: true });
 }

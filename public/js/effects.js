@@ -62,7 +62,10 @@ export function protQualities(s) {
   return out.length ? out : null;
 }
 
-export function cleanText(text, name) {
+// (Phase 2E-2: noShort, used for the rules 26 reading of a card that isn't legendary: a short name is how legends are
+// called, so "Artifact Mutation" doesn't turn "destroy target artifact" into "destroy target ~", nor Urza's Tower its
+// "Urza's Mine", nor Eldrazi Temple its "colorless Eldrazi spells")
+export function cleanText(text, name, noShort = false) {
   let t = (text || '').replace(/\([^)]*\)/g, '').toLowerCase();
   // Legends are often called by their first name ("Loran" for Loran of the Third Path)
   const first = name.split(' // ')[0].split(',')[0].split(/ (?:of|the|from|and) /)[0];
@@ -72,7 +75,7 @@ export function cleanText(text, name) {
     .filter(n => n && n.length >= 4 && !RULE_WORDS.has(n.toLowerCase())).map(n => n.toLowerCase()).sort((a, b) => b.length - a.length);
   for (const n of names) t = t.split(n).join('~');
   // A short name only counts where it's used as the card's name (followed by what it does)
-  for (const n of [...new Set([first, first.split(' ')[0]])].filter(n => n.length >= 3 && !names.includes(n.toLowerCase()) && !RULE_WORDS.has(n.toLowerCase())).map(n => n.toLowerCase())) {
+  for (const n of noShort ? [] : [...new Set([first, first.split(' ')[0]])].filter(n => n.length >= 3 && !names.includes(n.toLowerCase()) && !RULE_WORDS.has(n.toLowerCase())).map(n => n.toLowerCase())) {
     // "Return Arcanis to its owner's hand"
     t = t.replace(new RegExp(`(?<=\\breturn )${esc(n)}(?= to )`, 'gm'), '~');
     t = t.replace(new RegExp(`\\b${esc(n)}\\b(?=(?:'s)? (?:enters?|deals|gets|has|have|can't|attacks|dies|is|becomes|gains|loses|isn't|doesn't|blocks|power|toughness|leaves)\\b|[.,]|$)`, 'gm'), '~');
@@ -305,7 +308,9 @@ const PATTERNS = [
   [/exile the top card of (?:target opponent's|that player's|each opponent's) library\. you may (?:play|cast) (?:that card|those cards|it)/, () => ({ k: 'impulse', n: 1 })],
   [/\broll a d(\d+)\b/, m => (LAST_ROLL = { k: 'roll', d: +m[1], table: [] })],
   [/you may cast spells this turn as though they had flash/, () => ({ k: 'flashTurn' })],
-  [/you may cast (?:a|target) ([\w ]*?)(?:creature )?(?:spell|card) from your graveyard this turn/, m => ({ k: 'gyCastTurn', types: typeWords(m[1]) })],
+  // (Phase 2D-2, used from rules 25: one25 / n25 / types25 / subs25) "a creature spell" is one spell of that kind;
+  // "target Zombie creature card" is that one card (Chainer, Zul Ashur); before rules 25, any card of the types read
+  [/you may cast (?:a|target) ([\w ]*?)(?:creature )?(?:spell|card) from your graveyard this turn/, m => ({ k: 'gyCastTurn', types: typeWords(m[1]), ...gyWords25(m[0]) })],
   [/you may play lands and cast spells from your graveyard/, () => ({ k: 'gyCastTurn', types: [] })],
   [/each creature you control with power (\d+) or greater gets \+(\d+)\/\+(\d+)(?: and gains ([\w, ]+))? until end of turn/, m => ({ k: 'teamPump', p: +m[2], t: +m[3], kw: kwList(m[4]), minPower: +m[1] })],
   [/creatures your opponents control attack this turn if able/, () => ({ k: 'goad', all: true })],
@@ -333,7 +338,7 @@ const PATTERNS = [
   [/return target spell to its owner's hand/, () => ({ k: 'counter', what: 'any', toHand: true })],
   [/exile (?:two|up to two|any number of) target [\w ,/]+? you control,? (?:then )?(?:and )?return (?:those cards|them) to the battlefield/, () => ({ k: 'blink', other: false, what: 'creature' })],
   [/exile any number of target creatures you control\. return those cards to the battlefield/, () => ({ k: 'blink', other: false, what: 'creature' })],
-  [/choose target ([\w ]*?)card in your graveyard\. you may cast that card this turn/, m => ({ k: 'gyCastTurn', types: typeWords(m[1]) })],
+  [/choose target ([\w ]*?)card in your graveyard\. you may cast that card this turn/, m => ({ k: 'gyCastTurn', types: typeWords(m[1]), one25: true, n25: 1, types25: typeWords(m[1]), subs25: [] })],
   [/untap target (forest|island|swamp|mountain|plains|legendary permanent|legendary creature)/, m => ({ k: 'untapAll', what: /legendary/.test(m[1]) ? 'permanents' : 'lands', n: 1 })],
   [/target (?:legendary creature|commander|creature you control) gains (fear|lifelink|deathtouch|trample|flying|haste|menace|first strike|intimidate|shadow) until end of turn/, m => ({ k: 'pump', p: 0, t: 0, kw: [m[1]] })],
   [/create a token that's a copy of (?:another )?target (token|artifact or enchantment|nonland permanent|creature or artifact) you control/, m => ({ k: 'copyToken', what: m[1] === 'token' ? 'creature' : m[1] })],
@@ -358,6 +363,22 @@ const PATTERNS = [
   [/each player sacrifices (four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fifteen|twenty) creatures/, m => ({ k: 'edict', all: true, n: num(m[1]), nontoken: false, what: 'creature' })],
   [/(?:you may )?have that player lose (\d+) life/, m => ({ k: 'loseThat', n: +m[1] })],
   [/(?:^|[.,] )sacrifice ~(?:[.,]|$)/, () => ({ k: 'sacSelf' })],
+  // (Phase 2E-1, used from rules 26) "exchange control of ~ and up to one target creature an opponent controls. If you
+  // don't or can't make an exchange, sacrifice ~" (Gilded Drake): the older reading only sacrificed it
+  [/exchange control of ~ and (?:up to one )?target (creature|artifact|permanent|nonland permanent) an opponent controls/, m => ({ k: 'exchange', what: m[1], since: 26 })],
+  [/if you don't or can't make an exchange, sacrifice ~/, () => ({ k: 'sacUnlessExchanged', since: 26 })],
+  // (Phase 2E-3, used from rules 26) "Target player creates X 0/1 … tokens" (Kozilek's Command): the tokens are its
+  // caster's (the target player is not asked yet: the AI always names itself)
+  [new RegExp(`target player creates ${N} (\\d+|x)\\/(\\d+|x) ([\\w -]*?) ?creature tokens?`), m => ({ k: 'token', n: num(m[1]), p: num(m[2]), t: num(m[3]), desc: m[4], kw: [], since: 26 })],
+  // (Phase 2E-4, used from rules 26) "target creature you control gains 'When this creature dies, return it to the
+  // battlefield tapped under its owner's control …'" until end of turn (Not Dead After All)
+  [/target creature(?: you control)? gains "when ~ dies, return it to the battlefield( tapped)? under its owner's control( with a \+1\/\+1 counter on it)?/, m => ({ k: 'grantDies26', tapped: !!m[1], counters: m[2] ? 1 : 0, since: 26 })],
+  // (Phase 2D-4, used from rules 25) "that player creates a 5/1 red Elemental creature token named Lightning Rager"
+  // (Rite of the Raging Storm): the token is that player's; its name and "it has …" riders are read in readRiders
+  [/\b(that|each) player creates (a|an|one|two|three) (\d+)\/(\d+) ([\w -]*?) ?creature tokens?(?: named ([a-z' -]+?))?(?=[.,]| with|$)/, m => ({ k: 'token', n: num(m[2]), p: +m[3], t: +m[4], desc: m[5], kw: [], forWho25: m[1], ...(m[6] ? { name25: m[6] } : {}), since: 25 })],
+  // (Phase 2D-4, used from rules 25) "Whenever that creature deals combat damage to a player [or planeswalker] this turn,
+  // draw that many cards" (Hunter's Insight): a trigger the target gains until end of turn
+  [/whenever that creature deals combat damage to a player(?: or planeswalker)? this turn, (?:you )?draw that many cards/, () => ({ k: 'grantWatch', ev: 'selfCombat', effects: [{ k: 'draw', n: { dyn: 'trigN' } }], since: 25 })],
   [/exile up to one target nonland, nontoken permanent you don't control with mana value (\d+) or less/, m => ({ k: 'remove', mode: 'exile', what: 'nonland permanent', maxMv: +m[1] })],
   [/(?:^|[.,] )(?:you )?may mill (\w+) cards?/, m => ({ k: 'mill', who: 'you', n: num(m[1]) })],
   [/(destroy|exile) all (nontoken creatures|nonartifact creatures|creatures you don't control|creatures your opponents control|nonland permanents you don't control|nonland permanents your opponents control|planeswalkers|lands)/, m => ({ k: 'wipe', mode: m[1], what: m[2] })],
@@ -675,7 +696,48 @@ export function parseCond(s) {
   if (r) return { c: '?', text: s, r };
   // (item 389, rules 24) Read since: checked from rules 24 (r24); older games keep the rules 17 behaviour
   const r24 = cond24(s);
-  return r24 ? { c: '?', text: s, r24 } : { c: '?', text: s };
+  if (r24) return { c: '?', text: s, r24 };
+  // (Phase 2D-1, rules 25) conditions on what the ability did so far, on the object as it last existed, on the costs
+  // paid and on how the spell was cast (triggers.js evalCond via cond.r25)
+  const r25 = cond25(s);
+  return r25 ? { c: '?', text: s, r25 } : { c: '?', text: s };
+}
+// (Phase 2D-1, rules 25) The shapes the Phase 2C audit found among unread conditions. Each is checked against facts
+// the engine now records: the zone changes made while this spell or ability resolves (ctx.trail, zones.js move), the
+// object as it last existed before it left the battlefield (o.lki), the moves made while paying its costs
+// (src.costMoves, engine.js cast / sacTo) and the way it was cast (src.castAlt, src.castPhase, p.castCounts).
+const WAYV = { destroyed: ['battlefield', ['graveyard', 'exile', 'library', 'command']], exiled: [null, 'exile'], milled: ['library', 'graveyard'], discarded: ['hand', 'graveyard'], returned: ['battlefield', 'hand'], sacrificed: ['battlefield', 'graveyard'] };
+function cond25(s) {
+  let m;
+  // "If a creature is destroyed this way", "if an Insect card was milled this way", "if you exiled a land card this way"
+  if ((m = s.match(/^(?:an?|another) ([\w-]+?)(?: card)? (?:is|was) (destroyed|milled|discarded|returned|exiled) this way$/))) return { c: 'way', from: WAYV[m[2]][0], to: WAYV[m[2]][1], what: m[1] };
+  if ((m = s.match(/^you exiled an? (land|nonland|creature|noncreature) card this way$/))) return { c: 'way', from: null, to: 'exile', what: m[1] };
+  if ((m = s.match(/^you put an? ([\w-]+?)(?: card)? onto the battlefield this way$/))) return { c: 'way', from: null, to: 'battlefield', what: m[1] };
+  // "Sacrifice a creature. If you can't, sacrifice ~" (the effect before it moved nothing of yours)
+  if (/^you can't$/.test(s)) return { c: 'way', from: 'battlefield', to: null, what: 'permanent', neg: true, mine: true };
+  // The object the ability is about, as it last existed (603.10: "leaves the battlefield" abilities look back)
+  if (/^it had no counters on it$/.test(s)) return { c: 'lki', test: 'noCounters' };
+  if ((m = s.match(/^it had an? ([\w+/-]+) counter on it$/))) return { c: 'lki', test: 'counter', kind: m[1] };
+  if ((m = s.match(/^its toughness was less than (\d+)$/))) return { c: 'lki', test: 'toughLT', n: +m[1] };
+  if ((m = s.match(/^it didn't have ([a-z ]+)$/))) return { c: 'lki', test: 'kw', kw: m[1], neg: true };
+  // What was paid: "the sacrificed creature's toughness was 4 or greater", "the discarded card wasn't a land card"
+  if ((m = s.match(/^the sacrificed creature's (power|toughness) was (\d+) or greater$/))) return { c: 'cost', test: m[1], n: +m[2] };
+  if ((m = s.match(/^the sacrificed creature was ([\w-]+)$/))) return { c: 'cost', test: 'is', what: m[1] };
+  if ((m = s.match(/^the discarded card (was|wasn't) an? ([\w-]+) card$/))) return { c: 'cost', test: 'is', what: m[2], neg: m[1] !== 'was', from: 'hand' };
+  // (a permanent that entered this turn: Mirrex's "Activate only if this land entered this turn")
+  if (/^(?:~|this (?:land|creature|artifact|permanent)) entered (?:the battlefield )?this turn$/.test(s)) return { c: 'enteredTurn' };
+  // ("Then if …" conditions read since rules 25: Jace, Wielder of Mysteries; Replicating Ring; Treasure Map)
+  if (/^your library has no cards in it$/.test(s)) return { c: 'libEmpty' };
+  if ((m = s.match(/^(?:it|~) has (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) or more ([a-z-]+) counters on it$/))) return { c: 'named', n: num(m[1]), kind: m[2] };
+  if ((m = s.match(/^there are (a|an|one|two|three|four|five|six|seven|eight|nine|ten|\d+) or more ([a-z-]+) counters on (?:it|~)$/))) return { c: 'named', n: num(m[1]), kind: m[2] };
+  // (hideaway lands: Windbrisk Heights, Spinerock Knoll)
+  if ((m = s.match(/^you attacked with (two|three|four|five|\d+) or more creatures this turn$/))) return { c: 'attackedN', n: num(m[1]) };
+  if ((m = s.match(/^an opponent was dealt (\d+) or more damage this turn$/))) return { c: 'oppDealtN', n: +m[1] };
+  // How the spell was cast
+  if ((m = s.match(/^the (\{[^}]+\}(?:\{[^}]+\})*) cost was paid$/))) return { c: 'altPaid' };
+  if (/^you cast (?:~|this spell) during your main phase$/.test(s)) return { c: 'castMain' };
+  if (/^~ was cast from your hand and you've cast another spell named ~ this game$/.test(s)) return { c: 'castAgain', from: 'hand' };
+  return null;
 }
 // (item 389, rules 24) More conditions, each checked from what the engine tracks (triggers.js evalCond)
 const BIGW = { eleven: 11, twelve: 12, thirteen: 13, fifteen: 15, twenty: 20, thirty: 30 };
@@ -906,7 +968,9 @@ function keywordLine(line, fx) {
     if ((m = s.match(/^(dredge|hideaway) (\d+)$/))) {
       fx[m[1]] = +m[2]; fx.kw.add(m[1]);
       // Hideaway: look at the top N, keep one for later (the simulator puts it into hand)
-      if (m[1] === 'hideaway') fx.etb.push({ k: 'dig', n: +m[2], take: 1, types: [], bf: false, gy: false });
+      // (Phase 2D-8, from rules 25: hideaway, 702.75: one card exiled face down, the rest on the bottom in a random order;
+      // it is played later by the card's own ability, resolve.js playHidden. Older games keep the card-to-hand reading.)
+      if (m[1] === 'hideaway') fx.etb.push({ k: 'dig', n: +m[2], take: 1, types: [], bf: false, gy: false, until: 25 }, { k: 'hideaway', n: +m[2], since: 25 });
       continue;
     }
     if ((m = s.match(/^(overload|transmute|offspring|warp) ((?:\{[^}]+\})+)$/))) {
@@ -964,13 +1028,63 @@ function searchEffect(s) {
   // Restricted tutors only find the card types they name ("a creature card", "an instant or sorcery card")
   const what = (s.match(/for (?:a|an|up to \w+)\s+([\w ,-]*?)\s*cards?\b/) || [])[1] || '';
   const types = ['creature', 'artifact', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'land'].filter(t => new RegExp(`\\b${t}\\b`).test(what));
-  return { k: 'tutor', bf: /onto the battlefield/.test(s), top: /on top/.test(s), gy: /into your graveyard/.test(s), types };
+  // (Phase 2E-2, used from rules 26) the other words: "a Dragon card", "a legendary card", "an Equipment card" (only cards
+  // with every one of them can be found; "X or Y" words are alternatives)
+  const subs26 = what.split(/,? or |, /).map(a => a.split(' ').filter(w => w && !types.includes(w) && !['card', 'cards', 'a', 'an', 'nonland', 'permanent'].includes(w))).filter(a => a.length);
+  return { k: 'tutor', bf: /onto the battlefield/.test(s), top: /on top/.test(s), gy: /into your graveyard/.test(s), types, ...(subs26.length && subs26.every(a => a.every(w => /^[a-z-]+$/.test(w))) ? { subs26 } : {}) };
 }
 
 // Effects with conditions: "If <condition>, <effect>" sentences become {k:'if'} effects, and
 // "... instead" replaces what the sentence before did when the condition holds. Sentences without a
 // condition stay together (some patterns span two sentences).
-export function parseEffects(t) {
+export function parseEffects(t, noMay = false) {
+  // (Phase 2E-3, used from rules 26) "Choose [up to one] [other] target enchantment or artifact [you control]. … create a
+  // token that's a copy of it" (Court of Vantress, Yenna): "it" is that target, not the source; the copy takes a target
+  const ch = noMay ? null : t.match(/^choose (up to one )?(other )?target ([a-z ,]+?)( you control)?(?: that [^.]+)?\.\s+(.+)$/s);
+  if (ch && /a copy of it\b/.test(ch[5])) {
+    const kinds = ch[3].split(/,? or |, /).map(w => w.trim()).filter(w => TR_TYPES.has(w));
+    const tr = { ...(kinds.length ? { kinds } : {}), ...(ch[2] ? { other: true } : {}), ...(ch[4] ? { ctl: 'you' } : {}) };
+    const rest = parseEffects(ch[5], true);
+    const swap = (/** @type {any[]} */ es) => es.flatMap(x => {
+      if (x.k === 'copyToken' && x.of === 'it' && !x.until) { const { of, ...plain } = x; return [{ ...x, until: 26 }, { ...plain, what: kinds.join(' or ') || 'permanent', tr, tr24: tr, ...(ch[1] ? { upTo: 1 } : {}), since: 26 }]; }
+      return x.effects ? [{ ...x, effects: swap(x.effects) }] : [x];
+    });
+    return swap(rest);
+  }
+  // (Phase 2E-1, used from rules 26) A punisher choice: "target opponent may have you draw three cards. If the player
+  // doesn't, …" (Combustible Gearhulk, Palantír of Orthanc): the opponent chooses; the older reading drew always
+  const pun = noMay ? null : t.match(/^(.*?)target opponent may have you draw (a|one|two|three|four) cards?\. if (?:the|that) player doesn't, (.+?)$/);
+  if (pun) {
+    const stash = MODAL_STASH;
+    const old0 = parseEffects(t, true);
+    MODAL_STASH = stash;
+    const refuse = punisherRest(pun[3]);
+    if (refuse.length) {
+      const old = old0.map(x => (x.until ? x : { ...x, until: 26 }));
+      const pre = pun[1].trim() ? parseEffects(pun[1].trim().replace(/,? then$/, ''), true).map(x => ({ ...x, since: 26 })) : [];
+      return [...old, ...pre, { k: 'offer', who: 'target opponent', n: num(pun[2] === 'a' ? 'one' : pun[2]), refuse, since: 26 }];
+    }
+    return old0;
+  }
+  // (Phase 2D-3, used from rules 25) "You may discard a card. When you do, …" / "You may sacrifice a creature. If you do,
+  // …" / "You may pay {E}{E}{E}. When you do, …": an optional cost paid as the ability resolves, and what paying it
+  // does (mayCost). The older reading, which did the second part for nothing, is kept for older games (until: 25).
+  const mc = noMay ? null : t.match(/^(.*?)you may (discard (?:a|one) card|sacrifice (?:a|an|another) [a-z -]+?|pay (?:\{e\})+|pay \d+ life|exile (?:a|one) card from your graveyard)\. (?:when|if) you do, ([^.]+\.?(?: (?:it|they|that creature) [^.]+\.)?)(.*)$/);
+  if (mc) {
+    // (a "choose two —" list waiting for this text is read by both readings: MODAL_STASH is put back in between)
+    const stash = MODAL_STASH;
+    const old0 = parseEffects(t, true);
+    MODAL_STASH = stash;
+    const inner = parseFlat(mc[3]);
+    const cost = parseCostText(mc[2]);
+    if (!(inner.length && cost)) return old0;
+    // (an effect the older reading already limited to older games keeps its own limit)
+    const old = old0.map(x => (x.until ? x : { ...x, until: 25 }));
+    {
+      const since = (/** @type {any[]} */ xs) => xs.map(x => ({ ...x, since: 25 }));
+      return [...old, ...since(mc[1].trim() ? parseEffects(mc[1].trim(), true) : []), { k: 'mayCost', cost, text: mc[2], effects: inner, since: 25 }, ...since(mc[4].trim() ? parseEffects(mc[4].trim(), true) : [])];
+    }
+  }
   // "You may pay {4}. If you do, untap ~": the effect only happens if the cost is paid on resolution
   const pf = t.match(/^(.*?)you may pay ((?:\{[^}]+\})+)\. if you do, ([^.]+\.?)(.*)$/);
   if (pf) {
@@ -981,7 +1095,7 @@ export function parseEffects(t) {
   const out = [];
   /** @type {any} (set by flush below: the plain effects just before an "if … instead" sentence) */
   let lastPlain = null;
-  let plain = [], lastIf = null, noRegen = false;
+  let plain = [], lastIf = null, noRegen = false, noRegen25 = false;
   const flush = () => { if (plain.length) { lastPlain = parseFlat(plain.join(' ')); out.push(...lastPlain); plain = []; } };
   for (let s of t.split(/(?<=\.)\s+/)) {
     s = s.replace(/^(?!choose )[a-z0-9',! ]{3,30} — (?=if |\w)/, '');
@@ -990,6 +1104,8 @@ export function parseEffects(t) {
     // (rules 9) "It can't be regenerated" / "They can't be regenerated": the destruction before it ignores shields
     // (marked once the whole text is read, so the sentences around it still read together: Pongify's token)
     if (/^(?:it|they) can't be regenerated\.?$/.test(s)) { noRegen = true; continue; }
+    // (Phase 2D-7, used from rules 25: Damn's wording)
+    if (/^(?:a creature|creatures) destroyed this way can't be regenerated\.?$/.test(s)) { noRegen25 = true; continue; }
     // ("If a card would be put into your graveyard …, exile it instead" is a replacement, not a condition)
     let m = /^if [^,]* would /.test(s) ? null : s.match(/^(?:if|as long as) (?!you do\b|you don't\b|it's|that\b|they\b|a player does\b|no one does\b)(.+?), (.+)$/);
     let instead = false;
@@ -1009,10 +1125,23 @@ export function parseEffects(t) {
       lastIf = e;
       continue;
     }
-    if ((m = s.match(/^otherwise, (.+)/)) && lastIf && !lastIf.else) { flush(); lastIf.else = parseFlat(m[1]); continue; }
+    if ((m = s.match(/^otherwise, (.+)/)) && lastIf && !lastIf.else) {
+      flush(); lastIf.else = parseFlat(m[1]);
+      // (Phase 2D-1, used from rules 25) "put ~ into its owner's library seventh from the top" (Approach of the Second Sun)
+      const pos = m[1].match(/^put ~ into its owner's library (second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth) from the top/);
+      if (pos) lastIf.else.unshift({ k: 'libraryPos', n: ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'].indexOf(pos[1]) + 2, since: 25 });
+      continue;
+    }
+    // (Phase 2D-1, used from rules 25) "Then if you're the monarch, double …" (Court of Garenbrig): the condition was
+    // dropped and the effect read as unconditional; older games keep that reading (until: 25)
+    if ((m = s.match(/^then if (.+?), (.+)$/)) && !/ would /.test(m[1])) {
+      const inner = parseFlat(m[2]);
+      if (inner.length) { flush(); out.push(...inner.map(x => ({ ...x, until: 25 })), { k: 'if', cond: parseCond(m[1]), effects: inner, since: 25 }); continue; }
+    }
     plain.push(s);
   }
   flush();
+  if (noRegen25) { const mark = (/** @type {any[]} */ es) => { for (const x of es) { if (x.k === 'remove' || x.k === 'wipe' || x.k === 'wipeOpp') x.noRegen25 = true; if (x.effects) mark(x.effects); } }; mark(out); }
   if (noRegen) {
     const mark = (/** @type {any[]} */ es) => { for (const x of es) { if (x.k === 'remove' || x.k === 'wipe' || x.k === 'wipeOpp') x.noRegen9 = true; if (x.effects) mark(x.effects); } };
     mark(out);
@@ -1071,7 +1200,69 @@ function whereX(c) {
   }
   // (item 389, rules 24) Clauses read since: wrapped so games before rules 24 still count them as 0 (mana.js dynValue)
   const d24 = whereX24(c) || whereX24(c.split(',')[0].trim());
-  return d24 ? { dyn: 'r24', d: d24 } : { dyn: '?' };
+  if (d24) return { dyn: 'r24', d: d24 };
+  // (Phase 2D-3, rules 25) more clauses, wrapped the same way (0 before rules 25); and a clause followed by ", and …"
+  // that an older reader knew (Palantír of Orthanc: "the number of influence counters on ~, and that player …")
+  const first = c.split(',')[0].trim();
+  const d25 = whereX25(c) || whereX25(first) || (first !== c ? whereXold(first) : null);
+  return d25 ? { dyn: 'r25', d: d25 } : { dyn: '?' };
+}
+// (the readings above, without the rules 24 ones: for a first part read since rules 25)
+/** @param {string} c */
+function whereXold(c) { const d = whereX(c); return d.dyn === '?' || d.dyn === 'r25' ? null : d; }
+// (Phase 2E-3) A mode's words ("• Discard a card, then draw a card."): the bullet's leading space kept patterns that
+// start a sentence from matching (Charming Scoundrel read "draw a card" only). From rules 26 the trimmed words are
+// read; where that reads differently, the older reading is kept for older games (until: 26).
+/** @param {string} s */
+function bulletEffects(s) {
+  const stash = MODAL_STASH;
+  const old = parseEffects(s);
+  if (s === s.trim()) return old;
+  const stash2 = MODAL_STASH;
+  MODAL_STASH = stash;
+  // (a "+0/+0" pump read from "gains …" is no effect; a mode the older reading left empty stays empty, so the list of
+  // modes a person picks from by position doesn't change for older replays)
+  const now0 = parseEffects(s.trim());
+  // (and a "+0/+0 and hexproof" pump that only repeats a "gains hexproof" read as protection: one target, not two)
+  const now = now0.filter(x => !(x.k === 'pump' && !x.p && !x.t && (!x.kw?.length || now0.some(y => y.k === 'protect' && x.kw.every((/** @type {string} */ k) => y.kw?.includes(k))))));
+  MODAL_STASH = stash2;
+  if (!old.length || JSON.stringify(old) === JSON.stringify(now) || JSON.stringify(old.filter(x => !(x.k === 'pump' && !x.p && !x.t && !x.kw?.length))) === JSON.stringify(now)) return old;
+  return [...old.map(x => (x.until ? x : { ...x, until: 26 })), ...now.map(x => (x.since ? x : { ...x, since: 26 }))];
+}
+// (Phase 2E-1) What happens when the opponent refuses a punisher's draw: "you mill three cards, then ~ deals damage to
+// that player equal to the total mana value of those cards"; "you mill X cards, where X is …, and that player loses
+// life equal to the total mana value of those cards". The milled cards are the ones this ability milled (ctx.trail).
+/** @param {string} s */
+function punisherRest(s) {
+  const out = [];
+  const m = s.match(/^you mill (a|one|two|three|four|five|x) cards?(?:, where x is ([^,]+?))?(?:,? (?:then|and) (.+?))?\.?$/);
+  if (!m) return out;
+  const mill = { k: 'mill', who: 'you', n: m[1] === 'x' ? 'X' : num(m[1] === 'a' ? 'one' : m[1]) };
+  if (m[2]) { const d = whereX(m[2].trim()); if (d.dyn !== '?') mill.xw = d; else return []; }
+  out.push(mill);
+  const mv = { dyn: 'wayMv', from: 'library', to: 'graveyard' };
+  if (m[3] && /^(?:~|this creature) deals damage to that player equal to the total mana value of those cards$/.test(m[3])) out.push({ k: 'damage', n: mv, to: 'that player' });
+  else if (m[3] && /^that player loses life equal to the total mana value of those cards$/.test(m[3])) out.push({ k: 'loseThat', n: mv });
+  else if (m[3]) return [];
+  return out;
+}
+// (Phase 2D-3) "X, where X is …" clauses read since rules 25 (mana.js dynValue)
+/** @param {string} c */
+function whereX25(c) {
+  let m;
+  // converge: "the number of colors of mana spent to cast this spell" (Painful Truths; engine.js cast: o.convergeN)
+  if (/^the number of colors of mana spent to cast (?:this spell|~)$/.test(c)) return { dyn: 'converge' };
+  // what this spell or ability did (ctx.trail): "the number of creatures exiled this way" (Sunfall)
+  if ((m = c.match(/^the number of ([a-z-]+?)s? (exiled|destroyed|milled|discarded|returned|sacrificed) this way$/))) return { dyn: 'wayCount', from: WAYV[m[2]][0], to: WAYV[m[2]][1], what: m[1] === 'card' ? 'card' : m[1] };
+  // a die roll earlier in the same ability ("roll a d20 … where X is the result": Ancient Bronze Dragon)
+  if (/^the result$/.test(c)) return { dyn: 'roll' };
+  if (/^the greatest power among other creatures you control$/.test(c)) return { dyn: 'maxPowerOther' };
+  // "the number of creatures they control of the chosen type" (Pact of the Serpent: the target player's)
+  if (/^the number of creatures (?:they|that player) controls? of the chosen type$/.test(c)) return { dyn: 'chosenCount', who: 'target' };
+  if ((m = c.match(/^the number of ([a-z]+?)s? target opponent controls$/))) return { dyn: 'oppMax', what: m[1] };
+  // (the trigger's amount: damage, life, cards; Quartzwood Crasher's batch of combat damage adds up, triggers.js)
+  if (/^the amount of (?:combat )?damage (?:those creatures|it|that creature) dealt(?: to that player)?$/.test(c)) return { dyn: 'trigN' };
+  return null;
 }
 function whereX24(c) {
   let m;
@@ -1100,7 +1291,9 @@ function whereX24(c) {
 // in the sentence the effect was read from
 // (item 389) effects that take several targets as copies of themselves ("up to two target …")
 const MULTI = new Set(['remove', 'bounce', 'blink', 'tap', 'tuck', 'flickerDelay']);
-const TARGETED = new Set(['remove', 'bounce', 'blink', 'flickerDelay', 'steal', 'tap', 'pump', 'protect', 'counters', 'shrink', 'minus', 'goad', 'damage', 'tuck', 'noBlock', 'regen', 'doublePT', 'evade', 'kwCounter']);
+// (Phase 2D-1) kinds whose target is a card in a graveyard or the creature an Equipment attaches to (words: e.tr25)
+const TR25 = new Set(['reanimate', 'regrow', 'attachSelf']);
+const TARGETED = new Set(['grantDies26', 'exchange', 'ignition', 'grantWatch', 'remove', 'bounce', 'blink', 'flickerDelay', 'steal', 'tap', 'pump', 'protect', 'counters', 'shrink', 'minus', 'goad', 'damage', 'tuck', 'noBlock', 'regen', 'doublePT', 'evade', 'kwCounter']);
 const TR_COLORS = { white: 'W', blue: 'U', black: 'B', red: 'R', green: 'G' };
 const TR_KW = 'flying|reach|trample|haste|vigilance|deathtouch|lifelink|menace|defender|first strike|double strike';
 const TR_TYPES = new Set(['artifact', 'creature', 'enchantment', 'land', 'planeswalker', 'battle', 'permanent', 'nonland', 'noncreature', 'nonartifact', 'nontoken', 'token']);
@@ -1180,6 +1373,10 @@ function readRiders(t, found, effects) {
       if ((m = t.match(/counter target [\w, ]*?spell with mana value (\d+)(?: or (less|greater))?/))) e.mv = m[2] === 'less' ? { max: +m[1] } : m[2] === 'greater' ? { min: +m[1] } : { min: +m[1], max: +m[1] };
       if ((m = t.match(new RegExp(`counter target (${COLS}) spell`)))) e.color = colOf(m[1]);
       if ((m = t.match(new RegExp(`counter target [\\w, ]*?spell if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
+      // (Phase 2D-1, used from rules 25) "… that targets a permanent / creature you control" (Not of This World); a mana
+      // value limit counted from the spell's controller's graveyard (Drown in the Loch)
+      if ((m = t.match(/counter target spell(?: or ability)? that targets an? (permanent|creature|artifact|enchantment|land|planeswalker) you control/))) e.targetsMine = m[1];
+      if (/counter target [\w, ]*?spell with mana value less than or equal to the number of cards in its controller's graveyard/.test(t)) e.mv25 = true;
     } else if (e.k === 'remove' && (m = t.match(new RegExp(`(?:destroy|exile) target [\\w, ]*?permanent if it's (${COLS})`)))) e.ifColor = colOf(m[1]);
   }
   // (item 209, used from rules 17) What a targeted effect's words ask of its target, beyond the kind of permanent:
@@ -1190,6 +1387,113 @@ function readRiders(t, found, effects) {
     if (x.e.dup || x.e.tr || !TARGETED.has(x.e.k)) continue;
     const tr = targetWords(t, x.i, x.e.k);
     if (tr) x.e.tr = tr;
+  }
+  // (Phase 2D-1, used from rules 25: e.tr25) Target words for targets outside the battlefield kinds above (a card in a
+  // graveyard, the creature an Equipment attaches to), and mana value limits that are counted: "less than or equal to
+  // the number of cards in its controller's graveyard", "X or less"
+  for (const x of found) {
+    if (x.e.dup || !(TARGETED.has(x.e.k) || TR25.has(x.e.k))) continue;
+    const from = Math.max(t.lastIndexOf('.', x.i), t.lastIndexOf('\n', x.i)) + 1;
+    const sentence = t.slice(from).split(/[.\n]/)[0];
+    if (!/\btarget\b/.test(sentence)) continue;
+    /** @type {any} */
+    const tr = TR25.has(x.e.k) ? { ...(targetWords(t, x.i, x.e.k) || {}) } : {};
+    if (/target [\w ,-]*? with mana value less than or equal to the number of cards in its controller's graveyard/.test(sentence)) tr.mv = { max: { dyn: 'ctlGy' } };
+    else if (/target [\w ,-]*? with mana value x or less/.test(sentence)) tr.mv = { max: { dyn: 'castX' } };
+    // (a card in your graveyard isn't "controlled": its owner is checked by the zone the effect looks in)
+    if (TR25.has(x.e.k) && x.e.k !== 'attachSelf') delete tr.ctl;
+    if (Object.keys(tr).length) x.e.tr25 = tr;
+    // ("return target … card … to the battlefield with a -1/-1 counter on it": Persist)
+    if (x.e.k === 'reanimate' && /to the battlefield with a -1\/-1 counter on it/.test(sentence)) x.e.minus25 = true;
+  }
+  // (Phase 2D-2, used from rules 25) "Until end of turn, you don't lose this mana as steps and phases end" (Birgi,
+  // Savage Ventmaw, Klauth, Karn, Legacy Reforged, Rousing Refrain): the mana the card adds stays in the pool all turn
+  if (/you don't lose this mana as steps and phases end/.test(t)) for (const x of found) if ((x.e.k === 'addMana' || x.e.k === 'addManaN') && !x.e.dup) x.e.keep25 = true;
+  // (Phase 2D-4, used from rules 25) An ability inside quotes belongs to whatever gains it (a token, a creature): "…, and
+  // 'At the beginning of the end step, sacrifice this token'" is not the source sacrificing or exiling itself
+  for (const x of found) {
+    if ((x.e.k !== 'sacSelf' && x.e.k !== 'exileSelf') || x.e.dup || x.e.until) continue;
+    if ((t.slice(0, x.i).match(/"/g) || []).length % 2 === 1 && /(?:sacrifice|exile) (?:~|this token)/.test(t.slice(x.i, x.i + 40))) x.e.until = 25;
+  }
+  for (const x of found) {
+    if (x.e.k !== 'token' || !x.e.forWho25) continue;
+    const rest = t.slice(x.i).split('\n')[0];
+    const has = rest.match(/\. it has ([a-z, ]+?),? and "at the beginning of the end step, sacrifice (?:~|this token)\.?"/);
+    if (has) { x.e.kw = kwList(has[1].replace(/,? and$/, '')); x.e.temp25 = true; }
+  }
+  // (the older reading drew at once: Hunter's Insight; kept for older games)
+  if (found.some(x => x.e.k === 'grantWatch')) for (const x of found) if (x.e.k === 'draw' && x.e.n?.dyn === 'trigN' && !x.e.until) x.e.until = 25;
+  // (Phase 2D-4, used from rules 25) "Tap target … It doesn't untap during its controller's next untap step" (Junk
+  // Winder): the same as exerting it (701.39b's untap rule)
+  for (const x of found) {
+    if (x.e.k !== 'tap' || x.e.dup) continue;
+    const from = Math.max(t.lastIndexOf('.', x.i), t.lastIndexOf('\n', x.i)) + 1;
+    if (/^[^.\n]*\.\s*(?:it|that (?:creature|permanent)) doesn't untap during its controller's next untap step/.test(t.slice(from))) x.e.frozen25 = true;
+  }
+  // (Phase 2E-2/3, used from rules 26) counterspell riders: Delay ("exile it with three time counters on it … it gains
+  // suspend"), Render Silent ("its controller can't cast spells this turn"); "mana of any type can be spent" on a
+  // permission (Mnemonic Betrayal)
+  for (const x of found) {
+    if (x.e.dup) continue;
+    if (x.e.k === 'counter' && /if the spell is countered this way, exile it with (three|two|four) time counters on it instead of putting it into its owner's graveyard/.test(t)) x.e.suspend26 = num(t.match(/exile it with (three|two|four) time counters/)[1]);
+    if (x.e.k === 'counter' && /counter target spell\. its controller can't cast spells this turn/.test(t)) x.e.silenceCtl26 = true;
+    if (x.e.k === 'exileGy' && /mana of any type can be spent to cast them/.test(t)) x.e.anyMana26 = true;
+  }
+  // (Phase 2E-3, used from rules 26) A token's ability in quotes ('… creature tokens with "Sacrifice this token: Add {C}."')
+  // belongs to the token: the source no longer adds the mana itself, and the token is made with that text (zones.js
+  // createToken: tokenFx reads it)
+  for (const x of found) {
+    if (x.e.k !== 'token' || x.e.dup) continue;
+    const q = t.slice(x.i).split('\n')[0].match(/^[^"]*?creature tokens?(?: with|\. (?:it has|they have|each has)) "([^"]+)"/);
+    if (!q) continue;
+    x.e.text26 = q[1].replace(/~/g, 'this creature');
+    const at = t.indexOf(q[1], x.i);
+    for (const y of found) if (y !== x && !y.e.until && y.i >= at && y.i < at + q[1].length && ['addMana', 'addManaN', 'sacSelf', 'draw', 'gain', 'damage'].includes(y.e.k)) y.e.until = 26;
+  }
+  // (Phase 2E-3, used from rules 26) "This ability still resolves if its target becomes illegal" (Gilded Drake): the
+  // ability isn't removed for an illegal target (608.2b's exception, written on the card)
+  if (/this ability still resolves if its target becomes illegal/.test(t)) for (const x of found) if (!x.e.until) x.e.resolvesAnyway26 = true;
+  // (Phase 2E-4) the granted trigger's "return it" belongs to that creature, not to the spell (Not Dead After All)
+  if (found.some(x => x.e.k === 'grantDies26')) for (const x of found) if (x.e.k === 'returnSelf' && !x.e.until) x.e.until = 26;
+  // (Phase 2E-1) Gilded Drake's own "sacrifice ~" belongs to the older reading once the exchange is read
+  if (found.some(x => x.e.k === 'sacUnlessExchanged')) for (const x of found) if (x.e.k === 'sacSelf' && !x.e.until) x.e.until = 26;
+  // (Phase 2D-7, used from rules 25) "protection from colorless or from the color of your choice" (Giver of Runes): real
+  // protection, not hexproof; "put a +1/+1 counter on ~. It can't be blocked this turn" (Kappa Cannoneer)
+  for (const x of found) {
+    if (x.e.dup) continue;
+    if (x.e.k === 'protect' && / protection from colorless or from the color of your choice/.test(t)) x.e.prot25 = true;
+    if (x.e.k === 'counters' && x.e.on === '~' && /^[^.\n]*\.\s*it can't be blocked this turn/.test(t.slice(x.i))) x.e.unblock25 = true;
+  }
+  // (Phase 2D-5, used from rules 25) permissions to play cards these effects move (resolve.js)
+  for (const x of found) {
+    if (x.e.dup) continue;
+    const after = t.slice(x.i);
+    if (x.e.k === 'dig' && /exile one of them\. you may play the exiled card this turn/.test(after)) x.e.exileOne25 = true;
+    if ((x.e.k === 'exileTrigCard' || (x.e.k === 'mill' && x.e.who === 'you')) && /^[^.\n]*\.\s*(?:if you do, )?you may play (?:that card|those cards|it|them) this turn/.test(after)) x.e.play25 = true;
+    if (x.e.k === 'exileGy' && x.e.all && /you may cast spells from among (?:them|those cards) this turn/.test(after)) x.e.castFrom25 = true;
+    if (x.e.k === 'exileGy' && x.e.all && /at the beginning of the next end step, if any of those cards remain exiled, return them to their owners' graveyards/.test(after)) x.e.returnEnd25 = true;
+    if (x.e.k === 'impulse' && /^[^\n]*?you may play (?:that card|those cards|it|them) for as long as (?:it|they) remains? exiled/.test(after)) x.e.forever25 = true;
+  }
+  // (Phase 2E-1, used from rules 26) "you draw a card and target opponent may draw a card" (Tataru Taru) was read as you
+  // drawing twice: the second draw is the targeted opponent's (they may: the AI always does)
+  for (const x of found) {
+    if (x.e.k !== 'draw' || x.e.dup || x.e.until || typeof x.e.n === 'object') continue;
+    const dm = t.slice(x.i - 30 < 0 ? 0 : x.i - 30, x.i + 30).match(/target opponent may draw (a|one|two) cards?/);
+    if (!dm || !/target opponent may draw/.test(t.slice(Math.max(0, x.i - 25), x.i + 5))) continue;
+    x.e.until = 26;
+    const at = effects.indexOf(x.e);
+    if (at >= 0) effects.splice(at + 1, 0, { k: 'drawLose', n: num(dm[1] === 'a' ? 'one' : dm[1]), life: 0, who: 'target opponent', since: 26 });
+  }
+  // (Phase 2D-1, used from rules 25) "An opponent draws a card" (Baleful Mastery) was read as you drawing: from rules 25
+  // the opponent its controller chooses draws (drawLose with no life); older games keep "you draw" (until: 25)
+  for (const x of found) {
+    if (x.e.k !== 'draw' || x.e.dup || x.e.until || typeof x.e.n === 'object') continue;
+    const from = Math.max(t.lastIndexOf('.', x.i), t.lastIndexOf('\n', x.i)) + 1;
+    const dm = t.slice(from).split(/[.\n]/)[0].match(/^(?:if [^,]*, )?an opponent draws (a|one|two|three) cards?$/);
+    if (!dm) continue;
+    x.e.until = 25;
+    const at = effects.indexOf(x.e);
+    if (at >= 0) effects.splice(at + 1, 0, { k: 'drawLose', n: num(dm[1] === 'a' ? 'one' : dm[1]), life: 0, who: 'an opponent', since: 25 });
   }
   // (item 211, used from rules 17) "… for each burden counter on ~" (The One Ring): the amount is counted on
   // resolution (nPer); older games keep the plain 1
@@ -1270,6 +1574,8 @@ function readRiders(t, found, effects) {
 export function needsTargetIn(e, rules) {
   // (item 389) an effect a game's rules version doesn't play (since / until) asks for no target
   if ((e.since && rules < e.since) || (e.until && rules >= e.until)) return false;
+  // (Phase 2E-1) Chandra's Ignition's creature is a target from rules 26 (before, the engine picked it)
+  if (e.k === 'ignition') return rules >= 26;
   return needsTarget(e) && !(rules >= 6 && (e.dup || e.gyCard));
 }
 export function needsTarget(e) {
@@ -1284,6 +1590,12 @@ export function needsTarget(e) {
   if (e.k === 'protect') return e.scope === 'one';
   if (e.k === 'damage') return !e.to.startsWith('each') && e.to !== 'defender' && e.to !== 'that player';
   if (e.k === 'counters') return e.on.startsWith('target');
+  // (Phase 2D-4) a trigger a target creature gains this turn (Hunter's Insight)
+  if (e.k === 'grantWatch') return true;
+  // (Phase 2E-1) Gilded Drake's exchange, a punisher's opponent
+  if (e.k === 'exchange' || e.k === 'offer') return true;
+  // (Phase 2E-4) Not Dead After All's creature
+  if (e.k === 'grantDies26') return true;
   return false;
 }
 
@@ -1306,7 +1618,7 @@ export function analyzeCard(card) {
   };
   type.permanent = !type.instant && !type.sorcery;
   const subtypes = (typeLine.split('—')[1] || '').trim().split(/\s+/).filter(Boolean);
-  const t = cleanText(card.text, card.frontName || card.name);
+  const t = cleanText(card.text, card.frontName || card.name, !!card.noShort26);
   // (a card's reading: many fields start empty and are filled in as its lines are read)
   /** @type {Record<string, any>} */
   const fx = {
@@ -1338,6 +1650,7 @@ export function analyzeCard(card) {
   // Mana that costs life (rules 6): painlands, Talismans, Ancient Tomb, Mana Confluence (see the mana lines below)
   let painN = 0, painless = false, painLife = false;
   /** @type {{ cols: string[], need: any }[]} (rules 16: each mana line's colors and its "activate only if you control" condition) */
+  /** @type {any[]} */
   const manaLines = [];
   // A background's granted ability only works while you control a commander
   const applyBg = () => {
@@ -1501,13 +1814,19 @@ export function analyzeCard(card) {
     // Die-roll tables: "1—14 | Create a Treasure token." under a "roll a d20" line
     if ((m = line.match(/^(\d+)(?:—(\d+))? \| (.*)/)) && LAST_ROLL) {
       const effects = parseEffects(m[3]);
+      // (Phase 2E-4, used from rules 26) Delina, Wild Mage: "Create a tapped and attacking token that's a copy of that
+      // creature, except it's not legendary and it has 'At end of combat, exile this token.'"; "Create one of those
+      // tokens. You may roll again." (the older reading exiled the source itself)
+      const copyRow = { k: 'copyToken', what: 'creature', tr: { ctl: 'you' }, tapped: true, attacking26: true, notLegend: true, endCombat26: true, sameAs26: true, since: 26 };
+      if (/^create a tapped and attacking token that's a copy of that creature, except it's not legendary and it has "at end of combat, exile (?:~|this token)\.?"\.?$/.test(m[3])) effects.push(copyRow);
+      if (/^create one of those tokens\. you may roll again\.?$/.test(m[3])) effects.push(copyRow, { k: 'rollAgain26', since: 26 });
       if (effects.length) { (LAST_ROLL.table ||= []).push({ lo: +m[1], hi: +(m[2] || m[1]), effects }); pending = null; }
       continue;
     }
     // "Choose one. If you control a commander as you cast ~, you may choose both instead." with bullet modes
     if ((m = line.match(/^choose one\. if (.+?), you may choose (both|two|any number) instead\.?$/))) {
       const bullets = [];
-      while (lines[li + 1]?.startsWith('•')) bullets.push(parseEffects(lines[++li].slice(1)));
+      while (lines[li + 1]?.startsWith('•')) bullets.push(bulletEffects(lines[++li].slice(1)));
       const modal = { n: 1, modes: bullets.filter(b => b.length), up: { cond: parseCond(m[1].replace(/ as you cast ~$/, '')), n: m[2] === 'any number' ? 99 : 2 } };
       if (type.instant || type.sorcery) fx.modes = modal; else fx.etbModes = modal;
       continue;
@@ -1515,7 +1834,7 @@ export function analyzeCard(card) {
     // Modal: "Choose one —" followed by "• mode" lines; the pilot picks the modes when casting
     if ((m = line.match(/choose (one or both|one or more|any number|up to one|one|two|three)(?: that hasn't been chosen(?: this turn)?)? —$/))) {
       const bullets = [];
-      while (lines[li + 1]?.startsWith('•')) bullets.push(parseEffects(lines[++li].slice(1)));
+      while (lines[li + 1]?.startsWith('•')) bullets.push(bulletEffects(lines[++li].slice(1)));
       const n = { one: 1, two: 2, three: 3, 'one or both': 2, 'up to one': 1 }[m[1]] || 99;
       const modal = { n, modes: bullets.filter(b => b.length) };
       if (/^(?:when|whenever) ~ enters/.test(line)) { fx.etbModes = modal; continue; }
@@ -1605,6 +1924,17 @@ export function analyzeCard(card) {
     if ((m = line.match(/^you may (?:play lands|cast ([\w ]*?)spells|play the top card of your library|play lands and cast spells) (?:from the top of your library)?/))) {
       fx.seeTop = true;
       fx.playTop = /play the top card|play lands and cast/.test(line) ? 'all' : /play lands/.test(line) ? 'land' : (m[1] || '').trim() || 'spell';
+      // (Phase 2D-2, used from rules 25) The words above also took lines that aren't about the library at all: "You may
+      // play lands from your graveyard" (Crucible of Worlds), "You may cast green creature spells as though they had
+      // flash" (Yeva), "You may cast spells from your hand without paying their mana costs" (Omniscience). From rules 25
+      // those don't let anyone play from the top of the library (notTop25), and are read for what they say.
+      if (!/top (?:card )?of your library/.test(line)) {
+        fx.notTop25 = true;
+        let w;
+        if (/^you may play lands from your graveyard\.?$/.test(line)) fx.gyLands = true;
+        else if ((w = line.match(/^you may cast ([\w ,/-]*?)spells as though they had flash\.?$/)) && !/this turn/.test(line)) fx.flash25 = spendWords(`cast ${w[1].trim() || ''} spells`.replace('cast  spells', 'cast spells'));
+        else if ((w = line.match(/^you may cast ([\w ,/-]*?)spells (from your hand )?without paying their mana costs\.?$/))) fx.free25 = { ...spendWords(`cast ${w[1].trim()} spells`.replace('cast  spells', 'cast spells')), hand: !!w[2] };
+      }
       continue;
     }
     // Static bonuses with a condition: "As long as seven or more cards are in your graveyard, ~ gets +1/+1"
@@ -1735,7 +2065,25 @@ export function analyzeCard(card) {
     if ((m = line.match(/^(?:\{(\d)\}, )?\{t\}: choose a creature type\. add an amount of mana of that color equal to the number of creatures you control of the chosen type|^(?:\{(\d)\}, )?\{t\}: choose a color\. add an amount of mana of that color equal to the number of creatures you control of the chosen type/))) { fx.mana = { amount: 1, colors: ['W', 'U', 'B', 'R', 'G'], sac: false, dyn: 'tribeMax', less: +(m[1] || m[2] || 0), floor: fx.mana?.amount || 0 }; continue; }
     if ((m = line.match(/^\{t\}: add \{([wubrgc])\} for each charge counter on ~/))) { fx.mana = { amount: 1, colors: [m[1].toUpperCase()], sac: false, dyn: 'charge' }; continue; }
     if (/^~ enters with a charge counter on it for each time it was kicked/.test(line)) { fx.chargeKick = true; continue; }
-    if (/^if ~ would enter, you may discard a land card instead\. if you do, put ~ onto the battlefield/.test(line)) { fx.addCost = { ...parseCostText('discard a land card') }; continue; }
+    // (Mox Diamond: from rules 25 the discard is a replacement as it enters, not a cost: moxDiamond25, engine.js)
+    if (/^if ~ would enter, you may discard a land card instead\. if you do, put ~ onto the battlefield/.test(line)) { fx.addCost = { ...parseCostText('discard a land card') }; fx.moxDiamond25 = true; continue; }
+    // (Phase 2D-7, used from rules 25) attack restrictions and rule changes the reader didn't read
+    if (/^~ can't attack a player it has already attacked this turn\.?$/.test(line)) { fx.attackOnce25 = true; continue; }
+    if (/^players can't activate planeswalkers' loyalty abilities\.?$/.test(line)) { fx.noLoyalty25 = true; continue; }
+    // (Phase 2E-7, used from rules 26) attack limits (combat.js)
+    if ((m = line.match(/^no more than (one|two) creatures? can attack ~ each combat\.?$/))) { fx.attackSelfCap26 = num(m[1]); continue; }
+    if ((m = line.match(/^creatures named ([a-z' ,-]+?) can't attack you(?: or planeswalkers you control)?\.?$/))) { fx.noAttackNamed26 = m[1]; continue; }
+    // (Phase 2E-5, used from rules 26) Terastodon: "you may destroy up to three target noncreature permanents. For each
+    // permanent put into a graveyard this way, its controller creates a 3/3 green Elephant creature token."
+    if ((m = line.match(/^when ~ enters, you may destroy up to (two|three) target (noncreature|nonland|artifact or enchantment) permanents?\. for each permanent put into a graveyard this way, its controller creates (?:a|an) (\d+)\/(\d+) ([\w ]+?) creature token\.?$/))) {
+      const n = num(m[1]), what = m[2] === 'noncreature' ? 'permanent' : m[2] === 'nonland' ? 'nonland permanent' : 'artifact or enchantment';
+      const one = { k: 'remove', mode: 'destroy', what, tr: { not: [m[2] === 'nonland' ? 'land' : 'creature'] }, upTo: n, may26: true, since: 26 };
+      fx.etb.push(one, ...Array.from({ length: n - 1 }, () => ({ ...one, upTo: 1, more: true })), { k: 'tokenPerWay26', p: +m[3], t: +m[4], desc: m[5], since: 26 });
+      continue;
+    }
+    // (Phase 2D-6, used from rules 25) Benevolent Hydra: one more +1/+1 counter on your other creatures (616.1 ordering
+    // with Hardened Scales-style effects: resolve.js moreCounters)
+    if (/^if one or more \+1\/\+1 counters would be put on another creature you control, that many plus one \+1\/\+1 counters are put on it instead\.?$/.test(line)) { fx.counterBonus25 = { plus: 1, other: true }; continue; }
     if (/^at the beginning of your draw step, you may draw two additional cards\. if you do, choose two cards in your hand drawn this turn/.test(line)) { fx.watch.push({ ev: 'drawStep', effects: [{ k: 'scry', n: 2 }] }); continue; }
     if ((m = line.match(/^(?:enchanted|equipped) creature can't be blocked(?: and has ([\w ,]+?))?\.?$/))) { fx.attachBuff = { p: fx.attachBuff?.p || 0, t: fx.attachBuff?.t || 0, kw: [...(fx.attachBuff?.kw || []), 'unblockable', ...kwList(m[1])] }; continue; }
     if ((m = line.match(/^whenever enchanted (?:land|forest|plains|island|swamp|mountain) is tapped for mana, its controller adds an additional (\{[wubrgc]\}|one mana of any color|(?:one )?mana of the chosen color|one mana of any type that land produced)/))) { fx.auraMana = m[1].match(/\{([wubrgc])\}/)?.[1]?.toUpperCase() || '*'; continue; }
@@ -1751,7 +2099,12 @@ export function analyzeCard(card) {
     if ((m = line.match(/^(?:if (.+?), )?you may pay (\d+) life rather than pay ~'s mana cost/))) { fx.altLife = { n: +m[2], cond: m[1] ? parseCond(m[1]) : null }; continue; }
     if ((m = line.match(/^creatures can't attack you(?: or planeswalkers you control)? unless their controller pays \{x\} for each [^,]+, where x is the number of (\w+)s you control/))) { fx.attackTaxDyn = m[1]; continue; }
     if ((m = line.match(/^(creature|noncreature) spells you cast with power (\d+) or greater cost \{(\d+)\} less to cast/))) { fx.costReduce = { what: m[1], n: +m[3], minPower: +m[2] }; continue; }
-    if (/^escalate[— ]/.test(line)) { fx.escalate = true; if (fx.modes) fx.modes.n = 1; continue; }
+    if (/^escalate[— ]/.test(line)) {
+      fx.escalate = true; if (fx.modes) fx.modes.n = 1;
+      // (Phase 2D-8, used from rules 25) a mana escalate cost: each mode beyond the first adds it (engine.js cast)
+      if ((m = line.match(/^escalate ((?:\{[^}]+\})+)/))) fx.escalateCost25 = m[1].toUpperCase();
+      continue;
+    }
     if (/^enchanted permanent is a colorless land with "\{t\}: add \{c\}" and loses all other card types and abilities/.test(line)) { fx.attachSet = { p: 0, t: 0, land: true }; continue; }
     if ((m = line.match(/^as long as you control (\w+) or more lands, lands you control have "\{t\}: add one mana of any color\.?"/))) { fx.landsAnyColor = true; fx.landsAnyColorN = num(m[1]); continue; }
     if (/^nontoken creatures you control are forest lands in addition to their other types/.test(line)) { fx.manaAnthem = 'G'; continue; }
@@ -1775,7 +2128,12 @@ export function analyzeCard(card) {
     if (/^the "legend rule" doesn't apply to permanents you control/.test(line)) { fx.noLegendRule = true; continue; }
     if (/^(?:nonartifact )?spells you cast have improvise/.test(line)) { fx.improviseAll = true; continue; }
     if (/^bargain$/.test(line)) { fx.kw.add('bargain'); pending = null; continue; }
-    if (/^hideaway lands?|^\{[wubrg]\}, \{t\}: you may play the exiled card without paying its mana cost if /.test(line)) { pending = null; continue; }
+    // (Phase 2D-8, used from rules 25) "{W}, {T}: You may play the exiled card without paying its mana cost if <condition>"
+    if ((m = line.match(/^(\{[wubrg]\}), \{t\}: you may play the exiled card without paying its mana cost if (.+?)\.?$/))) {
+      fx.abilities.push({ cost: m[1], tap: true, effects: [{ k: 'playHidden', cond: parseCond(m[2]), since: 25 }], text: `play the hidden card if ${m[2]}`, costs: { mana: m[1].toUpperCase(), tap: true } });
+      pending = null; continue;
+    }
+    if (/^hideaway lands?/.test(line)) { pending = null; continue; }
     // ---- 1.6.0 third batch
     if (/^at the beginning of your draw step, you may draw two additional cards/.test(line)) { fx.watch.push({ ev: 'drawStep', effects: [{ k: 'scry', n: 2 }] }); continue; }
     if (/^while an opponent is searching their library, they exile each card they find/.test(line)) { fx.searchHate = true; pending = null; continue; }
@@ -1804,7 +2162,7 @@ export function analyzeCard(card) {
     if (/^all creatures have haste/.test(line)) { fx.hasteAll = true; continue; }
     if ((m = line.match(/^choose (three|two|four)\. you may choose the same mode more than once\.?$/))) {
       const bullets = [];
-      while (lines[li + 1]?.startsWith('•')) bullets.push(parseEffects(lines[++li].slice(1)));
+      while (lines[li + 1]?.startsWith('•')) bullets.push(bulletEffects(lines[++li].slice(1)));
       const modal = { n: num(m[1]), modes: bullets.filter(b => b.length) };
       if (type.instant || type.sorcery) fx.modes = modal; else fx.etbModes = modal;
       continue;
@@ -1998,7 +2356,12 @@ export function analyzeCard(card) {
     if (/~ can't be blocked/.test(line)) fx.kw.add('unblockable');
     if (/^~ can't block/.test(line)) fx.kw.add('cantblock');
     if (/~ enters(?: the battlefield)? tapped/.test(line) && !/unless|you may pay|if you control/.test(line)) fx.entersTapped = true;
-    if ((m = line.match(/^~ enters(?: the battlefield)? with (x|\d+|a|an|one|two|three|four|five|six|seven) \+1\/\+1 counters? on it/))) fx.entersCounters = num(m[1]);
+    if ((m = line.match(/^~ enters(?: the battlefield)? with (x|\d+|a|an|one|two|three|four|five|six|seven) \+1\/\+1 counters? on it/))) {
+      fx.entersCounters = num(m[1]);
+      // (Phase 2D-3, used from rules 25) "…, where X is the greatest power among other creatures you control"
+      const wx = line.match(/, where x is ([^.]+)/);
+      if (m[1] === 'x' && wx) { const d = whereX(wx[1].trim()); if (d.dyn !== '?') fx.entersX25 = d; }
+    }
     if (/you may exile an instant card [^.]*from your hand/.test(line)) fx.imprint = true;
     if ((m = line.match(/^(?:when|whenever) ~ enters(?: the battlefield)?(?: or attacks)?(?: and whenever [^,]+)?,? (.*)/))) {
       fx.etb.push(...parseEffects(m[1]));
@@ -2092,7 +2455,13 @@ export function analyzeCard(card) {
         const cols = /any (?:one )?color|any combination of colors/.test(cl) ? ['W', 'U', 'B', 'R', 'G'] : [...new Set((cl.match(/\{[wubrgc]\}/g) || []).map(x => x[1].toUpperCase()))];
         const cm = line.match(/activate only if you control (a|an|\w+ or more) ([a-z]+?)s?(?: or (?:a|an) ([a-z]+))?\.?$/);
         const need = cm && !(firstMana && landsNeed) ? { n: /or more/.test(cm[1]) ? num(cm[1].split(' ')[0]) : 1, any: [cm[2], cm[3]].filter(Boolean) } : null;
-        manaLines.push({ cols, need: need && need.any.every(w => MANA_COND.test(w)) ? need : cm && !(firstMana && landsNeed) ? { unread: true } : null });
+        // (Phase 2D-2, used from rules 25) the line's spending restriction ("Spend this mana only to cast a legendary
+        // spell"), and an activation condition the word list above doesn't know, read as a condition ("you control a
+        // Dragon", "you control a Plains or an Island")
+        const sp = line.match(/spend this mana only to (.+?)\.?$/);
+        const cw = line.match(/activate only if (.+?)\.?$/);
+        const cond25 = cw && !(firstMana && landsNeed) && !(need && need.any.every(w => MANA_COND.test(w))) ? parseCond(cw[1]) : null;
+        manaLines.push({ cols, need: need && need.any.every(w => MANA_COND.test(w)) ? need : cm && !(firstMana && landsNeed) ? { unread: true } : null, spend: sp ? spendWords(sp[1]) : null, cond25 });
       }
       // (a second mana ability, a pain land's damage or a spending restriction doesn't change what it makes)
       pending = null;
@@ -2154,6 +2523,9 @@ export function analyzeCard(card) {
   applyOnce();
   applyGate();
   applyBg();
+  // (Phase 2E-3, used from rules 26) Delay: "If the spell is countered this way, exile it with three time counters on it
+  // instead … it gains suspend" (a sentence of its own, so the counter effect's own words don't include it)
+  { const dm = t.match(/if the spell is countered this way, exile it with (two|three|four) time counters on it instead/); if (dm) for (const e of fx.spell) if (e.k === 'counter' && !e.dup) e.suspend26 = num(dm[1]); }
   // (colored: only colored mana hurts, as the painland also has a painless {C} line)
   if (fx.mana && painN) fx.mana.pain = { n: painN, colored: painless, ...(painLife ? { life: true } : {}) };
   // (rules 16) colors only a conditional mana line adds need its condition (a color an unconditional line adds doesn't)
@@ -2161,6 +2533,17 @@ export function analyzeCard(card) {
     const free = new Set(manaLines.filter(l => !l.need).flatMap(l => l.cols));
     const cond16 = manaLines.filter(l => l.need).map(l => ({ colors: l.cols.filter(c => !free.has(c)), need: l.need })).filter(x => x.colors.length);
     if (cond16.length) fx.mana.cond16 = cond16;
+  }
+  // (Phase 2D-2, used from rules 25) Colors only a restricted line adds may be spent only as that line allows (spend25);
+  // colors only a line with an activation condition adds need the condition (cond25). Colors an unrestricted,
+  // unconditional line adds are always free.
+  if (fx.mana && manaLines.some(l => l.spend || l.cond25)) {
+    const free = new Set(manaLines.filter(l => !l.spend && !l.need && !l.cond25).flatMap(l => l.cols));
+    // (Cavern of Souls keeps its own reading, cavern: rules 13 and 16)
+    const spend25 = manaLines.filter(l => l.spend && !(fx.mana?.cavern && l.spend.chosen && l.spend.uncounter)).map(l => ({ colors: l.cols.filter(c => !free.has(c)), only: l.spend })).filter(x => x.colors.length);
+    const cond25 = manaLines.filter(l => l.cond25).map(l => ({ colors: l.cols.filter(c => !free.has(c)), cond: l.cond25 })).filter(x => x.colors.length);
+    if (spend25.length) fx.mana.spend25 = spend25;
+    if (cond25.length) fx.mana.cond25 = cond25;
   }
   // (item 211, used from rules 17) Chrome Mox: mana only of the imprinted card's colors (mana.js units)
   if (fx.mana && fx.imprint && /add one mana of any of the exiled card's colors/.test(t)) fx.mana.imprintColors = true;
@@ -2391,6 +2774,14 @@ const list = es => es.filter(e => !e.dup).map(e => (EFFECT_TEXT[e.k] || (() => e
 
 // How much of a card the simulator understands. Lands count if they make mana; a creature whose
 // text is only keywords counts too. Returns null for fully understood cards, else what's missing.
+// (Phase 2E-2) A card that isn't legendary but whose short name is replaced in its own text: it gets a second reading
+// for rules 26 and later (scryfall.js normalize: card.v26; Game.mk)
+/** @param {any} card */
+export function shortNameMisread(card) {
+  if (!card.text || /\blegendary\b/i.test(card.typeLine || '')) return false;
+  const name = card.frontName || card.name;
+  return cleanText(card.text, name) !== cleanText(card.text, name, true);
+}
 export function ignoredText(card) {
   const fx = card.fx;
   const text = cleanText(card.text, card.frontName || card.name);
@@ -2656,6 +3047,9 @@ const FLAG_TEXT = {
   abilityLock: v => `activated abilities of ${v.opp ? "opponents' " : ''}${v.what} can't be activated`, attachBuff2: v => `attached ${v.needs} creature: +${v.p}/+${v.t} ${v.kw.join(', ')}`.trim(),
   teamRiot: () => 'your nontoken creatures have riot', permAnthem: v => `${v.other ? 'other ' : ''}permanents you control have ${v.kw.join(', ')}`, smallEvasion: v => `your creatures with power ${v.n} or less can't be blocked`,
   counterEvasion: () => "your creatures with +1/+1 counters can't be blocked", noAttack: () => "your creatures can't attack", bullyEvasion: () => "smaller creatures can't block yours",
+  attackSelfCap26: v => `no more than ${v} creature${v > 1 ? 's' : ''} can attack it each combat`, noAttackNamed26: v => `creatures named ${v} can't attack you`,
+  attackOnce25: () => "can't attack the same player twice in a turn", noLoyalty25: () => "no player may activate loyalty abilities", counterBonus25: () => '+1/+1 counters on your other creatures: one more',
+  gyLands: () => 'play lands from your graveyard', flash25: () => 'some spells as though they had flash', free25: () => 'some spells without paying their mana costs', entersX25: () => '(X counted as it enters)',
   landsUntapped: () => 'your lands enter untapped', extraLandsAll: () => 'each player may play an extra land', noUntap: () => "doesn't untap in your untap step", teamCounter: () => 'your other creatures enter with an extra +1/+1 counter',
   attackCap: () => 'only one creature can attack each combat', needsBlessing: () => "can't attack or block without the city's blessing",
   protectAttackers: () => 'damage to your attacking creatures is prevented', attachSet: v => `enchanted creature becomes a ${v.p}/${v.t} with no abilities`, stationN: v => `a creature at ${v}+ charge counters`,
@@ -2729,3 +3123,35 @@ Object.assign(EFFECT_TEXT, {
 
 });
 
+
+// (Phase 2D-2) What restricted mana may be spent on: "cast a legendary spell", "cast a creature spell of the chosen
+// type or activate an ability of a creature source of the chosen type", "cast artifact spells or activate abilities of
+// artifacts", "cast instant and sorcery spells", "cast a Dragon spell or an Omen spell". Each alternative is a list of
+// words a spell (or the source of an ability) must all have; null when nothing of that kind may be paid. A
+// restriction the words below don't cover is { unread: true } (that mana is never spent: never stronger than printed).
+/** @param {string} s */
+export function spendWords(s) {
+  s = s.replace(/, and that spell can't be countered$/, ' UNCOUNTERABLE');
+  const uncounter = / UNCOUNTERABLE$/.test(s);
+  s = s.replace(/ UNCOUNTERABLE$/, '');
+  const chosen = /of the chosen type/.test(s);
+  s = s.replace(/ of the chosen type/g, '');
+  const m = s.match(/^cast (.+?)(?: or activate (?:an ability|abilities) of (.+))?$/);
+  if (!m) return { unread: true };
+  const alts = (/** @type {string} */ x) => x.split(/ and\/or | or |, | and /).map(a => a.replace(/^(?:a|an) /, '').replace(/ (?:spells?|sources?)$/, '').trim().split(' ').filter(w => w && w !== 'spell' && w !== 'spells')).filter(a => a.length);
+  const spells = /^spells$/.test(m[1]) ? [[]] : alts(m[1]);
+  const abilities = m[2] ? alts(m[2].replace(/^(?:a|an) /, '').replace(/ sources?$/, '')) : null;
+  const known = (/** @type {string[][]} */ list) => list.every(a => a.every(w => /^[a-z-]+$/.test(w)) && a.length <= 3);
+  if (!known(spells) || (abilities && !known(abilities))) return { unread: true };
+  return { spells, abilities, ...(chosen ? { chosen: true } : {}), ...(uncounter ? { uncounter: true } : {}) };
+}
+// (Phase 2D-2) "you may cast a creature spell / target Zombie creature card from your graveyard this turn": the card
+// types and other words (subtypes) of the permission, whether it names one target card, and how many spells it allows
+/** @param {string} s */
+function gyWords25(s) {
+  const m = s.match(/you may cast (a|target) ([\w ]*?) ?(?:spell|card) from/);
+  if (!m) return {};
+  const words = m[2].split(' ').filter(Boolean);
+  const types25 = words.filter(w => ['artifact', 'creature', 'enchantment', 'instant', 'sorcery', 'planeswalker', 'battle', 'land'].includes(w));
+  return { one25: m[1] === 'target', n25: 1, types25, subs25: words.filter(w => !types25.includes(w)) };
+}

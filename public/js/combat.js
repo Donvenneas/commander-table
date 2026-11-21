@@ -14,6 +14,11 @@ export async function combat(g, p) {
   // Kingdoms: the Knight in Shining Armor made this player skip their next combat
   if (p.skipCombat) { p.skipCombat = false; g.log(`${g.pn(p)} skips this combat`, { kind: 'minor', rule: 'Kingdoms' }); return; }
   let decl = (await p.agent.declareAttackers(g, p)).filter(d => g.canAttack(d.o) && d.target !== p.idx && !g.players[d.target].lost && (!g.kingdoms || !K.teammates(p, g.players[d.target])) && !(g.teams && g.players[d.target].team === p.team));
+  // (Phase 2D-7, rules 25) Port Razer, Bloodthirster: "can't attack a player it has already attacked this turn"
+  if (g.rules >= 25) {
+    decl = decl.filter(d => !(d.o.fx.attackOnce25 && d.o.attackedPlayers25?.turn === g.turn && d.o.attackedPlayers25.list.includes(d.target)));
+    for (const d of decl) if (d.o.fx.attackOnce25) { if (d.o.attackedPlayers25?.turn !== g.turn) d.o.attackedPlayers25 = { turn: g.turn, list: [] }; d.o.attackedPlayers25.list.push(d.target); }
+  }
   // (an attack on a battle or planeswalker is an attack on its protector or controller: d.obj is the permanent)
   for (const d of decl) if (d.obj && !g.attackable(p, d.obj)) d.obj = null;
   if (g.rules >= 5 && p.agent.battleAttacks) p.agent.battleAttacks(g, p, decl);
@@ -61,6 +66,16 @@ export async function combat(g, p) {
     const at = decl.filter(d => d.target === q.idx).sort((a, b) => g.power(b.o) - g.power(a.o)).slice(0, Math.min(...cap));
     decl = decl.filter(d => d.target !== q.idx || at.includes(d));
   }
+  // (Phase 2E-7, rules 26) "No more than one creature can attack ~ each combat" (The Eternal Wanderer: the strongest
+  // attacker stays on it, the rest are not declared); "Creatures named Lightning Rager can't attack you or planeswalkers
+  // you control" (Rite of the Raging Storm)
+  if (g.rules >= 26) {
+    for (const s of g.alive().flatMap(q => q.battlefield.filter(o => o.fx.attackSelfCap26))) {
+      const at = decl.filter(d => d.obj === s).sort((a, b) => g.power(b.o) - g.power(a.o)).slice(0, s.fx.attackSelfCap26);
+      decl = decl.filter(d => d.obj !== s || at.includes(d));
+    }
+    decl = decl.filter(d => !g.players[d.target]?.battlefield.some(s => s.fx.noAttackNamed26 && d.o.card.name.toLowerCase() === s.fx.noAttackNamed26));
+  }
   if (!decl.length) { await g.beat(0.3); return; }
   for (const d of decl) {
     Object.assign(d.o, { attacking: d.target, attackingObj: d.obj || null, blockedBy: [], blocked: false });
@@ -73,6 +88,9 @@ export async function combat(g, p) {
   for (const d of decl) if (d.obj) g.log(`${g.cn(d.o)} attacks ${g.cn(d.obj)}`, { kind: 'combat', rule: '506.3' });
   await g.beat(1.4);
   p.attackedTurn = g.turn;
+  // (Phase 2D-8: how many creatures attacked this turn, for Windbrisk Heights)
+  if (p.attackCount25?.turn !== g.turn) p.attackCount25 = { turn: g.turn, n: 0 };
+  p.attackCount25.n += decl.length;
   g.attackKeywords(p, decl);
   if (g.rules >= 5) await g.enlist(p, decl);
   for (const d of decl) {
@@ -142,6 +160,8 @@ export async function combat(g, p) {
   if (fsStep) { await g.combatDamage(p, true, true); await g.sba(); if (g.over) return; }
   await g.combatDamage(p, false, fsStep);
   await g.sba();
+  // (Phase 2E-4, rules 26) "At end of combat, exile this token" (Delina, Wild Mage's copies)
+  if (g.rules >= 26) for (const o of (g.endCombat26 || []).splice(0)) if (o.zone === 'battlefield') { g.log(`${g.cn(o)} is exiled at end of combat`, { kind: 'minor' }); g.move(o, 'exile'); }
   // Decayed (702.147): sacrificed at end of combat after it attacked
   for (const o of attackers()) if (g.has(o, 'decayed')) g.sacrifice(p, o, ' (decayed)');
   for (const q of g.players) for (const o of q.battlefield) Object.assign(o, { attacking: null, blocking: null, blockedBy: [], blocked: false });

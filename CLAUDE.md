@@ -39,6 +39,10 @@ Card coverage: `node tests/coverage.mjs --report tests/card-coverage.md` sorts t
 
 Golden games: `node tests/golden.mjs` (CI runs it too) plays 18 AI games under rules 4, 5 and 6 and compares results and log hashes with `tests/golden-games.json`. A rules 4 or 5 difference breaks old replays (1.19.0 and earlier): gate new behaviour behind `this.rules >= 6` (or a new RULES version). Accept a deliberate change with `--update`.
 
+Reusable mechanics: `node tests/mechanics.mjs [name filter]` (CI runs it too) checks the Phase 2D mechanics at rules 25 (audit/phase-2d): conditions on results, last-known information, costs and casting, intervening-if, target words, spend restrictions, permissions, X values, optional costs, granted triggers, replacements and keywords, each with its rules 24 check.
+
+Repairs: `node tests/repairs.mjs [name filter]` (CI runs it too) checks the Phase 2E repairs at rules 26 (audit/phase-2e): "activate only once each turn", exchanges of control, punisher choices, search words, mana of any type, counterspell riders, copies of a chosen target, token abilities in quotes, granted dies triggers, end of combat, attack limits, each with its rules 25 check. `tests/known-defects.json` lists verified defects the coverage checks can't see (coverage.mjs keeps those cards "incorrect").
+
 Card and interaction tests: `node tests/interactions.mjs [name filter]` (CI runs it too) builds small boards from card names (`tests/scenario.mjs`) and checks one card or interaction each. Every card fix gets a test here. Card data the snapshots lack goes in `tests/interaction-cards.json` via `node tests/fetch-interaction-cards.mjs "Card Name"`.
 
 Fuzz games: `node tests/fuzz.mjs` (CI runs it too; `--games 60 --seed 7000` for more) plays random decks with one seat answering every prompt at random, under the rules watcher.

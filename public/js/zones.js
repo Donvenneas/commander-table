@@ -67,6 +67,16 @@ export function move(g, o, to, opts = {}) {
   if (from === 'battlefield' && (to === 'graveyard' || to === 'exile') && o.fx.godEternal && !o.token && !o.isCommander) { to = 'library'; opts = { ...opts, third: true }; g.log(`${g.cn(o)} is put into its owner's library third from the top`, { kind: 'minor' }); }
   }
   const died = from === 'battlefield' && to === 'graveyard' && o.fx.type.creature;
+  // (Phase 2D-1) The object as it last existed on the battlefield (608.2h, 603.10a): counters, power and toughness,
+  // types and keywords, kept on the card for "if it had counters on it", "its toughness was less than 1"; and every
+  // zone change made while a spell or ability resolves or its costs are paid (g.trail) for "if … this way"
+  if (from !== to && (g.trail || from === 'battlefield')) {
+    const lki = from === 'battlefield'
+      ? { counters: o.counters, named: { ...(o.named || {}) }, minus: !!o.hadMinus, power: g.power(o), toughness: g.toughness(o), types: { ...o.fx.type }, subtypes: [...o.fx.subtypes], kws: ['decayed', 'flying', 'deathtouch', 'lifelink', 'trample', 'haste'].filter(k => g.has(o, k)), controller: o.controller, token: !!o.token }
+      : { types: { ...o.fx.type }, subtypes: [...o.fx.subtypes], power: o.fx.type.creature ? g.power(o) : 0, toughness: o.fx.type.creature ? g.toughness(o) : 0 };
+    if (from === 'battlefield') o.lki = lki;
+    if (g.trail) g.trail.push({ o, from, to, ctl: from === 'battlefield' ? o.controller : o.owner, lki });
+  }
   // (item 206: "if you cast it" is about this stay on the stack and the battlefield only)
   if (to !== 'battlefield' && to !== 'stack') o.wasCast = false;
   // (the table animates draws, discards, deaths and exiles; it reads the card's spot before it moves)
@@ -85,6 +95,8 @@ export function move(g, o, to, opts = {}) {
     snap = { counters: o.counters, minus: !!o.hadMinus, controller: o.controller, blitzed: !!o.blitzed, granted };
     ctl.leftTurn = g.turn;
     for (const w of [...(o.fx.watch || []), ...(g.rules >= 7 ? o.fx.watch7 || [] : [])]) if (w.ev === 'ltb' || (w.ev === 'selfGy' && to === 'graveyard')) g.queue.push({ o, effects: w.effects, label: w.ev === 'ltb' ? 'leaves the battlefield' : 'put into a graveyard', p: ctl });
+    // (Phase 2E-4, rules 26) a "when this dies" trigger it gained this turn (Not Dead After All)
+    if (died && g.rules >= 26 && o.tempDies26?.turn === g.turn) { g.queue.push({ o, effects: [{ k: 'returnSelf', counters: o.tempDies26.counters || 0, tapped26: o.tempDies26.tapped }], label: 'dies (gained this turn)', p: ctl }); o.tempDies26 = null; }
     if (died) for (const a of g.attachments(o)) for (const w of a.fx.watch || []) if (w.ev === 'attachedDies') g.queue.push({ o: a, effects: w.effects, label: `${o.card.name} died`, p: g.players[a.controller], trig: { o, p: o.controller } });
     g.fire('leaveBf', { o, p: o.controller, ctl: o.controller, to });
     o.lastCounters = o.counters;
@@ -180,6 +192,8 @@ export function move(g, o, to, opts = {}) {
   }
   else if (to === 'library' && opts.bottom) p.library.unshift(o);
   else if (to === 'library' && opts.third) p.library.splice(Math.max(0, p.library.length - 2), 0, o);
+  // (Phase 2D-1: "Nth from the top"; with fewer cards it goes to the bottom, 401.7)
+  else if (to === 'library' && opts.fromTop) p.library.splice(Math.max(0, p.library.length - (opts.fromTop - 1)), 0, o);
   else p[to].push(o);
   if (to === 'library' && opts.shuffle) shuffle(p.library, g.rand);
   if (to === 'battlefield' && o.fx.type.land) {
@@ -359,6 +373,19 @@ function draw14(g, p, n, quiet) {
     }
     if (count > 1) { for (let k = 0; k < count; k++) queue.unshift({ applied: new Set(ev.applied) }); continue; }
     if (capped && p.drawsThisTurn?.turn === g.turn && p.drawsThisTurn.n >= 1) { g.log(`${g.pn(p)} can't draw more than one card this turn (Narset)`, { kind: 'minor' }); break; }
+    // (Phase 2D-8, rules 25) Abundance: the kind the hand lacks (a land when it has none and fewer than eight lands are
+    // out; a person gets nonland, as the choice isn't asked yet)
+    if (ev.instead === 'abundance') {
+      const lands = p.hand.filter(c => c.fx.type.land).length + p.battlefield.filter(c => c.fx.type.land).length;
+      const kind = !p.agent.human && p.hand.filter(c => c.fx.type.land).length === 0 && lands < 8;
+      const revealed = [];
+      let got = null;
+      while (p.library.length) { const c = p.library.pop(); if (!!c.fx.type.land === kind) { got = c; break; } revealed.push(c); }
+      if (got) { got.zone = 'library'; p.library.push(got); g.move(got, 'hand'); }
+      p.library.unshift(...revealed.reverse());
+      g.log(`${g.pn(p)} reveals cards until a ${kind ? 'land' : 'nonland'} card instead of drawing (Abundance)${got ? `: ${g.cn(got)}` : ''}; ${revealed.length} to the bottom`, { kind: 'minor' });
+      continue;
+    }
     if (ev.instead === 'lich' && p.library.length > 3) for (let k = 0; k < 2; k++) g.move(p.library[p.library.length - 2], 'graveyard');
     if (!drawCardNow(g, p, i++)) break;
     drawn++;
@@ -492,9 +519,11 @@ export function createToken(g, p, e, src) {
   if (p.battlefield.some(s => s.fx.tokenAngel)) e = { ...e, p: 4, t: 4, desc: 'white angel', kw: ['flying'] };
   const kw = e.kw || [];
   const sub = (e.desc || '').split(' ').filter(w => w && !['white', 'blue', 'black', 'red', 'green', 'colorless', 'and', 'legendary', 'artifact', 'enchantment'].includes(w));
-  const name = sub.map(w => w[0].toUpperCase() + w.slice(1)).join(' ') || 'Token';
+  const subName = sub.map(w => w[0].toUpperCase() + w.slice(1)).join(' ') || 'Token';
+  // (Phase 2D-4, rules 25: a token "named Lightning Rager" has that name; its creature types stay those in its words)
+  const name = g.rules >= 25 && e.name25 ? e.name25.split(' ').map((/** @type {string} */ w) => w[0].toUpperCase() + w.slice(1)).join(' ') : subName;
   const card = {
-    name, frontName: name, typeLine: `Token Creature — ${name}`, manaCost: '', cmc: 0, text: '',
+    name, frontName: name, typeLine: `Token Creature — ${subName}`, manaCost: '', cmc: 0, text: g.rules >= 26 && e.text26 ? e.text26 : '',
     power: String(e.p), toughness: String(e.t), keywords: kw.map(k => k[0].toUpperCase() + k.slice(1)), produced: [],
     art: src.card.art, colorIdentity: [], colors: [], isToken: true, fullText: kw.join(', '),
   };

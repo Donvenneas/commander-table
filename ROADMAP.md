@@ -878,6 +878,41 @@ on top of the ones above:
     check), 24 targeted AI games with every changed card under the rules watcher (0 errors, 0 broken rules).
     Not done: amounts divided among several targets (Shatterskull Smashing, Court of Garenbrig), "up to X", converge ("colors of mana spent"), "this way" conditions
     that need the result of an earlier effect, set filter on the page (the snapshot has no set field).
+- [x] 390. Phase 2C audit and Phase 2D reusable mechanics (asked 2026-11-20: audit the 197 incorrectly simulated
+  cards, then implement the missing mechanics as reusable engine work, with tests and documentation).
+  - Done (rules 25, version 1.62.0; rules 4–24 golden games unchanged, including the 1.61.0 rules 24 games): audit in
+    audit/phase-2c (197 cards: 133 confirmed defects, 57 incomplete, 1 suspected, 6 false positives); mechanics in
+    audit/phase-2d: unread conditions never met (Not of This World, The Indomitable), "this way" conditions from the
+    zone changes an ability made, last-known information, costs paid and cast history (Approach of the Second Sun can
+    win again), "then if" conditions (Jace, Wielder of Mysteries no longer wins unconditionally), intervening-if checked
+    as abilities trigger (603.4), target words on graveyard and stack targets and counted mana value limits (Persist,
+    Drown in the Loch), spend restrictions and activation conditions on mana lines (Delighted Halfling, Mox Jasper),
+    mana kept all turn (Birgi), the "play from the top of your library" misreading fixed (Crucible of Worlds plays
+    lands from the graveyard; Omniscience, Yeva), graveyard-casting limits (Chainer), converge and more X values,
+    optional non-mana costs ("you may sacrifice …; when you do": Grist, Springbloom Druid), tokens for "that player"
+    (Rite of the Raging Storm), granted triggers (Hunter's Insight), play permissions from dig, mill and discard
+    (Expressive Iteration, Mnemonic Betrayal), Benevolent Hydra, Mox Diamond as a replacement, Giver of Runes'
+    protection, The Immortal Sun, Port Razer, hideaway, mana escalate, Twinning Staff, Abundance; and a fix for casting
+    from another player's exile. Coverage: full 2,743 → 2,809, incorrect + restriction 197 → 125. Tests: new
+    tests/mechanics.mjs (75, CI), golden 132/0 differ, fuzz 72 games 0 errors, self-test 19/19, interface 17/17.
+    Not done (audit/phase-2d/PHASE_2D_REMAINING_GAPS.md): multiple and divided targets, a per-ability mana model,
+    moving counters, end-of-combat delayed triggers (Delina), Gilded Drake's exchange, opponents' choices for punishers,
+    type-changing statics, strive, non-mana escalate.
+- [x] 391. Phase 2E: repairs of the Phase 2C defects (asked 2026-11-20: repair every verified incorrect simulation,
+  shared mechanics first, with regression tests and documentation).
+  - Done (rules 26, version 1.63.0; rules 4–25 golden games unchanged): "activate only once each turn" enforced
+    (Beledros Witherbloom, Quirion Ranger, Wirewood Symbiote, Ramos, Chainer); Gilded Drake exchanges control and its
+    ability resolves with an illegal target; punishers let the targeted opponent choose (Combustible Gearhulk,
+    Palantír of Orthanc); Tataru Taru's opponent draws; Chandra's Ignition targets; searches keep their words (Natural
+    Order and Green Sun's Zenith find only green creatures, Maelstrom of the Spirit Dragon a Dragon: 26 tutors); mana
+    of any type (Mnemonic Betrayal); a second reading for non-legendary cards whose first word was taken for their
+    name (Artifact Mutation destroys, Spell Swindle counters); Delay suspends, Render Silent silences; copies of a chosen
+    target (Court of Vantress, Yenna); mode text read in full (Charming Scoundrel); token abilities in quotes belong to
+    the token (Eldrazi Spawn makers no longer add mana themselves); Delina's attacking copies exiled at end of combat;
+    granted dies triggers (Not Dead After All, Undying Malice, Feign Death); Terastodon; The Eternal Wanderer's attack
+    limit; Lightning Ragers can't attack the Rite player. Coverage now judges the current rules' reading and keeps
+    verified defects as incorrect (tests/known-defects.json). Tests: new tests/repairs.mjs (37, CI). Report set in
+    audit/phase-2e. Not done: see audit/phase-2e/PHASE_2E_REMAINING_DEFECTS.md.
 - [x] 385. Quality, rules validation, security and release readiness (asked 2026-11-17, Phase 2O): a baseline audit
   (tests/phase-2o-audit.md), the defects it found fixed, event-sequence rules tests, saved-data tests, fuzz failure
   capture, measurements and other browsers.

@@ -45,6 +45,10 @@ jobs:
         run: node tests/hidden.mjs
       - name: Card and interaction tests (one board per rule, fix or combo)
         run: node tests/interactions.mjs
+      - name: Reusable mechanics from the Phase 2C audit (rules 25: conditions, targets, permissions, mana, X, costs, keywords)
+        run: node tests/mechanics.mjs
+      - name: Phase 2E repairs of the Phase 2C defects (rules 26: targets, punishers, searches, copies, granted triggers, combat limits)
+        run: node tests/repairs.mjs
       - name: Replay exactness (saved card data and combos, isolation, old replay files)
         run: node tests/replay.mjs
       - name: Loops of triggers (endless loops, loops that end, optional loops, priority, responsiveness)
