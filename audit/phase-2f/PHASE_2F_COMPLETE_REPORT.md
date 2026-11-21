@@ -70,4 +70,4 @@ The 421 are the cards the 1.61.0 coverage report (`audit/phase-2d/tools/coverage
 
 - Phase 2F's objective (every verified partial card completed) **is not met**: 358 of the 421 remain partially simulated, 6 are known-incorrect, and 2 need an interaction test.
 - Cards that are now "fully simulated" are verified for the behaviour their tests exercise. Interactions with other cards (for example, them27 together with replacement effects such as Rest in Peace on a sacrificed token) were not tested exhaustively; that is Phase 2G's scope.
-- The browser self-test (selftest.html) and the interface test (uitest.html) were **not run** in this session (`PHASE_2F_TEST_RESULTS.md`).
+- The browser self-test (19/19) and the interface test (17 passed, 0 failed) were run after the commit (`PHASE_2F_TEST_RESULTS.md`).

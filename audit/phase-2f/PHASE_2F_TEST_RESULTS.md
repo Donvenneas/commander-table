@@ -54,9 +54,13 @@ These cover what the brief asks for:
 | AI-controlled | Distant Melody / Kindred Dominance (AI's type), Rite of Replication cast with kicker, Valley Floodcaller (AI value), Legion Warboss in real combat |
 | Regression / rules 26 | Sokenzan, Shore Up, Sneak Attack, Otawara, Boseiju, Memory Lapse, Enduring, Thriving Isle, Urza's Tower, Kindred Dominance at rules 26 |
 
+## Browser checks (run after the commit, `Commander Table.exe --no-window`, built-in browser pane)
+
+- `selftest.html?run`: **All 19 checks passed**. 50 games at full speed: 0 simulator errors, 50/50 with a winner. Rules check: no rule broken. AI look-ahead: 6/6 replayed exactly, 2/2 untouched, 0 errors. Determinism: 6/6 identical. Kingdoms: 10/10 ended on a role win, 0 errors. All outside services were reachable.
+- `uitest.html?run`: **17 passed, 0 failed, 1 not run** (Online seats, not run by design).
+
 ## Not run, and limitations
 
-- **The browser self-test (`selftest.html?run`) and the interface test (`uitest.html?run`) were not run.** The `.exe` server wasn't started in this session. Before release, run the `test-commander-table` skill. The changes don't touch the UI files, apart from `human.js`, which gained one prompt (`chooseTypeAsync`), tested through the stand-in UI.
 - `tests/browsers.mjs` and `tests/servers.mjs` were not run (they need a running server; no endpoint changed).
 - Fuzz and golden play AI decks. A board with these specific cards appears only in `tests/completions.mjs`.
 - The person prompts are tested through `HumanAgent` with a scripted `ui.ask`, not through the real page.
